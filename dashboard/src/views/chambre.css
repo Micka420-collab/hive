@@ -1,5 +1,8 @@
 /* Chambre — fidèle à la maquette produit (miel / crème, poste ouvrière ADR 0010).
-   Pas de thème sombre Delos. Absences = silence. */
+   Absences = silence. Sa palette n'a plus de couleur à elle : chaque `--ch-…`
+   désigne un jeton global, pour que la Chambre suive le thème (clair : la crème
+   de la maquette ; sombre : les surfaces profondes) au lieu de rester une
+   feuille de papier posée sur un écran noir. */
 
 /* La palette de la Chambre, posée sur CHAQUE racine de ses surfaces — la vue,
    et ses deux dialogues. Ceux-ci passent par `Voile`, qui les monte à la racine
@@ -10,15 +13,17 @@
 .ch-view,
 .ch-grant-dialog,
 .ch-dialog {
-  --ch-creme: #fdf8f0;
-  --ch-papier: #fffdf8;
-  --ch-miel: #f2b441;
-  --ch-miel-fonce: #d49a1a;
-  --ch-encre: #1a1a1a;
-  --ch-mute: color-mix(in srgb, var(--ch-encre) 55%, transparent);
-  --ch-ligne: color-mix(in srgb, var(--ch-miel) 28%, #e8dfd0);
+  --ch-creme: var(--panel-2);
+  --ch-papier: var(--panel);
+  --ch-miel: var(--miel);
+  --ch-miel-fonce: var(--miel-2);
+  --ch-encre: var(--text);
+  /* `--muted`, pas l'encre à 55 % : un gris obtenu par transparence ne se
+     juge pas (il dépend de ce qui est dessous) et tombait sous 4,5:1. */
+  --ch-mute: var(--muted);
+  --ch-ligne: color-mix(in srgb, var(--ch-miel) 28%, var(--border));
   --ch-ombre: 0 10px 28px color-mix(in srgb, var(--ch-encre) 6%, transparent);
-  --ch-rayon: 12px;
+  --ch-rayon: var(--r-lg);
 }
 
 .ch-view {
@@ -36,7 +41,7 @@
     ),
     radial-gradient(
       700px 360px at 92% 0%,
-      color-mix(in srgb, #c4a574 12%, transparent),
+      color-mix(in srgb, var(--honey) 12%, transparent),
       transparent 50%
     ),
     var(--ch-creme);
@@ -61,7 +66,7 @@
 .ch-brand-hive {
   margin: 0;
   font-family: var(--titre);
-  font-size: 1.55rem;
+  font-size: var(--fs-3xl);
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.1;
@@ -69,7 +74,7 @@
 
 .ch-brand-sub {
   margin: 0;
-  font-size: 0.68rem;
+  font-size: var(--fs-2xs);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ch-mute);
@@ -77,7 +82,7 @@
 
 .ch-brand-back {
   border-radius: 999px !important;
-  font-size: 0.8rem !important;
+  font-size: var(--fs-sm) !important;
 }
 
 .ch-brand-aside {
@@ -89,17 +94,17 @@
 
 .ch-lien-rayon {
   border-radius: 999px !important;
-  font-size: 0.78rem !important;
+  font-size: var(--fs-xs) !important;
 }
 
 .ch-live {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #2f6b3a;
+  color: var(--green);
 }
 
 .ch-live::before {
@@ -107,18 +112,18 @@
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #2f6b3a;
-  box-shadow: 0 0 0 3px color-mix(in srgb, #2f6b3a 22%, transparent);
+  background: var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent);
   animation: ch-live-pulse 2.4s ease-in-out infinite;
 }
 
 @keyframes ch-live-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 3px color-mix(in srgb, #2f6b3a 22%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent);
   }
   50% {
-    box-shadow: 0 0 0 5px color-mix(in srgb, #2f6b3a 8%, transparent);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--green) 8%, transparent);
   }
 }
 
@@ -179,12 +184,12 @@
 
 .ch-hitl-titre {
   font-family: var(--titre);
-  font-size: 1.05rem;
+  font-size: var(--fs-lg);
   font-weight: 700;
 }
 
 .ch-hitl-sous {
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   color: var(--ch-mute);
 }
 
@@ -204,7 +209,7 @@
   justify-content: space-between;
   gap: 10px;
   align-items: center;
-  font-size: 0.9rem;
+  font-size: var(--fs-md);
 }
 
 .ch-hitl-list em {
@@ -218,10 +223,12 @@
   gap: 8px;
 }
 
+/* Le texte sur le miel est l'ENCRE, dans les deux thèmes — pas `--ch-encre`,
+   qui suit `--text` et devient clair en sombre (1,37:1 sur le miel). */
 .ch-btn-accorder {
   background: var(--ch-miel) !important;
   border-color: var(--ch-miel-fonce) !important;
-  color: var(--ch-encre) !important;
+  color: var(--encre) !important;
   font-weight: 650 !important;
   border-radius: 999px !important;
   padding: 6px 14px !important;
@@ -268,7 +275,7 @@
 
 .ch-zone-head h3 {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--ch-mute);
@@ -381,7 +388,7 @@
 
 .ch-eyebrow {
   margin: 0 0 4px;
-  font-size: 0.68rem;
+  font-size: var(--fs-2xs);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--ch-mute);
@@ -389,7 +396,7 @@
 
 .ch-nom {
   margin: 0 0 6px;
-  font-size: clamp(1.55rem, 2.4vw, 2rem);
+  font-size: clamp(var(--fs-3xl), 2.4vw, var(--fs-4xl));
   font-family: var(--titre);
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -398,7 +405,7 @@
 
 .ch-sous-nom {
   margin: 0 0 14px;
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   color: var(--ch-mute);
 }
 
@@ -414,7 +421,7 @@
   background: transparent;
   border-radius: 10px;
   padding: 8px 12px;
-  font-size: 0.88rem;
+  font-size: var(--fs-md);
   text-align: left;
   cursor: pointer;
   color: var(--ch-encre);
@@ -422,7 +429,7 @@
 }
 
 .ch-onglets button.actif {
-  background: color-mix(in srgb, var(--ch-miel) 55%, white);
+  background: var(--miel-fond);
   font-weight: 600;
 }
 
@@ -449,8 +456,8 @@
 
 .ch-status-soft {
   margin: 0 0 8px;
-  font-size: 0.82rem;
-  color: color-mix(in srgb, #2f6b3a 70%, var(--ch-encre));
+  font-size: var(--fs-sm);
+  color: color-mix(in srgb, var(--green) 70%, var(--ch-encre));
 }
 
 .ch-fab-ligne {
@@ -462,7 +469,7 @@
 
 .ch-fab-pill {
   display: inline-block;
-  font-size: 0.68rem;
+  font-size: var(--fs-2xs);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: lowercase;
@@ -472,24 +479,24 @@
 }
 
 .ch-fab-proposee {
-  background: color-mix(in srgb, var(--ch-creme, #fdf8f0) 80%, white);
+  background: color-mix(in srgb, var(--ch-creme) 80%, var(--panel));
   color: var(--ch-mute);
 }
 
 .ch-fab-revue {
-  background: color-mix(in srgb, var(--ch-miel) 45%, white);
+  background: var(--miel-fond);
   color: var(--ch-encre);
 }
 
 .ch-fab-mergee {
-  background: color-mix(in srgb, #2f6b3a 18%, white);
-  color: #2f6b3a;
-  border-color: color-mix(in srgb, #2f6b3a 30%, transparent);
+  background: color-mix(in srgb, var(--green) 18%, var(--panel));
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 30%, transparent);
 }
 
 .ch-fab-refusee {
-  background: color-mix(in srgb, #a33 12%, white);
-  color: #8a3030;
+  background: color-mix(in srgb, var(--red) 12%, var(--panel));
+  color: var(--red);
 }
 
 .ch-fab-inconnu {
@@ -511,12 +518,12 @@
   grid-template-columns: 7.5em 1fr;
   gap: 8px;
   align-items: baseline;
-  font-size: 0.88rem;
+  font-size: var(--fs-md);
   line-height: 1.35;
 }
 
 .ch-meta-k {
-  font-size: 0.68rem;
+  font-size: var(--fs-2xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ch-mute);
@@ -541,8 +548,8 @@
 }
 
 .ch-statut-dot.ch-statut-on::before {
-  background: #2f6b3a;
-  box-shadow: 0 0 0 3px color-mix(in srgb, #2f6b3a 18%, transparent);
+  background: var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 18%, transparent);
 }
 
 .ch-bapteme-form {
@@ -556,7 +563,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   flex: 1;
   min-width: 160px;
 }
@@ -575,7 +582,7 @@
   margin-top: 6px;
 }
 .ch-metier-btn {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   padding: 4px 10px;
 }
 
@@ -588,7 +595,7 @@
 .ch-fabrique h4,
 .ch-horizon h4 {
   margin: 0 0 8px;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--ch-mute);
@@ -601,7 +608,7 @@
   list-style: none;
   margin: 0;
   padding: 0;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
 }
 
 .ch-presences li,
@@ -615,14 +622,14 @@
   display: inline-block;
   min-width: 3.2em;
   font-family: var(--mono);
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   font-weight: 600;
   color: color-mix(in srgb, var(--ch-miel-fonce) 50%, var(--ch-encre));
 }
 
 .ch-silence,
 .ch-note {
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   color: var(--ch-mute);
 }
 
@@ -641,7 +648,7 @@
 
 .ch-horizon-label {
   margin: 12px 0 4px;
-  font-size: 0.68rem;
+  font-size: var(--fs-2xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--ch-mute);
@@ -662,7 +669,7 @@
 .ch-horizon-form select,
 .ch-horizon-form input {
   font: inherit;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
   padding: 7px 10px;
   border-radius: 10px;
   border: 1px solid var(--ch-ligne);
@@ -714,29 +721,29 @@
   min-height: 1.55em;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 0.65rem;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   letter-spacing: 0.06em;
-  background: color-mix(in srgb, var(--ch-miel) 55%, white);
+  background: var(--miel-fond);
   color: var(--ch-encre);
   font-family: var(--mono);
 }
 
 .ch-badge-read {
-  background: color-mix(in srgb, #6b8f71 32%, white);
+  background: color-mix(in srgb, var(--green) 32%, var(--panel));
 }
 
 .ch-badge-edit {
-  background: color-mix(in srgb, #c47a2c 42%, white);
+  background: color-mix(in srgb, var(--orange) 42%, var(--panel));
 }
 
 .ch-badge-write {
-  background: color-mix(in srgb, #c47a2c 38%, white);
+  background: color-mix(in srgb, var(--orange) 38%, var(--panel));
 }
 
 .ch-badge-fail,
 .ch-badge-échec {
-  background: color-mix(in srgb, #b33 28%, white);
+  background: color-mix(in srgb, var(--red) 28%, var(--panel));
 }
 
 .ch-log-body {
@@ -747,7 +754,7 @@
 }
 
 .ch-log-resume {
-  font-size: 0.92rem;
+  font-size: var(--fs-md);
   font-weight: 550;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -763,27 +770,27 @@ button.ch-lien-chemin {
   color: inherit;
   cursor: pointer;
   font: inherit;
-  font-size: 0.92rem;
+  font-size: var(--fs-md);
   font-weight: 550;
   text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--ch-miel, #f2b441) 55%, transparent);
+  text-decoration-color: color-mix(in srgb, var(--ch-miel) 55%, transparent);
   text-underline-offset: 2px;
 }
 
 button.ch-lien-chemin:hover,
 button.ch-lien-chemin:focus-visible {
-  color: var(--ch-encre, #1a1a1a);
-  text-decoration-color: var(--ch-miel, #f2b441);
+  color: var(--ch-encre);
+  text-decoration-color: var(--ch-miel);
 }
 
 .ch-log-detail {
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   color: var(--ch-mute);
   font-family: var(--mono);
 }
 
 .ch-log-time {
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   color: var(--ch-mute);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -803,7 +810,7 @@ button.ch-lien-chemin:focus-visible {
   background: transparent;
   border-radius: 999px;
   padding: 4px 11px;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   cursor: pointer;
   color: inherit;
   transition:
@@ -819,7 +826,7 @@ button.ch-lien-chemin:focus-visible {
 }
 
 .ch-filtres button.actif {
-  background: color-mix(in srgb, var(--ch-miel) 55%, white);
+  background: var(--miel-fond);
   border-color: var(--ch-miel);
   font-weight: 600;
 }
@@ -859,41 +866,41 @@ button.ch-lien-chemin:focus-visible {
 
 .ch-pill {
   flex: none;
-  font-size: 0.68rem;
+  font-size: var(--fs-2xs);
   font-weight: 650;
   letter-spacing: 0.03em;
   padding: 3px 9px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--ch-encre) 8%, white);
+  background: color-mix(in srgb, var(--ch-encre) 8%, var(--panel));
   color: var(--ch-encre);
 }
 
 .ch-pill-cours {
-  background: color-mix(in srgb, var(--ch-miel) 45%, white);
+  background: var(--miel-fond);
 }
 
 .ch-pill-pause {
-  background: color-mix(in srgb, var(--ch-encre) 8%, white);
+  background: color-mix(in srgb, var(--ch-encre) 8%, var(--panel));
   color: var(--ch-mute);
 }
 
 .ch-pill-done {
-  background: color-mix(in srgb, #6b8f71 28%, white);
+  background: color-mix(in srgb, var(--green) 28%, var(--panel));
 }
 
 .ch-pill-fail {
-  background: color-mix(in srgb, #b33 22%, white);
+  background: color-mix(in srgb, var(--red) 22%, var(--panel));
 }
 
 .ch-tache-time {
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   color: var(--ch-mute);
   flex: none;
 }
 
 .ch-echec-hint {
   flex: 1 1 100%;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   color: var(--ch-mute);
 }
 
@@ -913,12 +920,12 @@ button.ch-lien-chemin:focus-visible {
   gap: 8px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--ch-ligne);
-  background: color-mix(in srgb, var(--ch-creme) 70%, white);
+  background: color-mix(in srgb, var(--ch-creme) 70%, var(--panel));
 }
 
 .ch-ordi-top h3 {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--ch-mute);
@@ -943,7 +950,7 @@ button.ch-lien-chemin:focus-visible {
 
 .ch-ordi-off p {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: var(--fs-md);
   color: var(--ch-mute);
 }
 
@@ -953,7 +960,7 @@ button.ch-lien-chemin:focus-visible {
   min-height: 160px;
   border: none;
   border-radius: 8px;
-  background: #1a1814;
+  background: var(--encre);
 }
 
 .ch-ordi-foot {
@@ -963,22 +970,22 @@ button.ch-lien-chemin:focus-visible {
   flex-wrap: wrap;
   padding: 8px 14px 12px;
   border-top: 1px solid var(--ch-ligne);
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   color: var(--ch-mute);
   font-family: var(--mono);
 }
 
 .ch-err {
-  color: #b33;
+  color: var(--red);
 }
 
 .ch-err-soft {
   margin: 0;
   padding: 8px 12px;
-  font-size: 0.78rem;
+  font-size: var(--fs-xs);
   color: var(--ch-mute);
-  background: color-mix(in srgb, #b33 8%, var(--ch-papier));
-  border: 1px solid color-mix(in srgb, #b33 18%, var(--ch-ligne));
+  background: color-mix(in srgb, var(--red) 8%, var(--ch-papier));
+  border: 1px solid color-mix(in srgb, var(--red) 18%, var(--ch-ligne));
   border-radius: 10px;
 }
 
@@ -991,12 +998,12 @@ button.ch-lien-chemin:focus-visible {
   background: var(--ch-papier);
   border: 1px solid var(--ch-ligne);
   border-radius: 14px;
-  box-shadow: 0 12px 40px color-mix(in srgb, #1a1814 18%, transparent);
+  box-shadow: 0 12px 40px color-mix(in srgb, var(--encre) 18%, transparent);
 }
 
 .ch-grant-dialog h3 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: var(--fs-lg);
   color: var(--ch-encre);
 }
 
@@ -1004,17 +1011,17 @@ button.ch-lien-chemin:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   color: var(--ch-mute);
 }
 
 .ch-grant-field input {
   padding: 8px 10px;
-  font-size: 0.9rem;
+  font-size: var(--fs-md);
   font-family: var(--mono);
   border: 1px solid var(--ch-ligne);
   border-radius: 8px;
-  background: #fff;
+  background: var(--panel);
   color: var(--ch-encre);
 }
 
@@ -1048,7 +1055,7 @@ button.ch-lien-chemin:focus-visible {
 }
 
 .ch-cle-ok {
-  color: var(--ch-miel, #b8860b);
+  color: var(--honey);
   font-size: 0.85em;
 }
 
@@ -1064,7 +1071,7 @@ button.ch-lien-chemin:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
 }
 
 .ch-fab-field input,
@@ -1079,11 +1086,11 @@ button.ch-lien-chemin:focus-visible {
 .ch-dialog {
   background: var(--ch-creme);
   border: 1px solid var(--ch-miel);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   padding: 1rem 1.25rem;
   max-width: 28rem;
   width: 100%;
-  box-shadow: 0 8px 32px rgb(23 19 12 / 12%);
+  box-shadow: var(--shadow-lg);
 }
 
 .ch-dialog-actions {
@@ -1095,7 +1102,7 @@ button.ch-lien-chemin:focus-visible {
 
 .ch-motif-etapes {
   margin: 0.35rem 0 0.5rem 1.1rem;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
 }
 
 .ch-motif-toggle {
@@ -1143,7 +1150,7 @@ button.ch-lien-chemin:focus-visible {
 
 .ch-bilan h4 {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ch-mute);
@@ -1157,20 +1164,20 @@ button.ch-lien-chemin:focus-visible {
 }
 
 .ch-bilan-qualite dt {
-  font-size: 0.68rem;
+  font-size: var(--fs-2xs);
   color: var(--ch-mute);
 }
 
 .ch-bilan-qualite dd {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
 }
 
 .ch-bilan-economie {
   display: block;
   overflow-x: auto;
   border-collapse: collapse;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1190,5 +1197,5 @@ button.ch-lien-chemin:focus-visible {
 .bilan-couverture,
 .ch-bilan-fenetre {
   color: var(--ch-mute);
-  font-size: 0.7rem;
+  font-size: var(--fs-2xs);
 }

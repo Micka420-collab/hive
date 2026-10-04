@@ -33,17 +33,47 @@
 }
 
 /* ─── LES JETONS ─────────────────────────────────────────────────────────────
-   Cire et papier, pas un vide noir. Les NOMS restent — `--bg`, `--panel`,
-   `--honey`, `--miel`… — parce que des centaines d'emplois les désignent.
-   L'identité tient en trois gestes : le miel comme UNIQUE accent, l'hexagone
-   comme marque, l'encre comme contrepoint (barre, pas page entière).
+   UNE couche de jetons SÉMANTIQUES, posée DEUX fois : le thème clair sur
+   `:root`, le thème sombre par-dessus. Aucune règle d'écran ne nomme une
+   couleur : elle nomme un RÔLE (surface, texte, filet, accent, statut, focus,
+   graphe), et c'est le thème qui dit ce que vaut ce rôle. Une couleur écrite en
+   dur dans une vue reste claire sur fond sombre — c'est exactement ce qui
+   rendait un thème sombre impossible à poser sans refaire chaque écran.
 
-   Craft (Apple / Linear / Vercel), pas leurs palettes : rythme de padding,
-   filets fins, rayon 8 px, peu d'ombre, aucun dégradé de carnaval. Le miel
-   vif (`--miel`) REMPLIT — jauges, alvéole active, bouton primaire. Il ne
-   porte JAMAIS le texte. Les bruns `--honey` / `--gold` / `--amber` restent
-   ≥ 4,5:1 sur la crème. */
+   Les NOMS historiques restent — `--bg`, `--panel`, `--honey`, `--miel`… —
+   parce que des centaines d'emplois les désignent et que d'autres lots les
+   écrivent en parallèle. Ce sont eux, les rôles : la table est dans
+   docs/DIRECTION-ARTISTIQUE.md, et `tests/dashboard-contraste.test.ts` juge
+   CHAQUE paire texte/surface dans les DEUX thèmes (WCAG AA).
+
+     surfaces  --bg --bg-2 (page) · --panel --panel-2 --panel-3 (cartes, du
+               plus haut au plus creux) · --verre (surface en verre)
+     texte     --text · --muted (secondaire) · --faint (tertiaire, jamais
+               sous 11 px)
+     filets    --border · --border-2 (plus marqué)
+     accent    --miel / --miel-2 : REMPLISSAGE (jauge, alvéole active, bouton
+               primaire) — jamais porteur de texte ; le texte posé dessus est
+               `--encre`. --miel-fond / --miel-fond-fort : le miel en fond
+               SOUS du texte `--text` (onglet actif, pastille). --honey / --gold / --amber / --orange : l'accent
+               miel quand il doit ÉCRIRE (lien, valeur mise en avant).
+     statuts   --green succès · --amber attention · --red danger · --blue info
+               (ce sont des couleurs de TEXTE : un fond de statut se mélange,
+               `color-mix(in srgb, var(--red) 10%, transparent)`)
+     chrome    --encre (barre latérale, sombre dans les deux thèmes) ·
+               --sur-encre / --sur-encre-fort (texte posé dessus) · --rouge
+               (la pastille « critique » pleine, posée sur l'encre) ·
+               --sur-plein (texte posé sur un statut plein)
+     focus     --focus (contour) · --focus-halo (halo d'un champ)
+     graphes   --graphe-1 … --graphe-6 (séries ; ≥ 3:1 sur toute surface)
+     voiles    --voile (derrière une modale) · --voile-dense (sans flou)
+     ombres    --shadow-sm · --shadow · --shadow-lg
+
+   Clair = le « papier de cire » d'origine, préservé. Sombre = la direction de
+   référence du handoff : fond profond, verre léger, miel RARE, accents froids
+   pour les statuts et les graphes. Le choix : `data-theme` sur `<html>`
+   (`theme.ts`, mémorisé par navigateur), sinon la préférence du système. */
 :root {
+  color-scheme: light;
   /* Papier plus clair, proche d'un produit Apple/Craft : blanc chaud, pas
      crème saturée. Le miel reste l'UNIQUE accent de remplissage. */
   --bg: #f5f2eb;
@@ -51,11 +81,15 @@
   --panel: #fffcf7;
   --panel-2: #f7f3ec;
   --panel-3: #efe8dc;
+  --verre: color-mix(in srgb, var(--panel) 88%, transparent);
   --border: #e6ddd0;
   --border-2: #ddd2c0;
   --text: #1a1714;
   --muted: #6a635a;
-  --faint: #7a7267; /* AA ≥ 4.5:1 sur panel/panel-2/panel-3 (texte 10-11 px) */
+  /* AA ≥ 4.5:1 sur TOUTES les surfaces, `--panel-3` compris. L'ancien #7a7267
+     s'annonçait AA « sur panel/panel-2/panel-3 » et n'y tenait pas : 4,29:1
+     sur panel-2, 3,89:1 sur panel-3, 4,24:1 sur la page elle-même. */
+  --faint: #6e675d;
   --honey: #9a5508;
   --amber: #94560c;
   --orange: #985909;
@@ -65,7 +99,6 @@
   --blue: #1c587a;
   /* Chrome de barre : charbon profond, pas un noir plat « Grok ». */
   --encre: #141210;
-  --encre-2: #1e1a15;
   --sur-encre: #9a9080; /* 6:1 sur l'encre — libellés inactifs de la barre */
   --sur-encre-fort: #fffcf7;
   /* Le miel vif : REMPLISSAGE uniquement. Du texte posé dessus = encre. */
@@ -75,21 +108,144 @@
      posée sur l'encre de la barre. `--red` est un rouge de TEXTE pour la
      crème — sur l'encre il tombe à 3:1 et la pastille s'y noierait. La règle
      du miel vaut ici aussi : du texte posé dessus = encre (5,1:1) ; le blanc
-     n'y faisait que 3,6:1. Ce jeton était lu (`var(--rouge, …)`) sans avoir
-     jamais été posé. */
+     n'y faisait que 3,6:1. */
   --rouge: #e5573f;
+  /* Le texte posé sur un statut PLEIN (bouton armé : dégradé rouge → ambre).
+     Clair : les statuts sont des bruns profonds, le texte est clair. Sombre :
+     ils deviennent des teintes lumineuses, le texte passe à l'encre. */
+  --sur-plein: #fffcf7;
+  /* Le miel en FOND sous du texte (onglet actif, pastille « en cours ») :
+     à mi-force sur la crème. Sur l'anthracite, la même proportion donne un
+     kaki où ni le texte clair ni l'encre ne tiennent 4,5:1 — le thème sombre
+     le redéfinit plus bas, plus sourd. Le texte posé dessus : `--text`. */
+  --miel-fond: color-mix(in srgb, var(--miel) 50%, var(--panel));
+  --miel-fond-fort: color-mix(in srgb, var(--miel) 65%, var(--panel));
+  --focus: var(--honey);
+  --focus-halo: color-mix(in srgb, var(--miel) 28%, transparent);
+  --graphe-1: var(--honey);
+  --graphe-2: var(--blue);
+  --graphe-3: var(--green);
+  --graphe-4: #6a4fb3;
+  --graphe-5: var(--red);
+  --graphe-6: #5f6773;
   --thermo-froide: var(--blue);
   --thermo-normale: var(--green);
   --thermo-chaude: var(--orange);
   --thermo-surchauffe: var(--red);
+  --voile: rgba(20, 18, 16, 0.42);
+  --voile-dense: rgba(20, 18, 16, 0.72);
+  --shadow-sm: 0 1px 2px rgba(20, 18, 16, 0.05);
+  --shadow: 0 10px 28px -20px rgba(20, 18, 16, 0.28);
+  --shadow-lg: 0 24px 64px -28px rgba(20, 18, 16, 0.45);
+
+  /* ─── Typographie : UNE échelle ────────────────────────────────────────────
+     Seize tailles en px et une échelle parallèle en rem vivaient côte à côte,
+     jusqu'à 9 px. Dix pas, et rien sous 11 px : un libellé plus petit ne se lit
+     plus, sur aucun écran. Les titres de vue et les chiffres de tuile prennent
+     le haut de l'échelle — la typographie forte de la direction. */
+  --fs-2xs: 11px;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 18px;
+  --fs-2xl: 20px;
+  --fs-3xl: 24px;
+  --fs-4xl: 28px;
+  --fs-5xl: 34px;
   --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', Consolas, monospace;
   --titre: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
   --texte: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
-  --r: 10px;
+
+  /* ─── Forme ─────────────────────────────────────────────────────────────── */
   --r-sm: 8px;
+  --r: 10px;
+  --r-lg: 12px;
+  --r-xl: 16px;
   --sp: 8px;
-  --shadow: 0 10px 28px -20px rgba(20, 18, 16, 0.28);
-  --shadow-sm: 0 1px 2px rgba(20, 18, 16, 0.05);
+}
+
+/* ─── LE THÈME SOMBRE, ÉCRIT DEUX FOIS — À L'IDENTIQUE ───────────────────────
+   Une fois pour le système qui le demande (sauf choix « clair » explicite),
+   une fois pour le choix « sombre » explicite. CSS ne sait pas réunir une
+   requête média et un sélecteur d'attribut dans une même règle ; le faire en
+   JavaScript seul ferait flasher le papier clair à chaque chargement, avant
+   que le script ne tourne. Les deux blocs doivent rester IDENTIQUES :
+   `tests/dashboard-contraste.test.ts` le vérifie. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --bg: #0c0d10;
+    --bg-2: #111318;
+    --panel: #15171d;
+    --panel-2: #1b1e25;
+    --panel-3: #23272f;
+    --verre: color-mix(in srgb, var(--panel) 80%, transparent);
+    --border: #262a33;
+    --border-2: #333844;
+    --text: #eeebe5;
+    --muted: #a9abb2;
+    --faint: #8f929b;
+    --honey: #f0b64a;
+    --amber: #e8a857;
+    --orange: #ee9f55;
+    --gold: #e3b262;
+    --red: #ff8a73;
+    --green: #5ccfa8;
+    --blue: #72b6f0;
+    --encre: #08090b;
+    --sur-encre: #9ea1a9;
+    --sur-encre-fort: #f4f2ee;
+    --sur-plein: var(--encre);
+    --miel-fond: color-mix(in srgb, var(--miel) 24%, var(--panel));
+    --miel-fond-fort: color-mix(in srgb, var(--miel) 34%, var(--panel));
+    --focus: var(--miel);
+    --graphe-1: var(--miel);
+    --graphe-4: #b39cf5;
+    --graphe-6: #9ea1a9;
+    --voile: rgba(0, 0, 0, 0.55);
+    --voile-dense: rgba(0, 0, 0, 0.8);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow: 0 12px 32px -18px rgba(0, 0, 0, 0.7);
+    --shadow-lg: 0 28px 72px -24px rgba(0, 0, 0, 0.8);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #0c0d10;
+  --bg-2: #111318;
+  --panel: #15171d;
+  --panel-2: #1b1e25;
+  --panel-3: #23272f;
+  --verre: color-mix(in srgb, var(--panel) 80%, transparent);
+  --border: #262a33;
+  --border-2: #333844;
+  --text: #eeebe5;
+  --muted: #a9abb2;
+  --faint: #8f929b;
+  --honey: #f0b64a;
+  --amber: #e8a857;
+  --orange: #ee9f55;
+  --gold: #e3b262;
+  --red: #ff8a73;
+  --green: #5ccfa8;
+  --blue: #72b6f0;
+  --encre: #08090b;
+  --sur-encre: #9ea1a9;
+  --sur-encre-fort: #f4f2ee;
+  --sur-plein: var(--encre);
+  --miel-fond: color-mix(in srgb, var(--miel) 24%, var(--panel));
+  --miel-fond-fort: color-mix(in srgb, var(--miel) 34%, var(--panel));
+  --focus: var(--miel);
+  --graphe-1: var(--miel);
+  --graphe-4: #b39cf5;
+  --graphe-6: #9ea1a9;
+  --voile: rgba(0, 0, 0, 0.55);
+  --voile-dense: rgba(0, 0, 0, 0.8);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 12px 32px -18px rgba(0, 0, 0, 0.7);
+  --shadow-lg: 0 28px 72px -24px rgba(0, 0, 0, 0.8);
 }
 
 * {
@@ -130,7 +286,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--texte);
-  font-size: 14px;
+  font-size: var(--fs-md);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -152,7 +308,7 @@ h3 {
 
 .mono {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .muted-text {
@@ -166,7 +322,7 @@ h3 {
   align-items: center;
   gap: 16px;
   padding: 14px 24px;
-  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  background: var(--verre);
   backdrop-filter: blur(14px) saturate(1.2);
   -webkit-backdrop-filter: blur(14px) saturate(1.2);
   border-bottom: 1px solid var(--border);
@@ -201,7 +357,7 @@ h3 {
 .brand h1 {
   /* Le titre de la vue en ENCRE, pas en miel : sur du papier, l'accent sert
      à désigner, pas à titrer. */
-  font-size: 26px;
+  font-size: var(--fs-4xl);
   font-weight: 650;
   color: var(--text);
   letter-spacing: -0.04em;
@@ -210,7 +366,7 @@ h3 {
 
 .brand-sub {
   font-family: var(--texte);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   color: var(--muted);
   letter-spacing: -0.01em;
@@ -237,7 +393,7 @@ h3 {
 .tile {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   padding: 10px 14px;
   min-width: 104px;
   box-shadow: var(--shadow-sm);
@@ -254,7 +410,7 @@ h3 {
 
 .tile-value {
   font-family: var(--titre);
-  font-size: 24px;
+  font-size: var(--fs-3xl);
   font-weight: 650;
   letter-spacing: -0.03em;
   color: var(--text);
@@ -262,13 +418,13 @@ h3 {
 }
 
 .tile-unit {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--muted);
   font-weight: 400;
 }
 
 .tile-label {
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   text-transform: none;
   letter-spacing: -0.01em;
   font-weight: 500;
@@ -277,7 +433,7 @@ h3 {
 }
 
 .tile-sub {
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
   margin-top: 2px;
 }
@@ -290,7 +446,7 @@ h3 {
   background: var(--panel);
   color: var(--text);
   font-family: var(--texte);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   letter-spacing: -0.01em;
   cursor: pointer;
@@ -323,7 +479,7 @@ h3 {
   color: var(--encre);
   border: 1px solid color-mix(in srgb, var(--miel-2) 35%, transparent);
   white-space: nowrap;
-  box-shadow: 0 1px 0 rgba(255, 252, 247, 0.35) inset;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--sur-encre-fort) 35%, transparent) inset;
 }
 
 .btn.primary:hover {
@@ -344,7 +500,7 @@ h3 {
 }
 
 .btn.danger-btn:hover {
-  background: rgba(168, 64, 42, 0.1);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
 }
 
 /* Inviter reste secondaire : le miel plein est réservé au départ
@@ -353,7 +509,7 @@ h3 {
   padding: 7px 13px;
   border-radius: 10px;
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   letter-spacing: -0.01em;
   cursor: pointer;
   white-space: nowrap;
@@ -399,7 +555,7 @@ h3 {
   border-radius: 9px;
   color: var(--muted);
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease,
@@ -410,7 +566,7 @@ h3 {
   outline: none;
   color: var(--text);
   border-color: color-mix(in srgb, var(--miel) 55%, var(--border));
-  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.18);
+  box-shadow: 0 0 0 3px var(--focus-halo);
 }
 
 .token-input-err {
@@ -429,7 +585,7 @@ h3 {
   background: color-mix(in srgb, var(--red) 12%, var(--panel));
   border-bottom: 1px solid color-mix(in srgb, var(--red) 35%, var(--border));
   color: var(--text);
-  font-size: 13.5px;
+  font-size: var(--fs-md);
   line-height: 1.45;
 }
 
@@ -451,7 +607,7 @@ h3 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   padding: 5px 10px;
   border-radius: 10px;
@@ -498,7 +654,7 @@ h3 {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   padding: 5px 10px;
   border-radius: 10px;
@@ -572,7 +728,7 @@ h3 {
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   box-shadow: var(--shadow-sm);
   transition:
     border-color 0.2s ease,
@@ -598,11 +754,11 @@ h3 {
   align-items: center;
   gap: 12px;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   padding: 8px 12px;
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  background: var(--verre);
   backdrop-filter: blur(10px) saturate(1.05);
   -webkit-backdrop-filter: blur(10px) saturate(1.05);
 }
@@ -624,7 +780,7 @@ h3 {
 
 .panel-head h2 {
   font-family: var(--titre);
-  font-size: 14.5px;
+  font-size: var(--fs-md);
   font-weight: 600;
   letter-spacing: -0.025em;
   text-transform: none;
@@ -632,7 +788,7 @@ h3 {
 }
 
 .panel-count {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--faint);
   font-family: var(--mono);
 }
@@ -664,7 +820,7 @@ h3 {
   border-radius: 10px;
   background: var(--panel);
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   letter-spacing: -0.01em;
   cursor: pointer;
@@ -683,7 +839,7 @@ h3 {
 .chip-count {
   color: var(--faint);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 
 /* ─── Cartes de nœuds ─────────────────────────────────────────────────── */
@@ -691,11 +847,11 @@ h3 {
   margin: 0 10px 8px;
   padding: 8px 10px;
   border-radius: 7px;
-  border: 1px solid var(--orange, #c4841a);
-  background: rgba(242, 180, 65, 0.12);
-  font-size: 12px;
+  border: 1px solid var(--orange);
+  background: color-mix(in srgb, var(--miel) 12%, transparent);
+  font-size: var(--fs-xs);
   line-height: 1.45;
-  color: var(--gold, #8a4f05);
+  color: var(--gold);
 }
 .node-list,
 .queue,
@@ -742,7 +898,7 @@ h3 {
   background: var(--panel);
   border: 1px solid var(--border-2);
   border-radius: 6px;
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   width: 16px;
   height: 16px;
   display: flex;
@@ -777,14 +933,14 @@ h3 {
 }
 
 .node-meta {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--muted);
   margin: 1px 0 5px;
 }
 
 .node-load {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--gold);
 }
 
@@ -810,7 +966,7 @@ h3 {
   gap: 8px;
   align-items: baseline;
   padding: 4px 8px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   border-radius: 5px;
 }
 
@@ -831,7 +987,7 @@ h3 {
 .jtime {
   color: var(--faint);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 
 .jrow.done .jtext {
@@ -860,7 +1016,7 @@ h3 {
   gap: 4px;
   padding: 2px 9px;
   border-radius: 20px;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   font-weight: 600;
   border: 1px solid var(--border);
   color: var(--muted);
@@ -868,7 +1024,7 @@ h3 {
 }
 
 .badge-icon {
-  font-size: 10px;
+  font-size: var(--fs-2xs);
 }
 
 .badge.ready {
@@ -947,7 +1103,7 @@ h3 {
 
 .task-table th {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: -0.01em;
   text-transform: none;
@@ -976,7 +1132,7 @@ h3 {
 .view-toggle button:focus-visible,
 .modal-close:focus-visible,
 .drawer-tabs button:focus-visible {
-  outline: 2px solid var(--honey);
+  outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
 
@@ -985,7 +1141,7 @@ h3 {
 .invite-os-btn:focus-visible,
 .copy-btn:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.28);
+  box-shadow: 0 0 0 3px var(--focus-halo);
 }
 
 .clickable:focus-visible {
@@ -996,7 +1152,7 @@ h3 {
 .empty {
   color: var(--muted);
   font-style: normal;
-  font-size: 13.5px;
+  font-size: var(--fs-md);
   letter-spacing: -0.01em;
   text-align: center;
   line-height: 1.45;
@@ -1016,7 +1172,7 @@ h3 {
 .drawer-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(27, 23, 18, 0.45);
+  background: var(--voile);
   display: flex;
   justify-content: flex-end;
   z-index: 40;
@@ -1027,7 +1183,7 @@ h3 {
   height: 100%;
   background: var(--panel);
   border-left: 1px solid var(--border);
-  box-shadow: -12px 0 40px -24px rgba(20, 18, 16, 0.35);
+  box-shadow: var(--shadow-lg);
   padding: 22px 24px;
   overflow-y: auto;
   animation: slideIn 0.28s ease;
@@ -1056,7 +1212,7 @@ h3 {
 
 .drawer-head h2 {
   font-family: var(--titre);
-  font-size: 20px;
+  font-size: var(--fs-2xl);
   font-weight: 650;
   letter-spacing: -0.035em;
   margin-bottom: 6px;
@@ -1064,7 +1220,7 @@ h3 {
 }
 
 .drawer h3 {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   letter-spacing: -0.01em;
   text-transform: none;
@@ -1081,7 +1237,7 @@ h3 {
 
 .meta-grid dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .meta-grid dd {
@@ -1094,13 +1250,13 @@ h3 {
 }
 .chronologie-panel h3 {
   margin: 0 0 0.5rem;
-  font-size: 0.95rem;
+  font-size: var(--fs-lg);
 }
 .chronologie {
   display: grid;
   gap: 0.2rem;
   margin: 0;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
 }
 .chronologie > div {
   display: grid;
@@ -1108,7 +1264,7 @@ h3 {
   gap: 0.5rem;
 }
 .chronologie dt {
-  color: var(--muted, inherit);
+  color: var(--muted);
 }
 .chronologie dd {
   margin: 0;
@@ -1118,18 +1274,18 @@ h3 {
 }
 .routage-panel h3 {
   margin: 0 0 0.5rem;
-  font-size: 0.95rem;
+  font-size: var(--fs-lg);
 }
 .routage-rang {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
 }
 .routage-rang th,
 .routage-rang td {
   text-align: left;
   padding: 0.2rem 0.4rem;
-  border-bottom: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+  border-bottom: 1px solid var(--border);
 }
 .routage-rang tr.elu td {
   font-weight: 600;
@@ -1139,7 +1295,7 @@ h3 {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem 0.8rem;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
 }
 .consigne-routage-form fieldset {
   display: flex;
@@ -1147,7 +1303,7 @@ h3 {
   gap: 0.2rem 0.8rem;
   margin: 0;
   padding: 0.3rem 0.6rem;
-  border: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+  border: 1px solid var(--border);
   border-radius: 6px;
 }
 .delegation-tree-budget.epuise {
@@ -1156,7 +1312,7 @@ h3 {
 /* Ce que l'ouvrière a lu du graphe d'expérience (ExperienceTache.tsx). */
 .routage-experience {
   margin-top: 0.6rem;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
 }
 .routage-experience p {
   margin: 0 0 0.3rem;
@@ -1213,13 +1369,13 @@ h3 {
 .delegation-tree-parent {
   display: block;
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   margin-top: 4px;
 }
 
 .delegation-tree-budget {
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   margin: 5px 0 0;
 }
 
@@ -1229,7 +1385,7 @@ h3 {
 
 .delegation-tree-reason {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   margin: 5px 0 0;
 }
 
@@ -1239,7 +1395,7 @@ h3 {
   border-radius: var(--r-sm);
   padding: 12px;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--gold);
   white-space: pre-wrap;
   word-break: break-word;
@@ -1297,7 +1453,7 @@ h3 {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--muted);
   cursor: pointer;
 }
@@ -1314,7 +1470,7 @@ h3 {
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 /* Replier : les lignes longues (stream-json) coupent au lieu de défiler. */
@@ -1327,7 +1483,7 @@ h3 {
   max-height: 380px;
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 
 .code-editor .cm-scroller {
@@ -1341,7 +1497,7 @@ h3 {
 
 .editor-hint {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   margin: 6px 0 0;
 }
 
@@ -1349,7 +1505,7 @@ h3 {
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(20, 18, 16, 0.42);
+  background: var(--voile);
   backdrop-filter: blur(8px) saturate(1.1);
   -webkit-backdrop-filter: blur(8px) saturate(1.1);
   display: flex;
@@ -1378,7 +1534,56 @@ h3 {
   }
 
   .modal-backdrop {
-    background: rgba(20, 18, 16, 0.72);
+    background: var(--voile-dense);
+  }
+}
+
+/* ─── LE VERRE QUAND ON DEMANDE DU CONTRASTE ────────────────────────────────
+   `prefers-contrast: more` : celui qui le demande a dit que la transparence
+   le gêne. Le verre redevient une surface pleine, cernée d'un filet qui se
+   voit (le texte, pas le filet pâle), et le voile d'une modale s'épaissit —
+   la page derrière ne doit plus se lire du tout.
+
+   `forced-colors: active` (mode Contraste élevé de Windows) : le système
+   impose SA palette et ignore la nôtre ; un flou y laisserait passer la page
+   sous une surface que le système croit opaque. On coupe le flou, on rend les
+   fonds au système (`Canvas`) et on garde un cadre (`CanvasText`) — sans
+   ombre ni transparence, c'est ce cadre qui dit où finit la surface. */
+@media (prefers-contrast: more) {
+  .topbar,
+  .hero-progress {
+    background: var(--panel);
+    border-color: var(--text);
+  }
+
+  .modal-backdrop {
+    background: var(--voile-dense);
+  }
+}
+
+@media (forced-colors: active) {
+  .topbar,
+  .hero-progress,
+  .modal-backdrop {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
+  .topbar,
+  .hero-progress {
+    background: Canvas;
+    border: 1px solid CanvasText;
+  }
+
+  .modal {
+    border: 1px solid CanvasText;
+  }
+
+  /* L'anneau de focus miel disparaît sous la palette système : on le rend à
+     la couleur que le système réserve au focus. */
+  :focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
   }
 }
 
@@ -1390,14 +1595,14 @@ h3 {
 .modal {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--r-xl);
   padding: 22px 24px;
   max-width: 560px;
   width: 100%;
   max-height: calc(100dvh - 40px);
   overflow-y: auto;
   overscroll-behavior: contain;
-  box-shadow: 0 24px 64px -28px rgba(20, 18, 16, 0.45);
+  box-shadow: var(--shadow-lg);
   animation: mc-view-in 0.22s ease both;
 }
 
@@ -1424,7 +1629,7 @@ h3 {
   border-color: color-mix(in srgb, var(--miel) 22%, var(--border));
   box-shadow:
     0 1px 0 color-mix(in srgb, var(--miel) 18%, transparent),
-    0 24px 64px -28px rgba(20, 18, 16, 0.42);
+    var(--shadow-lg);
 }
 
 .np-modal .modal-head {
@@ -1458,7 +1663,7 @@ h3 {
 }
 
 .np-modal .template-label {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   letter-spacing: -0.01em;
   color: var(--muted);
@@ -1494,7 +1699,7 @@ h3 {
 
 .np-modal .plan-note {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-style: normal;
   line-height: 1.45;
 }
@@ -1517,7 +1722,7 @@ h3 {
   align-items: center;
   gap: 10px;
   color: var(--text);
-  font-size: 18px;
+  font-size: var(--fs-xl);
   font-weight: 650;
   letter-spacing: -0.03em;
 }
@@ -1546,7 +1751,7 @@ h3 {
   background: none;
   border: none;
   color: var(--muted);
-  font-size: 26px;
+  font-size: var(--fs-4xl);
   line-height: 1;
   cursor: pointer;
 }
@@ -1566,8 +1771,8 @@ h3 {
 
 .modal-error {
   color: var(--red);
-  background: rgba(168, 64, 42, 0.09);
-  border: 1px solid rgba(168, 64, 42, 0.32);
+  background: color-mix(in srgb, var(--red) 9%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 32%, transparent);
   border-radius: var(--r-sm);
   padding: 8px 12px;
   margin: 0 0 12px;
@@ -1580,7 +1785,7 @@ h3 {
 
 .field span {
   display: block;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   letter-spacing: -0.01em;
   color: var(--muted);
@@ -1596,7 +1801,7 @@ h3 {
   border-radius: 10px;
   color: var(--text);
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--fs-md);
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
@@ -1606,12 +1811,12 @@ h3 {
 .code-input:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--miel) 55%, var(--border));
-  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.16);
+  box-shadow: 0 0 0 3px var(--focus-halo);
 }
 
 .code-input {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   resize: vertical;
 }
 
@@ -1624,7 +1829,7 @@ h3 {
 }
 
 .template-label {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
 }
 
@@ -1644,7 +1849,7 @@ h3 {
 }
 
 .plan-note {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--muted);
   font-style: normal;
   line-height: 1.45;
@@ -1652,8 +1857,8 @@ h3 {
 
 /* ─── Panneaux Palier 2 : Hive Mind & Conflits ─────────────────────────── */
 .panel-error {
-  color: var(--red, #a8402a);
-  font-size: 12px;
+  color: var(--red);
+  font-size: var(--fs-xs);
   margin: 4px 0;
 }
 
@@ -1680,7 +1885,7 @@ h3 {
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .mind-list,
@@ -1704,7 +1909,7 @@ h3 {
 }
 
 .mind-title {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--gold);
 }
 
@@ -1712,11 +1917,11 @@ h3 {
   color: var(--faint);
   font-style: normal;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 
 .mind-content {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--muted);
   line-height: 1.35;
 }
@@ -1725,7 +1930,7 @@ h3 {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   padding: 4px 6px;
   border-radius: 6px;
   background: var(--panel-2);
@@ -1750,14 +1955,14 @@ h3 {
 .conflict-detail {
   color: var(--faint);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-2xs);
 }
 
 .badge-conflict {
   margin-left: 6px;
   padding: 1px 6px;
   border-radius: 10px;
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   color: var(--encre);
   background: var(--miel-2);
   white-space: nowrap;
@@ -1800,7 +2005,7 @@ h3 {
   background: transparent;
   color: var(--muted);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 500;
   letter-spacing: -0.01em;
   cursor: pointer;
@@ -1832,7 +2037,7 @@ h3 {
 .invite-cmd code {
   flex: 1;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--gold);
   word-break: break-all;
   overflow-wrap: anywhere;
@@ -1864,7 +2069,7 @@ h3 {
 
 .invite-note {
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-style: normal;
   line-height: 1.45;
   margin: 12px 0 4px;
@@ -1873,7 +2078,7 @@ h3 {
 .invite-advanced {
   margin-top: 12px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .invite-advanced summary {
@@ -1893,7 +2098,7 @@ h3 {
   width: auto;
   margin: 0;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .invite-url-row .btn {
@@ -1903,7 +2108,7 @@ h3 {
 
 .invite-current-url {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   margin: 8px 0 0;
   color: var(--muted);
   font-style: normal;
@@ -1920,7 +2125,7 @@ h3 {
 .decouverte h3,
 .invite-sous-titre {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--text);
@@ -1966,7 +2171,7 @@ h3 {
 
 .decouverte-meta {
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   overflow-wrap: anywhere;
 }
 
@@ -1979,7 +2184,7 @@ h3 {
 
 .decouverte-code label {
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 
 .decouverte-code-rangee {
@@ -1995,7 +2200,7 @@ h3 {
   margin: 0;
   padding: 8px 10px;
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: var(--fs-md);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
@@ -2003,7 +2208,7 @@ h3 {
 .decouverte-ok {
   margin: 8px 0 0;
   color: var(--green);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .decouverte-empreinte code {
@@ -2085,11 +2290,11 @@ h3 {
   stroke: var(--gold);
 }
 .cell.assigned polygon {
-  fill: #f1e4c6;
+  fill: color-mix(in srgb, var(--miel) 22%, var(--panel));
   stroke: var(--amber);
 }
 .cell.running polygon {
-  fill: #e7d3a8;
+  fill: color-mix(in srgb, var(--miel) 40%, var(--panel));
   stroke: var(--orange);
   animation: cellpulse 1.2s ease-in-out infinite;
 }
@@ -2098,7 +2303,7 @@ h3 {
   stroke: var(--miel-2);
 }
 .cell.failed polygon {
-  fill: #f3d9d2;
+  fill: color-mix(in srgb, var(--red) 18%, var(--panel));
   stroke: var(--red);
 }
 
@@ -2112,13 +2317,13 @@ h3 {
   fill: var(--text);
   text-anchor: middle;
   font-weight: 700;
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 
 .cell-status {
   fill: var(--muted);
   text-anchor: middle;
-  font-size: 9px;
+  font-size: var(--fs-2xs);
   font-family: var(--mono);
 }
 
@@ -2168,7 +2373,7 @@ h3 {
   fill: var(--text);
   text-anchor: middle;
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .node.offline .node-name {
@@ -2178,7 +2383,7 @@ h3 {
 .node-info {
   fill: var(--muted);
   text-anchor: middle;
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   font-family: var(--mono);
 }
 
@@ -2245,7 +2450,7 @@ h3 {
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   padding: 10px 14px;
-  font-size: 15px;
+  font-size: var(--fs-lg);
   color: var(--text);
   font-family: inherit;
   outline: none;
@@ -2254,7 +2459,7 @@ h3 {
 
 .openalex-input:focus {
   border-color: var(--honey);
-  box-shadow: 0 0 0 2px rgba(224, 138, 20, 0.28);
+  box-shadow: 0 0 0 2px var(--focus-halo);
 }
 
 .openalex-input::placeholder {
@@ -2263,13 +2468,13 @@ h3 {
 
 .openalex-spinner {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   white-space: nowrap;
 }
 
 .openalex-count {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   margin: 0 0 calc(var(--sp) * 2);
 }
 
@@ -2307,7 +2512,7 @@ h3 {
 }
 
 .oa-badge {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   font-weight: 500;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -2318,13 +2523,13 @@ h3 {
 }
 
 .oa-year {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--faint);
   font-family: var(--mono);
 }
 
 .oa-oa {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   font-weight: 500;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2336,7 +2541,7 @@ h3 {
 
 .oa-title {
   margin: 0 0 4px;
-  font-size: 15px;
+  font-size: var(--fs-lg);
   font-weight: 600;
   line-height: 1.3;
 }
@@ -2353,13 +2558,13 @@ h3 {
 
 .oa-authors {
   margin: 0 0 6px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--muted);
 }
 
 .oa-abstract {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--text);
   line-height: 1.5;
   opacity: 0.85;
@@ -2373,13 +2578,13 @@ h3 {
 }
 
 .oa-citations {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--amber);
   font-family: var(--mono);
 }
 
 .oa-doi {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--blue);
   font-family: var(--mono);
   text-decoration: none;
@@ -2394,7 +2599,7 @@ h3 {
 }
 
 .oa-pager {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--muted);
   font-family: var(--mono);
 }
@@ -2423,8 +2628,14 @@ h3 {
   flex-direction: column;
   gap: 16px;
   padding: 20px 12px 16px;
-  background: linear-gradient(180deg, rgba(255, 252, 247, 0.04), transparent 28%), var(--encre);
-  border-right: 1px solid #0c0b09;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--sur-encre-fort) 4%, transparent),
+      transparent 28%
+    ),
+    var(--encre);
+  border-right: 1px solid color-mix(in srgb, var(--sur-encre-fort) 6%, transparent);
   z-index: 30;
 }
 
@@ -2439,8 +2650,8 @@ h3 {
   width: 30px;
   height: 30px;
   border-radius: 9px;
-  background: rgba(246, 196, 69, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(246, 196, 69, 0.28);
+  background: color-mix(in srgb, var(--miel) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--miel) 28%, transparent);
 }
 
 /* Le nom écrit — « Hive » au-dessus de « Mission Control » — À CÔTÉ du logo.
@@ -2457,7 +2668,7 @@ h3 {
 
 .mc-sidebar-word {
   font-family: var(--titre);
-  font-size: 18px;
+  font-size: var(--fs-xl);
   font-weight: 700;
   letter-spacing: -0.04em;
   color: var(--sur-encre-fort);
@@ -2466,7 +2677,7 @@ h3 {
 
 .mc-sidebar-product {
   font-family: var(--texte);
-  font-size: 10.5px;
+  font-size: var(--fs-2xs);
   font-weight: 500;
   letter-spacing: 0.01em;
   color: var(--sur-encre);
@@ -2484,7 +2695,7 @@ h3 {
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 252, 247, 0.18) transparent;
+  scrollbar-color: color-mix(in srgb, var(--sur-encre-fort) 18%, transparent) transparent;
 }
 
 .mc-nav-cell {
@@ -2502,7 +2713,7 @@ h3 {
   color: var(--sur-encre);
   cursor: pointer;
   font: inherit;
-  font-size: 13.5px;
+  font-size: var(--fs-md);
   font-weight: 500;
   letter-spacing: -0.01em;
   text-align: left;
@@ -2520,18 +2731,18 @@ h3 {
   width: 9px;
   height: 11px;
   clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
-  background: #5c5346;
+  background: var(--sur-encre);
   transition: background 0.2s ease;
 }
 
 .mc-nav-cell:hover {
   color: var(--sur-encre-fort);
-  background: rgba(255, 252, 247, 0.06);
+  background: color-mix(in srgb, var(--sur-encre-fort) 6%, transparent);
 }
 
 .mc-nav-cell.active {
-  background: rgba(246, 196, 69, 0.14);
-  border-color: rgba(246, 196, 69, 0.18);
+  background: color-mix(in srgb, var(--miel) 14%, transparent);
+  border-color: color-mix(in srgb, var(--miel) 18%, transparent);
   color: var(--sur-encre-fort);
   font-weight: 600;
 }
@@ -2553,7 +2764,7 @@ h3 {
   align-items: center;
   justify-content: center;
   border-radius: 7px;
-  background: rgba(255, 252, 247, 0.06);
+  background: color-mix(in srgb, var(--sur-encre-fort) 6%, transparent);
   color: var(--sur-encre);
 }
 
@@ -2564,7 +2775,7 @@ h3 {
 }
 
 .mc-nav-cell.active .mc-nav-icon {
-  background: rgba(246, 196, 69, 0.22);
+  background: color-mix(in srgb, var(--miel) 22%, transparent);
   color: var(--miel);
 }
 
@@ -2585,7 +2796,7 @@ h3 {
   background: var(--miel);
   color: var(--encre);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   text-align: center;
 }
@@ -2629,13 +2840,13 @@ h3 {
   align-items: center;
   gap: 4px;
   padding-top: 12px;
-  border-top: 1px solid rgba(255, 252, 247, 0.1);
+  border-top: 1px solid color-mix(in srgb, var(--sur-encre-fort) 10%, transparent);
   width: 100%;
 }
 
 .mc-pulse-rate {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   color: var(--sur-encre);
 }
 
@@ -2723,7 +2934,7 @@ h3 {
   padding: 72px 24px;
   text-align: center;
   color: var(--muted);
-  font-size: 14px;
+  font-size: var(--fs-md);
   letter-spacing: -0.01em;
   animation: mc-view-in 0.35s ease both;
 }
@@ -2756,7 +2967,7 @@ h3 {
 }
 
 .mc-panne h2 {
-  font-size: 18px;
+  font-size: var(--fs-xl);
   margin-bottom: 8px;
 }
 
@@ -2774,7 +2985,7 @@ h3 {
   background: var(--panel-2);
   color: var(--red);
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }
 
@@ -2789,14 +3000,14 @@ h3 {
   margin-left: 6px;
   padding: 2px 9px;
   border-radius: 7px;
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   vertical-align: baseline;
 }
 
 .echec-sondage-quand {
   margin-left: 6px;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 
@@ -2820,7 +3031,7 @@ h3 {
 
 .autonomie-pulse-tete h3 {
   margin: 0;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   font-weight: 650;
   letter-spacing: -0.01em;
   color: var(--text);
@@ -2828,7 +3039,7 @@ h3 {
 
 .autonomie-pulse-tete p {
   margin: 2px 0 8px;
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: var(--muted);
   line-height: 1.35;
 }
@@ -2853,7 +3064,7 @@ h3 {
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   cursor: pointer;
   max-width: 100%;
 }
@@ -2892,7 +3103,7 @@ h3 {
 }
 
 .autonomie-pulse-flag {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
 }
 
@@ -2919,7 +3130,7 @@ h3 {
   margin-left: 8px;
   padding: 0 7px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;
   color: var(--red);
   border: 1px solid color-mix(in srgb, var(--red) 45%, var(--border));
@@ -2927,7 +3138,7 @@ h3 {
 
 .alertes-ruche-vide {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--muted);
 }
 
@@ -2952,7 +3163,7 @@ h3 {
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -2976,7 +3187,7 @@ h3 {
 }
 
 .alertes-ruche-quand {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
   font-variant-numeric: tabular-nums;
 }
@@ -2993,7 +3204,11 @@ h3 {
   min-height: calc(100dvh - 76px);
   padding: 28px 24px 40px;
   background:
-    radial-gradient(70% 55% at 50% 18%, rgba(246, 196, 69, 0.1), transparent 62%),
+    radial-gradient(
+      70% 55% at 50% 18%,
+      color-mix(in srgb, var(--miel) 10%, transparent),
+      transparent 62%
+    ),
     linear-gradient(180deg, color-mix(in srgb, var(--panel) 55%, transparent), transparent 42%);
 }
 
@@ -3009,12 +3224,17 @@ h3 {
   max-width: 28rem;
   width: min(100%, 28rem);
   border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
-  border-radius: 16px;
+  border-radius: var(--r-xl);
   box-shadow:
-    0 1px 0 rgba(255, 252, 247, 0.8) inset,
-    0 18px 40px -28px rgba(20, 18, 16, 0.35);
+    0 1px 0 color-mix(in srgb, var(--panel) 80%, transparent) inset,
+    var(--shadow);
   background:
-    radial-gradient(120% 80% at 0% 0%, rgba(246, 196, 69, 0.12), transparent 55%), var(--panel);
+    radial-gradient(
+      120% 80% at 0% 0%,
+      color-mix(in srgb, var(--miel) 12%, transparent),
+      transparent 55%
+    ),
+    var(--panel);
   animation: mc-view-in 0.4s ease both;
   transition:
     box-shadow 0.22s ease,
@@ -3025,8 +3245,8 @@ h3 {
 .ruche-depart:hover {
   border-color: color-mix(in srgb, var(--miel) 28%, var(--border));
   box-shadow:
-    0 1px 0 rgba(255, 252, 247, 0.8) inset,
-    0 22px 48px -26px rgba(20, 18, 16, 0.4);
+    0 1px 0 color-mix(in srgb, var(--panel) 80%, transparent) inset,
+    var(--shadow-lg);
   transform: translateY(-1px);
 }
 
@@ -3049,7 +3269,7 @@ h3 {
 
 .ruche-depart h2 {
   color: var(--text);
-  font-size: clamp(26px, 3.2vw, 32px);
+  font-size: clamp(var(--fs-4xl), 3.2vw, var(--fs-5xl));
   font-weight: 650;
   letter-spacing: -0.045em;
   line-height: 1.12;
@@ -3059,14 +3279,14 @@ h3 {
   color: var(--muted);
   margin: 0;
   max-width: 42ch;
-  font-size: 15px;
+  font-size: var(--fs-lg);
   line-height: 1.55;
 }
 
 .ruche-depart .btn.primary {
   margin-top: 8px;
   padding: 11px 20px;
-  font-size: 14px;
+  font-size: var(--fs-md);
   border-radius: 11px;
 }
 
@@ -3172,11 +3392,11 @@ button.mc-cell:focus-visible {
 }
 
 .mc-cell.reviewed {
-  box-shadow: inset 0 0 0 20px rgba(246, 196, 69, 0.5);
+  box-shadow: inset 0 0 0 20px color-mix(in srgb, var(--miel) 50%, transparent);
 }
 
 .mc-cell.rejected {
-  box-shadow: inset 0 0 0 20px rgba(168, 64, 42, 0.32);
+  box-shadow: inset 0 0 0 20px color-mix(in srgb, var(--red) 32%, transparent);
 }
 
 @keyframes mc-throb {
@@ -3260,7 +3480,7 @@ button.mc-cell:focus-visible {
 
 .mc-unsynced {
   color: var(--amber);
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 500;
   white-space: nowrap;
   padding: 4px 8px;
@@ -3278,7 +3498,7 @@ button.mc-cell:focus-visible {
 }
 
 .mc-account-name {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -3297,7 +3517,7 @@ button.mc-cell:focus-visible {
 }
 
 .btn.geste-irr-armer:hover:not(:disabled) {
-  background: rgba(168, 64, 42, 0.1);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
 }
 
 .geste-irr {
@@ -3305,7 +3525,7 @@ button.mc-cell:focus-visible {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 
 .geste-irr-q {
@@ -3317,7 +3537,7 @@ button.mc-cell:focus-visible {
 }
 
 .geste-irr .btn {
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   padding: 4px 10px;
 }
 
@@ -3340,7 +3560,7 @@ button.mc-cell:focus-visible {
 }
 
 .btn.geste-irr-oui:hover:not(:disabled) {
-  background: rgba(168, 64, 42, 0.1);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
 }
 
 /* ─── L'horloge du chantier, dans le tiroir de tâche ────────────────────────
@@ -3354,7 +3574,7 @@ button.mc-cell:focus-visible {
 }
 
 .horloge-verdict {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   margin: 4px 0;
   padding: 6px 10px;
   border-radius: var(--r-sm);
@@ -3363,23 +3583,23 @@ button.mc-cell:focus-visible {
 }
 
 .horloge-verdict.tenue {
-  color: var(--green, #2f6b3a);
-  border-color: color-mix(in srgb, var(--green, #2f6b3a) 35%, var(--border));
+  color: var(--green);
+  border-color: color-mix(in srgb, var(--green) 35%, var(--border));
 }
 
 .horloge-verdict.debordee {
-  color: var(--amber, #9a6b16);
-  border-color: color-mix(in srgb, var(--amber, #9a6b16) 40%, var(--border));
+  color: var(--amber);
+  border-color: color-mix(in srgb, var(--amber) 40%, var(--border));
 }
 
 .horloge-alerte {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   margin: 4px 0;
   padding: 6px 10px;
   border-radius: var(--r-sm);
-  color: var(--amber, #9a6b16);
-  background: color-mix(in srgb, var(--amber, #9a6b16) 10%, var(--panel));
-  border: 1px solid color-mix(in srgb, var(--amber, #9a6b16) 40%, var(--border));
+  color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 10%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--amber) 40%, var(--border));
 }
 
 /* La note de l'horloge tient en un mot quand elle n'a pas de pourcentage. */
@@ -3392,14 +3612,14 @@ button.mc-cell:focus-visible {
    c'est le moment où l'historique cesse de dire quoi que ce soit. */
 .queue-annonce {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 .queue-annonce.hors {
-  color: var(--amber, #94560c);
+  color: var(--amber);
 }
 
 /* ─── LES OUTILS IA D'UNE OUVRIÈRE (fiche coéquipière) ──────────────────────
@@ -3428,13 +3648,13 @@ button.mc-cell:focus-visible {
    pousser le reste hors de la fiche. */
 .fo-outil-limite {
   display: block;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--muted);
   padding-left: 1.4em;
 }
 
 .fo-outil-niveau {
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 /* La commande d'installation d'un outil : à LIRE, puis à coller soi-même. */
@@ -3446,7 +3666,7 @@ button.mc-cell:focus-visible {
 
 .fo-outil-commande {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   padding: 2px 6px;
   border-radius: 6px;
   border: 1px solid var(--border);
@@ -3455,7 +3675,7 @@ button.mc-cell:focus-visible {
 }
 
 .fo-outil-rate {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--amber);
 }
 
@@ -3465,21 +3685,21 @@ button.mc-cell:focus-visible {
 .genome-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   white-space: nowrap;
 }
 .genome-table th,
 .genome-table td {
   text-align: left;
   padding: 0.2rem 0.4rem;
-  border-bottom: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+  border-bottom: 1px solid var(--border);
 }
 .genome-modele {
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono);
 }
 .genome-pied {
   margin: 0.5rem 0 0;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   color: var(--muted);
 }
 /* Le registre vit dans une carte sans marge intérieure : sans ce retrait, sa
@@ -3500,14 +3720,14 @@ button.mc-cell:focus-visible {
 }
 .genome-exacts {
   display: block;
-  font-size: 0.7rem;
+  font-size: var(--fs-2xs);
   color: var(--muted);
 }
 /* Le banc d'ombre, À PART des lignes de production : un filet le sépare. */
 .genome-ombre {
   margin-top: 0.9rem;
   padding-top: 0.6rem;
-  border-top: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+  border-top: 1px solid var(--border);
 }
 /* Ses comptes REPLIENT dans la colonne étroite de l'Essaim : sur une ligne,
    « Tests » et « Confiance » — les colonnes qui disent le résultat —
@@ -3523,10 +3743,10 @@ button.mc-cell:focus-visible {
 }
 .genome-ombre h3 {
   margin: 0 0 0.4rem;
-  font-size: 0.9rem;
+  font-size: var(--fs-md);
 }
 .genome-ombre-liste {
   margin: 0.4rem 0 0;
   padding-left: 1.1em;
-  font-size: 0.78rem;
+  font-size: var(--fs-xs);
 }

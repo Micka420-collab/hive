@@ -176,6 +176,24 @@ describe('les jetons du tableau de bord', () => {
       .map(([nom, ou]) => `${nom} (${[...ou].join(', ')})`);
     expect(orphelins, `jetons lus mais jamais posés : ${orphelins.join(' · ')}`).toEqual([]);
   });
+
+  it('AUCUN JETON N’EST POSÉ SANS QUE PERSONNE LE LISE — hors réserve nommée', () => {
+    // Le pendant de la garde précédente. Un jeton posé et jamais lu promet un
+    // rôle que rien ne tient : on le croit câblé, on le règle, rien ne bouge.
+    // La RÉSERVE nomme ceux qui attendent leurs lecteurs, avec la raison ; elle
+    // ne fait que rétrécir — un jeton réservé qui trouve un lecteur doit en
+    // sortir (sinon la liste ment à son tour).
+    const RESERVE = new Map([
+      // Les séries de graphes (docs/DIRECTION-ARTISTIQUE.md, « Graphes ») :
+      // posées et jugées en contraste dans les deux thèmes, câblées par les
+      // lots d'écrans qui refont les graphes (essaim, balance).
+      ...[1, 2, 3, 4, 5, 6].map((n): [string, string] => [`--graphe-${n}`, 'séries de graphes']),
+    ]);
+    const muets = [...poses].filter((nom) => !lus.has(nom) && !RESERVE.has(nom));
+    expect(muets, `jetons posés mais jamais lus : ${muets.join(' · ')}`).toEqual([]);
+    const sortis = [...RESERVE.keys()].filter((nom) => lus.has(nom) || !poses.has(nom));
+    expect(sortis, `à retirer de la réserve : ${sortis.join(' · ')}`).toEqual([]);
+  });
 });
 
 // ─── 2. LES DEUX DÉFAUTS DE CONTRASTE QUE LES ORPHELINS CACHAIENT ────────────
@@ -252,8 +270,12 @@ describe('le verre du tableau de bord a un repli', () => {
       const fond = fonds.get(s);
       expect(fond, `${s} n'a pas de fond de repli sans flou`).toBeTruthy();
       // Opaque (un jeton de surface), ou un voile assez dense pour que la
-      // page ne se lise plus au travers.
-      const alpha = /^rgba\([^)]*,\s*([\d.]+)\)$/.exec(fond ?? '')?.[1];
+      // page ne se lise plus au travers. Le voile est un JETON (`--voile-dense`,
+      // redéfini par le thème sombre) : on lit ce qu'il vaut dans le thème
+      // clair ; le thème sombre est jugé par tests/dashboard-contraste.test.ts.
+      const jeton = /^var\(\s*(--[\w-]+)\s*\)$/.exec(fond ?? '')?.[1];
+      const brut = jeton === undefined ? fond : (racine().get(jeton) ?? fond);
+      const alpha = /^rgba\([^)]*,\s*([\d.]+)\)$/.exec(brut ?? '')?.[1];
       if (alpha !== undefined) {
         expect(Number(alpha), `${s} : voile de repli trop clair`).toBeGreaterThanOrEqual(0.7);
       } else {

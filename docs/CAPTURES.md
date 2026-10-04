@@ -14,6 +14,7 @@ prise. Celles-ci se refont, et disent d'où elles viennent.
 npx playwright install --only-shell chromium     # une fois par machine, ≈ 110 Mo
 npm run captures                                 # → captures-ecran/fr/
 npm run captures -- --langue en                  # → captures-ecran/en/
+npm run captures -- --theme sombre               # → captures-ecran/fr-sombre/
 npm run captures -- --vues ruche,tache.mobile    # seulement celles-là
 ```
 
@@ -104,8 +105,11 @@ des avertissements.
   la hauteur de page et les **erreurs de console** survenues pendant la vue —
   plus le commit photographié et l'état de l'arbre.
 
-Animations figées (`prefers-reduced-motion`), thème clair. Le script ne juge
-pas l'image : il mesure ce qu'un œil rate, et le reste se regarde.
+Animations figées (`prefers-reduced-motion`). Thème clair par défaut ;
+`--theme sombre` photographie le thème sombre dans `captures-ecran/<langue>-sombre/`
+— par la **préférence du système** (`colorScheme: 'dark'`), sans choix mémorisé :
+c'est le chemin que voit un opérateur qui n'a jamais touché au menu du thème. Le
+script ne juge pas l'image : il mesure ce qu'un œil rate, et le reste se regarde.
 
 ### Ce qui n'est pas photographié
 
@@ -185,9 +189,10 @@ npm run captures -- --sortie docs/images/captures --vues warroom,warroom-decisio
   Sur mobile, le rayon est de plus réduit au point que les alvéoles ne se
   lisent plus, et sa dernière rangée vient buter contre la barre dès le repos
   (`ruche.mobile.png`).
-- **Cerveau** : les chiffres des quatre tuiles d'en-tête sont sombres sur fond
-  sombre — `.cerveau-tuile` hérite (`color: inherit`) le texte de la page
-  claire.
+- **Cerveau** : les chiffres des quatre tuiles d'en-tête étaient sombres sur
+  fond sombre — `.cerveau-tuile` héritait (`color: inherit`) le texte de la
+  page claire. Corrigé avec le thème sombre : la tuile prend la couleur de la
+  carte nocturne.
 - **Rayon et Chantiers** : la console relève des réponses 409 et 501 pour un
   projet sans dépôt et un GitHub non connecté. Ce sont des états attendus, que
   la vue explique elle-même ; le navigateur les compte comme des ressources en
