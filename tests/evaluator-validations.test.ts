@@ -296,3 +296,102 @@ describe('Evaluator — les validations du bac Hive', () => {
     expect(personne.reasons[0]).toContain('aucun producteur de preuve');
   });
 });
+
+// G11b — les tests du bac en échec, comparés test par test à la base rejouée
+// (`shared/lecture-tests.ts`). Le constat arrive du nœud avec sa comparaison ;
+// l'Evaluator en tire trois verdicts différents, et chacun le DIT.
+describe('Evaluator — les tests comparés à la base (G11b)', () => {
+  const aucun = { total: 0, noms: [] };
+  const compare = (
+    etat: 'passed' | 'failed' | 'missing',
+    comparaison: Partial<NonNullable<ProvenanceBac['details']['tests']['comparaison']>>,
+  ) =>
+    juger(
+      { tests: etat, typecheck: 'not_applicable', build: 'not_applicable', lint: 'passed' },
+      {
+        crossReview: relueParCodex,
+        validationProvenance: {
+          ...bac,
+          details: {
+            ...bac.details,
+            tests: {
+              raison: etat === 'missing' ? 'instable' : 'comparee',
+              script: 'test',
+              code: 1,
+              comparaison: {
+                format: 'node-test',
+                executions: { tete: 2, base: 2 },
+                memoire: false,
+                surcoutMs: 4_000,
+                regressions: aucun,
+                dejaRouges: aucun,
+                instables: aucun,
+                ciblesPassees: aucun,
+                ...comparaison,
+              },
+            },
+          },
+        },
+      },
+    );
+
+  it('UN TEST DÉJÀ ROUGE À LA BASE : accepted, et le vert le dit — jamais un vert muet', () => {
+    const verdict = compare('passed', {
+      executions: { tete: 1, base: 1 },
+      dejaRouges: { total: 1, noms: ['un test déjà rouge à la base'] },
+    });
+    expect(verdict.decision).toBe('accepted');
+    expect(verdict.reasons).toContain(
+      'tests comparés à la base aaaaaaaa : aucune régression — 1 test(s) déjà rouge(s) à la base, ' +
+        'que la production n’a pas cassé(s), non bloquant(s) : un test déjà rouge à la base',
+    );
+  });
+
+  it('les cibles passées sont dites aussi : rouges à la base, vertes à la production', () => {
+    const verdict = compare('passed', {
+      dejaRouges: { total: 1, noms: ['encore rouge'] },
+      ciblesPassees: { total: 1, noms: ['repare'] },
+    });
+    expect(verdict.reasons).toContain(
+      'cibles passées : repare — rouge(s) à la base, vert(s) à la production',
+    );
+  });
+
+  it('UNE RÉGRESSION : correction_required, le test NOMMÉ — et ce qui était déjà rouge, séparé', () => {
+    const verdict = compare('failed', {
+      regressions: { total: 1, noms: ['additionne'] },
+      dejaRouges: { total: 1, noms: ['un test déjà rouge à la base'] },
+    });
+    expect(verdict.decision).toBe('correction_required');
+    expect(verdict.retryRecommended).toBe(true);
+    // Le premier motif ne change pas (règle 10, `docs/PROTOCOLE-DEBAT.md`) ;
+    // les suivants sont ce que la critique figée transmet à l'ouvrière.
+    expect(verdict.reasons).toEqual([
+      'validation tests en échec (bac Hive du nœud n1)',
+      'régression comparée à la base aaaaaaaa : additionne — rouge(s) à chacune des 2 exécution(s) ' +
+        'de la production, à aucune des 2 de la base',
+      'déjà rouge(s) à la base, non bloquant(s) : un test déjà rouge à la base',
+    ]);
+  });
+
+  it('beaucoup de régressions : cinq noms, le reste compté — la critique a une borne', () => {
+    const noms = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+    const verdict = compare('failed', { regressions: { total: 12, noms } });
+    expect(verdict.reasons[1]).toContain('a ; b ; c ; d ; e ; … et 7 autre(s)');
+  });
+
+  it('UN TEST INSTABLE : preuve manquante — ni correction, ni vert', () => {
+    const verdict = compare('missing', {
+      executions: { tete: 2, base: 1 },
+      instables: { total: 1, noms: ['vacille une fois'] },
+    });
+    expect(verdict.decision).toBe('additional_test_required');
+    expect(verdict.retryRecommended).toBe(false);
+    expect(verdict.reasons).toEqual([
+      'preuves manquantes : tests (bac Hive du nœud n1)',
+      'tests instables sur le bac du nœud n1 : vacille une fois — rouges à une exécution de la ' +
+        'production, verts à l’autre, jamais rouges à la base aaaaaaaa : ni régression ni vert, ' +
+        'verdict inconnu — stabilisez-les, ou apportez la CI GitHub',
+    ]);
+  });
+});

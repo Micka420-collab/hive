@@ -256,7 +256,8 @@ function lireJest(lignes: readonly string[], texte: string, r: Releve): void {
 // tests: » qui le suit redit les échecs sans leurs suites.
 
 function lireNodeTest(lignes: readonly string[], _texte: string, r: Releve): void {
-  const fin = lignes.findLastIndex((l) => /^ℹ tests \d+$/.test(l));
+  // L'écran importe ce module : sa bibliothèque (ES2022) n'a pas `findLastIndex`.
+  const fin = lignes.reduce((dernier, l, i) => (/^ℹ tests \d+$/.test(l) ? i : dernier), -1);
   const pile: { indent: number; nom: string }[] = [];
   const depiler = (indent: number) => {
     while ((pile.at(-1)?.indent ?? -1) >= indent) pile.pop();

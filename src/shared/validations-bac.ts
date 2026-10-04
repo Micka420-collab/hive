@@ -233,7 +233,7 @@ export const NOM_DE_TEST_MAX = 300;
 /** Des tests nommés : les premiers noms, bornés, et combien il y en a. */
 export interface TestsNommes {
   total: number;
-  noms: string[];
+  noms: readonly string[];
 }
 
 /**

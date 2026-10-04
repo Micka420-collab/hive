@@ -32,6 +32,13 @@
 // après l'agent, jamais déclarées par l'agent lui-même. Elles comptent autant
 // l'une que l'autre ; chaque motif qui s'appuie sur elles nomme sa source.
 //
+// Les tests du bac en échec se comparent à la base, test par test (G11b,
+// `shared/lecture-tests.ts`) : une RÉGRESSION demande une correction qui la
+// NOMME — c'est ce que l'ouvrière lira (`BORNES_CRITIQUE`) ; des tests DÉJÀ
+// ROUGES à la base ne bloquent plus, et `accepted` les DIT — un vert qui les
+// tairait serait un faux ; des tests INSTABLES ne sont ni l'un ni l'autre :
+// preuve manquante.
+//
 // ─── LA PORTE DE SÉCURITÉ ────────────────────────────────────────────────────
 //
 // À côté des validations, jamais parmi elles (`shared/porte-securite.ts` dit
@@ -67,7 +74,13 @@ import {
 import type { PorteSecurite, VoletPorte } from '../shared/porte-securite.js';
 import type { TaskResult } from '../shared/types.js';
 import { DIRE_PANNE, VALIDATION_KEYS } from '../shared/validations-bac.js';
-import type { DetailControle, ValidationKey, ValidationState } from '../shared/validations-bac.js';
+import type {
+  ComparaisonBase,
+  DetailControle,
+  TestsNommes,
+  ValidationKey,
+  ValidationState,
+} from '../shared/validations-bac.js';
 
 export type { ValidationState } from '../shared/validations-bac.js';
 
@@ -318,6 +331,24 @@ function motifsDeLaPorte(porte: PorteSecurite, nodeId: string | undefined): stri
   return motifs;
 }
 
+/**
+ * Des tests nommés en une ligne : les cinq premiers, le reste compté. Cinq,
+ * parce qu'un motif tient dans la borne d'une raison de la critique figée
+ * (`BORNES_CRITIQUE.raison`, 400 caractères) — c'est elle que lit l'ouvrière.
+ */
+const direTests = (tests: TestsNommes): string => enLigne(tests.noms.slice(0, 5), tests.total);
+
+/** La comparaison à la base des tests du bac, quand il y en a une. */
+function comparaisonDesTests(
+  provenance: ValidationProvenance | undefined,
+): { comparaison: ComparaisonBase; base: string; nodeId: string } | null {
+  if (provenance?.source !== 'hive_sandbox') return null;
+  const comparaison = provenance.details.tests.comparaison;
+  if (!comparaison) return null;
+  const base = provenance.baseSha ? `la base ${provenance.baseSha.slice(0, 8)}` : 'la base';
+  return { comparaison, base, nodeId: provenance.nodeId };
+}
+
 /** Chaque volet en quelques mots : « secrets — outil absent (betterleaks) ». */
 function direVolets(porte: PorteSecurite, volets: readonly VoletPorte[]): string {
   return volets
@@ -475,8 +506,22 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
       evidence,
     );
   }
+  const tests = comparaisonDesTests(input.validationProvenance);
   if (failedValidation) {
     reasons.push(`validation ${failedValidation} en échec${suffixeSource}`);
+    // La correction NOMME ce que la production a cassé, et dit ce qui était
+    // déjà rouge : sans ça, l'ouvrière « réparerait » aussi ce qu'elle n'a pas
+    // touché — ou ne saurait pas lequel de ses tests rouges est le sien.
+    if (failedValidation === 'tests' && tests && tests.comparaison.regressions.total > 0) {
+      const { regressions, dejaRouges, executions } = tests.comparaison;
+      reasons.push(
+        `régression comparée à ${tests.base} : ${direTests(regressions)} — rouge(s) à chacune des ` +
+          `${executions.tete} exécution(s) de la production, à aucune des ${executions.base} de la base`,
+      );
+      if (dejaRouges.total > 0) {
+        reasons.push(`déjà rouge(s) à la base, non bloquant(s) : ${direTests(dejaRouges)}`);
+      }
+    }
     return result(input.taskId, 'correction_required', false, true, reasons, evidence);
   }
   // ─── MANQUANTE ET NON APPLICABLE NE SONT PAS LA MÊME ABSENCE ──────────────
@@ -523,6 +568,15 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
       preuvesAbsentes.push(
         `le bac du nœud ${bac.nodeId} est tombé en panne pendant ${key} (${nom[0]}), ` +
           `verdict inconnu : ${remede[0]}`,
+      );
+    }
+    // Un test instable n'est ni une régression (pas de correction : la
+    // production n'est peut-être pour rien dans le hasard) ni un vert.
+    if (validation.tests === 'missing' && tests && tests.comparaison.instables.total > 0) {
+      preuvesAbsentes.push(
+        `tests instables sur le bac du nœud ${tests.nodeId} : ${direTests(tests.comparaison.instables)} ` +
+          `— rouges à une exécution de la production, verts à l’autre, jamais rouges à ${tests.base} : ` +
+          'ni régression ni vert, verdict inconnu — stabilisez-les, ou apportez la CI GitHub',
       );
     }
   } else if (validation.tests === 'not_applicable') {
@@ -616,6 +670,20 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     `résultat réussi, Gardiennes propres, validations vertes et contre-revue favorable de ${relecteurs.join(', ')} sur une production de ${producteurs.join(', ')}`,
   ];
   if (source) acceptedReasons.push(`validations : ${source}`);
+  // Des tests rouges ont été excusés : ils l'étaient déjà à la base. Le vert
+  // le DIT — l'humain qui approuve lit ce qui reste rouge, et pourquoi.
+  if (validation.tests === 'passed' && tests && tests.comparaison.dejaRouges.total > 0) {
+    const { dejaRouges, ciblesPassees } = tests.comparaison;
+    acceptedReasons.push(
+      `tests comparés à ${tests.base} : aucune régression — ${dejaRouges.total} test(s) déjà ` +
+        `rouge(s) à la base, que la production n’a pas cassé(s), non bloquant(s) : ${direTests(dejaRouges)}`,
+    );
+    if (ciblesPassees.total > 0) {
+      acceptedReasons.push(
+        `cibles passées : ${direTests(ciblesPassees)} — rouge(s) à la base, vert(s) à la production`,
+      );
+    }
+  }
   if (notApplicable.length > 0) {
     acceptedReasons.push(
       `non applicables, faute de déclaration par le projet : ${notApplicable.join(', ')}`,

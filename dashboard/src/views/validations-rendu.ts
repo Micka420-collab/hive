@@ -16,7 +16,12 @@
 
 import type { ValidationProvenance } from '../../../src/orchestrator/evaluator';
 import { DIRE_RAISON_PORTE, type PorteSecurite } from '../../../src/shared/porte-securite';
-import { DIRE_PANNE, type DetailControle } from '../../../src/shared/validations-bac';
+import {
+  DIRE_PANNE,
+  type ComparaisonBase,
+  type DetailControle,
+  type TestsNommes,
+} from '../../../src/shared/validations-bac';
 import { formatDuree } from '../ui';
 
 /** Traduire, tel que `useT` le rend : `t(fr, en)`. */
@@ -54,6 +59,66 @@ export function resumeProvenance(provenance: ValidationProvenance, t: Traduire):
     `${t('nœud', 'node')} ${provenance.nodeId}`,
     ...(provenance.baseSha ? [`base ${provenance.baseSha.slice(0, 8)}`] : []),
   ].join(' · ');
+}
+
+/** Des tests nommés : les noms rapportés, et ce que la borne a laissé tomber. */
+function noms(tests: TestsNommes, t: Traduire): string {
+  const reste = tests.total - tests.noms.length;
+  return (
+    tests.noms.join(' ; ') +
+    (reste > 0 ? t(` ; … et ${reste} autre(s)`, ` ; … and ${reste} more`) : '')
+  );
+}
+
+/**
+ * La comparaison à la base (G11b), en une phrase : ce qui bloque d'abord, puis
+ * ce qui reste rouge sans bloquer, puis ce que la production a réparé — et ce
+ * que la comparaison a coûté, puisqu'elle double l'exécution.
+ */
+function texteComparaison(c: ComparaisonBase, t: Traduire): string {
+  const morceaux: string[] = [];
+  if (c.regressions.total > 0) {
+    morceaux.push(
+      t(
+        `régression : ${noms(c.regressions, t)} — rouge à chaque exécution, jamais à la base`,
+        `regression: ${noms(c.regressions, t)} — red on every run, never at the base`,
+      ),
+    );
+  }
+  if (c.instables.total > 0) {
+    morceaux.push(
+      t(
+        `instable : ${noms(c.instables, t)} — rouge puis vert d’une exécution à l’autre : ni régression ni vert, verdict inconnu`,
+        `flaky: ${noms(c.instables, t)} — red then green from one run to the next: neither a regression nor green, verdict unknown`,
+      ),
+    );
+  }
+  if (c.dejaRouges.total > 0) {
+    morceaux.push(
+      t(
+        `déjà rouge à la base, non bloquant : ${noms(c.dejaRouges, t)}`,
+        `already red at the base, not blocking: ${noms(c.dejaRouges, t)}`,
+      ),
+    );
+  }
+  if (c.ciblesPassees.total > 0) {
+    morceaux.push(
+      t(
+        `cibles passées : ${noms(c.ciblesPassees, t)}`,
+        `targets passed: ${noms(c.ciblesPassees, t)}`,
+      ),
+    );
+  }
+  const cout = c.memoire
+    ? t('base déjà rejouée sur ce nœud', 'base already replayed on this node')
+    : t(
+        `base rejouée à part, ${formatDuree(c.surcoutMs)} de plus`,
+        `base replayed apart, ${formatDuree(c.surcoutMs)} extra`,
+      );
+  return t(
+    `comparé test par test à la base (${c.executions.tete} exécution(s) de la production, ${c.executions.base} de la base ; ${cout}) — ${morceaux.join(' · ')}`,
+    `compared test by test with the base (${c.executions.tete} run(s) of the production, ${c.executions.base} of the base; ${cout}) — ${morceaux.join(' · ')}`,
+  );
 }
 
 /**
@@ -162,5 +227,17 @@ export function texteControle(detail: DetailControle, t: Traduire): string {
         'les validations ont été interrompues par une erreur du nœud',
         'validations were interrupted by a node error',
       );
+    case 'comparee':
+    case 'instable': {
+      // `controleDepuis` exige la comparaison avec ces raisons : l'absence
+      // n'est que le repli du typage, dit sans rien inventer.
+      const sortie = `${commande} → ${code}`;
+      return detail.comparaison
+        ? `${sortie} · ${texteComparaison(detail.comparaison, t)}`
+        : t(
+            `${sortie} : comparé à la base, détail absent`,
+            `${sortie}: compared with the base, detail missing`,
+          );
+    }
   }
 }
