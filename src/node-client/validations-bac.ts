@@ -140,6 +140,7 @@ import type {
   ValidationKey,
   ValidationsBac,
 } from '../shared/validations-bac.js';
+import { BaseFalsifiee, lireFichierDeBaseVerifie } from './base-verifiee.js';
 import { DELAI_EXTRACTION_MS, extraireBase, extraireLivre, figerArbreLivre } from './git-hote.js';
 import { MONTAGE } from './isolement.js';
 import type { BacExecution } from './isolement.js';
@@ -255,20 +256,24 @@ export interface OptionsValidation {
 }
 
 /**
- * Lit un fichier du commit de base ; `null` s'il n'y existe pas. Partagé avec
- * la porte de sécurité, qui y relit les lockfiles d'avant la production.
+ * Lit un fichier du commit de base, par la SEULE porte vérifiée
+ * (`base-verifiee.ts`) ; `null` s'il n'y existe pas. Partagé avec la porte de
+ * sécurité, qui y relit les lockfiles d'avant la production.
+ *
+ * Lève `BaseFalsifiee` si un objet git du chemin ne correspond pas à son
+ * empreinte : git ne vérifie pas ce qu'il lit, l'agent a pu forger l'objet
+ * d'un fichier de la base dans le `.git` de sa tâche (`alternates`), et une
+ * lecture directe (`cat-file blob <base>:<fichier>`) rendait alors le contenu
+ * FORGÉ — un `"test":"exit 0"` glissé sous le `package.json` de base, une
+ * vulnérabilité maquillée en « déjà présente ». Jamais une lecture silencieuse :
+ * l'appelant REJETTE la production en le disant.
  */
 export async function fichierDeBase(
   depot: DepotEpingle,
   baseSha: string,
   fichier: string,
 ): Promise<string | null> {
-  try {
-    // `cat-file blob` : les octets du commit, sans filtre ni `textconv`.
-    return await gitHote(['cat-file', 'blob', `${baseSha}:${fichier}`], depot);
-  } catch {
-    return null;
-  }
+  return lireFichierDeBaseVerifie(depot, baseSha, fichier);
 }
 
 function fichierDeTravail(cwd: string, fichier: string): string | null {
@@ -314,13 +319,29 @@ async function arbreLivre(
  */
 export async function validerProduction(opts: OptionsValidation): Promise<ValidationsBac> {
   const { depot, cwd } = opts;
-  const base = depot ? await fichierDeBase(depot.depot, depot.baseSha, 'package.json') : null;
-  const produit = fichierDeTravail(cwd, 'package.json');
-  const plan = planDeValidation(scriptsDe(manifeste(base)), scriptsDe(manifeste(produit)));
   const rapport = (controles: Record<ValidationKey, ControleBac>): ValidationsBac => ({
     ...(depot ? { baseSha: depot.baseSha } : {}),
     controles,
   });
+
+  let base: string | null;
+  try {
+    base = depot ? await fichierDeBase(depot.depot, depot.baseSha, 'package.json') : null;
+  } catch (err) {
+    // La base relue est falsifiée : l'agent a forgé l'objet git du
+    // `package.json` de base (`base-verifiee.ts`). On ne lit pas les scripts
+    // d'un manifeste forgé, et aucune validation ne passe — la raison le dit,
+    // caviardée comme tout ce qui part au hub.
+    if (!(err instanceof BaseFalsifiee)) throw err;
+    const sortie = opts.caviarder?.(err.message) ?? err.message;
+    const controles = {} as Record<ValidationKey, ControleBac>;
+    for (const cle of VALIDATION_KEYS) {
+      controles[cle] = { etat: 'missing', raison: 'base_falsifiee', ...extraitDe(sortie) };
+    }
+    return rapport(controles);
+  }
+  const produit = fichierDeTravail(cwd, 'package.json');
+  const plan = planDeValidation(scriptsDe(manifeste(base)), scriptsDe(manifeste(produit)));
 
   try {
     // `.npmrc` règle la façon dont npm lance un script (`script-shell`…) et

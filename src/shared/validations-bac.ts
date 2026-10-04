@@ -113,6 +113,13 @@ export const ETATS_PAR_RAISON = {
   test_par_defaut: ['not_applicable'],
   /** La production a modifié le bloc `scripts` de `package.json`. */
   declaration_reecrite: ['missing'],
+  /**
+   * La base relue dans l'espace de travail ne correspond pas à son empreinte :
+   * l'agent a forgé un objet git du dépôt de la tâche (`base-verifiee.ts`). Le
+   * plan se lirait sur un `package.json` falsifié — aucune validation n'est
+   * fiable, et aucune ne passe.
+   */
+  base_falsifiee: ['missing'],
   /** La production a modifié `.npmrc`, qui règle comment npm lance un script. */
   npmrc_reecrit: ['missing'],
   /** Le nœud n'a pas de bac à sable : du code d'agent ne tourne pas sur l'hôte nu. */

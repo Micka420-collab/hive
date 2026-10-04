@@ -212,11 +212,32 @@ export interface DepotEpingle {
  * d'`execFile` recopie la ligne de commande, donc l'URL de clone — et une URL
  * peut porter un jeton (`https://x:jeton@…`). Git, lui, l'anonymise.
  */
-export function gitHote(
+export async function gitHote(
   args: readonly string[],
   ou: string | DepotEpingle,
-  { delaiMs, ssh, identite }: { delaiMs?: number; ssh?: string; identite?: IdentiteCommit } = {},
+  options: OptionsGitHote = {},
 ): Promise<string> {
+  return (await gitHoteOctets(args, ou, options)).toString('utf8');
+}
+
+export interface OptionsGitHote {
+  delaiMs?: number;
+  ssh?: string;
+  identite?: IdentiteCommit;
+  /** Écrit sur l'entrée standard de git, puis fermée (`cat-file --batch`). */
+  entree?: string;
+}
+
+/**
+ * `gitHote`, sortie rendue telle quelle, en octets : un objet git se relit
+ * octet pour octet quand on recalcule son empreinte (`base-verifiee.ts`) —
+ * décodé en UTF-8, un arbre (des empreintes BRUTES) ne se relirait plus.
+ */
+export function gitHoteOctets(
+  args: readonly string[],
+  ou: string | DepotEpingle,
+  { delaiMs, ssh, identite, entree }: OptionsGitHote = {},
+): Promise<Buffer> {
   const local = typeof ou !== 'string';
   const delai = delaiMs ?? (local ? DELAI_GIT_LOCAL_MS : 0);
   // `-C` : git, lui, travaille DANS l'arbre — `apply` résout les chemins du
@@ -225,7 +246,7 @@ export function gitHote(
     ? ['-C', ou.workTree, `--git-dir=${ou.gitDir}`, `--work-tree=${ou.workTree}`]
     : [];
   return new Promise((resolve, reject) => {
-    execFile(
+    const enfant = execFile(
       'git',
       [...PROTECTIONS, ...transportBorne(delai), ...epingle, ...args],
       {
@@ -233,7 +254,7 @@ export function gitHote(
         env: envGitHote(ssh, identite),
         shell: false, // jamais d'interprétation shell (contrainte §5.1)
         windowsHide: true,
-        encoding: 'utf8',
+        encoding: 'buffer',
         // Un diff de revue peut être gros ; il est plafonné plus loin (LIMITS).
         // Au-delà, la tâche ÉCHOUE, message à l'appui (`raisonEchec`) : c'est
         // voulu — tout garder en mémoire pour en jeter l'essentiel exposerait
@@ -250,10 +271,16 @@ export function gitHote(
         const code = typeof err.code === 'number' ? err.code : null;
         // Sans `signal` d'annulation, seul le délai fait tuer git par node.
         const delaiDepasse = delai > 0 && err.killed === true && code === null;
-        const raison = raisonEchec(err, code, stderr);
+        const raison = raisonEchec(err, code, stderr.toString('utf8'));
         reject(new EchecGitHote(`git ${args[0] ?? ''} : ${raison}`, code, delaiDepasse));
       },
     );
+    if (entree !== undefined) {
+      // Un git qui sort avant d'avoir tout lu (`EPIPE`) dit déjà pourquoi par
+      // son code de sortie : l'erreur du tube n'apprend rien de plus.
+      enfant.stdin?.on('error', () => undefined);
+      enfant.stdin?.end(entree);
+    }
   });
 }
 

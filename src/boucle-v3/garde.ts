@@ -134,6 +134,12 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   },
   {
     categorie: 'securite',
+    motif: /^src\/node-client\/base-verifiee\.ts$|^tests\/base-(verifiee|forgee)[^/]*\.test\.ts$/,
+    pourquoi:
+      'la seule porte de lecture VÉRIFIÉE de la base, et ses bancs : elle recalcule l’empreinte de chaque objet git relu (git ne la vérifie pas) et rejette une base forgée par l’agent — l’affaiblir laisserait un `package.json` ou un lockfile de base maquillé rendre des validations vertes ou excuser une vulnérabilité',
+  },
+  {
+    categorie: 'securite',
     motif:
       /^src\/node-client\/(isolement|bac|validations-bac)\.ts$|^src\/shared\/validations-bac\.ts$/,
     pourquoi: 'le bac à sable des agents et les commandes qu’il lance',
