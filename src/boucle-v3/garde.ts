@@ -192,6 +192,20 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   },
   {
     categorie: 'securite',
+    motif:
+      /^src\/node-client\/(proxy-egress|politique-reseau|reseau-tache)\.ts$|^src\/shared\/reseau\.ts$/,
+    pourquoi:
+      'le réseau sortant filtré par tâche : le proxy d’egress, sa politique et les hôtes permis — l’affaiblir rouvre l’exfiltration depuis le bac',
+  },
+  {
+    categorie: 'securite',
+    motif:
+      /^tests\/(proxy-egress|politique-reseau|reseau-tache|enveloppe-reseau|bac-reseau|reseau-bac\.integration|politique-actions|requisition-action|pont-approve|regles-autorisation-depot|garde-pr[^/]*|routines[^/]*|revue-ligne)\.test\.tsx?$/,
+    pourquoi:
+      'les bancs des gardes de la vague 7 (réseau sortant, politique d’actions, garde de PR, routines, revue en ligne) : les affaiblir retire le garde-fou',
+  },
+  {
+    categorie: 'securite',
     motif: /^src\/shared\/graphe-experience\.ts$/,
     pourquoi:
       'le cloisonnement des projets dans le graphe d’expérience, et le cadrage de ce qu’il donne aux agents',
@@ -237,6 +251,24 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
     motif: /^src\/shared\/retention-journal\.ts$/,
     pourquoi:
       'ce que l’élagage du journal garde comme preuve : une revue humaine ou une livraison élaguée ne se relit plus',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/shared\/politique-actions\.ts$/,
+    pourquoi:
+      'la politique d’actions des agents : ce qui est autorisé, refusé ou soumis à la Chambre selon l’autonomie',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/orchestrator\/garde-pr\.ts$/,
+    pourquoi:
+      'la garde de PR : ce que la ruche relance et repousse d’elle-même sur une pull request qu’elle a livrée',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/shared\/commentaire-revue\.ts$/,
+    pourquoi:
+      'les commentaires ancrés et le verdict « changements demandés » de la revue humaine, le geste que cette porte croit',
   },
   {
     categorie: 'permissions',
@@ -331,6 +363,12 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
       /(?:^|\/)(vitest|eslint|vite)\.config\.[^/]*$|(?:^|\/)tsconfig[^/]*\.json$|^\.(husky|githooks)\/|^\.git(attributes|modules)$/,
     pourquoi:
       'configuration exécutée par les outils (tests, lint, build, typage, hooks git) — un `tsconfig` relâché fait passer ce que le typage refusait',
+  },
+  {
+    categorie: 'auto-execution',
+    motif: /^src\/orchestrator\/(routines|cron)\.ts$/,
+    pourquoi:
+      'les routines et leur horloge : ce qui lance des missions sans humain, et la signature des webhooks qui les déclenchent',
   },
   {
     categorie: 'auto-execution',
