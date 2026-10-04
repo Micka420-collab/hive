@@ -1979,6 +1979,9 @@ async function monterReine(
     if (parent.status !== 'assigned' && parent.status !== 'running') return;
     const socket = nodeSockets.get(parent.assignedNodeId);
     if (!socket) return;
+    // Le motif lisible d'un échec qui en porte un (`depot_illisible`), plutôt
+    // que son code.
+    const dit = typeof fait.motif === 'string' && fait.motif.length > 0 ? fait.motif : reason;
     const motif =
       reason === 'root_cost_budget_exhausted'
         ? `budget coût de la racine épuisé (${LIMITES_DELEGATION_DEFAUT.maxCostMicros} µUSD de ` +
@@ -1989,8 +1992,8 @@ async function monterReine(
             'travail toi-même'
           : reason === 'no_working_agent'
             ? 'aucun agent fonctionnel ne l’a exécutée — refais ce travail toi-même ou délègue autrement'
-            : typeof reason === 'string' && reason.length > 0
-              ? reason
+            : typeof dit === 'string' && dit.length > 0
+              ? dit
               : issue === 'annulee'
                 ? 'annulée'
                 : 'échouée';
@@ -4119,11 +4122,15 @@ async function monterReine(
         taskId,
       };
     }
+    // Le `motif` lisible d'abord, quand le fait en porte un (`depot_illisible`) :
+    // son code seul ne dit rien à qui lit le canal.
+    const cause =
+      typeof p.motif === 'string' ? p.motif : typeof p.reason === 'string' ? p.reason : 'échec';
     return {
       kind: 'blocage',
       projectId: task.projectId,
       titre: `Tâche en échec — ${task.title}`,
-      corps: `Motif : ${typeof p.reason === 'string' ? p.reason : 'échec'}`,
+      corps: `Motif : ${cause}`,
       taskId,
     };
   };
