@@ -53,7 +53,7 @@ const URL_ILLISIBLE = `https://marie:${JETON}@example.invalid/o/r.git\nX`;
 const MOTIF_CONTROLE =
   'URL de dépôt du projet illisible (caractère de contrôle) — recréez le projet avec une URL valide';
 const MOTIF_HORS_PROTOCOLE =
-  'assignation illisible pour ce nœud — mettez ce nœud et la Reine à la même version';
+  'assignation illisible pour ce nœud — versions Reine/nœud différentes, ou champ hors bornes (titre, consigne, plafond)';
 
 const TACHE = {
   id: 'tache-illisible',
@@ -240,7 +240,8 @@ describe('le nœud dit ce qu’il ne sait pas lire', () => {
 
   it('ILLISIBLE POUR UNE AUTRE CAUSE (un niveau que ce nœud ne connaît pas) : refusée quand même', async () => {
     // Un hub plus récent qui envoie un effort neuf : rien à voir avec le dépôt,
-    // et la cause générique dit le geste — aligner les versions.
+    // et la cause générique dit les deux gestes — aligner les versions, ou
+    // tenir les bornes.
     const { recus } = await noeudFaceA({
       type: 'assign_task',
       task: TACHE,

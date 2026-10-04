@@ -1713,11 +1713,14 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
 
 /**
  * La cause d'une assignation illisible quand ce n'est pas son dépôt : un champ
- * hors protocole — un niveau qu'un nœud plus ancien ne connaît pas, une borne
- * qu'un producteur n'a pas tenue. Le geste vaut pour les deux.
+ * hors protocole, que le parseur ne nomme pas. Deux origines, deux gestes —
+ * des versions différentes (un niveau qu'un nœud plus ancien ne connaît pas),
+ * ou une borne qu'un producteur n'a pas tenue (un titre de plus de
+ * `LIMITS.title`, une consigne, un plafond), qu'aucune mise à jour ne lève.
+ * Les deux sont dits, dans la borne d'une raison de refus (`LIMITS.name`).
  */
 const ASSIGNATION_HORS_PROTOCOLE =
-  'assignation illisible pour ce nœud — mettez ce nœud et la Reine à la même version';
+  'assignation illisible pour ce nœud — versions Reine/nœud différentes, ou champ hors bornes (titre, consigne, plafond)';
 
 /** Une assignation que `parseServerMessage` a refusée, et ce que le nœud en répond. */
 export interface AssignationIllisible {
@@ -1766,7 +1769,7 @@ export function assignationIllisible(raw: unknown): AssignationIllisible | null 
   if (typeof data !== 'object' || data === null || Array.isArray(data)) return null;
   const m = data as Record<string, unknown>;
   // Le dépôt d'abord : refusé, il suffit à faire tomber le message, et c'est la
-  // seule cause dont le geste n'est pas d'aligner les versions.
+  // seule cause que ce nœud sait nommer.
   const motif = (repoUrl: unknown): string =>
     motifDepotIllisible(repoUrl) ?? ASSIGNATION_HORS_PROTOCOLE;
   switch (m.type) {

@@ -838,23 +838,36 @@ describe('assignationIllisible — ce que le nœud répond à ce qu’il ne sait
   const URL_ILLISIBLE = 'https://marie:ghp_SECRET0123456789@h.invalid/o/r.git\nX';
   const MOTIF =
     'URL de dépôt du projet illisible (caractère de contrôle) — recréez le projet avec une URL valide';
+  const HORS_PROTOCOLE =
+    'assignation illisible pour ce nœud — versions Reine/nœud différentes, ou champ hors bornes (titre, consigne, plafond)';
 
-  it('UN REFUS QUE LA REINE SAIT LIRE, pour chaque travail — la cause sans le jeton', () => {
-    for (const message of [
-      { type: 'assign_task', task: validTask, repoUrl: URL_ILLISIBLE },
-      { type: 'assign_merge', mergeId: 'm1', repoUrl: URL_ILLISIBLE, diffs: [] },
-      { type: 'assign_chantier', chantierId: 'c1', repoUrl: URL_ILLISIBLE, nom: 'test' },
-    ]) {
+  it('UN REFUS QUE LA REINE SAIT LIRE, pour chaque travail et chaque cause — sans le jeton', () => {
+    const cas: Array<[Record<string, unknown>, string]> = [
+      [{ type: 'assign_task', task: validTask, repoUrl: URL_ILLISIBLE }, MOTIF],
+      [{ type: 'assign_merge', mergeId: 'm1', repoUrl: URL_ILLISIBLE, diffs: [] }, MOTIF],
+      [{ type: 'assign_chantier', chantierId: 'c1', repoUrl: URL_ILLISIBLE, nom: 'test' }, MOTIF],
+      // Sans dépôt reproché (absent, ou nul pour une tâche), un champ hors
+      // protocole : un niveau qu'un nœud plus ancien ne connaît pas — aligner
+      // les versions —, un titre qu'un producteur n'a pas borné — qu'aucune
+      // mise à jour ne lève. Le motif dit les deux.
+      [{ type: 'assign_task', task: validTask, repoUrl: null, effort: 'inconnu' }, HORS_PROTOCOLE],
+      [
+        { type: 'assign_task', task: { ...validTask, title: 'x'.repeat(LIMITS.title + 1) } },
+        HORS_PROTOCOLE,
+      ],
+    ];
+    for (const [message, motif] of cas) {
       const brut = JSON.stringify(message);
-      expect(parseServerMessage(brut), `prémisse : ${message.type} est illisible`).toBeNull();
+      const nom = `${String(message.type)} → ${motif.slice(0, 40)}`;
+      expect(parseServerMessage(brut), `prémisse : ${nom} est illisible`).toBeNull();
       const illisible = assignationIllisible(brut);
-      expect(illisible?.motif, message.type).toBe(MOTIF);
+      expect(illisible?.motif, nom).toBe(motif);
       // La Reine relit la réponse avec SON parseur : une réponse qu'il
-      // refuserait serait un second silence.
+      // refuserait (une raison au-delà de `LIMITS.name`) serait un second silence.
       const reponse = illisible?.reponse;
-      expect(reponse, message.type).not.toBeNull();
-      expect(parseClientMessage(JSON.stringify(reponse)), message.type).toEqual(reponse);
-      expect(JSON.stringify(illisible), message.type).not.toContain('ghp_SECRET');
+      expect(reponse, nom).not.toBeNull();
+      expect(parseClientMessage(JSON.stringify(reponse)), nom).toEqual(reponse);
+      expect(JSON.stringify(illisible), nom).not.toContain('ghp_SECRET');
     }
   });
 
@@ -883,13 +896,6 @@ describe('assignationIllisible — ce que le nœud répond à ce qu’il ne sait
       motif: 'identifiant de pose ou d’outil mal formé',
       reponse: null,
     });
-    // Sans dépôt reproché (absent, ou nul pour une tâche), la cause est un
-    // champ hors protocole : le geste est d'aligner les versions.
-    expect(
-      assignationIllisible(
-        JSON.stringify({ type: 'assign_task', task: validTask, repoUrl: null, effort: 'inconnu' }),
-      )?.motif,
-    ).toBe('assignation illisible pour ce nœud — mettez ce nœud et la Reine à la même version');
     for (const brut of ['pas du json', '[]', JSON.stringify({ type: 'cancel_task' }), 42]) {
       expect(assignationIllisible(brut), String(brut)).toBeNull();
     }

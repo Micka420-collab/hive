@@ -34,7 +34,8 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   refusés de même. Jusqu'ici, chaque ouvrière jetait l'assignation sans un mot
   et la tâche restait assignée pour toujours. Recréez le projet. Une ouvrière
   à jour refuse aussi, en le disant, toute assignation qu'elle ne sait pas
-  lire : gardez la Reine et ses ouvrières à la même version (#554).
+  lire (des versions différentes, ou un champ hors des bornes du protocole) :
+  gardez la Reine et ses ouvrières à la même version (#554).
 
 ## [0.5.0] — 2026-09-28
 
