@@ -94,6 +94,9 @@ describe('lire un dépôt', () => {
       brut({ full_name: 'sans-slash' }),
       brut({ clone_url: 'git@github.com:moi/projet.git' }), // pas https
       brut({ clone_url: null }),
+      // `new URL` l'accepte (il retire le saut de ligne), le protocole non :
+      // importé, ce dépôt ferait refuser par chaque nœud toutes ses assignations.
+      brut({ clone_url: 'https://github.com/moi/projet.git\n' }),
     ]) {
       expect(lireDepot(mauvais), JSON.stringify(mauvais)?.slice(0, 40)).toBeNull();
     }
@@ -326,5 +329,24 @@ describe('lire un dépôt précis', () => {
         json: async () => ({ pas: 'un dépôt' }),
       }) as unknown as Response;
     await expect(lireUnDepot({ jeton: 'j', fetcheur: f }, 'a/b')).rejects.toThrow(/illisible/);
+  });
+
+  it('une adresse de clonage que le protocole refuse dit sa cause — sans la recopier', async () => {
+    // « GitHub a répondu quelque chose d'inattendu » laissait chercher : la
+    // cause est celle que chaque nœud opposerait aux assignations du projet.
+    const f = async (): Promise<Response> =>
+      ({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => brut({ clone_url: 'https://github.com/moi/projet.git\n' }),
+      }) as unknown as Response;
+    const erreur = await lireUnDepot({ jeton: 'j', fetcheur: f }, 'moi/projet').catch(
+      (e: unknown) => e,
+    );
+    expect(erreur).toBeInstanceOf(ErreurGithub);
+    expect((erreur as ErreurGithub).conseil).toBe(
+      'URL de dépôt du projet illisible (caractère de contrôle) — recréez le projet avec une URL valide',
+    );
   });
 });

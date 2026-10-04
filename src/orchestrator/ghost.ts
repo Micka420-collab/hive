@@ -158,13 +158,14 @@ export function detectGhosts(events: HiveEvent[]): GhostReport {
         break;
       }
       case 'task_rejected': {
-        if (nodeId) {
-          const s = ensureNode(nodes, nodeId);
-          // Le champ `infra` n'existe que si le token-failover est actif : lu de
-          // façon défensive (absent ⇒ refus « ordinaire »).
-          if (p['infra'] === true) s.infraRejects += 1;
-          else s.rejected += 1;
-        }
+        // Une assignation que ce nœud n'a pas su lire (`illisible` — des
+        // versions, une borne) n'est ni une panne de son poste ni sa capacité.
+        if (!nodeId || p['illisible'] === true) break;
+        const s = ensureNode(nodes, nodeId);
+        // Le champ `infra` n'existe que si le token-failover est actif : lu de
+        // façon défensive (absent ⇒ refus « ordinaire »).
+        if (p['infra'] === true) s.infraRejects += 1;
+        else s.rejected += 1;
         break;
       }
       default:

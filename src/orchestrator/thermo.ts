@@ -77,10 +77,15 @@ export interface LectureThermo {
  *  - un `task_failed` de CASCADE (`reason: 'dependency_failed'`) n'est pas un
  *    échec d'agent : une seule vraie panne propage un échec à toutes ses
  *    dépendantes et ferait chauffer la ruche dix fois pour un seul incident ;
+ *    un DÉPÔT ILLISIBLE (`depot_illisible`) non plus, pour la même raison :
+ *    une URL de projet que le protocole refuse échoue toutes ses tâches d'un
+ *    coup, avant tout envoi, sans qu'aucun agent n'ait tourné ;
  *    un ARRÊT BUDGÉTAIRE (`arretBudgetaire`) non plus : la borne a tenu ;
  *  - seul un `task_rejected` d'INFRASTRUCTURE (`infra: true` — agent
  *    injoignable, quota) compte : un refus de saturation ou de Night Shift
- *    (nœud hors service) vient d'une ruche parfaitement saine.
+ *    (nœud hors service) vient d'une ruche parfaitement saine, et une
+ *    assignation que le nœud n'a pas su lire (`illisible` — des versions, une
+ *    borne) aussi : aucun agent n'y est en panne.
  */
 export function lireTemperature(
   events: Array<{ type: string; ts: number; payload?: Record<string, unknown> }>,
@@ -94,16 +99,17 @@ export function lireTemperature(
       case 'task_done':
         signaux.succes += 1;
         break;
-      case 'task_failed':
-        if (e.payload?.reason !== 'dependency_failed' && !arreteeParSonBudget(e.payload)) {
-          signaux.echecs += 1;
-        }
+      case 'task_failed': {
+        const cause = e.payload?.reason;
+        const unSeulIncident = cause === 'dependency_failed' || cause === 'depot_illisible';
+        if (!unSeulIncident && !arreteeParSonBudget(e.payload)) signaux.echecs += 1;
         break;
+      }
       case 'task_retry':
         signaux.retries += 1;
         break;
       case 'task_rejected':
-        if (e.payload?.infra === true) signaux.refusInfra += 1;
+        if (e.payload?.infra === true && e.payload.illisible !== true) signaux.refusInfra += 1;
         break;
       default:
         break;

@@ -279,11 +279,17 @@ const EVENTS: Record<string, Meta> = {
     text: (p, t) => {
       const ms = cout(p.durationMs);
       const base = t(`échouée (${short(p.taskId)})`, `failed (${short(p.taskId)})`);
+      // Une tâche close par la Reine AVANT tout envoi (`depot_illisible`) n'a
+      // ni production ni logs : son `motif` est sa seule cause. Rangé en
+      // français, comme la raison d'un refus d'infrastructure.
+      const cause = typeof p.motif === 'string' ? ` — ${p.motif}` : '';
       // « durée : X » plutôt qu'un participe accordé : la durée est formatée
       // (« 1 h », « 4 h 12 min », « 340 ms ») et aucun accord français ne tient
       // sur toutes ces formes. Pas « coût » : depuis que la ruche compte des
       // dollars, le mot se lisait comme une dépense.
-      return ms === null ? base : `${base} — ${t(`durée : ${ms}`, `duration: ${ms}`)}`;
+      return ms === null
+        ? `${base}${cause}`
+        : `${base} — ${t(`durée : ${ms}`, `duration: ${ms}`)}${cause}`;
     },
   },
   task_cancelled: {

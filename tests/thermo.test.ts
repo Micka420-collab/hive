@@ -91,6 +91,19 @@ describe('lireTemperature (module pur)', () => {
     expect(lecture.bande).toBe('normale');
   });
 
+  it('un DÉPÔT ILLISIBLE non plus : un projet cassé n’est pas une ruche qui souffre', () => {
+    // Ses neuf tâches échouent d'un coup, avant tout envoi : aucun agent n'a
+    // tourné, et l'unique cause est l'URL du projet (`depot_illisible`).
+    const projetCasse = Array.from({ length: 9 }, () => ({
+      type: 'task_failed',
+      ts: now,
+      payload: { reason: 'depot_illisible', motif: 'URL de dépôt du projet illisible (…)' },
+    }));
+    const lecture = lireTemperature([...projetCasse, ...evs('task_done', 4, now)], now);
+    expect(lecture.signaux).toEqual({ echecs: 0, retries: 0, refusInfra: 0, succes: 4, total: 4 });
+    expect(lecture.bande).toBe('froide');
+  });
+
   it('un refus SANS infra (saturation, Night Shift) vient d’une ruche saine : ignoré', () => {
     const lecture = lireTemperature(
       [
@@ -100,6 +113,20 @@ describe('lireTemperature (module pur)', () => {
       ],
       now,
     );
+    expect(lecture.signaux).toEqual({ echecs: 0, retries: 0, refusInfra: 0, succes: 4, total: 4 });
+    expect(lecture.temperature).toBe(0);
+  });
+
+  it('une assignation ILLISIBLE pour le nœud ne chauffe pas : ni agent ni poste en panne', () => {
+    // Le refus porte `infra` — la Reine doit le borner — mais sa cause est une
+    // version ou une borne (`illisible`). Compté, il faisait monter de 40° une
+    // ruche saine : bande normale, et plus haut à chaque refus.
+    const illisible = Array.from({ length: 4 }, () => ({
+      type: 'task_rejected',
+      ts: now,
+      payload: { reason: 'assignation illisible', infra: true, avantAgent: true, illisible: true },
+    }));
+    const lecture = lireTemperature([...illisible, ...evs('task_done', 4, now)], now);
     expect(lecture.signaux).toEqual({ echecs: 0, retries: 0, refusInfra: 0, succes: 4, total: 4 });
     expect(lecture.temperature).toBe(0);
   });
