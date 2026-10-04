@@ -42,6 +42,7 @@ import type { AgentAdapter } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
+import { HiveStore } from '../src/orchestrator/store.js';
 import { LIMITS } from '../src/shared/protocol.js';
 import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
@@ -336,8 +337,9 @@ describe('le nœud dit ce qu’il ne sait pas lire', () => {
 });
 
 describe('la Reine n’envoie pas un dépôt que son protocole refuse', () => {
+  /** Une Reine sur `dir/data/hive.db` — la base qu'un banc a déjà rangée, s'il l'a fait. */
   async function ruche(tickMs = 50): Promise<HiveServer> {
-    dir = mkdtempSync(path.join(os.tmpdir(), 'hive-illisible-reine-'));
+    dir ??= mkdtempSync(path.join(os.tmpdir(), 'hive-illisible-reine-'));
     mkdirSync(path.join(dir, 'data', 'cerveau'), { recursive: true });
     server = await createServer({
       port: 0,
@@ -399,6 +401,36 @@ describe('la Reine n’envoie pas un dépôt que son protocole refuse', () => {
     expect(echec?.payload).toMatchObject({ reason: 'depot_illisible', motif: MOTIF_CONTROLE });
     expect(confies(recus), 'la Reine a envoyé une assignation illisible').toEqual([]);
     expect(JSON.stringify(srv.store.listEvents(0, 1000))).not.toContain(JETON);
+  });
+
+  it('UNE TÂCHE `assigned` D’AVANT, LA REINE REDÉMARRE : remise en file, échouée UNE fois', async () => {
+    // La population réelle du défaut : une tâche qu'une Reine d'avant a
+    // confiée, et que chaque nœud jetait — `assigned` pour toujours. La base
+    // est rangée telle qu'elle l'a laissée, puis la Reine redémarre dessus :
+    // `recoverAtBoot` remet la tâche `ready`, la garde de la passe l'échoue
+    // avant tout envoi — une fois, pas à chaque passe.
+    dir = mkdtempSync(path.join(os.tmpdir(), 'hive-illisible-boot-'));
+    mkdirSync(path.join(dir, 'data'), { recursive: true });
+    const avant = new HiveStore(path.join(dir, 'data', 'hive.db'));
+    const projet = avant.createProject({ name: 'Ancien', repoUrl: URL_ILLISIBLE });
+    const t = avant.createTask({ projectId: projet.id, title: 'T', prompt: 'p' });
+    avant.patchTask(t.id, { status: 'assigned', assignedNodeId: 'ouvriere' });
+    avant.close();
+
+    // Un tick d'une heure : les passes sont celles qu'on joue, un nœud en ligne.
+    const srv = await ruche(3_600_000);
+    const recus = await noeud(srv);
+    for (let i = 0; i < 3; i++) srv.scheduler.tick();
+
+    expect(srv.store.getTask(t.id)?.status, 'la tâche n’a pas échoué au redémarrage').toBe(
+      'failed',
+    );
+    const reprises = srv.store.evenementsDeTache(t.id, ['task_requeued']);
+    expect(reprises.map((e) => e.payload.reason)).toEqual(['boot_recovery']);
+    const echecs = srv.store.evenementsDeTache(t.id, ['task_failed']);
+    expect(echecs, 'une tâche close doit l’être une seule fois').toHaveLength(1);
+    expect(echecs[0]?.payload).toMatchObject({ reason: 'depot_illisible', motif: MOTIF_CONTROLE });
+    expect(confies(recus), 'la Reine a envoyé une assignation illisible').toEqual([]);
   });
 
   it('NI MERGE NI COURSE SUR CE DÉPÔT : refus immédiat, motif dit', async () => {

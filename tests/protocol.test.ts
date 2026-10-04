@@ -830,6 +830,8 @@ describe('isValidRepoUrl', () => {
       // C'est la raison d'un `task_reject` : au-delà, la Reine refuserait le refus.
       expect(motif.length).toBeLessThanOrEqual(LIMITS.name);
       expect(motif, 'le motif recopie l’adresse').not.toContain(url.slice(0, 12));
+      // Ni la suite : c'est là, dans les identifiants, que vit le jeton.
+      expect(motif, 'le motif recopie le jeton').not.toContain('SECRET');
     }
   });
 });
