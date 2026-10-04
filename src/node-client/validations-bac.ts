@@ -497,7 +497,10 @@ async function comparerALaBaseRejouee(ctx: {
           `${enClair(delaiMs)} par commande (build, tests)…`,
       );
       const premiere = await base.executer();
-      if (!premiere) return null;
+      if (!premiere) {
+        etape('pas de comparaison à la base — verdict du script');
+        return null;
+      }
       rougesALaBase.push(premiere);
     }
     const tete: ObservationDeTests[] = [lecture];
@@ -556,7 +559,11 @@ function baseRejouee(ctx: {
   const { opts, depot, plan, delaiMs } = ctx;
   const dossier = dossierDeBase(opts.cwd);
   const sha = depot.baseSha.slice(0, 8);
-  const dire = (ligne: string) => opts.surEtape?.(`validation tests : base ${sha} — ${ligne}`);
+  // Une ligne de progrès part au hub : ce qu'elle cite (le message d'un git en
+  // échec) passe par le caviardage du nœud, comme les extraits.
+  const caviarder = opts.caviarder ?? ((texte: string) => texte);
+  const dire = (ligne: string) =>
+    opts.surEtape?.(`validation tests : base ${sha} — ${caviarder(ligne)}`);
   let prete: Promise<string | null> | null = null;
   let executions = 0;
 
@@ -603,13 +610,13 @@ function baseRejouee(ctx: {
       prete ??= preparer();
       const empechement = await prete;
       if (empechement !== null) {
-        dire(`pas rejouée : ${empechement} — verdict du script`);
+        dire(`pas rejouée : ${empechement}`);
         return null;
       }
       dire(`${ctx.argv.join(' ')}…`);
       const lue = observer(await ctx.executer(ctx.argv, dossier, delaiMs));
       if (!lue) {
-        dire('sa sortie ne se lit pas test par test — verdict du script');
+        dire('sa sortie ne se lit pas test par test');
         return null;
       }
       executions += 1;

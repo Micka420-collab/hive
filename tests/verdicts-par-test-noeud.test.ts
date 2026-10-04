@@ -269,6 +269,7 @@ describe.runIf(POSIX)('G11b — les tests en échec, comparés à la base rejou�
     expect(tests).toMatchObject({ etat: 'failed', raison: 'termine', code: 1 });
     expect(tests).not.toHaveProperty('comparaison');
     expect(etapes.some((l) => l.includes('pas rejouée : extraction impossible'))).toBe(true);
+    expect(etapes).toContain('validation tests : pas de comparaison à la base — verdict du script');
     expect(existsSync(`${d.dir}.base`)).toBe(false);
   }, 90_000);
 
