@@ -65,7 +65,11 @@ function releveAvec(reglages: { cle: string; valeur: string }[]): Releve {
       absenteDe: null,
       construire: null,
     },
-    porteSecurite: { hote: { betterleaks: null, 'osv-scanner': null }, image: null },
+    porteSecurite: {
+      hote: { betterleaks: null, 'osv-scanner': null },
+      image: null,
+      osv: { joignable: null, proxy: null },
+    },
     wsJoignable: true,
     reglages: { runner: 'off', bindPublic: false, gardiennes: 'strict', corsOuvert: false },
     espace: { octetsLibres: 40 * 1024 * 1024 * 1024, inscriptible: true },

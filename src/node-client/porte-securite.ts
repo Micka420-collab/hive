@@ -53,6 +53,9 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
+import net from 'node:net';
 import path from 'node:path';
 import { formesDuSecret, lireDiff } from '../shared/caviardage.js';
 import type { Caviardeur, FichierDuDiff, LigneAjoutee } from '../shared/caviardage.js';
@@ -267,6 +270,95 @@ async function sonder(
  * `execFile` trouvait, pendant que la porte, elle, le voyait absent. Son
  * environnement : le PATH et ce qu'exige Windows, aucun secret du nœud.
  */
+export interface JoignabiliteOsv {
+  joignable: boolean;
+  /** Le proxy éprouvé, `hôte:port` sans identifiants ; `null` : en direct. */
+  proxy: string | null;
+}
+
+/** L'hôte que l'interrogation joint — et le seul que `joindreOsv` éprouve. */
+const OSV = { hote: 'api.osv.dev', port: 443 };
+
+/** Le proxy qu'osv-scanner (Go, `http.ProxyFromEnvironment`) prendrait pour `hote`, ou `null`. */
+function proxyPour(hote: string, env: NodeJS.ProcessEnv): URL | null {
+  const brut = env.HTTPS_PROXY ?? env.https_proxy;
+  if (!brut) return null;
+  const exclus = (env.NO_PROXY ?? env.no_proxy ?? '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase().replace(/^\./, ''))
+    .filter(Boolean);
+  if (exclus.some((e) => e === '*' || hote === e || hote.endsWith(`.${e}`))) return null;
+  try {
+    return new URL(brut.includes('://') ? brut : `http://${brut}`);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * api.osv.dev est-il joignable d'ici, par le chemin qu'osv-scanner prendrait —
+ * le proxy standard que la porte lui transmet, sinon en direct (`hive
+ * doctor`) ? Une CONNEXION, rien d'autre : un `CONNECT` au proxy, ou une
+ * connexion TCP directe, aussitôt refermés — aucune requête, aucun paquet,
+ * aucune donnée de la ruche. Borné : `delaiMs`.
+ */
+export function joindreOsv(
+  env: NodeJS.ProcessEnv = process.env,
+  delaiMs = 3_000,
+  cible: { hote: string; port: number } = OSV,
+): Promise<JoignabiliteOsv> {
+  const proxy = proxyPour(cible.hote, env);
+  const dit = proxy
+    ? `${proxy.hostname}:${proxy.port || (proxy.protocol === 'https:' ? 443 : 80)}`
+    : null;
+  return new Promise((resolve) => {
+    let fini = false;
+    const finir = (joignable: boolean, fermer: () => void): void => {
+      if (fini) return;
+      fini = true;
+      clearTimeout(minuteur);
+      fermer();
+      resolve({ joignable, proxy: dit });
+    };
+    let fermer: () => void = () => {};
+    const minuteur = setTimeout(() => finir(false, fermer), delaiMs);
+    minuteur.unref?.();
+    try {
+      if (!proxy) {
+        const socket = net.connect({ host: cible.hote, port: cible.port });
+        fermer = () => socket.destroy();
+        socket.once('connect', () => finir(true, fermer));
+        socket.once('error', () => finir(false, fermer));
+        return;
+      }
+      const identifiants = proxy.username
+        ? {
+            'proxy-authorization': `Basic ${Buffer.from(
+              `${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`,
+            ).toString('base64')}`,
+          }
+        : {};
+      const requete = (proxy.protocol === 'https:' ? https : http).request({
+        host: proxy.hostname,
+        port: Number(proxy.port) || (proxy.protocol === 'https:' ? 443 : 80),
+        method: 'CONNECT',
+        path: `${cible.hote}:${cible.port}`,
+        headers: { host: `${cible.hote}:${cible.port}`, ...identifiants },
+      });
+      fermer = () => requete.destroy();
+      requete.once('connect', (reponse, socket) => {
+        socket.destroy();
+        finir(reponse.statusCode === 200, fermer);
+      });
+      requete.once('response', () => finir(false, fermer));
+      requete.once('error', () => finir(false, fermer));
+      requete.end();
+    } catch {
+      finir(false, fermer);
+    }
+  });
+}
+
 export async function versionPourLaPorte(
   outil: OutilPorte,
   delaiMs = 4_000,

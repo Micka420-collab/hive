@@ -28,13 +28,19 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { simpleGit } from 'simple-git';
 import { poserRegistre } from '../src/node-client/git-hote.js';
 import { etiquetteImage, type Fournisseur } from '../src/node-client/isolement.js';
-import { passerLaPorte, versionPourLaPorte } from '../src/node-client/porte-securite.js';
+import {
+  joindreOsv,
+  passerLaPorte,
+  versionPourLaPorte,
+} from '../src/node-client/porte-securite.js';
 import { ETIQUETTE_PORTE, type PorteSecurite } from '../src/shared/porte-securite.js';
 import { creerCaviardeur, SECRET_CAVIARDE } from '../src/shared/caviardage.js';
 import { appelsDuFauxBac, fauxBac } from './fixtures/faux-bac.js';
@@ -750,6 +756,56 @@ describe.runIf(POSIX)('les sondes de `hive doctor` — celles du nœud', () => {
     } finally {
       process.chdir(cwdAvant);
     }
+  });
+
+  it('`joindreOsv` ÉPROUVE api.osv.dev par une connexion — directe, ou par le proxy qu’osv-scanner prendrait — sans rien envoyer', async () => {
+    // Un faux « api.osv.dev » et un faux proxy, en local : rien ne sort de la machine.
+    const recu: string[] = [];
+    const cible = net.createServer((socket) => {
+      socket.on('data', (d) => recu.push(d.toString()));
+    });
+    await new Promise<void>((r) => cible.listen(0, '127.0.0.1', r));
+    const portCible = (cible.address() as net.AddressInfo).port;
+    let reponse = 200;
+    const connects: string[] = [];
+    const proxy = http.createServer();
+    proxy.on('connect', (req, socket) => {
+      connects.push(String(req.url));
+      socket.end(`HTTP/1.1 ${reponse} Bonjour\r\n\r\n`);
+    });
+    await new Promise<void>((r) => proxy.listen(0, '127.0.0.1', r));
+    const portProxy = (proxy.address() as net.AddressInfo).port;
+    const ici = { hote: '127.0.0.1', port: portCible };
+    try {
+      expect(await joindreOsv({}, 2_000, ici)).toEqual({ joignable: true, proxy: null });
+      const parProxy = { HTTPS_PROXY: `http://moi:secret@127.0.0.1:${portProxy}` };
+      expect(await joindreOsv(parProxy, 2_000, ici)).toEqual({
+        joignable: true,
+        proxy: `127.0.0.1:${portProxy}`,
+      });
+      expect(connects).toEqual([`127.0.0.1:${portCible}`]);
+      reponse = 403;
+      expect((await joindreOsv(parProxy, 2_000, ici)).joignable).toBe(false);
+      // NO_PROXY écarte le proxy, comme Go le fait.
+      expect(await joindreOsv({ ...parProxy, NO_PROXY: '127.0.0.1' }, 2_000, ici)).toEqual({
+        joignable: true,
+        proxy: null,
+      });
+      // Rien n'a été écrit à la cible : une connexion, aucune donnée.
+      expect(recu).toEqual([]);
+    } finally {
+      cible.close();
+      proxy.close();
+    }
+    // Un port fermé : injoignable, et vite.
+    const ferme = net.createServer();
+    await new Promise<void>((r) => ferme.listen(0, '127.0.0.1', r));
+    const portFerme = (ferme.address() as net.AddressInfo).port;
+    await new Promise<void>((r) => ferme.close(() => r()));
+    expect(await joindreOsv({}, 2_000, { hote: '127.0.0.1', port: portFerme })).toEqual({
+      joignable: false,
+      proxy: null,
+    });
   });
 
   it('`etiquetteImage` lit l’étiquette par le moteur, sans rien lancer dans l’image', async () => {

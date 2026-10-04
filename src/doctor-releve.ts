@@ -56,8 +56,8 @@ import {
   type Fournisseur,
 } from './node-client/isolement.js';
 import { SECRET_JWT_INTERDIT, secretJwtDepuisEnv } from './orchestrator/auth.js';
-import { versionPourLaPorte } from './node-client/porte-securite.js';
-import { ETIQUETTE_PORTE } from './shared/porte-securite.js';
+import { joindreOsv, versionPourLaPorte } from './node-client/porte-securite.js';
+import { ETIQUETTE_PORTE, VALEUR_ETIQUETTE_PORTE } from './shared/porte-securite.js';
 
 /** Où la ruche range ses affaires, vu depuis la racine du dépôt. */
 export interface Emplacements {
@@ -391,6 +391,10 @@ export async function relever(
     moteurImage && imageBac
       ? await etiquetteImage(moteurImage, imageBac.image, ETIQUETTE_PORTE, 5_000)
       : null;
+  // api.osv.dev, par le chemin qu'osv-scanner prendrait — seulement s'il y a
+  // un osv-scanner pour le prendre : une connexion bornée, rien d'envoyé.
+  const osvLa = etiquetteLue === VALEUR_ETIQUETTE_PORTE || osvScanner !== null;
+  const osv = osvLa ? await joindreOsv(env) : { joignable: null, proxy: null };
 
   return {
     versionNode: process.versions.node,
@@ -461,6 +465,7 @@ export async function relever(
     porteSecurite: {
       hote: { betterleaks, 'osv-scanner': osvScanner },
       image: etiquetteLue,
+      osv,
     },
     wsJoignable: ws,
     reglages: {

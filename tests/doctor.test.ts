@@ -62,6 +62,7 @@ const SAINE: Releve = {
   porteSecurite: {
     hote: { betterleaks: null, 'osv-scanner': null },
     image: VALEUR_ETIQUETTE_PORTE,
+    osv: { joignable: true, proxy: null },
   },
   wsJoignable: true,
   reglages: { runner: 'off', bindPublic: false, gardiennes: 'strict', corsOuvert: false },
@@ -104,7 +105,11 @@ describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
       isolement: null,
       imageBac: null,
       // Sans bac, la porte tourne sur l'hôte — où ses outils manquent.
-      porteSecurite: { hote: { betterleaks: null, 'osv-scanner': null }, image: null },
+      porteSecurite: {
+        hote: { betterleaks: null, 'osv-scanner': null },
+        image: null,
+        osv: { joignable: null, proxy: null },
+      },
       wsJoignable: false,
       reglages: { runner: 'on', bindPublic: true, gardiennes: 'off', corsOuvert: true },
       espace: { octetsLibres: 0, inscriptible: true },
@@ -635,6 +640,7 @@ describe('porte_securite — les outils de la porte là où le nœud les lancera
   const hote = (betterleaks: string | null, osv: string | null) => ({
     hote: { betterleaks, 'osv-scanner': osv },
     image: null,
+    osv: { joignable: osv === null ? null : true, proxy: null },
   });
   const bubblewrap: Releve['imageBac'] = {
     image: 'localhost/hive-agent:local',
@@ -653,7 +659,11 @@ describe('porte_securite — les outils de la porte là où le nœud les lancera
   it('UNE IMAGE CONSTRUITE AVANT LA PORTE est un risque, et la commande la reconstruit', () => {
     const d = diag(
       avec({
-        porteSecurite: { hote: { betterleaks: '1.9.0', 'osv-scanner': '2.6.0' }, image: '' },
+        porteSecurite: {
+          hote: { betterleaks: '1.9.0', 'osv-scanner': '2.6.0' },
+          image: '',
+          osv: { joignable: true, proxy: null },
+        },
       }),
       'porte_securite',
     );
@@ -721,7 +731,38 @@ describe('porte_securite — les outils de la porte là où le nœud les lancera
     );
     expect(d.gravite).toBe('risque');
     expect(d.constat).toContain('osv-scanner 2.5.1 (épinglé : 2.6.0)');
+    // La porte la LANCE : le docteur ne dit pas « absente » d'un outil présent.
+    expect(d.constat).toContain('la porte les lance');
+    expect(d.constat).not.toContain('chaque production sera « non vérifiée »');
     expect(d.reparation).not.toContain('betterleaks');
+  });
+
+  it('OUTILS PRÊTS, api.osv.dev INJOIGNABLE : un risque qui nomme l’hôte, le proxy, et quoi faire', () => {
+    const direct = diag(
+      avec({
+        porteSecurite: { ...SAINE.porteSecurite, osv: { joignable: false, proxy: null } },
+      }),
+      'porte_securite',
+    );
+    expect(direct.gravite).toBe('risque');
+    expect(direct.constat).toContain('api.osv.dev injoignable');
+    expect(direct.constat).toContain('« non vérifié »');
+    expect(direct.reparation).toContain('HTTPS_PROXY');
+    const parProxy = diag(
+      avec({
+        imageBac: bubblewrap,
+        isolement: 'bubblewrap',
+        porteSecurite: {
+          hote: { betterleaks: '1.9.0', 'osv-scanner': '2.6.0' },
+          image: null,
+          osv: { joignable: false, proxy: 'proxy.entreprise.test:3128' },
+        },
+      }),
+      'porte_securite',
+    );
+    expect(parProxy.gravite).toBe('risque');
+    expect(parProxy.constat).toContain('par le proxy proxy.entreprise.test:3128');
+    expect(parProxy.reparation).toContain('à travers proxy.entreprise.test:3128');
   });
 
   it('L’IMAGE PAR DÉFAUT CONSTRUITE NULLE PART : le nœud se replie, la porte tourne sur l’hôte', () => {
@@ -733,7 +774,11 @@ describe('porte_securite — les outils de la porte là où le nœud les lancera
           absenteDe: 'podman',
           construire: 'npm run bac:image',
         },
-        porteSecurite: { hote: { betterleaks: null, 'osv-scanner': null }, image: null },
+        porteSecurite: {
+          hote: { betterleaks: null, 'osv-scanner': null },
+          image: null,
+          osv: { joignable: null, proxy: null },
+        },
       }),
       'porte_securite',
     );

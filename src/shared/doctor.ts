@@ -207,6 +207,13 @@ export interface Releve {
      * aucun moteur n'a pu la lire — ou s'il n'y a pas d'image à lire.
      */
     image: string | null;
+    /**
+     * api.osv.dev, éprouvé comme osv-scanner le joindrait — par le proxy
+     * standard que le nœud lui transmet (`proxy`, sans identifiants), sinon en
+     * direct — par une connexion bornée, sans rien envoyer. `joignable: null` :
+     * pas éprouvé (aucun osv-scanner là où la porte tourne).
+     */
+    osv: { joignable: boolean | null; proxy: string | null };
   };
   /** Le WebSocket répond-il ? `null` si la ruche n'écoute pas — on ne peut pas conclure. */
   wsJoignable: boolean | null;
@@ -820,9 +827,15 @@ function isolement(r: Releve): Diagnostic {
  * Dockerfile pose après avoir installé et vérifié les outils
  * (`ETIQUETTE_PORTE`). Absente, l'image a été construite avant eux.
  *
- * Un outil absent ou d'une autre version que celle qu'épingle l'image est un
- * `risque` : chaque production serait « non vérifiée » — jamais verte, et
- * retenue en polyéthisme `strict`. Ce que personne n'a pu lire est `inconnu`.
+ * Un outil absent est un `risque` : chaque production serait « non
+ * vérifiée » — jamais verte, et retenue en polyéthisme `strict`. Une autre
+ * version que celle qu'épingle l'image en est un aussi, plus petit : la porte
+ * la LANCE, mais ses drapeaux (`--confidence`, l'extraction hors ligne) et ses
+ * rapports n'ont été éprouvés que sur la version épinglée — un rapport qui ne
+ * se relit plus la rend « non vérifiée ». Outils prêts, api.osv.dev
+ * injoignable (ni en direct, ni par le proxy que le nœud transmettrait) : le
+ * volet dépendances sera « non vérifié » à chaque lockfile touché. Ce que
+ * personne n'a pu lire est `inconnu`.
  */
 function porteSecurite(r: Releve): Diagnostic {
   const img = r.imageBac;
@@ -846,12 +859,14 @@ function porteSecurite(r: Releve): Diagnostic {
       };
     }
     if (lue === VALEUR_ETIQUETTE_PORTE) {
-      return {
-        cle: 'porte_securite',
-        gravite: 'ok',
-        constat: `porte de sécurité vérifiable (image ${img.image}, ${moteurImage}) : ${epinglees}`,
-        reparation: null,
-      };
+      return (
+        osvInjoignable(r) ?? {
+          cle: 'porte_securite',
+          gravite: 'ok',
+          constat: `porte de sécurité vérifiable (image ${img.image}, ${moteurImage}) : ${epinglees}`,
+          reparation: null,
+        }
+      );
     }
     return {
       cle: 'porte_securite',
@@ -860,8 +875,9 @@ function porteSecurite(r: Releve): Diagnostic {
         `l'image du bac (${img.image}) ` +
         (lue === ''
           ? `ne dit pas porter les outils de la porte (aucune étiquette ${ETIQUETTE_PORTE} : construite avant eux, ou image tierce)`
-          : `porte d'autres versions des outils de la porte (${lue} ; épinglées : ${epinglees})`) +
-        ' — chaque production y sera « non vérifiée », jamais verte',
+          : `porte d'autres versions des outils de la porte (${lue} ; épinglées : ${epinglees}) — ` +
+            'la porte les lance, mais leurs rapports n’ont été éprouvés que sur les versions épinglées') +
+        ' — une production qu’elle ne sait pas juger y sera « non vérifiée », jamais verte',
       reparation:
         'npm run bac:image (reconstruit l’image par défaut) — une image tierce : installez-y ' +
         `${epinglees}, et posez LABEL ${ETIQUETTE_PORTE}="${VALEUR_ETIQUETTE_PORTE}"`,
@@ -870,23 +886,28 @@ function porteSecurite(r: Releve): Diagnostic {
   const lieu = img?.dans === 'bubblewrap' ? 'bubblewrap, PATH de l’hôte' : 'sur l’hôte, sans bac';
   const ecarts = outils.filter((o) => r.porteSecurite.hote[o] !== VERSION_EPINGLEE[o]);
   if (ecarts.length === 0) {
-    return {
-      cle: 'porte_securite',
-      gravite: 'ok',
-      constat: `porte de sécurité vérifiable (${lieu}) : ${epinglees}`,
-      reparation: null,
-    };
+    return (
+      osvInjoignable(r) ?? {
+        cle: 'porte_securite',
+        gravite: 'ok',
+        constat: `porte de sécurité vérifiable (${lieu}) : ${epinglees}`,
+        reparation: null,
+      }
+    );
   }
   const dits = ecarts.map((o) => {
     const vue = r.porteSecurite.hote[o];
     return vue === null ? `${o} absent` : `${o} ${vue} (épinglé : ${VERSION_EPINGLEE[o]})`;
   });
+  const absents = ecarts.some((o) => r.porteSecurite.hote[o] === null);
   return {
     cle: 'porte_securite',
     gravite: 'risque',
     constat:
       `porte de sécurité non vérifiable telle quelle (${lieu}) : ${dits.join(' · ')} — ` +
-      'chaque production sera « non vérifiée », jamais verte',
+      (absents
+        ? 'chaque production sera « non vérifiée », jamais verte'
+        : 'la porte les lance, mais leurs rapports n’ont été éprouvés que sur les versions épinglées'),
     reparation: ecarts
       .map((o) => {
         const { depot, empreintes } = PUBLICATION_OUTIL[o];
@@ -897,6 +918,30 @@ function porteSecurite(r: Releve): Diagnostic {
       })
       .join(' · ')
       .concat(', dans un dossier du PATH'),
+  };
+}
+
+/**
+ * Les outils sont prêts, mais api.osv.dev ne répond pas d'ici : le volet
+ * dépendances sera « non vérifié » — `null` s'il répond, ou s'il n'a pas été
+ * éprouvé.
+ */
+function osvInjoignable(r: Releve): Diagnostic | null {
+  const { joignable, proxy } = r.porteSecurite.osv;
+  if (joignable !== false) return null;
+  return {
+    cle: 'porte_securite',
+    gravite: 'risque',
+    constat:
+      `outils de la porte prêts, mais api.osv.dev injoignable depuis ce poste` +
+      (proxy ? ` par le proxy ${proxy}` : ' (aucun proxy déclaré : en direct)') +
+      ' — le volet dépendances sera « non vérifié » à chaque lockfile touché',
+    reparation:
+      'ouvrez la sortie HTTPS vers api.osv.dev:443' +
+      (proxy
+        ? ` à travers ${proxy}`
+        : ', ou posez HTTPS_PROXY dans l’environnement du nœud (.env)') +
+      ' — dans un bac à conteneurs, un proxy en 127.0.0.1 n’est pas joignable du conteneur',
   };
 }
 
