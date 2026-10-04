@@ -159,6 +159,7 @@ describe('ce qui arrête la ruche', () => {
         raison: 'claude : non authentifié',
         depuis: echec.ts,
         definitif: true,
+        avantAgent: false,
       },
     ]);
     // Relancée (de nouveau prête) : l'alerte se lève.
@@ -181,6 +182,27 @@ describe('ce qui arrête la ruche', () => {
     expect(
       alertesCockpit(entree({ evenements: [cascade], tacheDe: taches({ d: 'failed' }) })).total,
     ).toBe(0);
+  });
+
+  it('un échec dont les refus ont eu lieu AVANT l’agent ne met pas l’agent en cause', () => {
+    // Le dossier de la tentative précédente, tenu (Hive 0.5.0 sous Windows) :
+    // aucun agent n'a tourné. L'alerte le porte, pour que l'écran ne dise pas
+    // « réparez l'agent » (tests/dossier-tache-tenu.test.ts, de bout en bout).
+    const refus = ev('task_rejected', {
+      taskId: 't',
+      nodeId: 'n',
+      reason: 'dossier de la tâche impossible à vider — un processus le tient-il encore ? (EBUSY)',
+      infra: true,
+      avantAgent: true,
+    });
+    const echec = ev('task_failed', { taskId: 't', reason: 'no_working_agent', infraRejects: 3 });
+    expect(
+      alertesCockpit(entree({ evenements: [refus, echec], tacheDe: taches({ t: 'failed' }) }))
+        .alertes,
+    ).toMatchObject([{ genre: 'refus', definitif: true, avantAgent: true }]);
+    expect(
+      alertesCockpit(entree({ evenements: [refus], tacheDe: taches({ t: 'ready' }) })).alertes,
+    ).toMatchObject([{ genre: 'refus', definitif: false, avantAgent: true }]);
   });
 
   it('une relecture qui attend une famille absente alerte tant qu’elle est prête', () => {
