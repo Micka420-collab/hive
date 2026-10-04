@@ -785,4 +785,26 @@ describe('le miroir de la Reine — la même porte, le même invariant', () => {
       expect(journal).toEqual([expect.stringMatching(/^p : identifiants retirés/)]);
     },
   );
+
+  it(
+    'le voisin de reclone qu’une Reine d’avant a laissé — jeton dans sa configuration — part au rafraîchissement suivant, même sans reclone',
+    PLAFOND,
+    async () => {
+      const miroir = miroirNeuf();
+      const t0 = Date.now();
+      const url = serveur.urlAvecCompte('prive');
+      await miroir.rafraichir('p', url, t0);
+      // Une Reine d'avant, arrêtée en plein reclone : son voisin `.neuf-p`
+      // avait été cloné avec l'URL authentifiée.
+      const voisin = path.join(path.dirname(miroir.dossier('p')), '.neuf-p');
+      mkdirSync(path.join(voisin, '.git'), { recursive: true });
+      writeFileSync(path.join(voisin, '.git', 'config'), `[remote "origin"]\n\turl = ${url}\n`);
+      // Le miroir est reprenable : le rafraîchissement ne reclone pas.
+      await miroir.rafraichir('p', url, t0 + 10 * FENETRE_RAFRAICHISSEMENT_MS);
+      expect(existsSync(voisin)).toBe(false);
+      expect(fichiersAvec(path.dirname(miroir.dossier('p')), serveur.compte.motDePasse)).toEqual(
+        [],
+      );
+    },
+  );
 });

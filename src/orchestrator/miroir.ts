@@ -294,6 +294,11 @@ export class Miroir {
     const dir = this.dossier(projectId);
     const depot = { gitDir: path.join(dir, '.git'), workTree: dir };
     const distant = depotDistant(repoUrl);
+    // Un voisin de reclone laissé par une Reine arrêtée en plein clone : les
+    // rafraîchissements d'un projet ne se chevauchent pas (`enVol`), il est
+    // donc à nous. Retiré à CHAQUE rafraîchissement, pas seulement avant un
+    // reclone : celui d'une version d'avant garde le jeton dans sa config.
+    await fs.rm(voisinDeReclone(dir), { recursive: true, force: true });
     if (this.existe(projectId)) await this.oterLesIdentifiants(projectId, depot, distant.nue);
     // La racine d'abord : `commandeSshDuMembre` y lance git, et un cwd absent
     // la ferait retomber sur `ssh` au premier clone.
@@ -402,9 +407,6 @@ export class Miroir {
   private async recloner(dir: string, distant: DepotDistant, ssh: string): Promise<void> {
     const neuf = voisinDeReclone(dir);
     const depotNeuf = { gitDir: path.join(neuf, '.git'), workTree: neuf };
-    // Un voisin d'une Reine arrêtée en plein clone : les rafraîchissements
-    // d'un projet ne se chevauchent pas (`enVol`), celui-ci est donc à nous.
-    await fs.rm(neuf, { recursive: true, force: true });
     try {
       await gitHote(
         [
