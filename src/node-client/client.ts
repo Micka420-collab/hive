@@ -1861,14 +1861,17 @@ export class HiveNodeClient {
         });
       }
       // Le plafond de coût de CETTE tentative, si la Reine en a passé un et que
-      // le CLI le tient — sondé avant que le minuteur de durée ne parte.
+      // le CLI le tient — sondé avant que le minuteur de durée ne parte. La
+      // sonde lance un processus DANS le bac : même environnement à leurres et
+      // même réseau de tâche que l'agent, jamais les vraies clés ni le réseau
+      // de l'hôte qu'un bac sans `reseau` rendrait (`--share-net`).
       const plafond = await this.plafondTenu(msg.plafondCoutMicros, {
         cwd: workspace.cwd,
-        env: workspace.env,
+        env: reseauTache.env,
         attempt: task.attempts + 1,
         signal: ctrl.signal,
         onProgress: progres,
-        ...this.optionBacTache(task.id),
+        ...this.optionBacTache(task.id, reseauBac),
       });
       budgetTimer = this.startDelegationBudget(delegationBudget, ctrl, () => {
         budgetExceeded = true;

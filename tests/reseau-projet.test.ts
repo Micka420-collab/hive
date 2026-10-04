@@ -10,7 +10,12 @@ import { connect } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AdapterContext, AdapterResult, AgentAdapter } from '../src/adapters/index.js';
+import type {
+  AdapterContext,
+  AdapterResult,
+  AgentAdapter,
+  VerdictPlafond,
+} from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { fournisseurParNom, type Fournisseur } from '../src/node-client/isolement.js';
 import type { CapaciteReseau } from '../src/node-client/reseau-tache.js';
@@ -190,6 +195,65 @@ describe('une vraie ruche : le niveau du projet arrive au nœud, qui l’appliqu
       expect(journal).toContain('exfil.example.org');
       // La vraie clé ne part JAMAIS au hub.
       expect(journal).not.toContain('VRAIE-CLE-DU-MEMBRE');
+    },
+  );
+
+  it(
+    'la sonde du plafond de coût (G09a) passe par le même bac que l’agent : leurres et réseau de la tâche',
+    { timeout: 30_000 },
+    async () => {
+      vi.stubEnv('ANTHROPIC_API_KEY', 'sk-ant-api03-VRAIE-CLE-DU-MEMBRE');
+      const srv = await reine();
+      const sondes: { env: NodeJS.ProcessEnv; bac: AdapterContext['bac'] }[] = [];
+      const plafonds: (number | undefined)[] = [];
+      noeud(
+        srv,
+        {
+          name: 'claude-code',
+          // Le CLI dit tenir le plafond : le nœud le sonde (`claude --version`
+          // chez le vrai adaptateur) avant chaque tentative plafonnée.
+          async plafondCout(ctx: AdapterContext): Promise<VerdictPlafond> {
+            sondes.push({ env: ctx.env, bac: ctx.bac });
+            return { tenu: true };
+          },
+          async run(_task: Task, ctx: AdapterContext): Promise<AdapterResult> {
+            plafonds.push(ctx.plafondCoutMicros);
+            return { success: true, diff: '', logs: 'fini', subAgents: [] };
+          },
+        },
+        { filtre: true, exige: false, motif: 'banc' },
+      );
+      await attendre(
+        () => srv.store.listNodes().some((n) => n.status === 'online'),
+        'le nœud ne rejoint pas la ruche',
+      );
+      // Un enfant délégué qui réserve 50 000 µUSD : c'est lui que la Reine
+      // plafonne. Sa racine reste en file (sa consigne vise une ouvrière codex).
+      const p = srv.store.createProject({ name: 'P' });
+      srv.store.createTask({ id: 'racine', projectId: p.id, title: 'Racine', prompt: 'délègue' });
+      srv.store.poserConsigneRoutage('racine', { agent: 'codex' }, null, Date.now());
+      const creation = srv.store.createDelegatedTask({
+        childTaskId: 'enfant',
+        parentTaskId: 'racine',
+        title: 'Lot borné',
+        prompt: 'x',
+        durationMs: 60_000,
+        costMicros: 50_000,
+        resourceUnits: 1,
+      });
+      expect(creation.ok).toBe(true);
+      await attendre(() => plafonds.length > 0, 'l’agent de l’enfant ne tourne pas');
+
+      expect(plafonds).toEqual([50_000]);
+      expect(sondes).toHaveLength(1);
+      // La sonde lance un processus DANS le bac : les vraies clés n'y entrent
+      // pas plus que pour l'agent, et elle sort par le réseau de la tâche.
+      const sonde = sondes[0];
+      expect(sonde?.env.ANTHROPIC_API_KEY).toMatch(/^sk-ant-api03-hive-leurre-/);
+      expect(JSON.stringify(sonde?.env)).not.toContain('VRAIE-CLE-DU-MEMBRE');
+      expect(sonde?.bac?.reseau?.variables.ANTHROPIC_BASE_URL).toBe(
+        'http://127.0.0.1:3128/hive-api/anthropic',
+      );
     },
   );
 
