@@ -362,7 +362,10 @@ describe('le compagnon — dans la barre, branché sur le flux', () => {
     // finirait par masquer une ligne), et il lit l'état que la coquille reçoit
     // — le flux coupé au montage, puis une tâche en cours dans un instantané.
     let poignees: FeedHandlers | null = null;
-    vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
+    // `Once` : ce flux-ci ne livre rien de lui-même. Laissé en place, il
+    // passait au test suivant (ordre mélangé, graine 15838), dont la coquille
+    // attendait alors pour toujours son premier instantané.
+    vi.mocked(connectFeed).mockImplementationOnce((h: FeedHandlers) => {
       poignees = h;
       return { close: () => {}, reconnecter: () => {} };
     });
