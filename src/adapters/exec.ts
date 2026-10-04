@@ -268,6 +268,18 @@ export function runCommandFlux(
 export const LIGNE_ANNULATION = '[hive] tâche annulée — processus arrêté avec sa descendance';
 
 /**
+ * Un arrêt qui DIT sa cause : la raison d'`abort` que le nœud donne quand ce
+ * n'est pas un humain qui annule (la vigie, G13). Le même geste, le même arbre
+ * abattu ; les logs finissent sur sa ligne plutôt que sur `LIGNE_ANNULATION`,
+ * qui ferait lire « annulée » une tâche que personne n'a annulée.
+ */
+export class ArretMotive extends Error {
+  constructor(readonly ligne: string) {
+    super(ligne);
+  }
+}
+
+/**
  * Le seul `spawn` des adaptateurs. `runCommand` et `runCommandStreaming` en
  * étaient deux copies ; la seconde avait appris à lire ligne à ligne, pas la
  * première — et c'est la première que Cursor et Cline employaient pour un flux
@@ -425,7 +437,9 @@ function executer(
         ...(issue.issue === 'arret' && issue.motif === 'delai'
           ? [`[hive] timeout après ${opts.timeoutMs} ms — processus tué`]
           : []),
-        ...(issue.issue === 'arret' && issue.motif === 'annule' ? [LIGNE_ANNULATION] : []),
+        ...(issue.issue === 'arret' && issue.motif === 'annule'
+          ? [ctx.signal.reason instanceof ArretMotive ? ctx.signal.reason.ligne : LIGNE_ANNULATION]
+          : []),
         ...(issue.issue === 'sortie' && issue.tenue
           ? [
               "[hive] la sortie est restée ouverte après la fin de l'agent : " +

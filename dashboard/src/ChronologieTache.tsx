@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import { fetchChronologie } from './api';
 import { useLang, useT } from './i18n';
 import { direDuree } from '../../src/shared/horloge-chantier';
+import { direArret } from '../../src/shared/enlisement';
 import type {
   ChronologieTache as Chronologie,
   SommeDeclaree,
@@ -50,7 +51,21 @@ export function ChronologieTache({ taskId, cle }: Props) {
         ? t('reprise', 'retried')
         : i === 'arret'
           ? t('arrêtée sur son plafond de coût', 'stopped at its cost cap')
-          : t('échec', 'failed');
+          : i === 'epuisement'
+            ? t('réaffectée sans tentative brûlée', 'reassigned, no attempt spent')
+            : t('échec', 'failed');
+  // La cause que la vigie du nœud a rangée (G13), à l'heure de qui regarde.
+  const vigie = (x: Chronologie['tentatives'][number]): string => {
+    const heure = (ms: number): string =>
+      new Date(ms).toLocaleTimeString(lang === 'en' ? 'en-GB' : 'fr-FR', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    if (x.enlisement) return ` (${direArret({ issue: 'enlisement', ...x.enlisement }, t, heure)})`;
+    return x.epuisement
+      ? ` (${direArret({ issue: 'epuisement_fournisseur', ...x.epuisement }, t, heure)})`
+      : '';
+  };
 
   const declare = (s: SommeDeclaree, rendu: string): string =>
     s.declarees === s.tentatives
@@ -76,7 +91,7 @@ export function ChronologieTache({ taskId, cle }: Props) {
       const detail = c.tentatives
         .map(
           (x) =>
-            `${issue(x.issue)}${x.dureeWorkerMs === null ? '' : ` ${direDuree(x.dureeWorkerMs, lang)}`}`,
+            `${issue(x.issue)}${vigie(x)}${x.dureeWorkerMs === null ? '' : ` ${direDuree(x.dureeWorkerMs, lang)}`}`,
         )
         .join(' · ');
       const total = duree(c.dureeWorkerTotaleMs);

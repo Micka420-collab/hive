@@ -30,6 +30,13 @@ import { createDeclarationFournisseurTracker } from './fournisseur-parser.js';
 import { createPresenceTracker } from './presence-parser.js';
 import { createSubAgentTracker } from './subagent-parser.js';
 import { graviteStreamJson, texteFinalStreamJson } from './texte-final.js';
+import {
+  createVigie,
+  evenementsClaude,
+  RELANCES_BORNEES_CLAUDE,
+  resultatSelonVigie,
+} from './vigie-enlisement.js';
+import type { ArretVigie } from '../shared/enlisement.js';
 import type { AdapterContext, AdapterResult, AgentAdapter, VerdictPlafond } from './index.js';
 
 const CLAUDE_TIMEOUT_MS = 15 * 60_000;
@@ -341,6 +348,9 @@ export function createClaudeCodeAdapter(
       const presence = createPresenceTracker();
       // La ligne `result` finale porte le coût et le temps modèle déclarés.
       const declaration = createDeclarationFournisseurTracker('claude-code');
+      // L'enlisement et l'épuisement du fournisseur, vus EN VOL (G13).
+      const vigie = createVigie(RELANCES_BORNEES_CLAUDE);
+      let arretVigie: ArretVigie | undefined;
       let bridge: DelegationBridge | undefined;
       try {
         // Sans les trois capacités, aucun faux outil n'est injecté dans le CLI.
@@ -416,6 +426,13 @@ export function createClaudeCodeAdapter(
             const subAgents = tracker.feed(line);
             const presences = presence.feed(line);
             declaration.feed(line);
+            for (const evenement of arretVigie ? [] : evenementsClaude(line)) {
+              arretVigie = vigie.observer(evenement);
+              if (!arretVigie) continue;
+              // Une erreur FINALE (`fin`) : le CLI s'arrête de lui-même.
+              if (evenement.genre !== 'fin') ctx.onProgress({ arret: arretVigie });
+              break;
+            }
             // Remonter dès qu'un sous-agent apparaît/évolue → butineuses en direct.
             if (subAgents) ctx.onProgress({ subAgents });
             // Présence Rayon : fichiers ouverts constatés (ADR 0010).
@@ -435,7 +452,7 @@ export function createClaudeCodeAdapter(
         const fournisseur = declaration.declaration();
         const arret = declaration.arret();
         return {
-          ...result,
+          ...resultatSelonVigie(result, arretVigie),
           subAgents: tracker.list(),
           ...(fournisseur ? { fournisseur } : {}),
           // Un arrêt sur le plafond PASSÉ, déclaré par le CLI : la borne, jamais

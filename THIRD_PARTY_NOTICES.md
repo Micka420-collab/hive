@@ -44,6 +44,75 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## OpenHands software-agent-sdk — `src/adapters/vigie-enlisement.ts`
+
+Les règles et les seuils de la détection d'enlisement (même appel et même
+retour répétés, même appel en échec, deux appels alternés), portés du
+StuckDetector : `openhands-sdk/openhands/sdk/conversation/stuck_detector.py` et
+`types.py` (`StuckDetectionThresholds`), https://github.com/OpenHands/software-agent-sdk,
+commit `b66c724361571aa5c982883173c71b04739b247d`. Modifications de Hive :
+appels et retours appariés par l'identifiant que le CLI leur donne, un fil par
+sous-agent, empreintes au lieu des événements, la « pensée » hors de l'égalité
+d'un appel (idée de `tool_monitor.rs`, goose, Apache-2.0 — aucune ligne
+reprise), monologue et erreur de contexte non portés.
+
+```
+MIT License
+
+Copyright (c) 2026 OpenHands contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## SWE-bench — `src/shared/lecture-tests.ts`, `src/shared/validations-bac.ts`
+
+La comparaison des verdicts test par test à la base (`grading.py`,
+`get_eval_tests_report`) et la table des pannes du bac
+(`INFRA_FAILURE_SIGNATURES`, `infra_failure.py`), portées de
+https://github.com/SWE-bench/SWE-bench. La notice est aussi reprise en tête de
+section dans `src/shared/lecture-tests.ts`.
+
+```
+MIT License
+
+Copyright (c) 2023 Carlos E Jimenez, John Yang, Alexander Wettig, Shunyu Yao,
+Kexin Pei, Ofir Press, Karthik R Narasimhan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## anthropics/sandbox-runtime
 
 - Source: https://github.com/anthropics/sandbox-runtime (commit

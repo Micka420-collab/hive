@@ -78,6 +78,7 @@ import { bacIsole } from './shadow-bench.js';
 import type { BilanEffacement, HiveStore, NodeProfile, TacheOmbre } from './store.js';
 import { assignationProductionAutorisee } from '../shared/agent-production.js';
 import { relecteurIndependant } from '../shared/contre-expertise.js';
+import type { EpuisementFournisseur } from '../shared/enlisement.js';
 import { concurrenceEffective, lireTemperature, FENETRE_MS, TYPES_THERMO } from './thermo.js';
 import type { BandeThermo } from './thermo.js';
 
@@ -835,6 +836,7 @@ export class Scheduler {
     infra: boolean | 'avant_agent' | 'illisible' = false,
     now = Date.now(),
     retryAfterMs?: number,
+    epuisement?: EpuisementFournisseur,
   ): void {
     // Indisponibilité prévisible annoncée par le nœud (Night Shift) : cooldown
     // proportionnel (borné 24 h) — sinon boucle assignation/refus toutes les
@@ -888,6 +890,8 @@ export class Scheduler {
       nodeId,
       reason,
       ...(infra ? { infra: true } : {}),
+      // Le fournisseur était épuisé (G13) : le FAIT, là où le refus se range.
+      ...(infra === true && epuisement ? { epuisement } : {}),
       ...(infra === 'avant_agent' || infra === 'illisible' ? { avantAgent: true } : {}),
       ...(infra === 'illisible' ? { illisible: true } : {}),
     });
@@ -1451,6 +1455,7 @@ export class Scheduler {
             ...(result.ressources ? { ressources: result.ressources } : {}),
             ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
             ...(arret ? { arretBudgetaire: arret } : {}),
+            ...(result.enlisement ? { enlisement: result.enlisement } : {}),
           });
           this.fermerSousArbre(task.id, 'ancestor_failed', Date.now());
         } else {
@@ -1467,6 +1472,8 @@ export class Scheduler {
             durationMs,
             ...(result.ressources ? { ressources: result.ressources } : {}),
             ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+            // L'agent tournait en rond (G13) : la reprise dit pourquoi.
+            ...(result.enlisement ? { enlisement: result.enlisement } : {}),
           });
         }
       }

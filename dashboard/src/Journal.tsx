@@ -3,6 +3,7 @@
 
 import { useMemo } from 'react';
 import { arreteeParSonBudget } from '../../src/shared/arret-budgetaire';
+import { direArret, enlisementDepuis, epuisementDepuis } from '../../src/shared/enlisement';
 import type { HiveEvent } from '../../src/shared/types';
 import { VALIDATION_KEYS } from '../../src/shared/validations-bac';
 import { Terminal } from './composants';
@@ -21,6 +22,23 @@ interface Meta {
 }
 
 const short = (v: unknown) => (typeof v === 'string' ? v.slice(0, 8) : '?');
+
+/**
+ * L'issue que la vigie du nœud a rangée sur le fait (G13) — l'agent enlisé,
+ * ou son fournisseur épuisé, sa remise à zéro à l'heure de qui regarde —, ou
+ * rien. Relue par le validateur du protocole : un payload d'un autre âge ne
+ * fait rien dire de faux.
+ */
+const direVigie = (p: Record<string, unknown>, t: Translate): string | null => {
+  const heure = (ms: number): string =>
+    new Date(ms).toLocaleTimeString(t('fr-FR', 'en-GB'), { hour: '2-digit', minute: '2-digit' });
+  const enlisement = enlisementDepuis(p.enlisement);
+  if (enlisement) return direArret({ issue: 'enlisement', ...enlisement }, t, heure);
+  const epuisement = epuisementDepuis(p.epuisement);
+  return epuisement
+    ? direArret({ issue: 'epuisement_fournisseur', ...epuisement }, t, heure)
+    : null;
+};
 
 /** `—` : non applicable (le projet ne le déclare pas) — surtout pas un vert. */
 const SYMBOLE_VALIDATION: Record<string, string> = {
@@ -245,13 +263,17 @@ const EVENTS: Record<string, Meta> = {
             );
       }
       const ms = cout(p.durationMs);
+      const vigie = direVigie(p, t);
       const base = t(
         `échec, essai ${essai} (${short(p.taskId)})`,
         `failed, attempt ${essai} (${short(p.taskId)})`,
       );
+      const cause = vigie ? ` — ${vigie}` : '';
       // Le temps que cette tentative a coûté : imputé en « reprise » par la
       // Balance dès que la tâche aboutit.
-      return ms === null ? base : `${base} — ${t(`${ms} en reprise`, `${ms} of rework`)}`;
+      return ms === null
+        ? `${base}${cause}`
+        : `${base} — ${t(`${ms} en reprise`, `${ms} of rework`)}${cause}`;
     },
   },
   // Le verdict HUMAIN de la Miellerie. `state: null` efface une revue : un
@@ -321,7 +343,8 @@ const EVENTS: Record<string, Meta> = {
       // Une tâche close par la Reine AVANT tout envoi (`depot_illisible`) n'a
       // ni production ni logs : son `motif` est sa seule cause. Rangé en
       // français, comme la raison d'un refus d'infrastructure.
-      const cause = typeof p.motif === 'string' ? ` — ${p.motif}` : '';
+      const vigie = direVigie(p, t);
+      const cause = typeof p.motif === 'string' ? ` — ${p.motif}` : vigie ? ` — ${vigie}` : '';
       // « durée : X » plutôt qu'un participe accordé : la durée est formatée
       // (« 1 h », « 4 h 12 min », « 340 ms ») et aucun accord français ne tient
       // sur toutes ces formes. Pas « coût » : depuis que la ruche compte des
@@ -349,6 +372,9 @@ const EVENTS: Record<string, Meta> = {
     // agent n'ait tourné — ni production, ni logs à relire.
     text: (p, t) => {
       const base = t(`refusée (${short(p.taskId)})`, `declined (${short(p.taskId)})`);
+      // Un fournisseur épuisé (G13) se dit par son fait : aucune tentative brûlée.
+      const vigie = direVigie(p, t);
+      if (vigie) return `${base} — ${vigie}`;
       return p.infra === true && typeof p.reason === 'string' ? `${base} — ${p.reason}` : base;
     },
   },

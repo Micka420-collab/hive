@@ -16,14 +16,20 @@
 //     non le modèle distant, ni le coût des jetons.
 
 import { arreteeParSonBudget } from './arret-budgetaire.js';
+import { enlisementDepuis, epuisementDepuis } from './enlisement.js';
+import type { Enlisement, EpuisementFournisseur } from './enlisement.js';
 import { declarationDe, sommeDeclaree } from './declaration-fournisseur.js';
 import type { SommeDeclaree } from './declaration-fournisseur.js';
 import type { HiveEvent } from './types.js';
 
 export type { SommeDeclaree } from './declaration-fournisseur.js';
 
-/** `arret` : arrêtée dans la boucle de l'agent, sur son plafond de coût — pas un échec. */
-export type IssueTentative = 'reussie' | 'reprise' | 'echec' | 'arret';
+/**
+ * `arret` : arrêtée dans la boucle de l'agent, sur son plafond de coût — pas un
+ * échec. `epuisement` : arrêtée sur son fournisseur épuisé (G13) et réaffectée
+ * sans brûler de tentative — pas un échec non plus.
+ */
+export type IssueTentative = 'reussie' | 'reprise' | 'echec' | 'arret' | 'epuisement';
 
 export interface TentativeVue {
   issue: IssueTentative;
@@ -37,6 +43,10 @@ export interface TentativeVue {
   jetonsEntree: number | null;
   /** Jetons de sortie déclarés par le CLI (raisonnement compris) ; `null` sinon. */
   jetonsSortie: number | null;
+  /** L'agent tournait en rond, et la vigie de son nœud l'a arrêté (G13). */
+  enlisement?: Enlisement;
+  /** Le fournisseur était épuisé (issue `epuisement`). */
+  epuisement?: EpuisementFournisseur;
 }
 
 export interface ChronologieTache {
@@ -85,6 +95,8 @@ export const TYPES_CHRONOLOGIE = [
   'task_failed',
   'task_cancelled',
   'task_requeued',
+  // Seul celui d'un fournisseur épuisé est une tentative qui a tourné.
+  'task_rejected',
   'contre_expertise',
   'contre_expertise_verdict',
 ] as const;
@@ -94,6 +106,8 @@ const nombre = (v: unknown): number | null =>
 
 const tentative = (issue: IssueTentative, payload: Record<string, unknown>): TentativeVue => {
   const declaration = declarationDe(payload);
+  const enlisement = enlisementDepuis(payload.enlisement);
+  const epuisement = epuisementDepuis(payload.epuisement);
   return {
     issue,
     dureeWorkerMs: nombre(payload.durationMs),
@@ -101,6 +115,8 @@ const tentative = (issue: IssueTentative, payload: Record<string, unknown>): Ten
     coutUsd: declaration.coutUsd,
     jetonsEntree: declaration.jetonsEntree,
     jetonsSortie: declaration.jetonsSortie,
+    ...(enlisement ? { enlisement } : {}),
+    ...(epuisement ? { epuisement } : {}),
   };
 };
 
@@ -166,6 +182,11 @@ export function chronologieDepuisEvenements(
         break;
       case 'task_cancelled':
         terminaleA = e.ts;
+        break;
+      case 'task_rejected':
+        // Les autres refus n'ont rien fait tourner : pas une tentative.
+        if (epuisementDepuis(e.payload.epuisement))
+          tentatives.push(tentative('epuisement', e.payload));
         break;
       case 'task_requeued':
         reprises += 1;

@@ -17,7 +17,7 @@ import type {
   AdapterResult,
   AgentAdapter,
 } from '../adapters/index.js';
-import { ligneDInfra } from '../adapters/exec.js';
+import { ArretMotive, ligneDInfra } from '../adapters/exec.js';
 import { borneTexteFinal } from '../adapters/texte-final.js';
 import {
   agentBinairePresent,
@@ -39,6 +39,8 @@ import { estOrdreArret } from '../shared/demarrage.js';
 import { plateformeDepuis } from '../shared/machine.js';
 import { laverIdentifiantsDuTexte } from '../shared/projet-public.js';
 import { ligneArretBudgetaire, usdDeMicros } from '../shared/arret-budgetaire.js';
+import { direArret } from '../shared/enlisement.js';
+import type { ArretVigie, EpuisementFournisseur } from '../shared/enlisement.js';
 import {
   assignationIllisible,
   ID_PATTERN,
@@ -58,6 +60,7 @@ import type {
   DelegationResultMsg,
   OutilConstate,
   PoserOutilMsg,
+  TaskRejectMsg,
   TaskResultMsg,
 } from '../shared/protocol.js';
 import {
@@ -232,7 +235,7 @@ function borneApresCaviardage(s: string, max: number): string {
 function declarationsDuResultat(
   result: AdapterResult,
   caviardeur: Caviardeur,
-): Pick<TaskResultMsg, 'fournisseur' | 'finalText' | 'arretBudgetaire'> {
+): Pick<TaskResultMsg, 'fournisseur' | 'finalText' | 'arretBudgetaire' | 'enlisement'> {
   // Caviardé AVANT d'être borné : la borne garde la fin, et une clé coupée
   // par elle ne serait plus reconnue. `reponse`, pas `texte` : le hub RELIT ce
   // texte (proposition d'éclaireuse, avis de conseil — voir `Caviardeur`).
@@ -244,7 +247,55 @@ function declarationsDuResultat(
     ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
     ...(finalText ? { finalText } : {}),
     ...(result.arretBudgetaire ? { arretBudgetaire: result.arretBudgetaire } : {}),
+    ...(result.enlisement ? { enlisement: result.enlisement } : {}),
   };
+}
+
+/** Une remise à zéro dite par le nœud : en UTC, il ne sait pas qui la lira. */
+const heureUtc = (ms: number): string => `${new Date(ms).toISOString().slice(11, 16)} UTC`;
+
+/** La phrase d'un arrêt de la vigie, au journal du nœud. */
+function ligneArretVigie(arret: ArretVigie): string {
+  return `[hive] ${direArret(arret, (fr) => fr, heureUtc)} — agent arrêté avant son délai`;
+}
+
+/**
+ * Le progrès d'un adaptateur, avec l'arrêt que sa vigie décide (G13).
+ *
+ * L'arrêt passe par le geste de l'annulation et du budget de durée — `ctrl`,
+ * donc le pilote qui réveille un agent en pause, l'arbre abattu en entier —,
+ * jamais par un chemin à lui. Sa cause part au journal de la tâche et dans sa
+ * console en direct (Sandbox Live), et ferme les logs (`ArretMotive`).
+ */
+function progresSousVigie(
+  ctrl: AbortController,
+  progres: (p: AdapterProgress) => void,
+): (p: AdapterProgress) => void {
+  return (p) => {
+    if (!p.arret) {
+      progres(p);
+      return;
+    }
+    if (ctrl.signal.aborted) return;
+    const ligne = ligneArretVigie(p.arret);
+    progres({ log: ligne, sortie: [{ niveau: 'hive', texte: `${ligne}\n` }] });
+    ctrl.abort(new ArretMotive(ligne));
+  };
+}
+
+/**
+ * Le refus d'une tentative dont le fournisseur était épuisé (G13) : le fait,
+ * et — quand le CLI a déclaré sa remise à zéro — l'attente avant laquelle ce
+ * nœud ne revoit pas la tâche : `retryAfterMs`, le chemin du Night Shift,
+ * borné à 24 h par le protocole et par la Reine.
+ */
+function refusEpuise(
+  epuisement: EpuisementFournisseur | undefined,
+  now = Date.now(),
+): Pick<TaskRejectMsg, 'epuisement' | 'retryAfterMs'> {
+  if (!epuisement) return {};
+  const attente = Math.min((epuisement.remiseA ?? now) - now, 24 * 60 * 60 * 1000);
+  return { epuisement, ...(attente > 0 ? { retryAfterMs: Math.round(attente) } : {}) };
 }
 
 /**
@@ -1845,9 +1896,16 @@ export class HiveNodeClient {
     result: AdapterResult,
     caviardeur: Caviardeur,
   ): string {
+    // Un fournisseur épuisé (G13) se dit par son FAIT ; la ligne `[hive]` qui
+    // ferme ses logs quand la vigie l'a arrêté ne ferait que le répéter.
+    const epuisement = result.epuisement;
+    const tete = epuisement
+      ? direArret({ issue: 'epuisement_fournisseur', ...epuisement }, (fr) => fr, heureUtc)
+      : prefixe;
     const dit = ligneDInfra(texteDEchec(result.logs, result.finalText));
-    const cause = dit ? laverIdentifiantsDuTexte(caviardeur.texte(dit)).trim() : '';
-    return (cause ? `${prefixe} : ${cause}` : prefixe).slice(0, LIMITS.name);
+    const propre = epuisement && dit.startsWith('[hive]') ? '' : dit;
+    const cause = propre ? laverIdentifiantsDuTexte(caviardeur.texte(propre)).trim() : '';
+    return (cause ? `${tete} : ${cause}` : tete).slice(0, LIMITS.name);
   }
 
   /**
@@ -2157,7 +2215,7 @@ export class HiveNodeClient {
             echeanceRun,
           ),
         pilote,
-        onProgress: progres,
+        onProgress: progresSousVigie(ctrl, progres),
       });
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
       // validations du bac comptent dans la durée d'un enfant délégué — son
@@ -2182,10 +2240,10 @@ export class HiveNodeClient {
       // ligne `init` du stream-json porte `apiKeySource`, et un simple 429 y
       // ouvrait une réquisition d'identifiants (shared/texte-d-echec.ts).
       if (!result.success && result.infra) {
-        const req = this.requisitionApresEchecInfra(
-          texteDEchec(result.logs, result.finalText),
-          task.title,
-        );
+        // Un fournisseur épuisé n'attend pas d'identifiants : aucune réquisition.
+        const req = result.epuisement
+          ? null
+          : this.requisitionApresEchecInfra(texteDEchec(result.logs, result.finalText), task.title);
         if (req && workspace && !this.attenteRequisition) {
           conserverWorkspace = true;
           this.attenteRequisition = {
@@ -2223,7 +2281,13 @@ export class HiveNodeClient {
           result,
           caviardeur,
         );
-        this.send({ type: 'task_reject', taskId: task.id, reason: raison, infra: true });
+        this.send({
+          type: 'task_reject',
+          taskId: task.id,
+          reason: raison,
+          infra: true,
+          ...refusEpuise(result.epuisement),
+        });
         this.log(`⇄ ${task.title} : ${raison} → réaffectation`);
         return;
       }
@@ -2519,7 +2583,7 @@ export class HiveNodeClient {
             echeanceRun,
           ),
         pilote,
-        onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
+        onProgress: progresSousVigie(ctrl, progres),
       });
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
       // validations du bac comptent dans la durée d'un enfant délégué — son
@@ -2540,10 +2604,9 @@ export class HiveNodeClient {
           : rawResult;
       ressources = pilote.ressources();
       if (!result.success && result.infra) {
-        const encore = this.requisitionApresEchecInfra(
-          texteDEchec(result.logs, result.finalText),
-          task.title,
-        );
+        const encore = result.epuisement
+          ? null
+          : this.requisitionApresEchecInfra(texteDEchec(result.logs, result.finalText), task.title);
         if (encore?.genre === 'binaire') {
           this.attenteRequisition = {
             ...attente,
@@ -2566,7 +2629,13 @@ export class HiveNodeClient {
           result,
           caviardeur,
         );
-        this.send({ type: 'task_reject', taskId: task.id, reason: raison, infra: true });
+        this.send({
+          type: 'task_reject',
+          taskId: task.id,
+          reason: raison,
+          infra: true,
+          ...refusEpuise(result.epuisement),
+        });
         this.log(`⇄ ${task.title} : ${raison} → réaffectation`);
         return;
       }
