@@ -81,8 +81,9 @@
 // partout sous l'utilisateur du membre, registre compris : il n'y a alors pas
 // de bac dont sortir, et `constat()` le dit déjà (isolement.ts).
 
-import { copyFileSync, mkdirSync, promises as fsp, readdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { effacerDossier } from '../shared/effacement.js';
 import { EchecGitHote, gitHote, type DepotEpingle } from '../shared/git-protege.js';
 
 /**
@@ -258,8 +259,9 @@ export async function diffContreBase(depot: DepotEpingle, base: string | null): 
  * BORNÉE EN TOUT : `delaiMs` couvre l'effacement d'un reste, l'`init`, le
  * `fetch`, la vérification et le `checkout` — c'est ce que la ligne de
  * progression annonce (`node-client/validations-bac.ts`). L'effacement d'un
- * reste est ASYNCHRONE, en une passe : un rejeu laissé par un nœud tué porte
- * un `node_modules` entier, et `rmSync` gèlerait la boucle du nœud.
+ * reste passe par la porte unique (`effacerDossier`) : ASYNCHRONE — un rejeu
+ * laissé par un nœud tué porte un `node_modules` entier, et `rmSync` gèlerait
+ * la boucle du nœud —, ses reprises au sommet seulement (5,5 s au plus).
  */
 async function extraireCommit(
   depot: DepotEpingle,
@@ -275,7 +277,7 @@ async function extraireCommit(
       throw new Error(`extraction abandonnée au-delà de ${Math.round(delaiMs / 1000)} s`);
     return { delaiMs: ms };
   };
-  await fsp.rm(dossier, { recursive: true, force: true });
+  await effacerDossier(dossier);
   mkdirSync(dossier, { recursive: true });
   // `--template=` vide : aucun crochet — pas même ceux d'un `init.templateDir`
   // du membre. Un commit de 64 caractères vient d'un dépôt SHA-256.

@@ -25,7 +25,7 @@
 // membre. C'est le niveau `processus` de `constat()`, et c'est là — pas ici —
 // que la vérité de l'isolement s'écrit.
 
-import { mkdirSync, promises as fsp } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { CLONE_MS } from '../shared/butoirs-noeud.js';
 import { effacerDossier } from '../shared/effacement.js';
@@ -149,17 +149,17 @@ export const dossierDeTete = (cwd: string): string => `${cwd}.tete`;
  * fichier possède le répertoire de tâche et ses voisins : l'inventaire de ce
  * que Hive écrit chez le membre (`empreinte.ts`) reste vrai.
  *
- * ASYNCHRONE, en UNE passe : un rejeu porte un `node_modules` complet, et
- * l'effacer en synchrone, en pleine tâche, gelait la boucle du nœud — sans
- * battement au-delà de `NODE_TIMEOUT_MS` (15 s), la Reine le déclare hors
- * ligne. Pas de `maxRetries` : l'option multiplie les reprises par niveau de
+ * ASYNCHRONE : un rejeu porte un `node_modules` complet, et l'effacer en
+ * synchrone, en pleine tâche, gelait la boucle du nœud — sans battement
+ * au-delà de `NODE_TIMEOUT_MS` (15 s), la Reine le déclare hors ligne. Par la
+ * porte unique (`effacerDossier`) : ses reprises au sommet seulement, 5,5 s au
+ * plus — jamais les `maxRetries` de `fs.rm`, qui se multiplient par niveau de
  * dossier (le piège de #538/#552). Ce qui reste (un fichier verrouillé sous
  * Windows), le prochain `prepareWorkspace` de la tâche, ou son `cleanup`, le
  * reprendra. Ne lève jamais : rien ne doit emporter le résultat de la tâche.
  */
 export async function effacerRejeu(dossier: string): Promise<void> {
-  const options = { recursive: true, force: true } as const;
-  await Promise.all([fsp.rm(dossier, options), fsp.rm(`${dossier}.tmp`, options)]).catch(
+  await Promise.all([effacerDossier(dossier), effacerDossier(`${dossier}.tmp`)]).catch(
     () => undefined,
   );
 }

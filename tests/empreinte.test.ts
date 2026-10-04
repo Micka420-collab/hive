@@ -711,8 +711,9 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     'src/orchestrator/miroir.ts': '<données>/rayons — les miroirs git',
     'src/shared/effacement.ts':
       'n’écrit rien, il EFFACE — et seulement ce que ses appelants lui désignent ' +
-      '(l’espace d’une tâche et ses voisins, les clones et le transit d’une fusion, ' +
-      'les miroirs de la Reine), chacun déclaré ici sous sa racine',
+      '(l’espace d’une tâche et ses voisins, rejeux à part compris, le miroir de la ' +
+      'porte de sécurité, les clones et le transit d’une fusion, les miroirs de la ' +
+      'Reine), chacun déclaré ici sous sa racine',
     'src/service-reel.ts':
       'le fichier de service — unité systemd, LaunchAgent ou tâche planifiée. ' +
       'Décidé ici plutôt que subi : c’est le seul écrit de Hive dans le dossier ' +
@@ -885,12 +886,13 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
       nu(createurs.find((f) => f.chemin === 'src/node-client/rendez-vous-pont.ts')!.texte),
     ).toMatch(/rmSync/);
     // Le miroir de la porte : créé dans la tâche, jamais ailleurs, et retiré
-    // dans un `finally` — une porte qui lève ne le laisse pas derrière elle.
+    // dans un `finally` — une porte qui lève ne le laisse pas derrière elle —
+    // par la porte unique de l'effacement (`effacerDossier`).
     const porte = nu(
       createurs.find((f) => f.chemin === 'src/node-client/porte-securite.ts')!.texte,
     );
     expect(porte).toMatch(/mkdtempSync\(path\.join\(cwd,/);
-    expect(porte).toMatch(/finally \{[\s\S]*?rmSync\(miroir\.chemin/);
+    expect(porte).toMatch(/finally \{[\s\S]*?effacerDossier\(miroir\.chemin/);
     expect(porte).not.toMatch(/tmpdir\s*\(/);
   });
 

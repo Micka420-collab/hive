@@ -1,6 +1,7 @@
 // Effacer un arbre que git a rempli — la seule porte par laquelle la ruche
 // efface récursivement ce qu'un fichier tenu peut retenir : le dossier d'une
-// tâche et ses voisins (TEMP, registre, réserve), les clones de fusion et de
+// tâche et ses voisins (TEMP, registre, réserve, rejeux à part de la base et de
+// l'arbre livré), le miroir de la porte de sécurité, les clones de fusion et de
 // chantier, le TEMP et le transit d'une fusion — chez le nœud —, le miroir d'un
 // projet et son reclone voisin — chez la Reine.
 //

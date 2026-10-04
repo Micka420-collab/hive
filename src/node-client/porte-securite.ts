@@ -57,7 +57,6 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
-  rmSync,
   writeFileSync,
 } from 'node:fs';
 import http from 'node:http';
@@ -65,6 +64,7 @@ import https from 'node:https';
 import net from 'node:net';
 import path from 'node:path';
 import { formesDuSecret, lireDiff } from '../shared/caviardage.js';
+import { effacerDossier } from '../shared/effacement.js';
 import type { Caviardeur, FichierDuDiff, LigneAjoutee } from '../shared/caviardage.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import {
@@ -179,13 +179,9 @@ export async function passerLaPorte(opts: OptionsPorte): Promise<PassagePorte> {
         : voletSans<ConstatDependance>(examen);
     return { rapport: { secrets, dependances }, valeurs };
   } finally {
-    if (miroir.chemin !== null) {
-      try {
-        rmSync(miroir.chemin, { recursive: true, force: true, maxRetries: 3 });
-      } catch {
-        // Fichier verrouillé (Windows) : le nettoyage de la tâche l'emportera.
-      }
-    }
+    // Par la porte unique (`effacerDossier`). Un fichier encore verrouillé
+    // (Windows) au bout de ses reprises : le nettoyage de la tâche l'emportera.
+    if (miroir.chemin !== null) await effacerDossier(miroir.chemin).catch(() => undefined);
   }
 }
 
