@@ -23,9 +23,22 @@
 // gardes contre l'évasion par lien ne vérifiaient plus rien. Elles portent les
 // assistants d'identifiants, les certificats et `core.sshCommand` ; ce
 // qu'elles pourraient faire exécuter à cause d'un dépôt est coupé ici.
+//
+// ─── LE SECOND INVARIANT : AUCUN IDENTIFIANT EN ARGUMENT ─────────────────────
+//
+// Un dépôt privé arrive du hub avec ses identifiants DANS l'URL
+// (`https://user:ghp_…@github.com/…`). Passée telle quelle à git, l'URL allait
+// là où personne ne l'avait décidé : dans le `.git/config` du clone — celui
+// d'une tâche est entre les mains de l'agent, qui y lisait le jeton de push —
+// et dans l'assistant d'identifiants du membre, auquel git CONFIE ce qui a
+// marché (`depotDistant`). Désormais une adresse avec identifiants ne
+// franchit plus cette porte : git reçoit l'adresse NUE, l'accès voyage dans
+// son environnement, et un argument qui en porterait encore est refusé
+// (`gitHote`).
 
 import { execFile, type ExecFileException } from 'node:child_process';
 import path from 'node:path';
+import { laverIdentifiantsDuTexte } from './projet-public.js';
 
 /**
  * L'environnement de TOUT git lancé par la ruche sur l'hôte — nœud ou Reine.
@@ -75,6 +88,93 @@ export function envGitHote(ssh = 'ssh', identite?: IdentiteCommit): NodeJS.Proce
   };
   if (process.env.SSH_AUTH_SOCK !== undefined) env.SSH_AUTH_SOCK = process.env.SSH_AUTH_SOCK;
   return env;
+}
+
+/**
+ * L'`userinfo` d'une adresse HTTP(S), jusqu'au DERNIER arobase avant le
+ * chemin — un mot de passe peut en contenir un. C'est le seul transport où
+ * git envoie ce qu'une URL porte : par SSH, `git@` nomme un compte et c'est
+ * la clé du membre qui ouvre ; `git://` est anonyme.
+ */
+const USERINFO_HTTP = /^(https?:\/\/)([^/?#]*)@/i;
+
+/** La même chose, n'importe où dans un texte : un argument, une configuration. */
+const USERINFO_HTTP_DANS = /\bhttps?:\/\/[^/?#\s]*@/i;
+
+/** Ce texte porte-t-il une adresse HTTP(S) avec identifiants ? */
+export function porteDesIdentifiants(texte: string): boolean {
+  return USERINFO_HTTP_DANS.test(texte);
+}
+
+/** Un dépôt DISTANT tel que la ruche lui parle (`depotDistant`). */
+export interface DepotDistant {
+  /**
+   * L'adresse SANS identifiants : la seule qui entre dans l'argv de git —
+   * donc dans la configuration d'un clone, et dans ses messages.
+   */
+  readonly nue: string;
+  /**
+   * Ce qui ouvre le dépôt : une configuration git ÉPHÉMÈRE, que porte
+   * l'environnement du seul git qui parle au distant (`gitHote`). Vide
+   * quand l'adresse ne portait rien.
+   */
+  readonly acces: Readonly<Record<string, string>>;
+}
+
+/**
+ * Sépare l'adresse d'un dépôt de ses identifiants.
+ *
+ * ─── CE QUE L'URL AUTHENTIFIÉE FAISAIT, MESURÉ (git 2.53) ────────────────────
+ *
+ *   · `git clone` l'écrivait en `remote.origin.url` : le clone d'une tâche
+ *     donnait à l'agent le jeton de push du projet (`cat .git/config`), que
+ *     le registre de la ruche recopiait en plus à côté (`poserRegistre`) ;
+ *   · git confie à CHAQUE assistant configuré les identifiants qui ont
+ *     marché : avec `credential.helper=store`, le jeton finissait en clair
+ *     dans `~/.git-credentials` du membre ; sous Windows, dans son
+ *     gestionnaire d'identifiants (Git for Windows y inscrit Git Credential
+ *     Manager) — à portée de tout processus du membre, et à la place de SES
+ *     identifiants pour cet hôte. Un refus y EFFAÇAIT au passage l'entrée du
+ *     membre ;
+ *   · dans l'argv, elle se lit de toute la machine (`/proc/<pid>/cmdline`).
+ *
+ * ─── CE QUE GIT REÇOIT DÉSORMAIS ─────────────────────────────────────────────
+ *
+ * L'adresse NUE en argument, et une configuration d'environnement
+ * (`GIT_CONFIG_COUNT`, git ≥ 2.31) qui ne vit que le temps de CE git :
+ *
+ *   · `url.<authentifiée>.insteadOf = <nue>` : git réécrit l'adresse en
+ *     mémoire, au moment du transport — l'authentification est exactement
+ *     celle d'avant, rien ne l'écrit. La règle la plus longue gagne : celle-ci
+ *     nomme le dépôt entier, elle passe devant un `insteadOf` du membre qui
+ *     viserait l'hôte (`url.git@github.com:.insteadOf`, un réglage courant) ;
+ *   · `pushInsteadOf`, la même : sans elle, celui du membre passait devant
+ *     pour une poussée — mesuré, elle partait vers SA réécriture SSH ;
+ *   · `credential.helper` VIDE, quand l'adresse porte un MOT DE PASSE : la
+ *     liste des assistants repart de zéro — ni dépôt du jeton chez le
+ *     membre, ni effacement du sien. Un nom seul (`https://moi@…`) ne fait
+ *     que choisir le compte que son assistant fournira : celui-là reste lu,
+ *     comme pour une adresse sans identifiants (`envGitHote`).
+ *
+ * Un git antérieur à 2.31 ignore cette configuration : il parle à l'adresse
+ * nue sans les identifiants du projet — un refus qui se dit, jamais un jeton
+ * sur le disque.
+ */
+export function depotDistant(repoUrl: string): DepotDistant {
+  const m = USERINFO_HTTP.exec(repoUrl);
+  if (!m) return { nue: repoUrl, acces: {} };
+  const nue = `${m[1]}${repoUrl.slice(m[0].length)}`;
+  const reglages: [cle: string, valeur: string][] = [
+    [`url.${repoUrl}.insteadOf`, nue],
+    [`url.${repoUrl}.pushInsteadOf`, nue],
+  ];
+  if (/:./.test(m[2] ?? '')) reglages.push(['credential.helper', '']);
+  const acces: Record<string, string> = { GIT_CONFIG_COUNT: String(reglages.length) };
+  reglages.forEach(([cle, valeur], i) => {
+    acces[`GIT_CONFIG_KEY_${i}`] = cle;
+    acces[`GIT_CONFIG_VALUE_${i}`] = valeur;
+  });
+  return { nue, acces };
 }
 
 /**
@@ -208,15 +308,42 @@ export interface DepotEpingle {
  * dans le bac ni écrit par un `git apply`. C'est git qui entre ensuite dans
  * l'arbre (`-C`), une fois SON binaire choisi.
  *
+ * `acces` : la configuration éphémère d'un dépôt distant (`depotDistant`),
+ * ajoutée à l'environnement de CE git seulement. Une adresse avec identifiants
+ * dans `args` est REFUSÉE avant tout lancement : c'est ce qui l'écrivait dans
+ * la configuration d'un clone et dans l'assistant du membre.
+ *
  * La raison d'échec est le stderr de git, et SEULEMENT lui : le message
- * d'`execFile` recopie la ligne de commande, donc l'URL de clone — et une URL
- * peut porter un jeton (`https://x:jeton@…`). Git, lui, l'anonymise.
+ * d'`execFile` recopie la ligne de commande. Lavé, en plus : git anonymise
+ * les adresses qu'il cite, pas dans toutes ses versions, et un serveur peut
+ * renvoyer la sienne dans ses lignes `remote:`.
  */
 export function gitHote(
   args: readonly string[],
   ou: string | DepotEpingle,
-  { delaiMs, ssh, identite }: { delaiMs?: number; ssh?: string; identite?: IdentiteCommit } = {},
+  {
+    delaiMs,
+    ssh,
+    identite,
+    acces,
+  }: {
+    delaiMs?: number;
+    ssh?: string;
+    identite?: IdentiteCommit;
+    acces?: DepotDistant['acces'];
+  } = {},
 ): Promise<string> {
+  // Un rejet, pas une exception : `commandeSshDuMembre` enchaîne `.catch`.
+  // Le message ne cite AUCUN argument — c'est l'un d'eux qui porte le secret.
+  if (args.some(porteDesIdentifiants)) {
+    return Promise.reject(
+      new EchecGitHote(
+        `git ${args[0] ?? ''} : refusé — une adresse avec identifiants en argument ` +
+          '(l’accès d’un dépôt distant passe par `depotDistant`)',
+        null,
+      ),
+    );
+  }
   const local = typeof ou !== 'string';
   const delai = delaiMs ?? (local ? DELAI_GIT_LOCAL_MS : 0);
   // `-C` : git, lui, travaille DANS l'arbre — `apply` résout les chemins du
@@ -230,7 +357,7 @@ export function gitHote(
       [...PROTECTIONS, ...transportBorne(delai), ...epingle, ...args],
       {
         cwd: local ? path.dirname(ou.workTree) : ou,
-        env: envGitHote(ssh, identite),
+        env: { ...envGitHote(ssh, identite), ...acces },
         shell: false, // jamais d'interprétation shell (contrainte §5.1)
         windowsHide: true,
         encoding: 'utf8',
@@ -265,7 +392,7 @@ export function gitHote(
  * `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`) — des messages sans argv.
  */
 function raisonEchec(err: ExecFileException, code: number | null, stderr: string): string {
-  const sortie = stderr.trim();
+  const sortie = laverIdentifiantsDuTexte(stderr).trim();
   if (code !== null) return sortie || `code de sortie ${code}`;
   if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
     return (

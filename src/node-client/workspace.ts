@@ -3,9 +3,10 @@
 // Ce que CE fichier fournit : un cwd dédié par tâche, un environnement épuré
 // (pas de HOME/USERPROFILE ni variables du membre), TEMP redirigé dans la
 // tâche, une branche git `hive/<taskId>` quand le projet a un dépôt (ou, pour
-// une reprise, la branche de la pull request qu'elle prolonge) — et le
-// diff de revue, calculé par le git dir de la RUCHE, jamais par le `.git` que
-// l'agent a eu entre les mains (`git-hote.ts`).
+// une reprise, la branche de la pull request qu'elle prolonge), un clone qui
+// ne porte aucun identifiant du dépôt (`cloneRepo`) — et le diff de revue,
+// calculé par le git dir de la RUCHE, jamais par le `.git` que l'agent a eu
+// entre les mains (`git-hote.ts`).
 //
 // ─── CE N'EST PAS TOUT L'ISOLEMENT, ET CE COMMENTAIRE L'A CRU LONGTEMPS ──────
 //
@@ -31,7 +32,7 @@ import { setTimeout as attendre } from 'node:timers/promises';
 import { CLONE_MS } from '../shared/butoirs-noeud.js';
 import type { Task } from '../shared/types.js';
 import { segmentSur } from '../shared/noms-windows.js';
-import { EchecGitHote, commandeSshDuMembre, gitHote } from '../shared/git-protege.js';
+import { EchecGitHote, commandeSshDuMembre, depotDistant, gitHote } from '../shared/git-protege.js';
 import { estBrancheDeLivraison } from '../shared/protocol.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import { commitDeDepart, diffContreBase, poserRegistre } from './git-hote.js';
@@ -224,6 +225,16 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
  * l'environnement de la livraison locale, qui POUSSE avec exactement les
  * identifiants qui ont servi au clone (`livraison-locale.ts`).
  *
+ * ─── LE CLONE NE PORTE AUCUN IDENTIFIANT ─────────────────────────────────────
+ *
+ * C'est la seule porte de clone du nœud — tâche, reprise d'une pull request,
+ * merge, chantier. Git y clone l'adresse NUE ; les identifiants qu'écrivait
+ * l'URL du hub voyagent dans l'environnement de CE git (`depotDistant`). Le
+ * `.git/config` de la tâche — que l'agent lit, et que le registre recopie —
+ * n'a donc plus de jeton à donner, et un `git push` lancé depuis l'espace de
+ * travail n'a rien pour s'authentifier : l'enceinte est structurelle, pas
+ * une affaire de forme de commande (`politique-actions.ts`).
+ *
  * ─── BORNÉ, PARCE QUE LE HUB COMPTE DESSUS ─────────────────────────────────
  *
  * Ce clone ouvre chaque merge, chaque chantier et chaque tâche, et il n'avait
@@ -252,14 +263,15 @@ export async function cloneRepo(
   // (`gitHote`) : absent, le clone mourait en « spawn git ENOENT ».
   mkdirSync(parent, { recursive: true });
   const ssh = await commandeSshDuMembre(parent);
+  const { nue, acces } = depotDistant(repoUrl);
   try {
     // `--` : une URL qui commencerait par un tiret ne devient pas une option.
     // `--branch=` d'un seul tenant, pour la même raison : la valeur ne peut
     // pas être relue comme une option (`estBrancheDeLivraison` l'interdit déjà).
     await gitHote(
-      ['clone', '--depth', '1', ...(branche ? [`--branch=${branche}`] : []), '--', repoUrl, dir],
+      ['clone', '--depth', '1', ...(branche ? [`--branch=${branche}`] : []), '--', nue, dir],
       parent,
-      { ssh, delaiMs },
+      { ssh, delaiMs, acces },
     );
   } catch (err) {
     if (!(err instanceof EchecGitHote && err.delaiDepasse)) throw err;

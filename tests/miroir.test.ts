@@ -60,7 +60,7 @@ import {
   Miroir,
   RayonIndisponible,
 } from '../src/orchestrator/miroir.js';
-import { envGitHote } from '../src/shared/git-protege.js';
+import { depotDistant, envGitHote } from '../src/shared/git-protege.js';
 import { TAILLE_MAX_FICHIER } from '../src/shared/rayon.js';
 
 /**
@@ -386,8 +386,19 @@ describe('LE MIROIR NE PEUT PAS ATTENDRE INDÉFINIMENT DES IDENTIFIANTS', () => 
   it('AUCUN assistant d’identifiants n’est CONFIGURÉ — on coupe la source, on ne la remplace pas', () => {
     // Un assistant peut désigner n'importe quel binaire : le jour où
     // quelqu'un en configurerait un pour faire taire l'invite, ce test le dirait.
-    expect(porteNue).not.toMatch(/credential\.helper/);
+    //
+    // UNE mention est permise, et elle ne désigne rien : la liste VIDÉE
+    // (`credential.helper` = ''), quand une adresse apporte le mot de passe
+    // du projet — il ne doit pas finir chez l'assistant du membre
+    // (`depotDistant`, tests/clone-sans-identifiants.test.ts). Toute autre
+    // forme, et toute autre valeur, rougit ici.
+    expect(porteNue.replaceAll(`['credential.helper', '']`, '')).not.toMatch(/credential\.helper/);
     expect(miroirNu).not.toMatch(/credential\.helper/);
+    const { acces } = depotDistant('https://moi:jeton@hote.exemple/depot.git');
+    const assistants = Object.keys(acces)
+      .filter((cle) => /^GIT_CONFIG_KEY_\d+$/.test(cle) && acces[cle] === 'credential.helper')
+      .map((cle) => acces[cle.replace('KEY', 'VALUE')]);
+    expect(assistants).toEqual(['']);
   });
 });
 
