@@ -30,7 +30,7 @@ import {
 import { createDeclarationFournisseurTracker } from './fournisseur-parser.js';
 import { createPresenceTracker } from './presence-parser.js';
 import { createSubAgentTracker } from './subagent-parser.js';
-import { texteFinalAvisStreamJson, texteFinalStreamJson } from './texte-final.js';
+import { lecteurAvisStreamJson, texteFinalStreamJson } from './texte-final.js';
 import type { AdapterContext, AdapterResult, AgentAdapter, VerdictPlafond } from './index.js';
 
 const CLAUDE_TIMEOUT_MS = 15 * 60_000;
@@ -126,7 +126,7 @@ export function reglagesImposes(permissionsAllow: readonly string[] = []): strin
  * `--json-schema <schéma>` : une RELECTURE seulement (`avisAuSchema`) — le
  * schéma de l'avis (`SCHEMA_AVIS`), que le CLI fait remplir par son outil
  * `StructuredOutput`, valide, et rend dans `structured_output`
- * (`texteFinalAvisStreamJson`). En ligne : ni secret, ni fichier à poser.
+ * (`lecteurAvisStreamJson`). En ligne : ni secret, ni fichier à poser.
  *
  * `--model <nom>` va AVANT le `--` : c'est une OPTION, et tout ce qui suit `--`
  * est du texte de prompt (cf. l'injection démontrée dans `prompt-argv.ts`). Le
@@ -478,8 +478,8 @@ export function createClaudeCodeAdapter(
           CLAUDE_TIMEOUT_MS,
           // La réponse finale vit dans la ligne `result` du flux — pas dans
           // les logs, où elle n'est qu'une chaîne échappée (texte-final.ts).
-          // Au schéma, c'est son `structured_output`, jamais sa prose.
-          avisAuSchema ? texteFinalAvisStreamJson : texteFinalStreamJson,
+          // Au schéma, ce sont les avis que le CLI a acceptés, jamais sa prose.
+          avisAuSchema ? lecteurAvisStreamJson() : texteFinalStreamJson,
           // Le dossier du pont, que le bac éventuel monte en lecture seule.
           bridge?.dossier,
         );

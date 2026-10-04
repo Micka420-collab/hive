@@ -27,16 +27,17 @@
 //     sur un succès, `errors` sur un échec (types `SDKResultSuccess` et
 //     `SDKResultError` de @anthropic-ai/claude-agent-sdk 0.3.283, sdk.d.ts).
 //
-//   · le même, AU SCHÉMA (`--json-schema`, une relecture) : l'avis est
-//     `structured_output`, l'objet que le CLI a validé — `result` n'en est que
-//     la sérialisation (code.claude.com/docs/en/headless, « Get structured
-//     output » ; enregistré sur Claude Code 2.1.289 :
-//     tests/fixtures/avis-structure). Un modèle qui n'appelle jamais l'outil
-//     `StructuredOutput` laisse un `success` SANS `structured_output`, que la
-//     documentation dit de traiter en échec (code.claude.com/docs/en/agent-sdk/
-//     structured-outputs, « Error handling ») : aucun texte final — la prose
-//     n'est jamais lue à la place de l'avis exigé. Un objet hors schéma, le CLI
-//     le refuse lui-même, puis échoue en `error_max_structured_output_retries`.
+//   · le même, AU SCHÉMA (`--json-schema`, une relecture) : l'avis est l'objet
+//     que le modèle remet à l'outil `StructuredOutput` et que le CLI ACCEPTE —
+//     `structured_output` n'en garde que le dernier, `result` sa sérialisation
+//     (code.claude.com/docs/en/headless, « Get structured output » ; enregistré
+//     sur Claude Code 2.1.289 : tests/fixtures/avis-structure). Un modèle qui
+//     n'appelle jamais l'outil laisse un `success` SANS `structured_output`, que
+//     la documentation dit de traiter en échec (code.claude.com/docs/en/
+//     agent-sdk/structured-outputs, « Error handling ») : aucun texte final — la
+//     prose n'est jamais lue à la place de l'avis exigé. Un objet hors schéma,
+//     le CLI le refuse lui-même, puis échoue en
+//     `error_max_structured_output_retries`. Voir `lecteurAvisStreamJson`.
 //
 //   · stream-json de Cursor : la MÊME ligne `result`, mais PAS le même sens —
 //     tout le texte de l'exécution, narration comprise. La réponse est le texte
@@ -116,16 +117,62 @@ export const texteFinalStreamJson: LecteurEvenementFinal = (e) => {
   return undefined;
 };
 
+/** Les blocs de contenu d'un message `assistant` ou `user` du flux. */
+function blocsDe(message: unknown): Record<string, unknown>[] {
+  const contenu =
+    typeof message === 'object' && message !== null
+      ? (message as { content?: unknown }).content
+      : undefined;
+  return Array.isArray(contenu)
+    ? contenu.filter((b): b is Record<string, unknown> => typeof b === 'object' && b !== null)
+    : [];
+}
+
 /**
- * stream-json d'une relecture au schéma (`--json-schema`) : `structured_output`,
- * écrit en ligne-marqueur (`ligneAvis`). Un succès sans lui ne dit rien (voir
- * l'en-tête) ; un échec garde ses `errors`, où le CLI dit pourquoi.
+ * stream-json d'une relecture au schéma (`--json-schema`) : l'avis est l'objet
+ * que le modèle remet à l'outil `StructuredOutput` et que le CLI ACCEPTE (son
+ * `tool_result` sans `is_error`), écrit en ligne-marqueur (`ligneAvis`).
+ *
+ * ─── PAS `structured_output` SEUL ───────────────────────────────────────────
+ *
+ * Deux appels dans une même réponse — un avis qui conteste, puis un qui valide
+ * — sont ACCEPTÉS tous les deux, et `structured_output` ne garde que le
+ * dernier (enregistré sur 2.1.289 : tests/fixtures/avis-structure/
+ * claude-deux-avis.stream.jsonl) : le constat majeur disparaissait sous un
+ * « valide ». Chaque objet DISTINCT accepté devient donc sa ligne-marqueur, et
+ * plus d'une ligne-marqueur rend l'avis illisible — contesté, et dit : la règle
+ * même du marqueur. `structured_output` ne sert qu'à défaut d'appel lu dans le
+ * flux ; ceux d'un sous-agent (`parent_tool_use_id`) ne sont pas la réponse.
+ *
+ * Un succès sans objet ne dit rien (voir l'en-tête) ; un échec garde ses
+ * `errors`, où le CLI dit pourquoi. Une FABRIQUE : l'état vit une exécution.
  */
-export const texteFinalAvisStreamJson: LecteurEvenementFinal = (e) => {
-  if (e.type !== 'result') return undefined;
-  if (e.structured_output !== undefined) return ligneAvis(e.structured_output);
-  return e.is_error === true ? texteFinalStreamJson(e) : undefined;
-};
+export function lecteurAvisStreamJson(): LecteurEvenementFinal {
+  const proposes = new Map<unknown, unknown>();
+  // Ordre d'acceptation, un objet par contenu : deux appels identiques sont un avis.
+  const acceptes = new Map<string, unknown>();
+  return (e) => {
+    if (e.parent_tool_use_id) return undefined;
+    if (e.type === 'assistant') {
+      for (const b of blocsDe(e.message)) {
+        if (b.type === 'tool_use' && b.name === 'StructuredOutput') proposes.set(b.id, b.input);
+      }
+    } else if (e.type === 'user') {
+      for (const b of blocsDe(e.message)) {
+        if (b.type !== 'tool_result' || b.is_error === true || !proposes.has(b.tool_use_id)) {
+          continue;
+        }
+        const objet = proposes.get(b.tool_use_id);
+        acceptes.set(JSON.stringify(objet) ?? '', objet);
+      }
+    } else if (e.type === 'result') {
+      if (acceptes.size > 0) return [...acceptes.values()].map((o) => ligneAvis(o)).join('\n');
+      if (e.structured_output !== undefined) return ligneAvis(e.structured_output);
+      return e.is_error === true ? texteFinalStreamJson(e) : undefined;
+    }
+    return undefined;
+  };
+}
 
 /** Cline (`--json`) : `text` de l'événement `run_result`. */
 export const texteFinalCline: LecteurEvenementFinal = (e) =>

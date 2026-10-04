@@ -185,12 +185,16 @@ Gardiennes inspect it (`clean`, `suspect`, `hollow`).
   - **Schema-bound:** a review — and only a review — imposes this grid as a
     JSON Schema (`SCHEMA_AVIS`) on a CLI that can hold it: Claude Code
     (`--json-schema`, from 2.1.205) and Codex (`--output-schema`). The opinion
-    is read where the CLI returns it (`structured_output`, last
-    `agent_message`), never from its prose, and written as a `HIVE_CRITIQUE`
-    line: same reading, same grid — off-grid, it is contested. A CLI that ends
-    without the required opinion leaves a review with no final answer. An
-    older Claude Code keeps the instructions' line, and the review's journal
-    says so, version included.
+    is read where the CLI returns it — the object Claude Code ACCEPTED from
+    its `StructuredOutput` tool, Codex's last `agent_message` —, never from its
+    prose, and written as a `HIVE_CRITIQUE` line: same reading, same grid.
+    Off-grid, it is contested, never repaired; two accepted opinions are two
+    marker lines, hence unreadable; a too-long opinion drops its least severe
+    findings to fit the final text. A CLI that ends without the required
+    opinion leaves a review with no final answer. A Codex provider that does
+    not honour the format returns text: read through its marker line, with its
+    guards, and said in the journal. An older Claude Code keeps the
+    instructions' line, and the review's journal says so, version included.
 
 - **Scoring:** there is **no single score** — it would hide _which_ criterion
   failed. Findings are **counted per criterion and severity**

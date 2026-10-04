@@ -60,8 +60,9 @@
 //     même pas (`map_item_with_id`) — rien à reproduire ici. Pour une relecture
 //     au schéma (`--output-schema`), ce message EST l'avis : « a JSON string
 //     when structured output is requested » (exec_events.rs,
-//     `AgentMessageItem`), écrit en ligne-marqueur (`ligneAvis`) AVANT d'être
-//     borné ;
+//     `AgentMessageItem`), écrit en ligne-marqueur AVANT d'être borné — ou,
+//     d'un fournisseur qui n'a pas tenu le schéma, lu tel quel s'il porte sa
+//     ligne `HIVE_CRITIQUE` (`reponseAuSchema`, `horsSchema`) ;
 //   · les LOGS : chaque événement rendu lisible, jamais le JSON brut. TOUTE
 //     ligne de narration (raisonnement, messages, commandes et leur sortie,
 //     fichiers, outils, plan, avertissements, erreurs signalées, jetons) porte
@@ -95,7 +96,7 @@
 // (node-client/client.ts), qui mentirait — le bilan nomme la version attendue,
 // et c'est l'opérateur du nœud qui met codex à jour.
 
-import { ligneAvis } from '../shared/critique-structuree.js';
+import { reponseAuSchema } from '../shared/critique-structuree.js';
 import { MARQUE_NARRATION } from '../shared/texte-d-echec.js';
 import type { UsageFournisseur } from '../shared/types.js';
 import type { LecteurFlux } from './exec.js';
@@ -269,6 +270,12 @@ function rendreElement(phase: string, item: Objet): string | undefined {
 export interface LecteurFluxCodex extends LecteurFlux {
   /** Les jetons déclarés par le dernier `turn.completed` ; absents sinon. */
   declaration(): UsageFournisseur | undefined;
+  /**
+   * Relecture au schéma dont la réponse est venue en TEXTE, ligne-marqueur
+   * comprise : le fournisseur n'a pas tenu `--output-schema` — l'adaptateur le
+   * dit au journal (`reponseAuSchema`).
+   */
+  horsSchema(): boolean;
 }
 
 const DIALECTE_INCONNU =
@@ -421,7 +428,7 @@ export function createLecteurFluxCodex(
     texte: () =>
       reponse === undefined || reponse.trim() === ''
         ? undefined
-        : borneTexteFinal(opts.avisAuSchema ? ligneAvis(reponse) : reponse),
+        : borneTexteFinal(opts.avisAuSchema ? reponseAuSchema(reponse).texte : reponse),
     bilan(code: number | null, arreteParHive: boolean): string | undefined {
       if (fin === 'echec') return raisonDEchec('tour en échec', raisonDuTour ?? '');
       if (code === 0) {
@@ -456,5 +463,7 @@ export function createLecteurFluxCodex(
       return `codex : échec — ${sortie} sans que le tour se conclue (ni \`turn.completed\` ni \`turn.failed\` : tour interrompu)`;
     },
     declaration: () => declaration,
+    horsSchema: () =>
+      opts.avisAuSchema === true && reponse !== undefined && reponseAuSchema(reponse).horsSchema,
   };
 }

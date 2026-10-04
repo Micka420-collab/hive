@@ -191,12 +191,16 @@ Gardiennes l'inspectent (`clean`, `suspect`, `hollow`).
   - **Au schéma :** une relecture — et elle seule — impose cette grille en
     JSON Schema (`SCHEMA_AVIS`) au CLI qui sait la tenir : Claude Code
     (`--json-schema`, à partir de 2.1.205) et Codex (`--output-schema`). L'avis
-    est lu où le CLI le rend (`structured_output`, dernier `agent_message`),
-    jamais dans sa prose, et écrit en ligne `HIVE_CRITIQUE` : même lecture,
-    même grille — hors grille, il est contesté. Un CLI qui conclut sans
-    l'avis exigé laisse une relecture sans réponse finale. Un Claude Code plus
-    ancien garde la ligne de la consigne, et le journal de la relecture le
-    dit, version comprise.
+    est lu où le CLI le rend — l'objet que Claude Code a ACCEPTÉ de son outil
+    `StructuredOutput`, le dernier `agent_message` de Codex —, jamais dans sa
+    prose, et écrit en ligne `HIVE_CRITIQUE` : même lecture, même grille. Hors
+    grille, il est contesté, jamais réparé ; deux avis acceptés sont deux
+    lignes-marqueurs, donc illisibles ; un avis trop long perd ses constats les
+    moins graves pour tenir dans le texte final. Un CLI qui conclut sans l'avis
+    exigé laisse une relecture sans réponse finale. Un fournisseur Codex qui
+    n'honore pas le format rend du texte : lu par sa ligne-marqueur, avec ses
+    gardes, et dit au journal. Un Claude Code plus ancien garde la ligne de la
+    consigne, et le journal de la relecture le dit, version comprise.
 
 - **La notation :** il n'y a **pas de note unique** — elle cacherait _quel_
   critère a péché. Les constats sont **comptés par critère et par sévérité**

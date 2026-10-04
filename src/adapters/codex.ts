@@ -167,7 +167,9 @@ function depotNonFiable(execution: ExecutionCodex): string[] {
  * illisible ou mal formé, il sort en 1 : `load_output_schema`, exec/src/lib.rs)
  * et l'envoie à la Responses API en `text.format` STRICT
  * (exec/tests/suite/output_schema.rs) ; son dernier `agent_message` est alors
- * l'avis en JSON (`createLecteurFluxCodex`). Aucun palier de version : l'option
+ * l'avis en JSON (`createLecteurFluxCodex`) — ou, d'un fournisseur qui n'honore
+ * pas `text.format`, du texte lu par sa ligne-marqueur, et dit
+ * (`reponseAuSchema`). Aucun palier de version : l'option
  * existe depuis rust-v0.41.0 (absente de rust-v0.40.0), et Hive n'accepte déjà
  * que le dialecte `--json` de 0.156.0 (`flux-codex.ts`). Sources relues au tag
  * rust-v0.156.0.
@@ -477,6 +479,13 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
           // Le dossier du pont, que le bac éventuel monte en lecture seule.
           bridge?.dossier,
         );
+        // Le repli d'un fournisseur qui n'honore pas `text.format`, constaté
+        // sur la réponse rendue — jamais deviné de sa configuration.
+        if (flux.horsSchema()) {
+          ctx.onProgress({
+            log: 'avis lu par la ligne HIVE_CRITIQUE de la réponse : le fournisseur n’a pas tenu le schéma (--output-schema)',
+          });
+        }
         const fournisseur = flux.declaration();
         return refusDEcriture(
           { ...result, subAgents: [], ...(fournisseur ? { fournisseur } : {}) },

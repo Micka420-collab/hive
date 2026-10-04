@@ -68,13 +68,14 @@
 // nœud écrit en ligne-marqueur (`ligneAvis`) : il n'y a qu'UNE lecture, celle
 // d'ici, que l'avis vienne d'un schéma ou d'une ligne écrite par le modèle. Un
 // avis structuré hors grille est donc illisible comme un marqueur hors grille
-// — contesté, et dit — jamais un feu vert.
+// — contesté, et dit — jamais un feu vert ; deux avis structurés deviennent
+// deux lignes-marqueurs, illisibles comme deux marqueurs.
 //
 // Module PUR, sans I/O : la Reine lit et agrège, le dashboard compte les
 // critères, avec les mêmes fonctions.
 
 import { champSurUneLigne } from './donnees-non-fiables.js';
-import { COUPURE_TEXTE_FINAL } from './protocol.js';
+import { COUPURE_TEXTE_FINAL, LIMITS } from './protocol.js';
 
 /** Les deux verdicts qu'un relecteur peut écrire — fermés, comme la grille. */
 export const VERDICTS = ['valide', 'conteste'] as const;
@@ -285,24 +286,37 @@ export function lireMarqueurCritique(texte: string): LectureMarqueur {
   // le sien ne se devine pas : aucun ne décide, et l'avis illisible conteste.
   if (lignes.slice(0, i).some(estLigneMarqueur)) return illisible;
   const m = LIGNE_MARQUEUR.exec(derniere);
-  if (!m) return illisible;
-  let brut: unknown;
-  try {
-    brut = JSON.parse(m[1]!);
-  } catch {
-    return illisible;
-  }
-  if (typeof brut !== 'object' || brut === null || Array.isArray(brut)) return illisible;
-  const o = brut as Record<string, unknown>;
-  const verdict = VERDICTS.find((v) => v === motNu(o.verdict));
-  if (!verdict) return illisible;
-  const constats = o.findings === undefined ? [] : lireConstats(o.findings);
-  if (constats === null) return illisible;
+  const avis = m ? lireObjetAvis(jsonOuRien(m[1]!)) : null;
+  if (!avis) return illisible;
   return {
     etat: 'lu',
-    conteste: verdict === 'conteste' || constats.some(constatBloquant),
-    constats,
+    conteste: avis.verdict === 'conteste' || avis.constats.some(constatBloquant),
+    constats: avis.constats,
   };
+}
+
+/** Le JSON d'un texte, ou `undefined` s'il ne se lit pas : jamais d'exception. */
+function jsonOuRien(texte: string): unknown {
+  try {
+    return JSON.parse(texte);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * L'objet d'un avis — celui d'une ligne-marqueur, ou celui qu'un CLI rend au
+ * schéma — relu à la grille : `null` dès qu'un champ en sort. UNE lecture
+ * pour les deux, qui ne peuvent donc pas dire deux choses différentes.
+ */
+function lireObjetAvis(
+  brut: unknown,
+): { readonly verdict: (typeof VERDICTS)[number]; readonly constats: Constat[] } | null {
+  if (typeof brut !== 'object' || brut === null || Array.isArray(brut)) return null;
+  const o = brut as Record<string, unknown>;
+  const verdict = VERDICTS.find((v) => v === motNu(o.verdict));
+  const constats = o.findings === undefined ? [] : lireConstats(o.findings);
+  return verdict && constats ? { verdict, constats } : null;
 }
 
 /** Un objet FERMÉ dont chaque champ est requis : la forme stricte, voir `SCHEMA_AVIS`. */
@@ -344,19 +358,61 @@ export const SCHEMA_AVIS: Readonly<Record<string, unknown>> = objetStrict({
  * L'avis qu'un CLI a rendu au schéma, écrit en ligne-marqueur : la Reine le lit
  * alors comme tout marqueur (`lireMarqueurCritique`), grille comprise.
  *
- * `sortie` est ce que le CLI DÉCLARE : un objet (Claude Code,
- * `structured_output`) ou son texte JSON (Codex, dernier `agent_message`). Un
- * texte qui ne se lit pas en JSON reste tel quel, sur UNE ligne : le marqueur
- * est illisible — l'avis contesté, et dit —, jamais réécrit en un avis qu'il
- * n'était pas.
+ * `sortie` est ce que le CLI DÉCLARE : un objet (Claude Code, l'entrée de
+ * `StructuredOutput`) ou son texte JSON (Codex, dernier `agent_message`).
+ *
+ * ─── HORS GRILLE : TEL QUEL, JAMAIS RÉPARÉ ──────────────────────────────────
+ *
+ * Ce qui ne se lit pas à la grille part en CHAÎNE JSON (`"…"`) : une ligne,
+ * le texte visible, jamais relu comme un objet — le marqueur est illisible,
+ * l'avis contesté et dit. Aplatir ses blancs le RÉPARAIT : un JSON invalide
+ * parce qu'une preuve portait un saut de ligne brut redevenait un avis valide.
+ *
+ * ─── DANS LA GRILLE : TEL QUE LA LECTURE LE LIRA, ET QUI TIENT AU TRANSPORT ─
+ *
+ * L'objet est réécrit à la grille (champs bornés, constats ordonnés, au plus
+ * `BORNES_CONSTAT.nombre`), puis, s'il dépasse le texte final que le nœud
+ * envoie (`LIMITS.finalText`), il perd ses constats les MOINS graves d'abord —
+ * la règle de la lecture. Coupée en son milieu par `borneTexteFinal`, la ligne
+ * était illisible : un avis long, contesté pour sa seule longueur. Un schéma
+ * borné (`maxItems`, longueurs) ferait le travail en amont, si la Responses
+ * API stricte l'accepte — non prouvé ici.
  */
 export function ligneAvis(sortie: unknown): string {
-  if (typeof sortie !== 'string') return `${MARQUEUR_CRITIQUE} ${JSON.stringify(sortie)}`;
-  try {
-    return `${MARQUEUR_CRITIQUE} ${JSON.stringify(JSON.parse(sortie))}`;
-  } catch {
-    return `${MARQUEUR_CRITIQUE} ${sortie.replace(/\s+/g, ' ').trim()}`;
+  const avis = lireObjetAvis(typeof sortie === 'string' ? jsonOuRien(sortie) : sortie);
+  if (!avis) return `${MARQUEUR_CRITIQUE} ${JSON.stringify(sortie)}`;
+  let constats = avis.constats;
+  const ligne = (): string =>
+    `${MARQUEUR_CRITIQUE} ${JSON.stringify({ verdict: avis.verdict, findings: constats })}`;
+  while (constats.length > 0 && ligne().length > LIMITS.finalText) constats = constats.slice(0, -1);
+  return ligne();
+}
+
+/**
+ * La réponse finale d'un CLI à qui le schéma était IMPOSÉ, telle que la Reine
+ * la lira — et si elle l'a tenu.
+ *
+ * Un fournisseur qui ignore le format imposé (un Codex branché ailleurs
+ * qu'OpenAI, dont la Responses API n'honore pas `text.format`) laisse le
+ * modèle répondre comme la consigne le demande : de la prose, puis la ligne
+ * `HIVE_CRITIQUE`. Écrite en chaîne, cette réponse devenait illisible, donc
+ * contestée — chaque relecture, le producteur relancé jusqu'à la borne. Elle
+ * se lit donc comme sans schéma (`horsSchema`, que le journal dit), avec
+ * toutes les gardes du marqueur : seule la dernière ligne décide, une seconde
+ * ligne-marqueur la rend illisible, rien n'est réparé. Un fournisseur qui
+ * TIENT le schéma ne peut rendre que du JSON : cette lecture ne s'ouvre jamais
+ * pour lui. Le reste — un JSON, ou un texte sans ligne-marqueur — passe par
+ * `ligneAvis`.
+ */
+export function reponseAuSchema(reponse: string): {
+  readonly texte: string;
+  readonly horsSchema: boolean;
+} {
+  const enTexte = jsonOuRien(reponse) === undefined;
+  if (enTexte && lireMarqueurCritique(reponse).etat !== 'absent') {
+    return { texte: reponse, horsSchema: true };
   }
+  return { texte: ligneAvis(reponse), horsSchema: false };
 }
 
 /**

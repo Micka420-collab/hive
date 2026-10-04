@@ -420,7 +420,7 @@ export function agreger(avis: readonly Avis[]): Verdict {
  * Pourquoi une relecture TERMINÉE ne rend aucun avis. Le hub ne distingue pas
  * les quatre causes — un CLI qui a rendu une réponse vide, un CLI à qui le
  * schéma de l'avis était imposé et qui a conclu sans le remplir (sa prose n'est
- * PAS lue à la place : `texteFinalAvisStreamJson`), un CLI dont Hive ne sait
+ * PAS lue à la place : `lecteurAvisStreamJson`), un CLI dont Hive ne sait
  * pas lire la réponse, un nœud antérieur au contrat `finalText` : toutes
  * arrivent sans texte final. Le motif les nomme toutes plutôt que d'en deviner
  * une.
@@ -549,9 +549,9 @@ export function lireAvis(nodeId: string, agentType: string, texte: string): Avis
 }
 
 const OBJECTION_MARQUEUR_ILLISIBLE =
-  'Marqueur HIVE_CRITIQUE illisible (mal formé, hors grille, pas en dernière ligne ou ' +
-  'coupé) : ses constats n’ont pas pu être lus. Compté comme contesté — un avis lu en ' +
-  'partie ne vaut pas un feu vert.';
+  'Marqueur HIVE_CRITIQUE illisible (mal formé, hors grille, plus d’un avis, pas en ' +
+  'dernière ligne ou coupé) : ses constats n’ont pas pu être lus. Compté comme ' +
+  'contesté — un avis lu en partie ne vaut pas un feu vert.';
 
 const OBJECTION_VERDICT_CONTRADICTOIRE =
   'Verdict contradictoire : « conteste » en première ligne, marqueur « valide » sans ' +
