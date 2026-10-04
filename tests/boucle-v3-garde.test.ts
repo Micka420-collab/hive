@@ -220,6 +220,32 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['tests/verdicts-par-test-noeud.test.ts', 'permissions'],
     ['tests/verdicts-par-test-bout-en-bout.test.ts', 'permissions'],
     ['tests/fixtures/sorties-de-tests/vitest-defaut.txt', 'permissions'],
+    // Train 7 — l'union des deux lignées, banc par banc : chaque banc qui
+    // verrouille une garde de la vague 7 est NOMMÉ, pas seulement couvert par
+    // un motif (retiré du motif, il passerait sinon). Le réseau sortant (#545),
+    // la politique d'actions (#548), la garde de PR (#546) et les routines
+    // (#544) ; l'effacement borné et le butoir du miroir (#552) ; l'assignation
+    // illisible (#554) ; les faux outils de la porte (G10) ; et le réseau de la
+    // porte, propre à ce train.
+    ['tests/politique-reseau.test.ts', 'securite'],
+    ['tests/reseau-tache.test.ts', 'securite'],
+    ['tests/enveloppe-reseau.test.ts', 'securite'],
+    ['tests/bac-reseau.test.ts', 'securite'],
+    ['tests/reseau-bac.integration.test.ts', 'securite'],
+    ['tests/politique-actions.test.ts', 'securite'],
+    ['tests/pont-approve.test.ts', 'securite'],
+    ['tests/regles-autorisation-depot.test.ts', 'securite'],
+    ['tests/garde-pr.test.ts', 'securite'],
+    ['tests/garde-pr-ecran.test.tsx', 'securite'],
+    ['tests/routines.test.ts', 'securite'],
+    ['tests/routines-cron.test.ts', 'securite'],
+    ['tests/routines-ecran.test.tsx', 'securite'],
+    ['tests/miroir-tenu.test.ts', 'securite'],
+    ['tests/dossier-tache-tenu.test.ts', 'securite'],
+    ['tests/miroir-amont-muet.test.ts', 'securite'],
+    ['tests/assignation-illisible.test.ts', 'securite'],
+    ['tests/porte-securite-faux-outils.test.ts', 'securite'],
+    ['tests/porte-securite-reseau.test.ts', 'securite'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');

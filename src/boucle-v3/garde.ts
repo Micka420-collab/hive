@@ -152,9 +152,9 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   {
     categorie: 'securite',
     motif:
-      /^tests\/(security-invariants|engagement-projet|suppression-projet|mission-rejouable|missions-rejouables-[^/]+|connecteurs-[^/]+|shadow-bench|banc-ombre-ruche|configuration-inerte[^/]*|join-porte|retention-journal|livraison-locale[^/]*|clone-sans-identifiants|miroir-tenu|dossier-tache-tenu|miroir-amont-muet|porte-securite[^/]*)\.test\.tsx?$/,
+      /^tests\/(security-invariants|engagement-projet|suppression-projet|mission-rejouable|missions-rejouables-[^/]+|connecteurs-[^/]+|shadow-bench|banc-ombre-ruche|configuration-inerte[^/]*|join-porte|retention-journal|livraison-locale[^/]*|clone-sans-identifiants|miroir-tenu|dossier-tache-tenu|miroir-amont-muet|assignation-illisible|porte-securite[^/]*)\.test\.tsx?$/,
     pourquoi:
-      'les bancs qui verrouillent les gardes (routes, effacement, rejeux, connecteurs, banc d’ombre, configuration inerte, adhésion, rétention, poussée, clone sans identifiants de push, effacement borné du miroir et de la tâche, butoir de l’amont du miroir, porte de sécurité) : les affaiblir retire le garde-fou',
+      'les bancs qui verrouillent les gardes (routes, effacement, rejeux, connecteurs, banc d’ombre, configuration inerte, adhésion, rétention, poussée, clone sans identifiants de push, effacement borné du miroir et de la tâche, butoir de l’amont du miroir, assignation illisible dite sans jamais citer le jeton, porte de sécurité et son réseau) : les affaiblir retire le garde-fou',
   },
   {
     categorie: 'securite',
