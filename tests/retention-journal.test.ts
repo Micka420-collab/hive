@@ -299,6 +299,8 @@ describe('les types qui prouvent', () => {
       'ci_validation_recorded',
       // Ce que la porte de sécurité a vu : élagué, un constat serait oublié.
       'security_gate_recorded',
+      // Et pourquoi un de ses volets n'est pas vérifié (refusé à la réception).
+      'security_gate_rejected',
       'contre_expertise_impossible',
       'evaluator_overridden',
       'delivery_opened',

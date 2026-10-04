@@ -8,8 +8,9 @@
 //
 // ─── QUAND, ET SUR QUOI ──────────────────────────────────────────────────────
 //
-// AVANT les validations du bac, sur l'arbre tel que l'agent l'a laissé — celui
-// dont le diff vient d'être calculé. Après, ce serait juger autre chose : les
+// Sur TOUT résultat porteur d'un diff, réussi ou en échec, et AVANT les
+// validations du bac, sur l'arbre tel que l'agent l'a laissé — celui dont le
+// diff vient d'être calculé. Après, ce serait juger autre chose : les
 // validations exécutent les tests du dépôt, que l'agent a pu écrire, et un
 // test qui réécrirait `package-lock.json` au passage ferait lire à la porte un
 // lockfile assaini pendant que le diff, lui, livrerait le vulnérable.
@@ -17,17 +18,19 @@
 // Les secrets se cherchent dans les LIGNES AJOUTÉES du diff brut — celles que
 // `Caviardeur.diff` réécrirait, lues par le même lecteur (`lireDiff`) —, pas
 // dans les fichiers : seul ce que la production apporte compte, et c'est le
-// diff, pas le disque, qui part au hub.
+// diff, pas le disque, qui part au hub. Les dépendances, elles, se lisent dans
+// l'arbre : pour une production réussie dont le diff est celui de l'arbre.
 //
 // ─── OÙ, ET POURQUOI CE N'EST PAS UNE VALIDATION ─────────────────────────────
 //
 // Les outils tournent là où tournent les validations : dans le bac du nœud
 // quand il en a un — l'image du bac les épingle (`docker/agents/Dockerfile`),
-// bubblewrap monte ceux de l'hôte (`hive doctor` les cherche). Sans bac, ils
-// tournent sur l'hôte, et c'est la différence avec les validations : celles-ci
-// exécutent le code de l'agent (`npm run`), la porte n'exécute RIEN de la
-// production — deux binaires épinglés qui LISENT un miroir que Hive a écrit,
-// configurés par drapeaux plutôt que par ce qu'ils trouveraient dans le dépôt.
+// bubblewrap monte ceux de l'hôte. Sans bac, ils tournent sur l'hôte, et c'est
+// la différence avec les validations : celles-ci exécutent le code de l'agent
+// (`npm run`), la porte n'exécute RIEN de la production — deux binaires
+// épinglés, résolus par leur chemin absolu (`lanceur`), qui LISENT un miroir
+// que Hive a écrit, configurés par drapeaux plutôt que par ce qu'ils
+// trouveraient dans le dépôt. `hive doctor` les éprouve par le même chemin.
 //
 // ─── LE MIROIR, ET CE QU'IL DÉSAMORCE ────────────────────────────────────────
 //
@@ -37,14 +40,17 @@
 //     ligne du fichier livré ;
 //   · `dependances/{base,tete}/<k>/<lockfile>` : chaque lockfile touché, au
 //     commit de base (lu par le registre, `fichierDeBase`) et tel que livré ;
-//   · `regles/` : la configuration que la porte IMPOSE.
+//     `extractions/` : ce qu'osv-scanner en a extrait, hors ligne ;
+//   · `sboms/{base,tete}/<k>/bom.cdx.json` : les SEULS paquets qui partent à
+//     osv.dev (`shared/porte-securite-dependances.ts`) ;
+//   · `regles/` : la configuration que la porte IMPOSE (Betterleaks : règles
+//     par défaut, confiance haute, sans préfiltre).
 // Mesuré sur Betterleaks 1.9.0 : sans `--config`, un `.betterleaks.toml` à la
 // racine scannée REMPLACE les règles ; sans `--gitleaks-ignore-path`, un
 // `.gitleaksignore` du répertoire courant — celui de la tâche, que l'agent
 // écrit — efface un constat par son empreinte ; sans `--ignore-gitleaks-allow`,
 // un commentaire `gitleaks:allow` sur la ligne suffit. Les trois sont fermés.
 
-import { execFile } from 'node:child_process';
 import {
   lstatSync,
   mkdirSync,
@@ -54,19 +60,22 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import http from 'node:http';
+import https from 'node:https';
+import net from 'node:net';
 import path from 'node:path';
-import { lireDiff } from '../shared/caviardage.js';
+import { formesDuSecret, lireDiff } from '../shared/caviardage.js';
 import type { Caviardeur, FichierDuDiff, LigneAjoutee } from '../shared/caviardage.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import {
   BORNES_PORTE,
-  ETIQUETTE_PORTE,
-  LOCKFILES_SURVEILLES,
+  CONFIANCE_BETTERLEAKS,
+  CONFIG_BETTERLEAKS,
   REGLE_CAVIARDAGE_HIVE,
+  formeCaviardable,
   lireRapportBetterleaks,
   lireRapportOsv,
   nomDansLeMiroir,
-  nomDeFichier,
   texteAffichable,
   valeurDuSecret,
   versionDeSortie,
@@ -74,6 +83,16 @@ import {
   voletSans,
   vulnerabilitesIntroduites,
 } from '../shared/porte-securite.js';
+import {
+  LOCKFILE_MAL_FORME,
+  aInterroger,
+  estFichierDeDependances,
+  lireExtraction,
+  nomDeFichier,
+  paquetsPublics,
+  sbomDe,
+  type PaquetExtrait,
+} from '../shared/porte-securite-dependances.js';
 import type {
   ConstatDependance,
   ConstatSecret,
@@ -84,7 +103,7 @@ import type {
   SourceLue,
   Volet,
 } from '../shared/porte-securite.js';
-import { envMoteur, type BacExecution, type Fournisseur } from './isolement.js';
+import { surLePath, VARIABLES_PROXY, type BacExecution } from './isolement.js';
 import { runProc } from './merge-runner.js';
 import { fichierDeBase } from './validations-bac.js';
 import { buildSandboxEnv } from './workspace.js';
@@ -110,18 +129,36 @@ export interface OptionsPorte {
   surEtape?: (ligne: string) => void;
   /** Le caviardeur du nœud AVANT la porte : ce qu'il réécrirait en silence devient un constat. */
   caviardeur: Caviardeur;
+  /**
+   * Le volet dépendances LIT L'ARBRE de la tâche (ses lockfiles d'après) : il
+   * ne juge qu'une production RÉUSSIE dont le diff est celui de cet arbre.
+   * Sinon il n'est pas examiné, et sa raison le dit (`production_en_echec`,
+   * `diff_hors_arbre`). Le volet secrets, lui, lit le diff qui part au hub,
+   * quel qu'il soit — il n'exécute rien. Défaut : `examiner`.
+   */
+  dependances?: 'examiner' | 'production_en_echec' | 'diff_hors_arbre';
 }
 
 export interface PassagePorte {
   rapport: PorteSecurite;
   /**
-   * Les VALEURS des secrets trouvés, relues dans le diff : à caviarder partout
-   * où elles partiraient au hub — jamais à envoyer.
+   * Les secrets trouvés, relus dans le diff, sous les seules formes que le
+   * nœud peut caviarder partout où elles partiraient au hub sans toucher une
+   * ligne légitime (`formeCaviardable`) — jamais à envoyer.
    */
   valeurs: string[];
 }
 
-type Lancer = (argv: string[], delaiMs: number) => ReturnType<typeof runProc>;
+/**
+ * Lance un outil de la porte avec ses arguments — résolu par `lanceur`, jamais
+ * par son appelant. `reseau` : l'interrogation d'osv.dev, la seule qui sorte.
+ */
+type Lancer = (
+  outil: OutilPorte,
+  args: readonly string[],
+  delaiMs: number,
+  reseau?: boolean,
+) => ReturnType<typeof runProc>;
 
 /** Fait passer la porte à une production. Ne lève jamais. */
 export async function passerLaPorte(opts: OptionsPorte): Promise<PassagePorte> {
@@ -131,10 +168,14 @@ export async function passerLaPorte(opts: OptionsPorte): Promise<PassagePorte> {
   // aucun lockfile ne lance aucun outil et n'écrit rien.
   const miroir: { chemin: string | null } = { chemin: null };
   const dossier = (): string => (miroir.chemin ??= creerMiroir(opts.cwd));
-  const lancer = lanceur(opts);
+  const lancer = lanceur(opts.cwd, buildSandboxEnv(opts.cwd), opts.bac, opts.signal);
   try {
     const secrets = await voletSecrets(lu.ajoutees, opts, dossier, lancer, valeurs);
-    const dependances = await voletDependances(lu.fichiers, opts, dossier, lancer);
+    const examen = opts.dependances ?? 'examiner';
+    const dependances =
+      examen === 'examiner'
+        ? await voletDependances(lu.fichiers, opts, dossier, lancer)
+        : voletSans<ConstatDependance>(examen);
     return { rapport: { secrets, dependances }, valeurs };
   } finally {
     if (miroir.chemin !== null) {
@@ -150,8 +191,9 @@ export async function passerLaPorte(opts: OptionsPorte): Promise<PassagePorte> {
 function creerMiroir(cwd: string): string {
   const miroir = mkdtempSync(path.join(cwd, '.hive-porte-'));
   mkdirSync(path.join(miroir, 'regles'));
-  // Les règles PAR DÉFAUT de l'outil, nommées — voir l'en-tête.
-  writeFileSync(path.join(miroir, 'regles', 'betterleaks.toml'), '[extend]\nuseDefault = true\n');
+  // Les règles PAR DÉFAUT de l'outil, nommées, sans leur préfiltre — voir
+  // l'en-tête et `CONFIG_BETTERLEAKS`.
+  writeFileSync(path.join(miroir, 'regles', 'betterleaks.toml'), CONFIG_BETTERLEAKS);
   // Vide : aucun avis ignoré, quoi que dise un `osv-scanner.toml` du dépôt.
   writeFileSync(path.join(miroir, 'regles', 'osv-scanner.toml'), '');
   return miroir;
@@ -161,11 +203,53 @@ function creerMiroir(cwd: string): string {
  * Le lancement des outils : celui des validations (`runProc`, dans le bac
  * s'il y en a un, l'arbre entier tué au délai), sans aucune variable de
  * l'agent — ni relayée dans le bac, ni présente sur l'hôte.
+ *
+ * ─── L'OUTIL, PAR SON CHEMIN ABSOLU ──────────────────────────────────────────
+ *
+ * Sur l'hôte et sous bubblewrap, chaque outil est résolu UNE fois dans le PATH
+ * de l'hôte (`surLePath` : entrées relatives écartées), puis lancé par son
+ * chemin. Lancé par son NOM depuis le répertoire de la tâche, il était cherché
+ * par `execvp` jusque dans une entrée vide du PATH (`PATH=/usr/bin:/bin:`) ou
+ * `.` — la tâche elle-même, où l'agent pouvait poser un `betterleaks` à lui :
+ * exécuté hors du bac, et libre de répondre « rien trouvé ». Dans un
+ * conteneur, l'outil est celui de l'IMAGE : son nom s'y résout par le PATH que
+ * l'image déclare, pas par celui de l'hôte.
  */
-function lanceur(opts: OptionsPorte): Lancer {
-  const env = buildSandboxEnv(opts.cwd);
-  const bac = opts.bac ? { ...opts.bac, variables: [] } : undefined;
-  return (argv, delaiMs) => runProc(argv, opts.cwd, env, delaiMs, opts.signal, bac);
+function lanceur(
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  bac?: BacExecution,
+  signal?: AbortSignal,
+): Lancer {
+  const dansLImage = bac !== undefined && bac.fournisseur.bin !== 'bwrap';
+  const chemins = new Map<OutilPorte, string | null>();
+  // Le proxy sortant de l'hôte, s'il en a un : à l'interrogation d'osv.dev
+  // seulement — ni à Betterleaks, ni à l'extraction, qui ne sortent pas. Dans
+  // un conteneur, par leur NOM (`--env`), comme toute variable du bac.
+  const proxy: NodeJS.ProcessEnv = {};
+  for (const nom of VARIABLES_PROXY) {
+    if (process.env[nom] !== undefined) proxy[nom] = process.env[nom];
+  }
+  return (outil, args, delaiMs, reseau = false) => {
+    if (!chemins.has(outil)) chemins.set(outil, dansLImage ? outil : surLePath(outil, env.PATH));
+    const bin = chemins.get(outil);
+    if (!bin) {
+      const introuvable: Awaited<ReturnType<Lancer>> = {
+        code: null,
+        output: `[hive] ${outil} : introuvable dans le PATH de l’hôte`,
+        arret: 'lancement',
+      };
+      return Promise.resolve(introuvable);
+    }
+    return runProc(
+      [bin, ...args],
+      cwd,
+      reseau ? { ...env, ...proxy } : env,
+      delaiMs,
+      signal,
+      bac ? { ...bac, variables: reseau ? Object.keys(proxy) : [] } : undefined,
+    );
+  };
 }
 
 /**
@@ -176,60 +260,122 @@ function lanceur(opts: OptionsPorte): Lancer {
 async function sonder(
   outil: OutilPorte,
   lancer: Lancer,
+  delaiMs = DELAI_SONDE_MS,
 ): Promise<{ nom: OutilPorte; version: string } | { raison: 'annule' | 'delai' | 'outil_absent' }> {
-  const r = await lancer([outil, '--version'], DELAI_SONDE_MS);
+  const r = await lancer(outil, ['--version'], delaiMs);
   if (r.arret === 'annule' || r.arret === 'delai') return { raison: r.arret };
   const version = r.code === 0 ? versionDeSortie(r.output) : null;
   return version ? { nom: outil, version } : { raison: 'outil_absent' };
 }
 
+export interface JoignabiliteOsv {
+  joignable: boolean;
+  /** Le proxy éprouvé, `hôte:port` sans identifiants ; `null` : en direct. */
+  proxy: string | null;
+}
+
+/** L'hôte que l'interrogation joint — et le seul que `joindreOsv` éprouve. */
+const OSV = { hote: 'api.osv.dev', port: 443 };
+
+/** Le proxy qu'osv-scanner (Go, `http.ProxyFromEnvironment`) prendrait pour `hote`, ou `null`. */
+function proxyPour(hote: string, env: NodeJS.ProcessEnv): URL | null {
+  const brut = env.HTTPS_PROXY ?? env.https_proxy;
+  if (!brut) return null;
+  const exclus = (env.NO_PROXY ?? env.no_proxy ?? '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase().replace(/^\./, ''))
+    .filter(Boolean);
+  if (exclus.some((e) => e === '*' || hote === e || hote.endsWith(`.${e}`))) return null;
+  try {
+    return new URL(brut.includes('://') ? brut : `http://${brut}`);
+  } catch {
+    return null;
+  }
+}
+
 /**
- * L'étiquette `hive.porte-securite` d'une image (`hive doctor`) : `''` si
- * l'image ne la porte pas, `null` si le moteur ne répond pas. Une lecture de
- * métadonnées, avec l'environnement du moteur (`envMoteur`) : rien ne se
- * lance dans l'image.
+ * api.osv.dev est-il joignable d'ici, par le chemin qu'osv-scanner prendrait —
+ * le proxy standard que la porte lui transmet, sinon en direct (`hive
+ * doctor`) ? Une CONNEXION, rien d'autre : un `CONNECT` au proxy, ou une
+ * connexion TCP directe, aussitôt refermés — aucune requête, aucun paquet,
+ * aucune donnée de la ruche. Borné : `delaiMs`.
  */
-export function etiquetteDeLImage(
-  fournisseur: Fournisseur,
-  image: string,
-  delaiMs = 5_000,
-): Promise<string | null> {
-  const format = `{{index .Config.Labels "${ETIQUETTE_PORTE}"}}`;
+export function joindreOsv(
+  env: NodeJS.ProcessEnv = process.env,
+  delaiMs = 3_000,
+  cible: { hote: string; port: number } = OSV,
+): Promise<JoignabiliteOsv> {
+  const proxy = proxyPour(cible.hote, env);
+  const dit = proxy
+    ? `${proxy.hostname}:${proxy.port || (proxy.protocol === 'https:' ? 443 : 80)}`
+    : null;
   return new Promise((resolve) => {
+    let fini = false;
+    const finir = (joignable: boolean, fermer: () => void): void => {
+      if (fini) return;
+      fini = true;
+      clearTimeout(minuteur);
+      fermer();
+      resolve({ joignable, proxy: dit });
+    };
+    let fermer: () => void = () => {};
+    const minuteur = setTimeout(() => finir(false, fermer), delaiMs);
+    minuteur.unref?.();
     try {
-      execFile(
-        fournisseur.bin,
-        ['image', 'inspect', '--format', format, image],
-        {
-          shell: false,
-          windowsHide: true,
-          timeout: delaiMs,
-          encoding: 'utf8',
-          env: envMoteur(fournisseur),
-        },
-        // Une clé absente s'imprime vide — ou `<no value>` selon le client.
-        (err, stdout) => resolve(err ? null : stdout.trim().replace(/^<no value>$/, '')),
-      );
+      if (!proxy) {
+        const socket = net.connect({ host: cible.hote, port: cible.port });
+        fermer = () => socket.destroy();
+        socket.once('connect', () => finir(true, fermer));
+        socket.once('error', () => finir(false, fermer));
+        return;
+      }
+      const identifiants = proxy.username
+        ? {
+            'proxy-authorization': `Basic ${Buffer.from(
+              `${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}`,
+            ).toString('base64')}`,
+          }
+        : {};
+      const requete = (proxy.protocol === 'https:' ? https : http).request({
+        host: proxy.hostname,
+        port: Number(proxy.port) || (proxy.protocol === 'https:' ? 443 : 80),
+        method: 'CONNECT',
+        path: `${cible.hote}:${cible.port}`,
+        headers: { host: `${cible.hote}:${cible.port}`, ...identifiants },
+      });
+      fermer = () => requete.destroy();
+      requete.once('connect', (reponse, socket) => {
+        socket.destroy();
+        finir(reponse.statusCode === 200, fermer);
+      });
+      requete.once('response', () => finir(false, fermer));
+      requete.once('error', () => finir(false, fermer));
+      requete.end();
     } catch {
-      resolve(null);
+      finir(false, fermer);
     }
   });
 }
 
-/** La version d'un outil sur l'HÔTE (`hive doctor`), ou `null`. */
-export function versionSurHote(outil: OutilPorte, delaiMs = 4_000): Promise<string | null> {
-  return new Promise((resolve) => {
-    try {
-      execFile(
-        outil,
-        ['--version'],
-        { shell: false, windowsHide: true, timeout: delaiMs, encoding: 'utf8' },
-        (err, stdout, stderr) => resolve(err ? null : versionDeSortie(`${stdout}\n${stderr}`)),
-      );
-    } catch {
-      resolve(null);
-    }
-  });
+/**
+ * La version que la porte TROUVERAIT sur cet hôte (`hive doctor`), ou `null`.
+ *
+ * Pas une sonde à côté : celle de la porte (`sonder`), par son lanceur —
+ * même résolution dans le PATH, même `runProc`, donc même refus sous Windows
+ * (`shared/lanceur.ts`). Le docteur disait « ok » d'un outil que son propre
+ * `execFile` trouvait, pendant que la porte, elle, le voyait absent. Son
+ * environnement : le PATH et ce qu'exige Windows, aucun secret du nœud.
+ */
+export async function versionPourLaPorte(
+  outil: OutilPorte,
+  delaiMs = 4_000,
+): Promise<string | null> {
+  const env: NodeJS.ProcessEnv = {};
+  for (const nom of ['PATH', 'SYSTEMROOT', 'SYSTEMDRIVE']) {
+    if (process.env[nom] !== undefined) env[nom] = process.env[nom];
+  }
+  const r = await sonder(outil, lanceur(process.cwd(), env), delaiMs);
+  return 'raison' in r ? null : r.version;
 }
 
 /** Un rapport écrit par un outil dans le miroir, relu sans suivre de lien. */
@@ -265,19 +411,18 @@ function lireDansLaTache(cwd: string, chemin: string): string | null {
 // ─── Les secrets ─────────────────────────────────────────────────────────────
 
 /**
- * Ce qu'il faut caviarder pour une correspondance : sa valeur, relue aux
- * colonnes (`valeurDuSecret`) — ou, si les colonnes ne se relisent pas, ses
- * LIGNES ENTIÈRES. Un caviardage de trop, jamais une clé qui part.
+ * Ce que le nœud caviardera d'une correspondance : les formes de sa VALEUR,
+ * relue exactement aux colonnes (`valeurDuSecret`), qu'il peut réécrire
+ * partout sans toucher une ligne légitime (`formeCaviardable`).
+ *
+ * La porte ne réécrit JAMAIS du code sur la seule foi d'un constat : une
+ * valeur qui ne se relit pas n'est plus remplacée par ses lignes entières —
+ * elles partaient en `[secret]` dans chaque ligne identique du diff, des logs
+ * et du texte final. Le constat, lui, reste, et demande la correction.
  */
-function valeursAuxColonnes(lignes: ReadonlyMap<number, string>, p: PositionSecret): string[] {
+function formesACaviarder(lignes: ReadonlyMap<number, string>, p: PositionSecret): string[] {
   const valeur = valeurDuSecret(lignes, p);
-  if (valeur !== null) return [valeur];
-  const entieres: string[] = [];
-  for (let n = p.debutLigne; n <= p.finLigne; n++) {
-    const ligne = lignes.get(n)?.trim();
-    if (ligne) entieres.push(ligne);
-  }
-  return entieres;
+  return valeur === null ? [] : formesDuSecret(valeur).filter(formeCaviardable);
 }
 
 async function voletSecrets(
@@ -334,8 +479,8 @@ async function voletSecrets(
     // Relatifs à la tâche, en `/` : valables sur l'hôte comme dans le bac.
     const rel = path.basename(racine);
     const r = await lancer(
+      'betterleaks',
       [
-        'betterleaks',
         'dir',
         `${rel}/secrets`,
         '--config',
@@ -343,6 +488,10 @@ async function voletSecrets(
         '--gitleaks-ignore-path',
         `${rel}/regles`,
         '--ignore-gitleaks-allow',
+        // Les règles génériques (mots de passe, URL à identifiants) lisaient
+        // du code sain comme des secrets : voir `CONFIANCE_BETTERLEAKS`.
+        '--confidence',
+        CONFIANCE_BETTERLEAKS,
         // La valeur ne sort jamais de l'outil : son rapport est écrit dans la
         // tâche. Le nœud la relit dans SA copie du diff (`valeurDuSecret`).
         '--redact',
@@ -371,6 +520,15 @@ async function voletSecrets(
       return sans('outil_en_echec', sonde);
     }
     if ((r.code === 1) !== trouvailles.length > 0) return sans('outil_en_echec', sonde);
+    // Chaque trouvaille dans un fichier que la porte a écrit, et de la seule
+    // confiance demandée — sinon l'outil n'a pas lu le miroir, ou pas avec la
+    // configuration imposée : rien de son rapport n'est cru, rien n'est caviardé.
+    const situees = trouvailles.map((t) => {
+      const k = /(?:^|[\\/])secrets[\\/](\d+)[\\/][^\\/]+$/.exec(t.fichier)?.[1];
+      const carte = k === undefined ? undefined : lignes[Number(k)];
+      return carte && t.confiance === CONFIANCE_BETTERLEAKS ? { t, k: Number(k), carte } : null;
+    });
+    if (situees.some((s) => s === null)) return sans('outil_en_echec', sonde);
 
     const constats: ConstatSecret[] = [];
     const vues = new Set<string>();
@@ -380,16 +538,13 @@ async function voletSecrets(
       vues.add(cle);
       constats.push(c);
     };
-    for (const t of trouvailles) {
-      const k = /(?:^|[\\/])secrets[\\/](\d+)[\\/][^\\/]+$/.exec(t.fichier)?.[1];
-      const carte = k === undefined ? undefined : lignes[Number(k)];
-      // Un fichier que la porte n'a pas écrit : l'outil n'a pas lu le miroir.
-      if (k === undefined || !carte) return sans('outil_en_echec', sonde);
-      const fichier = nomme(noms[Number(k)] ?? null);
+    for (const s of situees) {
+      if (!s) continue;
+      const fichier = nomme(noms[s.k] ?? null);
       // Le constat ET ses composants : la clé secrète d'une paire AWS est un
       // composant, sur sa propre ligne (voir `TrouvailleSecret`).
-      for (const p of [t, ...t.composants]) {
-        valeurs.push(...valeursAuxColonnes(carte, p));
+      for (const p of [s.t, ...s.t.composants]) {
+        valeurs.push(...formesACaviarder(s.carte, p));
         ajouter({ regle: p.regle, fichier, ligne: p.debutLigne });
       }
     }
@@ -404,98 +559,234 @@ async function voletSecrets(
 
 // ─── Les dépendances ─────────────────────────────────────────────────────────
 
-const estLockfile = (chemin: string | null): chemin is string =>
-  chemin !== null && LOCKFILES_SURVEILLES.has(nomDeFichier(chemin));
+const estSurveille = (chemin: string | null): chemin is string =>
+  chemin !== null && estFichierDeDependances(chemin);
 
+/** Une paire base/tête d'un fichier de dépendances touché, lue. */
+interface Paire {
+  k: number;
+  /** Le nom du fichier d'après (d'avant s'il est supprimé), tel que le rapport le cite. */
+  fichier: string;
+  base: { chemin: string; contenu: string } | null;
+  tete: { chemin: string; contenu: string };
+}
+
+/** Ce que la passe 1 dit d'un fichier : ses paquets, ou pourquoi elle n'en dit rien. */
+type Extraction =
+  { paquets: PaquetExtrait[] } | { mal_forme: true } | { raison: Exclude<RaisonPorte, 'trouve'> };
+
+/** Le volet, avec son compte de paquets non interrogés quand il y en a. */
+function avecNonInterroges(v: Volet<ConstatDependance>, n: number): Volet<ConstatDependance> {
+  return n > 0 ? { ...v, nonInterroges: n } : v;
+}
+
+/**
+ * Le volet dépendances, en deux passes (`shared/porte-securite-dependances.ts`
+ * dit pourquoi) : chaque fichier touché, base et tête, extrait HORS LIGNE et un
+ * par un — un fichier illisible n'aveugle plus les autres ; puis UNE
+ * interrogation d'osv.dev, sur les SBOM que la porte a écrits.
+ */
 async function voletDependances(
   fichiers: readonly FichierDuDiff[],
   opts: OptionsPorte,
   dossier: () => string,
   lancer: Lancer,
 ): Promise<Volet<ConstatDependance>> {
-  const touches = fichiers.filter((f) => estLockfile(f.avant) || estLockfile(f.apres));
+  const touches = fichiers.filter((f) => estSurveille(f.avant) || estSurveille(f.apres));
   if (touches.length === 0) return voletSans('aucun_lockfile');
   try {
     const { depot } = opts;
-    if (!depot && touches.some((f) => estLockfile(f.avant))) return voletSans('sans_base');
+    if (!depot && touches.some((f) => estSurveille(f.avant))) return voletSans('sans_base');
+    // Les lockfiles que la production laisse illisibles d'abord : ce sont ses
+    // défauts, et la borne du protocole ne doit pas les faire tomber.
+    const illisibles: ConstatDependance[] = [];
+    const nonVerifiables: Exclude<RaisonPorte, 'trouve'>[] = [];
     // Tout se LIT avant de lancer quoi que ce soit : un lockfile illisible ne
     // coûte pas un conteneur.
-    const lus: { k: number; role: 'base' | 'tete'; chemin: string; contenu: string }[] = [];
+    const paires: Paire[] = [];
     for (const [k, f] of touches.entries()) {
-      if (estLockfile(f.avant) && depot) {
+      const fichier = texteAffichable(
+        opts.caviardeur.texte(f.apres ?? f.avant ?? ''),
+        BORNES_PORTE.fichier,
+      );
+      let base: Paire['base'] = null;
+      if (estSurveille(f.avant) && depot) {
         const contenu = await fichierDeBase(depot.depot, depot.baseSha, f.avant);
-        if (contenu === null) return voletSans('lockfile_illisible');
-        lus.push({ k, role: 'base', chemin: f.avant, contenu });
+        if (contenu === null) {
+          nonVerifiables.push('lockfile_illisible');
+          continue;
+        }
+        base = { chemin: f.avant, contenu };
       }
-      if (estLockfile(f.apres)) {
-        const contenu = lireDansLaTache(opts.cwd, f.apres);
-        if (contenu === null) return voletSans('lockfile_illisible');
-        lus.push({ k, role: 'tete', chemin: f.apres, contenu });
+      // Un fichier supprimé n'introduit rien : rien à extraire.
+      if (!estSurveille(f.apres)) continue;
+      const contenu = lireDansLaTache(opts.cwd, f.apres);
+      if (contenu === null) {
+        illisibles.push({ genre: 'lockfile_illisible', fichier, motif: 'pas_un_fichier' });
+        continue;
       }
+      paires.push({ k, fichier, base, tete: { chemin: f.apres, contenu } });
     }
+    const conclure = (
+      constats: readonly ConstatDependance[],
+      nonInterroges: number,
+      outil?: { nom: OutilPorte; version: string },
+      interroge = true,
+    ): Volet<ConstatDependance> => {
+      if (constats.length > 0) return avecNonInterroges(voletAvec(constats, outil), nonInterroges);
+      const raison = nonVerifiables[0];
+      if (raison) return avecNonInterroges(voletSans(raison, outil), nonInterroges);
+      if (nonInterroges > 0 && !interroge) {
+        return avecNonInterroges(voletSans('sources_non_publiques', outil), nonInterroges);
+      }
+      return avecNonInterroges(voletSans('analyse_propre', outil), nonInterroges);
+    };
+    if (paires.length === 0) return conclure(illisibles, 0);
     const sonde = await sonder('osv-scanner', lancer);
-    if ('raison' in sonde) return voletSans(sonde.raison);
+    if ('raison' in sonde) {
+      nonVerifiables.push(sonde.raison);
+      return conclure(illisibles, 0);
+    }
 
     const racine = dossier();
     const rel = path.basename(racine);
-    const lockfiles: string[] = [];
-    for (const l of lus) {
-      const ou = path.join(racine, 'dependances', l.role, String(l.k));
-      mkdirSync(ou, { recursive: true });
-      // Le NOM du lockfile, tel quel : c'est lui qui dit à osv-scanner comment le lire.
-      writeFileSync(path.join(ou, nomDeFichier(l.chemin)), l.contenu);
-      lockfiles.push('-L', `${rel}/dependances/${l.role}/${l.k}/${nomDeFichier(l.chemin)}`);
+    const ecrire = (relatif: string, contenu: string): string => {
+      const ou = path.join(racine, ...relatif.split('/'));
+      mkdirSync(path.dirname(ou), { recursive: true });
+      writeFileSync(ou, contenu);
+      return `${rel}/${relatif}`;
+    };
+    const communs = [
+      '--format',
+      'json',
+      '--config',
+      `${rel}/regles/osv-scanner.toml`,
+      // Ni résolution transitive (deps.dev, Maven Central), ni analyse
+      // d'appels (qui lancerait des scripts de build).
+      '--no-resolve',
+      '--no-call-analysis=all',
+      '--verbosity',
+      'error',
+    ];
+    // PASSE 1 — l'extraction, HORS LIGNE : sans `vulnmatch/osvdev`, l'outil
+    // n'ouvre aucune connexion (mesuré). Un fichier à la fois.
+    const extraire = async (
+      role: 'base' | 'tete',
+      p: Paire,
+      lu: { chemin: string; contenu: string },
+    ): Promise<Extraction> => {
+      // Le NOM du fichier, tel quel : c'est lui qui dit à osv-scanner comment le lire.
+      const fichier = ecrire(`dependances/${role}/${p.k}/${nomDeFichier(lu.chemin)}`, lu.contenu);
+      const sortie = `extractions/${role}-${p.k}.json`;
+      mkdirSync(path.join(racine, 'extractions'), { recursive: true });
+      const r = await lancer(
+        'osv-scanner',
+        [
+          'scan',
+          'source',
+          '-L',
+          fichier,
+          '--output-file',
+          `${rel}/${sortie}`,
+          '--experimental-disable-plugins',
+          'vulnmatch/osvdev',
+          '--all-packages',
+          '--allow-no-lockfiles',
+          ...communs,
+        ],
+        DELAI_PORTE_MS,
+      );
+      if (r.arret) return { raison: r.arret === 'lancement' ? 'outil_absent' : r.arret };
+      // MESURÉ : un fichier qu'il ne sait pas lire sort en 127, « could not extract ».
+      if (r.code === 127 && LOCKFILE_MAL_FORME.test(r.output)) return { mal_forme: true };
+      const paquets = r.code === 0 ? lireRapport(path.join(racine, sortie), lireExtraction) : null;
+      return paquets ? { paquets } : { raison: 'outil_en_echec' };
+    };
+
+    let nonInterroges = 0;
+    let interroges = 0;
+    const sboms: string[] = [];
+    for (const p of paires) {
+      const tete = await extraire('tete', p, p.tete);
+      if ('mal_forme' in tete) {
+        illisibles.push({ genre: 'lockfile_illisible', fichier: p.fichier, motif: 'mal_forme' });
+        continue;
+      }
+      if ('raison' in tete) {
+        nonVerifiables.push(tete.raison);
+        continue;
+      }
+      const base: Extraction = p.base ? await extraire('base', p, p.base) : { paquets: [] };
+      if (!('paquets' in base)) {
+        // La base, elle, n'est pas l'œuvre de la production : rien à quoi comparer.
+        nonVerifiables.push('raison' in base ? base.raison : 'lockfile_illisible');
+        continue;
+      }
+      const choix = aInterroger(
+        base.paquets,
+        tete.paquets,
+        p.base ? paquetsPublics(p.base.chemin, p.base.contenu) : new Set(),
+        paquetsPublics(p.tete.chemin, p.tete.contenu),
+      );
+      nonInterroges += choix.nonInterroges;
+      if (choix.tete.length === 0) continue;
+      interroges += choix.tete.length;
+      sboms.push('-L', ecrire(`sboms/tete/${p.k}/bom.cdx.json`, sbomDe(choix.tete)));
+      if (choix.base.length > 0) {
+        sboms.push('-L', ecrire(`sboms/base/${p.k}/bom.cdx.json`, sbomDe(choix.base)));
+      }
     }
+    if (sboms.length === 0) return conclure(illisibles, nonInterroges, sonde, false);
+
+    // PASSE 2 — l'interrogation : les SEULS paquets des SBOM partent à osv.dev.
     opts.surEtape?.(
-      `porte de sécurité : osv-scanner ${sonde.version} sur ${touches.length} lockfile(s), ` +
-        'base et tête — interroge osv.dev…',
+      `porte de sécurité : osv-scanner ${sonde.version} — interroge osv.dev sur ` +
+        `${interroges} paquet(s) introduit(s)` +
+        (nonInterroges > 0
+          ? ` (${nonInterroges} non public(s) ou non épinglé(s) : non envoyés)…`
+          : '…'),
     );
     const r = await lancer(
-      [
-        'osv-scanner',
-        'scan',
-        'source',
-        ...lockfiles,
-        '--format',
-        'json',
-        '--output-file',
-        `${rel}/dependances.json`,
-        '--config',
-        `${rel}/regles/osv-scanner.toml`,
-        // Ni résolution transitive (deps.dev, Maven Central), ni analyse
-        // d'appels (qui lancerait des scripts de build) : osv.dev seul.
-        '--no-resolve',
-        '--no-call-analysis=all',
-        '--allow-no-lockfiles',
-        '--verbosity',
-        'error',
-      ],
+      'osv-scanner',
+      ['scan', 'source', ...sboms, '--output-file', `${rel}/dependances.json`, ...communs],
       DELAI_PORTE_MS,
+      true,
     );
-    if (r.arret) {
-      return r.arret === 'lancement' ? voletSans('outil_absent') : voletSans(r.arret, sonde);
+    const interrogation = ((): SourceLue[] | Exclude<RaisonPorte, 'trouve'> => {
+      if (r.arret) return r.arret === 'lancement' ? 'outil_absent' : r.arret;
+      // MESURÉ : osv.dev injoignable, l'outil sort en 127 — avec un rapport VIDE
+      // et valide, que seul le code de sortie dément — et nomme l'hôte.
+      if (r.code === 127 && /vulnmatch\/osvdev|api\.osv\.dev|querybatch/.test(r.output)) {
+        return 'osv_injoignable';
+      }
+      if (r.code !== 0 && r.code !== 1) return 'outil_en_echec';
+      const sources = lireRapport(path.join(racine, 'dependances.json'), lireRapportOsv);
+      if (sources === null) return 'outil_en_echec';
+      const vulnerable = sources.some((s) => s.paquets.some((q) => q.vulnerabilites.length > 0));
+      return (r.code === 1) === vulnerable ? sources : 'outil_en_echec';
+    })();
+    if (!Array.isArray(interrogation)) {
+      nonVerifiables.push(interrogation);
+      return conclure(illisibles, nonInterroges, sonde);
     }
-    // MESURÉ : osv.dev injoignable, l'outil sort en 127 avec un rapport VIDE
-    // et valide. Seuls 0 (rien de vulnérable) et 1 (du vulnérable) jugent.
-    if (r.code !== 0 && r.code !== 1) return voletSans('outil_en_echec', sonde);
-    const sources = lireRapport(path.join(racine, 'dependances.json'), lireRapportOsv);
-    if (sources === null) return voletSans('outil_en_echec', sonde);
-    const vulnerable = sources.some((s) => s.paquets.some((p) => p.vulnerabilites.length > 0));
-    if ((r.code === 1) !== vulnerable) return voletSans('outil_en_echec', sonde);
-
     const base: SourceLue[] = [];
     const tete: { fichier: string; source: SourceLue }[] = [];
-    for (const source of sources) {
-      const m = /[\\/]dependances[\\/](base|tete)[\\/](\d+)[\\/][^\\/]+$/.exec(source.chemin);
-      const lu = m && lus.find((l) => l.role === m[1] && l.k === Number(m[2]));
-      if (!lu) return voletSans('outil_en_echec', sonde);
-      if (lu.role === 'base') base.push(source);
-      else tete.push({ fichier: opts.caviardeur.texte(lu.chemin), source });
+    for (const source of interrogation) {
+      const m = /[\\/]sboms[\\/](base|tete)[\\/](\d+)[\\/]bom\.cdx\.json$/.exec(source.chemin);
+      const paire = m && paires.find((p) => p.k === Number(m[2]));
+      // Une source que la porte n'a pas écrite : l'outil n'a pas lu ses SBOM.
+      if (!m || !paire) {
+        nonVerifiables.push('outil_en_echec');
+        return conclure(illisibles, nonInterroges, sonde);
+      }
+      if (m[1] === 'base') base.push(source);
+      else tete.push({ fichier: paire.fichier, source });
     }
-    const introduites = vulnerabilitesIntroduites(base, tete);
-    return introduites.length > 0
-      ? voletAvec(introduites, sonde)
-      : voletSans('analyse_propre', sonde);
+    return conclure(
+      [...illisibles, ...vulnerabilitesIntroduites(base, tete)],
+      nonInterroges,
+      sonde,
+    );
   } catch {
     return voletSans('interrompue');
   }

@@ -404,6 +404,19 @@ const EVENTS: Record<string, Meta> = {
       );
     },
   },
+  // Un volet du rapport refusé à la réception (mal formé) : il est devenu
+  // « non vérifié », et la ligne dit lequel — jamais une valeur.
+  security_gate_rejected: {
+    icon: '⛨',
+    cls: 'warn',
+    text: (p, t) => {
+      const volets = Array.isArray(p.volets) ? p.volets.map(String).join(', ') : '?';
+      return t(
+        `porte de sécurité ${short(p.taskId)} : rapport du nœud refusé, mal formé (${volets}) — non vérifié`,
+        `security gate ${short(p.taskId)}: node report refused, malformed (${volets}) — not verified`,
+      );
+    },
+  },
   // Le Hive Mind n'apprend qu'une production VALIDÉE : le souvenir entre à
   // l'acceptation de l'Evaluator ou à l'approbation humaine, et sort sur un
   // rejet. La ligne dit qui a validé — les anciens événements, émis à la

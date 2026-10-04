@@ -456,20 +456,60 @@ présente, agent exécutable) et dit pourquoi les autres sont écartés. Chaque
 conteneur porte l'étiquette de son nœud : relancé après un arrêt brutal, le
 nœud supprime ceux qu'il avait laissés.
 
-**La porte de sécurité.** Après une production réussie, avant ses validations,
-le nœud passe ce qu'elle **ajoute** à deux outils épinglés, invoqués et jamais
-liés : Betterleaks (MIT) sur les seules lignes ajoutées du diff — la valeur
-caviardée par l'outil (`--redact`), puis par le nœud dans le diff, les logs et
-le texte final — et osv-scanner (Apache-2.0) sur les lockfiles touchés, à la
-base et à la tête, pour ne signaler que les vulnérabilités **introduites**.
-osv-scanner interroge osv.dev en ligne : seuls partent les noms et versions des
-paquets des lockfiles que la production touche. Un constat : l'Evaluator
-demande une correction, et cite la règle et la ligne, ou l'avis et son CVE —
-jamais la valeur. Un outil absent : la porte est « non vérifiée », sa raison
-dite, **jamais comptée verte** ; en polyéthisme `strict`, la production attend
-un humain. L'image du bac épingle betterleaks 1.9.0 et osv-scanner 2.6.0 par
-version et SHA-256 ; sous bubblewrap ou sans bac, ce sont ceux de l'hôte, et
-`hive doctor` dit s'ils y sont.
+**La porte de sécurité.** Sur tout résultat porteur d'un diff — réussi ou en
+échec —, le nœud passe ce que la production **ajoute** à deux outils épinglés,
+invoqués et jamais liés.
+
+- **Secrets** : Betterleaks (MIT), sur les seules lignes ajoutées du diff, avec
+  ses règles de confiance **haute** (`--confidence high` : les règles
+  génériques lisaient du code sain comme des mots de passe) et sans son
+  préfiltre (un lockfile, un `.svg`, un `go.sum` sont lus). Il n'exécute rien
+  de la production. La valeur, caviardée par l'outil (`--redact`), est relue
+  par le nœud et remplacée par `[secret]` dans le diff, les logs et le texte
+  final — sous une forme de jeton seulement (16 caractères ou plus, sans
+  blanc) : la porte ne réécrit jamais une ligne sur la seule foi d'un constat.
+- **Dépendances** : osv-scanner (Apache-2.0), pour une production réussie qui
+  touche un fichier de dépendances qu'il lit (lockfiles npm, PyPI, Cargo, Go,
+  NuGet, Maven et Gradle, RubyGems, Composer, Pub, Hex, CRAN, Conan…). Chaque
+  fichier est lu hors ligne, un par un ; seules les vulnérabilités
+  **introduites** par rapport à la base comptent ; un lockfile que la
+  production laisse illisible est un constat.
+- **Ce qui part à `api.osv.dev`** — la seule connexion de la porte : l'écosystème,
+  le nom et la version des paquets que la production **introduit** et dont le
+  lockfile nomme une source publique connue (registry.npmjs.org, PyPI,
+  crates.io, rubygems.org, packagist.org, pub.dev, hex.pm, CRAN), et les
+  versions de la base de ces mêmes paquets. Jamais un commit, un chemin, un
+  paquet d'un registre privé que le lockfile nomme, ni un paquet inchangé.
+  `pnpm-lock.yaml`, `bun.lock` et `yarn.lock` (berry) ne nomment pas leur
+  registre : rien n'en part. **Limite** : `go.mod`, NuGet, Maven et Conan ne
+  nomment pas le leur — un paquet privé y est indiscernable d'un public, et
+  son nom part. Les paquets introduits qui ne partent pas ne sont jamais
+  comptés verts : le verdict dit combien. Derrière un proxy sortant,
+  `HTTPS_PROXY` et `NO_PROXY` sont transmis à cette seule interrogation ;
+  `hive doctor` éprouve la joignabilité d'api.osv.dev, sans rien envoyer.
+- **Le verdict** : un constat, et l'Evaluator demande une correction — un
+  verdict qui bloque la livraison —, en citant la règle et la ligne, ou l'avis
+  et son CVE, jamais la valeur. Non vérifiée (outil absent, osv.dev
+  injoignable…), la porte n'est **jamais comptée verte** et sa raison est
+  dite. En polyéthisme `strict`, elle fait passer la production de `accepted`
+  à `human_review_required`, et c'est tout : la livraison exigeait déjà une
+  approbation humaine, que ce verdict ne bloque pas. Ce qui change : l'Evaluator
+  n'accepte plus seul (aucun souvenir retenu au Hive Mind sans un humain,
+  aucune production « jugée » dans la qualité des ouvrières), et l'humain qui
+  approuve lit pourquoi.
+- **Limite, dite** : la sortie EN DIRECT de l'agent part vers les tableaux de
+  bord pendant qu'il travaille, avant la porte. Avec Claude Code, le contenu
+  d'un fichier que l'agent écrit (outils Write ou Edit) passe dans ce flux :
+  une clé que Hive ne reconnaît pas à son format (`ghp_…`, `sk-…`…) ni à sa
+  valeur (un identifiant transmis à l'agent) y est relayée telle quelle. La
+  porte protège ce qui est rangé — diff, logs, texte final —, pas ce flux
+  éphémère. Suite nommée : caviarder le flux en direct par les règles de
+  Betterleaks.
+
+L'image du bac épingle betterleaks 1.9.0 et osv-scanner 2.6.0 par version et
+SHA-256 ; sous bubblewrap ou sans bac, ce sont ceux de l'hôte, résolus par leur
+chemin absolu (une entrée relative du PATH n'est jamais lue), et `hive doctor`
+dit ce que la porte trouvera.
 
 Dans le bac, l'agent a un HOME éphémère : la session de `claude login` ou de
 `codex login` n'y entre pas. Hive y transmet **par leur nom** les identifiants

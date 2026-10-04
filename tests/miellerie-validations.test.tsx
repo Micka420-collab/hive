@@ -143,6 +143,26 @@ describe('panneau Evaluator — la porte de sécurité', () => {
     expect(ligne).toContain('dépendances rien_trouve (aucun lockfile touché)');
   });
 
+  it('UNE RAISON QUE CET ÉCRAN NE CONNAÎT PAS (Reine plus récente) se lit telle quelle — le panneau ne tombe pas', () => {
+    const e = evaluation(bac);
+    e.evidence.securite = {
+      secrets: { etat: 'non_verifie', raison: 'raison_de_demain', constats: [], total: 0 },
+      dependances: {
+        etat: 'rien_trouve',
+        raison: 'analyse_propre',
+        outil: { nom: 'osv-scanner', version: '2.6.0' },
+        constats: [],
+        total: 0,
+        nonInterroges: 2,
+      },
+    } as unknown as typeof e.evidence.securite;
+    const ligne = parTestId(monter(e), 'mi-porte-securite')?.textContent ?? '';
+    expect(ligne).toContain('secrets non_verifie (raison_de_demain)');
+    expect(ligne).toContain(
+      'dépendances rien_trouve (rien trouvé · osv-scanner 2.6.0 · 2 non interrogé(s))',
+    );
+  });
+
   it('UNE REINE ANTÉRIEURE À LA PORTE n’en rend pas — la ligne le dit, sans inventer un « rien »', () => {
     const e = evaluation(bac);
     delete (e.evidence as Partial<typeof e.evidence>).securite;

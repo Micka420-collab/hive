@@ -303,13 +303,24 @@ function motifsDeLaPorte(porte: PorteSecurite, nodeId: string | undefined): stri
   const s = secrets.etat === 'constat' ? secrets.total : 0;
   const d = dependances.etat === 'constat' ? dependances.total : 0;
   if (s + d === 0) return [];
+  // Les lockfiles illisibles viennent en tête des constats (le nœud les y
+  // range) : la borne du protocole ne les fait pas tomber, et leur compte est exact.
+  const illisibles =
+    d > 0 ? dependances.constats.filter((c) => c.genre === 'lockfile_illisible') : [];
+  const v = d - illisibles.length;
   const comptes = [
     ...(s > 0 ? [`${s} secret(s) ajouté(s)`] : []),
-    ...(d > 0 ? [`${d} vulnérabilité(s) introduite(s)`] : []),
+    ...(v > 0 ? [`${v} vulnérabilité(s) introduite(s)`] : []),
+    ...(illisibles.length > 0 ? [`${illisibles.length} lockfile(s) laissé(s) illisible(s)`] : []),
   ].join(', ');
   const remedes = [
     ...(s > 0 ? ['retirez chaque secret du code et lisez-le de l’environnement'] : []),
-    ...(d > 0 ? ['passez chaque dépendance à une version corrigée'] : []),
+    ...(v > 0 ? ['passez chaque dépendance à une version corrigée'] : []),
+    ...(illisibles.length > 0
+      ? [
+          'régénérez chaque lockfile avec son gestionnaire de paquets — un fichier ordinaire, lisible',
+        ]
+      : []),
   ].join(' ; ');
   const motifs = [
     `la porte de sécurité a trouvé ${comptes}${nodeId ? ` (nœud ${nodeId})` : ''} — ${remedes}`,
@@ -322,6 +333,11 @@ function motifsDeLaPorte(porte: PorteSecurite, nodeId: string | undefined): stri
   }
   if (d > 0) {
     const lus = dependances.constats.map((c) => {
+      if (c.genre === 'lockfile_illisible') {
+        const comment =
+          c.motif === 'mal_forme' ? 'mal formé' : 'remplacé par autre chose qu’un fichier';
+        return `${c.fichier} illisible (${comment})`;
+      }
       const precisions = [...c.alias, ...(c.gravite ? [c.gravite] : [])];
       const entre = precisions.length > 0 ? ` (${precisions.join(', ')})` : '';
       return `${c.paquet}@${c.version} (${c.ecosysteme}) ${c.avis}${entre} dans ${c.fichier}`;
@@ -349,17 +365,24 @@ function comparaisonDesTests(
   return { comparaison, base, nodeId: provenance.nodeId };
 }
 
-/** Chaque volet en quelques mots : « secrets — outil absent (betterleaks) ». */
+/**
+ * Chaque volet en quelques mots : « secrets — outil absent (betterleaks) »,
+ * « dépendances — rien trouvé (osv-scanner 2.6.0), 3 paquet(s) introduit(s)
+ * non vérifié(s) — source non publique, ou version non épinglée ».
+ */
 function direVolets(porte: PorteSecurite, volets: readonly VoletPorte[]): string {
   return volets
     .map((v) => {
-      const { raison, outil } = porte[v];
+      const { raison, outil, nonInterroges } = porte[v];
       const par = outil
         ? ` (${outil.nom} ${outil.version})`
         : raison === 'rapport_absent'
           ? ''
           : ` (${OUTIL_DU_VOLET[v]})`;
-      return `${NOM_DU_VOLET[v]} — ${DIRE_RAISON_PORTE[raison][0]}${par}`;
+      const exclus = nonInterroges
+        ? `, ${nonInterroges} paquet(s) introduit(s) non vérifié(s) — source non publique, ou version non épinglée`
+        : '';
+      return `${NOM_DU_VOLET[v]} — ${DIRE_RAISON_PORTE[raison][0]}${par}${exclus}`;
     })
     .join(' ; ');
 }
@@ -422,12 +445,15 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     return result(input.taskId, 'correction_required', false, true, [motif], evidence);
   }
   if (!latest.success) {
+    // La porte lit aussi le diff d'un échec (son volet secrets n'exécute
+    // rien) : une clé que l'agent a écrite avant d'échouer est nommée ici, et
+    // la critique de la correction le dira.
     return result(
       input.taskId,
       'rejected',
       false,
       true,
-      ['le dernier résultat a échoué'],
+      ['le dernier résultat a échoué', ...motifsDeLaPorte(securite, input.securite?.nodeId)],
       evidence,
     );
   }
@@ -608,6 +634,8 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
   // preuve apportée plus tard ne la vérifiera — la porte tourne sur le nœud,
   // au moment de la production, et nulle part ailleurs. « Tests
   // supplémentaires requis » enverrait chercher ce qui ne débloque rien.
+  // En `strict`, ce qui n'a pas été vérifié du tout retient la production ;
+  // des paquets non publics à côté d'une analyse faite sont dits, pas retenus.
   const nonVerifies = VOLETS_PORTE.filter((v) => securite[v].etat === 'non_verifie');
   const porteRetenue =
     input.securiteStricte === true && nonVerifies.length > 0
@@ -703,11 +731,18 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
   }
   // Une porte non vérifiée ne retient rien hors de `strict` — mais elle ne se
   // tait pas : l'humain qui approuve lit qu'aucun outil n'a regardé.
+  // Des paquets introduits qui ne sont pas partis à osv.dev (source locale,
+  // git, registre privé, version non épinglée) : la porte n'est passée qu'EN
+  // PARTIE, et le dit.
+  const enPartie = VOLETS_PORTE.some((v) => (securite[v].nonInterroges ?? 0) > 0);
   acceptedReasons.push(
     nonVerifies.length > 0
       ? `porte de sécurité non vérifiée (${direVolets(securite, nonVerifies)}) : jamais comptée ` +
           'verte — elle ne retient la production qu’en polyéthisme strict'
-      : `porte de sécurité passée : ${direVolets(securite, VOLETS_PORTE)}`,
+      : enPartie
+        ? `porte de sécurité passée en partie : ${direVolets(securite, VOLETS_PORTE)} — ` +
+          'un paquet qui n’a pas été interrogé n’est jamais compté vert'
+        : `porte de sécurité passée : ${direVolets(securite, VOLETS_PORTE)}`,
   );
   return result(
     input.taskId,

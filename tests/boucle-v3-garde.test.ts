@@ -168,9 +168,15 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     // une clé, ou compterait verte une porte qu'aucun outil n'a passée.
     ['src/shared/porte-securite.ts', 'securite'],
     ['src/node-client/porte-securite.ts', 'securite'],
+    ['src/shared/porte-securite-dependances.ts', 'securite'],
     ['tests/porte-securite.test.ts', 'securite'],
     ['tests/porte-securite-noeud.test.ts', 'securite'],
     ['tests/porte-securite-bout-en-bout.test.ts', 'securite'],
+    ['tests/porte-securite-dependances.test.ts', 'securite'],
+    // Les faux outils et les lockfiles mesurés : un faux complaisant ferait
+    // passer les bancs ci-dessus pour de mauvaises raisons.
+    ['tests/fixtures/faux-outils-porte.ts', 'securite'],
+    ['tests/fixtures/verrous-porte.ts', 'securite'],
     // Les verdicts test par test (G11b) : le lecteur qui excuse un échec déjà
     // rouge à la base, ses bancs et les sorties réelles qu'ils rejouent.
     ['src/shared/lecture-tests.ts', 'permissions'],

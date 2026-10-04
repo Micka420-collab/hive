@@ -13,11 +13,15 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { evaluate } from '../src/orchestrator/evaluator.js';
 import type { CrossReviewEvidence, EvaluatorInput } from '../src/orchestrator/evaluator.js';
+import { Scheduler } from '../src/orchestrator/scheduler.js';
 import { HiveStore } from '../src/orchestrator/store.js';
 import { lireDiff } from '../src/shared/caviardage.js';
 import {
+  CONFIANCE_BETTERLEAKS,
+  CONFIG_BETTERLEAKS,
   ETIQUETTE_PORTE,
   MAX_CONSTATS_PORTE,
+  formeCaviardable,
   PORTE_SANS_RAPPORT,
   PUBLICATION_OUTIL,
   VALEUR_ETIQUETTE_PORTE,
@@ -31,7 +35,12 @@ import {
   voletSans,
   vulnerabilitesIntroduites,
 } from '../src/shared/porte-securite.js';
-import type { PorteSecurite, SourceLue } from '../src/shared/porte-securite.js';
+import type {
+  ConstatDependance,
+  PorteSecurite,
+  SourceLue,
+  VoletPorte,
+} from '../src/shared/porte-securite.js';
 import { parseClientMessage } from '../src/shared/protocol.js';
 
 const ID_AWS = ['AKIA', 'Z7Q4XWERT2LMNOPQ'].join('');
@@ -162,6 +171,45 @@ describe('Betterleaks — le rapport, lu comme 1.9.0 l’écrit', () => {
     expect(t && valeurDuSecret(lignes('une seule ligne'), t)).toBeNull();
     expect(t && valeurDuSecret(lignes('', 'courte'), t)).toBeNull();
   });
+
+  it('LA CONFIANCE DE LA RÈGLE se lit dans `Attributes` ; ses composants n’en portent pas', () => {
+    const [haute, basse, muette] =
+      lireRapportBetterleaks(
+        JSON.stringify([
+          trouvaille({ ComponentSets: [{ components: [COMPOSANT_AWS] }] }),
+          trouvaille({
+            RuleID: 'generic-password',
+            Attributes: { confidence: 'low', path: 'm/secrets/1/AccountPanel.tsx' },
+          }),
+          trouvaille({ Attributes: undefined }),
+        ]),
+      ) ?? [];
+    expect(haute?.confiance).toBe('high');
+    expect(basse?.confiance).toBe('low');
+    expect(muette?.confiance).toBeNull();
+  });
+
+  it('LA CONFIGURATION IMPOSÉE garde les règles par défaut et ÉTEINT leur préfiltre', () => {
+    expect(CONFIG_BETTERLEAKS).toMatch(/^prefilter = '''false'''$/m);
+    expect(CONFIG_BETTERLEAKS).toMatch(/^\[extend\]\nuseDefault = true$/m);
+    expect(CONFIANCE_BETTERLEAKS).toBe('high');
+  });
+
+  it('SEULE UNE FORME DE JETON SE CAVIARDE PARTOUT — jamais un mot, ni l’en-tête d’une clé PEM', () => {
+    for (const jeton of [ID_AWS, SECRETE_AWS, STRIPE, 'MIIEvAIBADANBgkqhkiG9w0BAQEF']) {
+      expect(formeCaviardable(jeton), jeton.slice(0, 6)).toBe(true);
+    }
+    // Ce qu'une règle générique lisait comme un mot de passe, l'en-tête d'une
+    // clé, un fragment trop court : réécrits partout, ils corrompaient du code.
+    for (const forme of [
+      'new-password',
+      `-----BEGIN ${'PRIVATE'} KEY-----`,
+      'AB12cd==',
+      'un mot de passe assez long',
+    ]) {
+      expect(formeCaviardable(forme), forme).toBe(false);
+    }
+  });
 });
 
 /** Un rapport d'osv-scanner 2.6.0 (`--format json`), sources absolues comme l'outil les écrit. */
@@ -251,6 +299,7 @@ describe('osv-scanner — le rapport, et ce que la tête INTRODUIT', () => {
     ]);
     expect(introduites).toEqual([
       {
+        genre: 'vulnerabilite',
         paquet: 'minimist',
         version: '1.2.0',
         ecosysteme: 'npm',
@@ -321,7 +370,37 @@ describe('ce qui traverse le réseau et le journal — reconstruit, validé FERM
   };
 
   it('UN RAPPORT BIEN FORMÉ passe tel quel', () => {
-    expect(porteSecuriteDepuis(JSON.parse(JSON.stringify(porte)))).toEqual(porte);
+    expect(porteSecuriteDepuis(JSON.parse(JSON.stringify(porte)))).toEqual({ porte, rejetes: [] });
+  });
+
+  it('LES NOUVELLES FORMES DU VOLET DÉPENDANCES passent : lockfile illisible, paquets non interrogés', () => {
+    const riche: PorteSecurite = {
+      ...porte,
+      dependances: {
+        ...voletAvec<ConstatDependance>(
+          [
+            { genre: 'lockfile_illisible', fichier: 'package-lock.json', motif: 'mal_forme' },
+            {
+              genre: 'vulnerabilite',
+              paquet: 'minimist',
+              version: '1.2.0',
+              ecosysteme: 'npm',
+              avis: 'GHSA-xvch-5gv4-984h',
+              alias: ['CVE-2021-44906'],
+              gravite: 'CRITICAL',
+              resume: 'Prototype Pollution in minimist',
+              fichier: 'web/package-lock.json',
+            },
+          ],
+          { nom: 'osv-scanner', version: '2.6.0' },
+        ),
+        nonInterroges: 3,
+      },
+    };
+    expect(porteSecuriteDepuis(JSON.parse(JSON.stringify(riche)))).toEqual({
+      porte: riche,
+      rejetes: [],
+    });
   });
 
   it('SANS RAPPORT, la porte n’est jamais verte', () => {
@@ -377,8 +456,71 @@ describe('ce qui traverse le réseau et le journal — reconstruit, validé FERM
       },
     ],
     ['un volet manquant', { dependances: undefined }],
-  ])('REFUSÉ EN ENTIER : %s', (_cas, patch) => {
-    expect(porteSecuriteDepuis({ ...porte, ...patch })).toBeNull();
+    [
+      'un constat de dépendance d’un genre inconnu',
+      {
+        dependances: {
+          ...porte.dependances,
+          etat: 'constat',
+          raison: 'trouve',
+          constats: [{ genre: 'rumeur', fichier: 'package-lock.json' }],
+          total: 1,
+        },
+      },
+    ],
+    [
+      'une version vide — le nœud ne l’écrit plus (« ? »)',
+      {
+        dependances: {
+          ...porte.dependances,
+          etat: 'constat',
+          raison: 'trouve',
+          constats: [
+            {
+              genre: 'vulnerabilite',
+              paquet: 'x',
+              version: '',
+              ecosysteme: 'npm',
+              avis: 'GHSA-xvch-5gv4-984h',
+              alias: [],
+              gravite: null,
+              resume: '',
+              fichier: 'package-lock.json',
+            },
+          ],
+          total: 1,
+        },
+      },
+    ],
+    [
+      'un compte de paquets non interrogés à zéro',
+      { dependances: { ...porte.dependances, nonInterroges: 0 } },
+    ],
+    [
+      'des paquets non interrogés sous le volet secrets',
+      { secrets: { ...porte.secrets, nonInterroges: 2 } },
+    ],
+  ])('REFUSÉ — CE VOLET SEUL, l’autre tient : %s', (_cas, patch) => {
+    const relue = porteSecuriteDepuis({ ...porte, ...patch });
+    const [touche] = Object.keys(patch) as ('secrets' | 'dependances')[];
+    expect(relue.rejetes).toEqual([touche]);
+    expect(relue.porte[touche!]).toEqual({
+      etat: 'non_verifie',
+      raison: 'rapport_rejete',
+      constats: [],
+      total: 0,
+    });
+    // Un volet mal formé n'efface plus le constat d'un secret : l'autre tient.
+    const autre = touche === 'secrets' ? 'dependances' : 'secrets';
+    expect(relue.porte[autre]).toEqual(porte[autre]);
+  });
+
+  it('UN RAPPORT QUI N’EST PAS UN OBJET : les DEUX volets refusés — jamais « rien trouvé »', () => {
+    for (const casse of [null, 'rien', 42, []]) {
+      const relue = porteSecuriteDepuis(casse);
+      expect(relue.rejetes).toEqual(['secrets', 'dependances']);
+      expect(relue.porte.secrets.raison).toBe('rapport_rejete');
+    }
   });
 
   it('CE QUE LE NŒUD AJOUTERAIT n’est pas recopié — pas même une valeur', () => {
@@ -386,7 +528,7 @@ describe('ce qui traverse le réseau et le journal — reconstruit, validé FERM
     (bavard.secrets!.constats as Record<string, unknown>[])[0]!.valeur = SECRETE_AWS;
     bavard.secrets!.extrait = SECRETE_AWS;
     const relu = porteSecuriteDepuis(bavard);
-    expect(relu).toEqual(porte);
+    expect(relu).toEqual({ porte, rejetes: [] });
     expect(JSON.stringify(relu)).not.toContain(SECRETE_AWS);
   });
 });
@@ -618,6 +760,22 @@ describe('l’Evaluator — la porte parmi ses règles', () => {
     expect(v.reasons[0]).toMatch(/^la porte de sécurité a trouvé 1 secret\(s\) ajouté\(s\)/);
   });
 
+  it('UN RÉSULTAT EN ÉCHEC reste rejeté — et le secret qu’il ajoutait est nommé, pour la correction', () => {
+    const [ok] = accepte.results;
+    const v = evaluate({
+      ...accepte,
+      results: [{ ...ok!, success: false }],
+      securite: { porte: avecSecret, nodeId: 'n1' },
+    });
+    expect(v.decision).toBe('rejected');
+    expect(v.reasons[0]).toBe('le dernier résultat a échoué');
+    expect(v.reasons[1]).toMatch(/^la porte de sécurité a trouvé 1 secret\(s\) ajouté\(s\)/);
+    // Sans constat, l'échec reste seul.
+    expect(evaluate({ ...accepte, results: [{ ...ok!, success: false }] }).reasons).toEqual([
+      'le dernier résultat a échoué',
+    ]);
+  });
+
   it('CE QUE LA BORNE DU PROTOCOLE A LAISSÉ TOMBER est compté, pas tu', () => {
     const constats = Array.from({ length: MAX_CONSTATS_PORTE + 5 }, (_, i) => ({
       regle: 'generic-api-key',
@@ -650,19 +808,91 @@ const resultat = (porteSecurite: unknown): unknown =>
   );
 
 describe('le protocole et la base — ADDITIF, validé fermé', () => {
-  it('task_result : un rapport bien formé passe ; mal formé, il est abandonné — pas la production', () => {
+  it('task_result : un rapport bien formé passe ; un volet mal formé est refusé SEUL, et le refus est rendu', () => {
     expect(resultat(avecSecret)).toMatchObject({ type: 'task_result', porteSecurite: avecSecret });
+    expect(resultat(avecSecret)).not.toHaveProperty('porteSecuriteRejetee');
+    // Le volet dépendances mal formé : le constat du secret TIENT.
     const casse = resultat({
       ...avecSecret,
-      secrets: { ...avecSecret.secrets, etat: 'rien_trouve' },
+      dependances: { ...avecSecret.dependances, etat: 'constat' },
     });
-    expect(casse).toMatchObject({ type: 'task_result', taskId: 't1', success: true });
-    expect(casse).not.toHaveProperty('porteSecurite');
+    expect(casse).toMatchObject({
+      type: 'task_result',
+      taskId: 't1',
+      success: true,
+      porteSecurite: {
+        secrets: avecSecret.secrets,
+        dependances: { etat: 'non_verifie', raison: 'rapport_rejete' },
+      },
+      porteSecuriteRejetee: ['dependances'],
+    });
     // Un nœud antérieur à la porte n'envoie rien : le message reste valide.
     expect(resultat(undefined)).not.toHaveProperty('porteSecurite');
+    // Le refus n'est jamais lu du réseau : un nœud ne peut pas en annoncer un.
+    const annonce = parseClientMessage(
+      JSON.stringify({
+        type: 'task_result',
+        taskId: 't1',
+        success: true,
+        diff: '',
+        logs: '',
+        durationMs: 5,
+        subAgents: [],
+        porteSecurite: avecSecret,
+        porteSecuriteRejetee: ['secrets'],
+      }),
+    );
+    expect(annonce).not.toHaveProperty('porteSecuriteRejetee');
   });
 
-  it('la base relit le fait par les mêmes règles — une ligne altérée redevient « sans rapport »', () => {
+  it('UN VOLET REFUSÉ EST JOURNALISÉ par la Reine — de quel nœud, sur quel résultat, lequel', () => {
+    const store = new HiveStore(':memory:');
+    const scheduler = new Scheduler(store);
+    try {
+      const noeud = scheduler.registerNode({
+        name: 'n',
+        ownerName: 'banc',
+        agentType: 'shell',
+        maxConcurrency: 1,
+      });
+      const projet = store.createProject({ name: 'P' });
+      const tache = store.createTask({ projectId: projet.id, title: 'T', prompt: 'p' });
+      store.patchTask(tache.id, { status: 'ready' });
+      scheduler.tick(1_000);
+      const lu = resultat({
+        ...avecSecret,
+        dependances: { ...avecSecret.dependances, etat: 'constat' },
+      }) as { porteSecurite: PorteSecurite; porteSecuriteRejetee: VoletPorte[] };
+      expect(
+        scheduler.handleTaskResult(noeud.id, {
+          taskId: tache.id,
+          success: true,
+          diff: 'diff --git a/x b/x',
+          logs: '',
+          durationMs: 5,
+          subAgents: [],
+          porteSecurite: lu.porteSecurite,
+          porteSecuriteRejetee: lu.porteSecuriteRejetee,
+        }),
+      ).toBe(true);
+      const resultId = store.resultsForTask(tache.id).at(-1)?.resultId;
+      const [refus] = store.evenementsDeTache(tache.id, ['security_gate_rejected']);
+      expect(refus?.payload).toMatchObject({
+        taskId: tache.id,
+        resultId,
+        nodeId: noeud.id,
+        volets: ['dependances'],
+      });
+      // Et ce qui est rangé garde le constat du secret.
+      expect(store.porteSecuriteDe(tache.id, resultId ?? 0)?.porte.secrets).toEqual(
+        avecSecret.secrets,
+      );
+    } finally {
+      store.close();
+    }
+  });
+
+  it('la base relit le fait par les mêmes règles — un volet altéré devient « rapport refusé », l’autre tient', () => {
     const store = new HiveStore(':memory:');
     const fait = (porte: unknown, nodeId = 'n1') =>
       store.appendEvent('security_gate_recorded', {
@@ -681,9 +911,12 @@ describe('le protocole et la base — ADDITIF, validé fermé', () => {
     });
     // Le fait d'un AUTRE résultat ne parle pas de celui-ci.
     expect(store.porteSecuriteDe('t1', 8)).toBeNull();
-    // Le plus récent l'emporte — et, altéré, il ne vaut rien.
+    // Le plus récent l'emporte — et son volet altéré n'est jamais vert.
     fait({ ...avecSecret, secrets: { ...avecSecret.secrets, etat: 'rien_trouve' } });
-    expect(store.porteSecuriteDe('t1', 7)).toBeNull();
+    expect(store.porteSecuriteDe('t1', 7)?.porte).toEqual({
+      secrets: { etat: 'non_verifie', raison: 'rapport_rejete', constats: [], total: 0 },
+      dependances: avecSecret.dependances,
+    });
     fait(passee, '');
     expect(store.porteSecuriteDe('t1', 7)).toBeNull();
     store.close();

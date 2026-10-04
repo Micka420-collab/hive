@@ -70,6 +70,15 @@ describe('SOUS WINDOWS — la plateforme que rien n’exerçait', () => {
     }
   });
 
+  it('LES OUTILS DE LA PORTE DE SÉCURITÉ sont des `.exe` — lancés, pas refusés', () => {
+    // La porte les résout en chemin absolu (`surLePath`) : c'est sous cette
+    // forme qu'ils arrivent ici. Refusés, la porte d'un nœud Windows sans bac
+    // était « outil absent » à chaque production, quoi que dise le docteur.
+    for (const bin of ['betterleaks', 'osv-scanner', 'C:\\outils\\osv-scanner.exe']) {
+      expect(decider(bin, 'win32'), bin).toEqual({ genre: 'tel-quel' });
+    }
+  });
+
   it('UN SHIM QU’ON NE SAIT PAS LANCER EST REFUSÉ EN LE DISANT', () => {
     // La moitié qui compte : un `ENOENT` ne se lit pas, un refus motivé si.
     for (const bin of ['yarn', 'pnpm', 'mvn', 'gradle', 'composer']) {

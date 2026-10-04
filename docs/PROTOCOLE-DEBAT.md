@@ -263,16 +263,27 @@ ligne de progression ; chaque nœud garde en mémoire les bases qu'il a rejouée
 La **porte de sécurité** (`src/shared/porte-securite.ts`) n'est pas une
 cinquième validation : le nœud la joint à son résultat (`porteSecurite`,
 rangée en `security_gate_recorded`), volet par volet — secrets (Betterleaks,
-lignes ajoutées seulement) et dépendances (osv-scanner, vulnérabilités
-INTRODUITES par rapport à la base). Un constat (4) passe avant tout ce qui
-appelle un humain : `human_review_required` n'arrête pas la livraison, et une
-approbation ne doit pas laisser partir une clé. Non vérifiée (outil absent, en
-échec, nœud antérieur à la porte), elle n'est **jamais comptée verte** —
-`accepted` le dit dans ses motifs — et ne retient la production qu'en
-polyéthisme `strict` (12) : comme une contre-visite manquante, la production
-attend alors un humain (`human_review_required`, sans renvoi — le producteur
-n'installe pas l'outil du nœud). Un rejet humain relance la production, et la
-porte avec elle.
+confiance haute, lignes ajoutées seulement, sur TOUT résultat porteur d'un
+diff, échecs compris) et dépendances (osv-scanner, vulnérabilités INTRODUITES
+par rapport à la base, pour une production réussie de l'arbre de la tâche ;
+ce qui en part à osv.dev : `src/shared/porte-securite-dependances.ts`). La
+Reine revalide chaque volet SEUL : un volet mal formé devient
+`rapport_rejete`, journalisé (`security_gate_rejected`), sans emporter
+l'autre. Un constat (4) passe avant tout ce qui appelle un humain :
+`human_review_required` n'arrête pas la livraison, et une approbation ne doit
+pas laisser partir une clé ; sur un résultat en échec (2), les constats
+suivent le motif, pour que la critique les porte. Non vérifiée (outil absent,
+en échec, osv.dev injoignable, nœud antérieur à la porte), elle n'est
+**jamais comptée verte** — `accepted` le dit dans ses motifs, comme les
+paquets introduits qui n'ont pas pu être interrogés (« passée en partie ») —
+et ne retient la production qu'en polyéthisme `strict` (12) : comme une
+contre-visite manquante, la production attend alors un humain
+(`human_review_required`, sans renvoi — le producteur n'installe pas l'outil
+du nœud). Ce que cela change, et rien de plus : la livraison exigeait déjà
+une approbation humaine, que ce verdict ne bloque pas ; l'Evaluator n'accepte
+plus seul (pas de souvenir retenu au Hive Mind sans humain, pas de production
+« jugée » dans la qualité des ouvrières). Un rejet humain relance la
+production, et la porte avec elle.
 
 ### Étape 4 — la correction, avec la critique (#488)
 

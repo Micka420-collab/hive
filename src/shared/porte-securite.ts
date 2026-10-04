@@ -52,15 +52,21 @@
 // hors ligne de npm pèse 217 Mo (`npm/all.zip`, 217 394 349 octets le 4
 // octobre), à retélécharger pour rester à jour, et le bac n'a ni disque
 // persistant ni mémoire pour elle (racine en lecture seule, /tmp de 512 Mo,
-// 2 Go). Ce qui part : les noms et versions des paquets des seuls lockfiles
-// que la production touche — rien quand elle n'en touche aucun, ce qui est
-// le cas courant.
+// 2 Go). CE QUI PART À api.osv.dev, et seulement quand la production touche
+// un fichier de dépendances (`porte-securite-dependances.ts`, qui le décide) :
+// l'écosystème, le nom et la version des paquets qu'elle INTRODUIT, résolus
+// depuis un registre public connu, et les versions de la base de ces mêmes
+// paquets. Jamais un commit, un chemin, un paquet d'un registre privé que le
+// lockfile nomme, ni un paquet que la production n'a pas changé. LIMITE :
+// `go.mod`, NuGet, Maven et Conan ne nomment pas leur registre — un paquet
+// privé y est indiscernable, et son nom part.
 //
 // Module PUR : aucune I/O. Le nœud (`node-client/porte-securite.ts`) écrit le
 // miroir, lance les outils et lit leurs rapports avec ces fonctions ; la Reine
 // revalide ce qui traverse le réseau et le journal (`porteSecuriteDepuis`).
 
 import { champSurUneLigne } from './donnees-non-fiables.js';
+import { nomDeFichier } from './porte-securite-dependances.js';
 
 export const VOLETS_PORTE = ['secrets', 'dependances'] as const;
 export type VoletPorte = (typeof VOLETS_PORTE)[number];
@@ -125,15 +131,46 @@ export const ETATS_PAR_RAISON_PORTE = {
   annule: ['non_verifie'],
   /** Un lockfile touché, et pas de commit de base pour comparer. */
   sans_base: ['non_verifie'],
-  /** Un lockfile touché qu'on ne peut pas lire sans risque (lien, hors de la tâche). */
+  /**
+   * Le lockfile de la BASE ne se lit pas (absent du commit, mal formé) : rien à
+   * quoi comparer. Celui de la TÊTE illisible, lui, est un défaut de la
+   * production — un constat (`ConstatLockfileIllisible`).
+   */
   lockfile_illisible: ['non_verifie'],
+  /**
+   * osv.dev injoignable : l'extraction a tourné, l'interrogation non (mesuré :
+   * sortie 127, « api.osv.dev » dans l'erreur).
+   */
+  osv_injoignable: ['non_verifie'],
+  /**
+   * Des paquets introduits, et aucun d'interrogeable — source que le lockfile
+   * ne dit pas publique, version non épinglée : rien n'est parti à osv.dev,
+   * rien n'a été vérifié.
+   */
+  sources_non_publiques: ['non_verifie'],
   /** Une erreur inattendue du nœud a interrompu la porte. */
   interrompue: ['non_verifie'],
   /**
-   * Le résultat n'a apporté AUCUN rapport — nœud antérieur à la porte,
-   * production simulée, rapport mal formé écarté. Posé par la Reine.
+   * Non examinées : la production a ÉCHOUÉ. Ses secrets, si — son diff part
+   * au hub comme un autre —, ses dépendances non : rien n'en sera livré.
+   */
+  production_en_echec: ['non_verifie'],
+  /**
+   * Non examinées : le diff n'est pas celui de l'arbre de la tâche (un
+   * adaptateur qui rend le sien) — il n'y a aucun lockfile d'après à lire.
+   */
+  diff_hors_arbre: ['non_verifie'],
+  /**
+   * Le résultat n'a apporté AUCUN rapport — nœud antérieur à la porte, ou
+   * production arrêtée avant elle. Posé par la Reine.
    */
   rapport_absent: ['non_verifie'],
+  /**
+   * Le volet que le nœud a envoyé est MAL FORMÉ : la Reine l'a refusé à la
+   * réception — lui seul, pas l'autre volet — et l'a journalisé
+   * (`security_gate_rejected`). Posé par la Reine.
+   */
+  rapport_rejete: ['non_verifie'],
 } as const satisfies Record<string, readonly EtatPorte[]>;
 
 export type RaisonPorte = keyof typeof ETATS_PAR_RAISON_PORTE;
@@ -149,11 +186,34 @@ export const DIRE_RAISON_PORTE: Readonly<Record<RaisonPorte, readonly [string, s
   delai: ['délai dépassé', 'timed out'],
   annule: ['annulée', 'cancelled'],
   sans_base: ['aucun commit de base pour comparer', 'no base commit to compare with'],
-  lockfile_illisible: ['lockfile illisible sans risque', 'lockfile not safely readable'],
+  lockfile_illisible: [
+    'lockfile de la base illisible — rien à quoi comparer',
+    'base lockfile unreadable — nothing to compare with',
+  ],
+  osv_injoignable: [
+    'api.osv.dev injoignable depuis le nœud — ouvrez-lui la sortie HTTPS vers api.osv.dev:443, ou posez HTTPS_PROXY (`hive doctor` l’éprouve)',
+    'api.osv.dev unreachable from the node — allow outbound HTTPS to api.osv.dev:443, or set HTTPS_PROXY (`hive doctor` checks it)',
+  ],
+  sources_non_publiques: [
+    'aucun paquet introduit n’est interrogeable (source non publique, ou version non épinglée) — rien n’a été vérifié',
+    'no introduced package can be queried (non-public source, or unpinned version) — nothing was verified',
+  ],
   interrompue: ['erreur du nœud', 'node error'],
+  production_en_echec: [
+    'non examinées : la production a échoué',
+    'not examined: the production failed',
+  ],
+  diff_hors_arbre: [
+    'non examinées : le diff ne vient pas de l’arbre de la tâche',
+    'not examined: the diff does not come from the task tree',
+  ],
   rapport_absent: [
-    'aucun rapport du nœud (nœud antérieur à la porte, ou production simulée)',
-    'no report from the node (node older than the gate, or simulated production)',
+    'aucun rapport du nœud (nœud antérieur à la porte, ou production arrêtée avant elle)',
+    'no report from the node (node older than the gate, or production stopped before it)',
+  ],
+  rapport_rejete: [
+    'rapport du nœud refusé à la réception, mal formé — voir le journal',
+    'node report refused on receipt, malformed — see the journal',
   ],
 };
 
@@ -169,7 +229,9 @@ export interface ConstatSecret {
   ligne: number;
 }
 
-export interface ConstatDependance {
+/** Une vulnérabilité que la tête introduit. */
+export interface ConstatVulnerabilite {
+  genre: 'vulnerabilite';
   paquet: string;
   version: string;
   ecosysteme: string;
@@ -185,6 +247,20 @@ export interface ConstatDependance {
   fichier: string;
 }
 
+/**
+ * Un lockfile que la production laisse ILLISIBLE : remplacé par un lien ou
+ * par autre chose qu'un fichier (`pas_un_fichier`), ou qu'osv-scanner ne sait
+ * plus lire (`mal_forme`). Un défaut de la production — `npm ci` le refuserait
+ * aussi —, pas une panne d'outil : il ne doit plus aveugler tout le volet.
+ */
+export interface ConstatLockfileIllisible {
+  genre: 'lockfile_illisible';
+  fichier: string;
+  motif: 'pas_un_fichier' | 'mal_forme';
+}
+
+export type ConstatDependance = ConstatVulnerabilite | ConstatLockfileIllisible;
+
 export interface Volet<C> {
   etat: EtatPorte;
   raison: RaisonPorte;
@@ -194,6 +270,12 @@ export interface Volet<C> {
   constats: C[];
   /** Combien il y en avait avant la borne. */
   total: number;
+  /**
+   * Volet dépendances : les paquets introduits qui ne sont PAS partis à
+   * osv.dev — source locale, git, registre privé ou non nommé par le
+   * lockfile, version non épinglée. Jamais comptés verts. Absent : zéro.
+   */
+  nonInterroges?: number;
 }
 
 /** Le rapport qu'un nœud joint à son `task_result`. */
@@ -250,35 +332,6 @@ export function voletAvec<C>(
 // ─── Les fichiers que la porte lit ───────────────────────────────────────────
 
 /**
- * Les lockfiles dont un changement est examiné — chacun reconnu par osv-scanner
- * 2.6.0 à son seul nom (éprouvé un par un, le 4 octobre). Un manifeste sans
- * versions résolues (`package.json`) n'est pas dans la liste : il ne dit pas
- * quelle version sera installée, et `npm ci` refuse un manifeste que son
- * lockfile ne suit pas.
- */
-export const LOCKFILES_SURVEILLES: ReadonlySet<string> = new Set([
-  'package-lock.json',
-  'npm-shrinkwrap.json',
-  'yarn.lock',
-  'pnpm-lock.yaml',
-  'bun.lock',
-  'requirements.txt',
-  'Pipfile.lock',
-  'poetry.lock',
-  'go.mod',
-  'Cargo.lock',
-  'Gemfile.lock',
-  'composer.lock',
-  'packages.lock.json',
-  'pubspec.lock',
-]);
-
-/** Le dernier segment d'un chemin de dépôt (toujours en `/`). */
-export function nomDeFichier(chemin: string): string {
-  return chemin.slice(chemin.lastIndexOf('/') + 1);
-}
-
-/**
  * Le nom sous lequel un fichier du diff est écrit dans le miroir : son seul
  * dernier segment, réduit à des caractères sûrs. Jamais son chemin : un nom
  * choisi par l'agent ne décide pas où l'on écrit, et un `.gitleaks.toml`
@@ -304,6 +357,49 @@ export function versionDeSortie(sortie: string): string | null {
 
 // ─── Le rapport de Betterleaks ───────────────────────────────────────────────
 
+/**
+ * La configuration que la porte IMPOSE à Betterleaks (`--config`) : ses
+ * règles par défaut, nommées (`useDefault`), SANS leur préfiltre.
+ *
+ * MESURÉ sur 1.9.0 : le préfiltre par défaut écarte d'office, par leur NOM, les
+ * lockfiles (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`,
+ * `npm-shrinkwrap.json`, `Pipfile.lock`, `poetry.lock`, `gradle.lockfile`),
+ * `go.mod` et `go.sum`, les images (`*.svg`), les `*.min.js` des bibliothèques
+ * connues… Le miroir garde le nom de chaque fichier : une clé ajoutée là n'était
+ * jamais lue, et partait au hub en clair. Sur un corpus de 20 clés réparties
+ * dans ces fichiers : 12 constats avec le préfiltre, 20 sans. La porte ne lit
+ * que les lignes AJOUTÉES — aucun fichier n'y est trop gros pour être lu.
+ */
+export const CONFIG_BETTERLEAKS = "prefilter = '''false'''\n\n[extend]\nuseDefault = true\n";
+
+/**
+ * La seule confiance que la porte retient (`--confidence high`).
+ *
+ * MESURÉ sur 1.9.0, sur l'arbre de Hive lui-même : 90 constats, dont 88 des
+ * règles génériques de confiance basse ou moyenne (`generic-password`,
+ * `generic-credential-uri`, `generic-api-key`) — l'`autoComplete={… :
+ * 'new-password'}` d'un formulaire, les mots de passe de fixtures. Chacun
+ * demandait une correction que le producteur ne pouvait pas faire, en boucle,
+ * qu'aucune approbation ne levait. En confiance haute : 2 (deux jetons de
+ * fixtures à la forme réelle), et les 20 clés du corpus toutes trouvées. Les
+ * règles de confiance moyenne propres à un fournisseur (Discord, Dropbox,
+ * Sentry…) ne sont plus lues : c'est le prix, dit dans la documentation.
+ */
+export const CONFIANCE_BETTERLEAKS = 'high';
+
+/**
+ * Une forme de secret que le nœud peut réécrire PARTOUT — diff, logs, texte
+ * final — sans toucher une ligne légitime : un jeton (au moins 16 caractères,
+ * aucun blanc), jamais un mot ni une phrase. L'en-tête `-----BEGIN … KEY-----`
+ * d'une clé PEM, un `new-password` lu comme un mot de passe : réécrits, ils
+ * corrompraient chaque ligne qui les porte, et un `forcer` livrerait la
+ * corruption. Une clé PEM se caviarde par ses lignes de base64 ; une fin de
+ * moins de 16 caractères reste, et c'est le prix de cette garantie.
+ */
+export function formeCaviardable(forme: string): boolean {
+  return forme.length >= 16 && !/\s/.test(forme);
+}
+
 /** Où une correspondance se tient dans le fichier scanné, et sous quelle règle. */
 export interface PositionSecret {
   regle: string;
@@ -320,6 +416,12 @@ export interface PositionSecret {
 export interface TrouvailleSecret extends PositionSecret {
   /** Le fichier, tel que l'outil le nomme (un chemin du miroir). */
   fichier: string;
+  /**
+   * La confiance de sa règle (`Attributes.confidence` : `high`, `medium`,
+   * `low`), ou `null` si le rapport ne la dit pas. Ses composants en héritent :
+   * ils n'en portent pas (mesuré).
+   */
+  confiance: string | null;
   /**
    * Les COMPOSANTS d'une règle composite (`ComponentSets`), chacun à sa place.
    * MESURÉ sur 1.9.0 : `aws-access-token` ne signale l'identifiant `AKIA…`
@@ -369,8 +471,14 @@ export function lireRapportBetterleaks(texte: string): TrouvailleSecret[] | null
   const trouvailles: TrouvailleSecret[] = [];
   for (const b of brut as unknown[]) {
     const position = positionDepuis(b);
-    const { File: fichier, ComponentSets: ensembles } = b as Record<string, unknown>;
+    const {
+      File: fichier,
+      ComponentSets: ensembles,
+      Attributes: attributs,
+    } = b as Record<string, unknown>;
     if (!position || typeof fichier !== 'string') return null;
+    const confidence = (attributs as Record<string, unknown> | null | undefined)?.confidence;
+    const confiance = typeof confidence === 'string' ? confidence : null;
     if (ensembles !== undefined && ensembles !== null && !Array.isArray(ensembles)) return null;
     const composants: PositionSecret[] = [];
     for (const ensemble of (ensembles ?? []) as unknown[]) {
@@ -382,7 +490,7 @@ export function lireRapportBetterleaks(texte: string): TrouvailleSecret[] | null
         composants.push(composant);
       }
     }
-    trouvailles.push({ ...position, fichier, composants });
+    trouvailles.push({ ...position, fichier, confiance, composants });
   }
   return trouvailles;
 }
@@ -558,12 +666,12 @@ export function lireRapportOsv(texte: string): SourceLue[] | null {
 export function vulnerabilitesIntroduites(
   base: readonly SourceLue[],
   tete: readonly { fichier: string; source: SourceLue }[],
-): ConstatDependance[] {
+): ConstatVulnerabilite[] {
   const cle = (p: PaquetLu, id: string): string => `${p.ecosysteme}\u0000${p.nom}\u0000${id}`;
   const connues = new Set(
     base.flatMap((s) => s.paquets.flatMap((p) => p.vulnerabilites.map((v) => cle(p, v.id)))),
   );
-  const introduites: ConstatDependance[] = [];
+  const introduites: ConstatVulnerabilite[] = [];
   for (const { fichier, source } of tete) {
     for (const p of source.paquets) {
       for (const v of p.vulnerabilites) {
@@ -571,14 +679,16 @@ export function vulnerabilitesIntroduites(
         if (connues.has(k)) continue;
         connues.add(k);
         introduites.push({
-          paquet: texteAffichable(p.nom, BORNES_PORTE.paquet),
-          version: texteAffichable(p.version, BORNES_PORTE.version),
+          genre: 'vulnerabilite',
+          // Jamais vides : la Reine refuserait le volet entier (`texteBorne`).
+          paquet: texteAffichable(p.nom, BORNES_PORTE.paquet) || '?',
+          version: texteAffichable(p.version, BORNES_PORTE.version) || '?',
           ecosysteme: ECOSYSTEME.test(p.ecosysteme) ? p.ecosysteme : '?',
           avis: v.id,
           alias: v.alias,
           gravite: v.gravite,
           resume: v.resume,
-          fichier: texteAffichable(fichier, BORNES_PORTE.fichier),
+          fichier: texteAffichable(fichier, BORNES_PORTE.fichier) || '(sans nom)',
         });
       }
     }
@@ -607,6 +717,13 @@ function constatSecretDepuis(v: unknown): ConstatSecret | null {
 function constatDependanceDepuis(v: unknown): ConstatDependance | null {
   const c = enregistrement(v);
   if (!c) return null;
+  if (c.genre === 'lockfile_illisible') {
+    const { fichier, motif } = c;
+    if (!texteBorne(fichier, BORNES_PORTE.fichier)) return null;
+    if (motif !== 'pas_un_fichier' && motif !== 'mal_forme') return null;
+    return { genre: 'lockfile_illisible', fichier, motif };
+  }
+  if (c.genre !== 'vulnerabilite') return null;
   const { paquet, version, ecosysteme, avis, alias, gravite, resume, fichier } = c;
   if (
     !texteBorne(paquet, BORNES_PORTE.paquet) ||
@@ -625,6 +742,7 @@ function constatDependanceDepuis(v: unknown): ConstatDependance | null {
     return null;
   }
   return {
+    genre: 'vulnerabilite',
     paquet,
     version,
     ecosysteme,
@@ -661,6 +779,14 @@ function voletDepuis<C>(
   // nœud qui enverrait l'un ou l'autre ment ou bogue — refusé en entier.
   if ((etat === 'constat') !== constats.length > 0) return null;
   if (!entier(total, constats.length, 1_000_000)) return null;
+  // Un compte de paquets non interrogés : volet dépendances seulement, jamais zéro écrit.
+  const { nonInterroges } = o;
+  if (
+    nonInterroges !== undefined &&
+    (volet !== 'dependances' || !entier(nonInterroges, 1, 1_000_000))
+  ) {
+    return null;
+  }
   const outil = o.outil === undefined ? undefined : enregistrement(o.outil);
   if (
     outil === null ||
@@ -677,18 +803,36 @@ function voletDepuis<C>(
     ...(outil ? { outil: { nom: OUTIL_DU_VOLET[volet], version: String(outil.version) } } : {}),
     constats,
     total,
+    ...(typeof nonInterroges === 'number' ? { nonInterroges } : {}),
   };
 }
 
+/** Ce que la Reine relit d'un rapport : chaque volet reconstruit, ou refusé. */
+export interface PorteRelue {
+  porte: PorteSecurite;
+  /** Les volets refusés — devenus `rapport_rejete`, et à journaliser. */
+  rejetes: VoletPorte[];
+}
+
 /**
- * Le rapport d'un nœud, reconstruit champ par champ — ou `null` s'il est mal
- * formé. Mal formé, il est ABANDONNÉ, pas le résultat qui le porte : la porte
- * redevient ce qu'elle est sans rapport, `non_verifie` — jamais un vert.
+ * Le rapport d'un nœud, reconstruit champ par champ, VOLET PAR VOLET. Un volet
+ * mal formé est refusé seul — il devient `rapport_rejete`, jamais un vert — et
+ * l'autre volet tient : une dépendance mal écrite effaçait sinon le constat
+ * d'un secret, et la production passait `accepted` hors de `strict`. Le
+ * résultat qui le porte, lui, n'est jamais abandonné.
  */
-export function porteSecuriteDepuis(v: unknown): PorteSecurite | null {
+export function porteSecuriteDepuis(v: unknown): PorteRelue {
   const o = enregistrement(v);
-  if (!o) return null;
-  const secrets = voletDepuis(o.secrets, 'secrets', constatSecretDepuis);
-  const dependances = voletDepuis(o.dependances, 'dependances', constatDependanceDepuis);
-  return secrets && dependances ? { secrets, dependances } : null;
+  const secrets = o ? voletDepuis(o.secrets, 'secrets', constatSecretDepuis) : null;
+  const dependances = o ? voletDepuis(o.dependances, 'dependances', constatDependanceDepuis) : null;
+  return {
+    porte: {
+      secrets: secrets ?? voletSans('rapport_rejete'),
+      dependances: dependances ?? voletSans('rapport_rejete'),
+    },
+    rejetes: [
+      ...(secrets ? [] : ['secrets' as const]),
+      ...(dependances ? [] : ['dependances' as const]),
+    ],
+  };
 }

@@ -5,7 +5,7 @@
 import type { PlateformeNoeud } from './machine.js';
 import type { OutilConstate } from './protocol.js';
 import type { ValidationsBac } from './validations-bac.js';
-import type { PorteSecurite } from './porte-securite.js';
+import type { PorteSecurite, VoletPorte } from './porte-securite.js';
 import type { Effort } from './effort.js';
 
 /** Cycle de vie : pending → ready (dépendances done) → assigned → running → done | failed. */
@@ -190,6 +190,8 @@ export interface TaskResult {
   validations?: ValidationsBac;
   /** La porte de sécurité du nœud — même règle : rangée à la réception (`security_gate_recorded`). */
   porteSecurite?: PorteSecurite;
+  /** Ses volets refusés à la réception (`TaskResultMsg.porteSecuriteRejetee`) — journalisés. */
+  porteSecuriteRejetee?: VoletPorte[];
 }
 
 /** Entrée du journal d'événements — base du futur Time-Lapse Replay (palier 3). */

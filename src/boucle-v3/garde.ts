@@ -152,9 +152,15 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   },
   {
     categorie: 'securite',
-    motif: /^src\/(shared|node-client)\/porte-securite\.ts$/,
+    motif: /^src\/(shared|node-client)\/porte-securite[^/]*\.ts$/,
     pourquoi:
-      'la porte de sécurité : les secrets et les dépendances vulnérables qu’une production AJOUTE, jugés avant la livraison et caviardés au nœud — l’affaiblir laisserait partir une clé, ou la compterait verte sans outil',
+      'la porte de sécurité : les secrets et les dépendances vulnérables qu’une production AJOUTE, jugés avant la livraison et caviardés au nœud, et ce qui en part à osv.dev — l’affaiblir laisserait partir une clé ou un paquet privé, ou la compterait verte sans outil',
+  },
+  {
+    categorie: 'securite',
+    motif: /^tests\/fixtures\/(faux-outils-porte|verrous-porte)\.ts$/,
+    pourquoi:
+      'les faux outils de la porte de sécurité et les lockfiles mesurés sur les vrais : un faux plus complaisant que l’outil réel (sans préfiltre, sans confiance, sans échec global sur un lockfile cassé) rendrait verts des bancs que les vrais outils feraient rougir',
   },
   {
     categorie: 'securite',
