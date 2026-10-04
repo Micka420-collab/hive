@@ -32,10 +32,16 @@
 // un docteur qui posait la sienne concluait « aucun bac à sable » sur un
 // bubblewrap qui isolait très bien (`bwrap info` lance un programme `info`).
 // Une prose qui survit au code qu'elle décrit est un mensonge à retardement.
+// Il en lance deux à lui, en lecture seule : `git --version`, par la porte
+// git de la ruche (`gitHote`), et sous Windows `cmdkey /list`, par son chemin
+// absolu — qui ne montre aucune valeur d'identifiant.
 
-import { accessSync, constants, existsSync, statfsSync, statSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { accessSync, constants, existsSync, promises as fs, statfsSync, statSync } from 'node:fs';
 import { createServer as creerServeurTcp } from 'node:net';
 import path from 'node:path';
+import { estUnJeton } from './shared/caviardage.js';
+import { gitHote, versionDeGit } from './shared/git-protege.js';
 import { DEFAULT_TOKEN } from './shared/types.js';
 import type { Releve } from './shared/doctor.js';
 import { RUCHE_COMPLETE } from './shared/doctor.js';
@@ -43,7 +49,7 @@ import { adresseLocale, hoteDeConnexion, portDepuisEnv } from './shared/port.js'
 import { gardiennesDepuisEnv } from './shared/reglages.js';
 import { boucleLocale } from './shared/joignable.js';
 import { modeRunnerDepuisEnv } from './orchestrator/essaim-runner.js';
-import { inventaireAgents, type InventaireAgents } from './node-client/agent-detect.js';
+import { envSonde, inventaireAgents, type InventaireAgents } from './node-client/agent-detect.js';
 import {
   commandeImage,
   IMAGE_DEFAUT,
@@ -327,6 +333,113 @@ export async function imageDuBac(
 }
 
 /**
+ * La version du git que la ruche lancerait — par sa porte (`gitHote`), donc
+ * le même PATH et le même environnement. `null` s'il ne répond pas.
+ */
+export async function versionGitLocale(ou: string): Promise<string | null> {
+  return gitHote(['--version'], ou, { delaiMs: 30_000 }).then(versionDeGit, () => null);
+}
+
+/**
+ * Les hôtes des entrées d'un fichier de `git credential-store` dont le compte
+ * ou le mot de passe EST un jeton (`estUnJeton`). Une ligne par URL
+ * (`https://nom:secret@hôte`), encodée : on décode avant de juger. Rien
+ * d'autre que l'hôte ne sort de cette fonction.
+ */
+export function hotesAJeton(contenu: string): string[] {
+  const hotes = new Set<string>();
+  for (const ligne of contenu.split(/\r?\n/)) {
+    let url: URL;
+    try {
+      url = new URL(ligne.trim());
+    } catch {
+      continue;
+    }
+    const decoder = (v: string): string => {
+      try {
+        return decodeURIComponent(v);
+      } catch {
+        return v;
+      }
+    };
+    if ([url.username, url.password].map(decoder).some(estUnJeton)) hotes.add(url.host);
+  }
+  return [...hotes].sort();
+}
+
+/**
+ * `cmdkey /list` — les identifiants du gestionnaire de Windows, sans leur
+ * valeur (Windows ne la montre pas). Par son chemin ABSOLU : sous Windows,
+ * `execFile` chercherait d'abord dans le répertoire courant. `null` s'il ne
+ * répond pas.
+ */
+function listerGestionnaireWindows(env: NodeJS.ProcessEnv): Promise<string | null> {
+  const cmdkey = path.win32.join(env.SYSTEMROOT ?? 'C:\\Windows', 'System32', 'cmdkey.exe');
+  return new Promise((resolve) => {
+    execFile(
+      cmdkey,
+      ['/list'],
+      { env: envSonde(env), shell: false, windowsHide: true, timeout: 10_000 },
+      (err, stdout) => resolve(err ? null : String(stdout)),
+    );
+  });
+}
+
+/**
+ * Les identifiants git déposés sur la machine (`Releve.identifiantsGit`), EN
+ * LECTURE SEULE : rien n'est effacé, et aucune valeur ne sort d'ici.
+ *
+ *   · les deux fichiers que `git credential-store` lit sans `--file` :
+ *     `~/.git-credentials` et `$XDG_CONFIG_HOME/git/credentials` ;
+ *   · sous Windows, les cibles `git:…` du gestionnaire d'identifiants — que
+ *     Git Credential Manager remplit, et où Hive déposait le jeton d'un projet
+ *     à la place de l'entrée du membre. Le libellé des lignes de `cmdkey` suit
+ *     la langue du système (« Target », « Cible ») : on y cherche `git:`.
+ */
+export async function identifiantsDeposes(
+  env: NodeJS.ProcessEnv,
+  plateforme: string,
+  lister: () => Promise<string | null> = () => listerGestionnaireWindows(env),
+): Promise<Releve['identifiantsGit']> {
+  const maison = env.HOME ?? env.USERPROFILE;
+  const configuration =
+    env.XDG_CONFIG_HOME ?? (maison === undefined ? undefined : path.join(maison, '.config'));
+  const fichiers = [
+    ...(maison === undefined ? [] : [path.join(maison, '.git-credentials')]),
+    ...(configuration === undefined ? [] : [path.join(configuration, 'git', 'credentials')]),
+  ];
+  const enClair: { fichier: string; hotes: string[] }[] = [];
+  const illisibles: string[] = [];
+  for (const fichier of fichiers) {
+    if (!existsSync(fichier)) continue;
+    const contenu = await fs.readFile(fichier, 'utf8').catch(() => null);
+    if (contenu === null) {
+      illisibles.push(fichier);
+      continue;
+    }
+    const hotes = hotesAJeton(contenu);
+    if (hotes.length > 0) enClair.push({ fichier, hotes });
+  }
+  if (plateforme !== 'win32') return { enClair, illisibles, gestionnaireWindows: [] };
+  const liste = await lister();
+  const gestionnaireWindows =
+    liste === null
+      ? null
+      : [
+          ...new Set(
+            [...liste.matchAll(/\bgit:(https?:\/\/[^\s/]+)/gi)].flatMap((m) => {
+              try {
+                return [new URL(m[1] ?? '').host];
+              } catch {
+                return [];
+              }
+            }),
+          ),
+        ].sort();
+  return { enClair, illisibles, gestionnaireWindows };
+}
+
+/**
  * Le relevé complet.
  *
  * Rien n'est jugé ici — c'est `diagnostiquer()` qui le fait, sur ces faits.
@@ -434,6 +547,9 @@ export async function relever(
     // Installé n'est pas connecté : ces agents n'auront pas d'ouvrière, et le
     // docteur le dit avec le remède plutôt que de les taire.
     agentsNonConnectes: agents.nonConnectes,
+    versionGit: await versionGitLocale(racine),
+    // Lus dans le HOME de `env`, le paramètre : un test compose le sien.
+    identifiantsGit: await identifiantsDeposes(env, plateforme),
     isolement: joignables[0]?.nom ?? null,
     // Une inspection qui plante n'est ni « présente » ni « absente » : inconnue.
     imageBac: await imageDuBac(env, joignables).catch(() =>

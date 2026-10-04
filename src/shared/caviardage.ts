@@ -92,6 +92,16 @@ const JETONS_REELS =
   /\bgh[pousr]_[A-Za-z0-9_]{20,}\b|\bgithub_pat_[A-Za-z0-9_]{20,}\b|\bsk-[A-Za-z0-9_-]{20,}\b|\bxai-[A-Za-z0-9_-]{20,}\b/g;
 
 /**
+ * Cette valeur — un mot de passe, un nom de compte — EST-elle un jeton émis ?
+ * La version stricte (`JETONS_REELS`) : un préfixe réservé ET la longueur d'un
+ * vrai jeton. C'est la question de `hive doctor` devant une entrée de `git
+ * credential-store` (`doctor-releve.ts`), dont il nomme l'hôte, jamais la valeur.
+ */
+export function estUnJeton(valeur: string): boolean {
+  return new RegExp(`^(?:${JETONS_REELS.source})$`).test(valeur);
+}
+
+/**
  * Formes d'AFFECTATION : `Bearer …`, `password=…`, `API_KEY: …`, identifiants
  * dans une URL. Justes dans une sortie d'outil, ravageuses dans un diff où
  * `token: string` et `` `https://${user}:${pass}@…` `` sont du code légitime.

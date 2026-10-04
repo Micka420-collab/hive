@@ -69,10 +69,12 @@ export function estNiveauAutonomie(brut: unknown): brut is NiveauAutonomie {
  * `parfois` : hors de la liste d'autorisation compilée, mais rattrapable (le
  * clone est jetable). `jamais` : l'effet SORT du clone — push, publication,
  * destruction hors du répertoire, réseau que rien ne déclare — OU l'effet est
- * INJUGEABLE sur la forme (interpréteur, indirection, substitution) : le clone
- * embarque des identifiants (l'URL du remote porte le jeton de push), donc
- * « code arbitraire » égale « push possible ». Aucune autonomie n'auto-accorde
- * un `jamais` : c'est une décision humaine, même au niveau `plein`.
+ * INJUGEABLE sur la forme (interpréteur, indirection, substitution) : « code
+ * arbitraire » peut viser n'importe lequel des effets d'avant. Le clone, lui,
+ * n'embarque plus d'identifiants de push (`depotDistant`, git-protege.ts) :
+ * c'est l'enceinte structurelle, que cette classification ne remplace pas.
+ * Aucune autonomie n'auto-accorde un `jamais` : c'est une décision humaine,
+ * même au niveau `plein`.
  */
 export const CLASSES_ACTION = ['toujours', 'parfois', 'jamais'] as const;
 export type ClasseAction = (typeof CLASSES_ACTION)[number];
@@ -129,8 +131,9 @@ const COMMANDES_PUBLICATION = new Set(['npm', 'pnpm', 'yarn', 'bun']);
  * base, que le CLI applique AVANT d'appeler l'outil de décision : une commande
  * qui arrive ici est déjà hors liste. Assumé : `sed`/`awk` restent « parfois »
  * (leurs formes exécutantes sont niches, et les bannir casserait les
- * pipelines de lecture) — le chantier racine est le retrait des identifiants
- * du remote du clone, suivi nommé dans la PR G12.
+ * pipelines de lecture) — le chantier racine, le retrait des identifiants du
+ * remote du clone, est fait (`cloneRepo`, workspace.ts) : un push qui
+ * passerait par elles ne trouve plus le jeton du projet dans le clone.
  */
 const COMMANDES_INDIRECTION = new Set([
   ...['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish'],

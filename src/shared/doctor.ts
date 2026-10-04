@@ -40,6 +40,7 @@
 // module allait lire le disque lui-même.
 
 import { LONGUEUR_MIN_SECRET_JWT } from '../orchestrator/auth.js';
+import { GIT_ACCES_MINIMUM, URL_DU_PROJET_FIGEE, gitPorteLAcces } from './git-protege.js';
 import { MIN_TOKEN_LENGTH } from './types.js';
 
 /**
@@ -171,6 +172,35 @@ export interface Releve {
    * (`inventaireAgents`) : aucune ouvrière ne les fera travailler.
    */
   agentsNonConnectes: readonly { readonly agent: string; readonly detail: string }[];
+  /**
+   * La version du git de cette machine (`git --version`, « 2.53.0 ») ; `null`
+   * s'il n'a pas répondu. Sous `GIT_ACCES_MINIMUM`, un projet dont l'URL
+   * porte un jeton est refusé (`gitHote`) : ce git ignorerait l'accès que la
+   * ruche lui passe, et parlerait au dépôt sous l'identité du membre.
+   */
+  versionGit: string | null;
+  /**
+   * Les identifiants git DÉPOSÉS sur cette machine — relevés en LECTURE SEULE,
+   * jamais leur valeur : leur hôte seulement.
+   *
+   * Jusqu'à la correction du clone sans identifiants, chaque clone ou poussée
+   * de Hive confiait le jeton de l'URL d'un projet privé à chaque assistant
+   * d'identifiants du membre (`depotDistant`, git-protege.ts) : en clair dans
+   * le fichier de `git credential-store`, ou à la place de l'entrée du membre
+   * dans le gestionnaire de Windows. Il y est encore.
+   */
+  identifiantsGit: {
+    /** Les fichiers de `git credential-store` qui gardent des jetons, avec leurs hôtes. */
+    enClair: readonly { readonly fichier: string; readonly hotes: readonly string[] }[];
+    /** Ceux qu'on n'a pas pu lire : on ne sait pas ce qu'ils gardent. */
+    illisibles: readonly string[];
+    /**
+     * Les hôtes des identifiants git du gestionnaire de Windows (`cmdkey
+     * /list`, cibles `git:…`) — `[]` hors Windows, `null` si `cmdkey` n'a pas
+     * répondu.
+     */
+    gestionnaireWindows: readonly string[] | null;
+  };
   /** Le moteur d'isolement préféré qui répond (`podman`, `docker`, `bubblewrap`), ou `null`. */
   isolement: string | null;
   /**
@@ -288,7 +318,7 @@ export const ESPACE_MINIMUM_OCTETS = 500 * 1024 * 1024;
 const go = (octets: number): string => `${(octets / (1024 * 1024 * 1024)).toFixed(1)} Go`;
 
 /**
- * Les quatorze diagnostics, dans l'ordre où ils se réparent.
+ * Les seize diagnostics, dans l'ordre où ils se réparent.
  *
  * L'ORDRE EST UNE INFORMATION, pas une présentation : Node d'abord, parce que
  * réparer un port quand on tourne sur Node 18 ne sert à rien. Qui lit de haut
@@ -311,9 +341,13 @@ export function diagnostiquer(r: Releve): Diagnostic[] {
     base(r),
     dashboard(r),
     agent(r),
+    // Juste après l'agent : sans git, une ouvrière ne clone rien à lui donner.
+    git(r),
     isolement(r),
     websocket(r),
     reglages(r),
+    // Avec les réglages risqués : rien ne s'arrête, mais un jeton traîne.
+    identifiantsGit(r),
     espace(r),
     // En DERNIER : la découverte n'est jamais ce qui empêche une ruche de
     // tourner. Elle ne se signale que quand elle est demandée ET vouée à
@@ -344,7 +378,7 @@ export function codeDeSortie(diags: Diagnostic[]): number {
   return 0;
 }
 
-// ─── Les quatorze ───────────────────────────────────────────────────────────
+// ─── Les seize ──────────────────────────────────────────────────────────────
 
 function nodeVersion(r: Releve): Diagnostic {
   if (nodeSuffisant(r.versionNode)) {
@@ -715,6 +749,34 @@ function agent(r: Releve): Diagnostic {
   };
 }
 
+/** Où se télécharge git — la même page sur les trois systèmes. */
+const INSTALLER_GIT = 'https://git-scm.com/downloads';
+
+function git(r: Releve): Diagnostic {
+  if (r.versionGit === null) {
+    return {
+      cle: 'git',
+      gravite: 'risque',
+      constat:
+        'git ne répond pas (`git --version`) — aucun dépôt ne pourra être cloné : ni tâche, ni Rayon',
+      reparation: `installez git ≥ ${GIT_ACCES_MINIMUM} : ${INSTALLER_GIT}`,
+    };
+  }
+  if (!gitPorteLAcces(r.versionGit)) {
+    // Un refus qui se DIT (`gitHote`), au lieu d'un clone sous l'identité du
+    // membre : ce git ignorerait l'accès passé par l'environnement.
+    return {
+      cle: 'git',
+      gravite: 'risque',
+      constat:
+        `git ${r.versionGit} ignore l’accès que la ruche lui passe par l’environnement : ` +
+        'les projets dont l’URL porte un jeton seront refusés',
+      reparation: `mettez git à jour (≥ ${GIT_ACCES_MINIMUM}) : ${INSTALLER_GIT}`,
+    };
+  }
+  return { cle: 'git', gravite: 'ok', constat: `git ${r.versionGit}`, reparation: null };
+}
+
 function isolement(r: Releve): Diagnostic {
   if (r.isolement === null) {
     return {
@@ -827,6 +889,66 @@ function reglages(r: Releve): Diagnostic {
     gravite: 'risque',
     constat: `réglages à surveiller : ${allumes.join(' · ')}`,
     reparation: 'relisez ces lignes de .env — chacune est un choix, assurez-vous de l’avoir fait',
+  };
+}
+
+/**
+ * Le jeton d'un projet privé que Hive a déposé chez le membre — et qui y est
+ * encore. Jusqu'à la correction du clone sans identifiants, il était aussi
+ * dans le `.git/config` de chaque clone de tâche : TOUT agent a pu le lire, et
+ * le seul remède est de le faire tourner chez l'hébergeur. Le docteur ne
+ * l'efface pas : un `erase` par hôte ôterait aussi l'entrée du membre.
+ *
+ * La valeur ne sort jamais du relevé : on nomme le fichier et l'hôte.
+ */
+function identifiantsGit(r: Releve): Diagnostic {
+  const { enClair, illisibles, gestionnaireWindows } = r.identifiantsGit;
+  const tourner =
+    'si c’est le jeton d’un projet de la ruche : révoquez-le chez l’hébergeur et créez-en un ' +
+    `autre (${URL_DU_PROJET_FIGEE})`;
+  if (enClair.length > 0) {
+    const lieux = enClair.map((f) => `${f.fichier} (${f.hotes.join(', ')})`).join(' · ');
+    return {
+      cle: 'identifiants_git',
+      gravite: 'risque',
+      constat:
+        `jetons git en clair : ${lieux} — Hive y déposait le jeton de l’URL des projets ` +
+        'privés, et un agent au niveau processus lit ce fichier',
+      reparation: `${tourner}, puis retirez sa ligne du fichier`,
+    };
+  }
+  if (gestionnaireWindows !== null && gestionnaireWindows.length > 0) {
+    return {
+      cle: 'identifiants_git',
+      gravite: 'inconnu',
+      constat:
+        `le gestionnaire d’identifiants de Windows garde des identifiants git ` +
+        `(${gestionnaireWindows.join(', ')}) — Windows n’en montre pas la valeur : impossible ` +
+        'd’y distinguer du vôtre le jeton d’un projet, que Hive y déposait à sa place',
+      reparation: `${tourner}, puis \`cmdkey /delete:git:https://<hôte>\` et reconnectez-vous`,
+    };
+  }
+  const nonRelus = [
+    ...illisibles,
+    ...(gestionnaireWindows === null ? ['le gestionnaire de Windows (`cmdkey /list`)'] : []),
+  ];
+  if (nonRelus.length > 0) {
+    return {
+      cle: 'identifiants_git',
+      gravite: 'inconnu',
+      constat: `identifiants git non relus : ${nonRelus.join(', ')}`,
+      reparation:
+        'relisez-les vous-même (`cmdkey /list:git:*`, ou le fichier) : un jeton de projet ' +
+        'qu’ils garderaient est à faire tourner',
+    };
+  }
+  return {
+    cle: 'identifiants_git',
+    gravite: 'ok',
+    // Ce qui a été relu, pas « aucun jeton nulle part » : le trousseau de
+    // macOS ou le Secret Service ne se lisent pas d'ici.
+    constat: 'aucun jeton git en clair dans les fichiers de `git credential-store`',
+    reparation: null,
   };
 }
 

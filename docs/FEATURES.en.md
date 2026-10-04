@@ -85,9 +85,10 @@ an engine without being allowed to lift the hood. The Comb lifts the hood.
 **The hub keeps its own mirror**: a read-only shallow clone per project
 (`data/rayons/<id>`), refreshed at most once a minute. Going through the GitHub
 API would have required the **host's token** — showing the code to a bee would
-spend a right that is not hers. **`.git` is never served**: it holds `config`,
-hence the remote URL, hence the private repository's credentials; neither are
-`.env`, `.npmrc`, `id_rsa` or key extensions.
+spend a right that is not hers. **`.git` is never served** (configuration, raw
+objects, refs) — a private repository's credentials are not even written there:
+the mirror clones the bare address, and access only lives for each call to the
+upstream; neither are `.env`, `.npmrc`, `id_rsa` or key extensions.
 The mirror shows **the bytes the repository stores**: no filter or
 `.gitattributes` conversion (line endings, `$Id$`, encoding) is applied, and
 **a Git LFS file appears as its pointer** (a few `version … oid sha256:… size …`
@@ -226,9 +227,11 @@ npm run cli -- livrer-local <projectId> --prolonger=1         # fix: advance hiv
   `origin` is the project repository, credentials stripped): `git fetch` from
   that path, or `git -C … push origin hive/mission-…` on the worker.
 - **With `--pousser`**, the worker pushes to the project address the hive sent
-  it, with **its own** git credentials — the ones used to clone —, never
-  forced, never another branch. A repository that does not answer within two
-  minutes (credentials awaited?) fails the push, and the report says so. It only does so if its operator started it with
+  it, with the credentials used to clone — the account the project URL
+  carries, otherwise the worker's own —, never forced, never another branch. A
+  repository that does not answer within two minutes (unreachable or mute)
+  fails the push, and the report says so; so does a refused token, with what to
+  change. It only does so if its operator started it with
   `HIVE_LIVRAISON_POUSSER=1`: the repository and the diff come from the hub, and
   the hive token sits on every member machine. And only the host asks for it
   (hive token or administrator account): the operator consented for the hive,
