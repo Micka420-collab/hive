@@ -175,6 +175,9 @@
 }
 
 .es-node-name {
+  /* Entre l'avatar et le voyant : le nom prend la place, et s'ellipse. */
+  flex: 1 1 auto;
+  min-width: 0;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;

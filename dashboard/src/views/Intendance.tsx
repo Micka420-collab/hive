@@ -39,6 +39,7 @@ import type {
   Role,
   ServeurAdmin,
 } from '../api';
+import { EncartConfiguration } from '../EncartConfiguration';
 import { useT } from '../i18n';
 import { EmptyState } from '../composants';
 import type { Translate } from '../i18n';
@@ -149,6 +150,7 @@ function Salle({
 
   return (
     <div className="view in-view">
+      <EncartConfiguration refreshTick={refreshTick} />
       <SectionServeurs sondage={serveurs} />
       <SectionMembres sondage={membres} moiId={moiId} />
       {/* Les CLÉS après les COMPTES, et surtout distinctes d'eux : un compte

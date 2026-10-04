@@ -4,6 +4,8 @@
 // thèmes sans une ligne propre à l'un d'eux. Leur feuille (`composants.css`)
 // est importée une fois, par main.tsx, avant toute vue.
 
+export { AvatarWorker, motifAvatar } from './avatar-worker';
+export type { MotifAvatar } from './avatar-worker';
 export { Champ, Fieldset, Input, Select, Textarea } from './champs';
 export type { OptionChoix, ProprietesChamp } from './champs';
 export { EmptyState, ErrorState, Skeleton } from './etats';

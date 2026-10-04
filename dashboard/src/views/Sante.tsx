@@ -16,6 +16,7 @@ import type { Ghost, HivePulse, ThermoState } from '../api';
 import { useT } from '../i18n';
 import { EmptyState, Skeleton } from '../composants';
 import { activateProps, BANDE_LABEL, BANDES, formatMs } from '../ui';
+import { EncartConfiguration } from '../EncartConfiguration';
 import { CarteBalance } from './Balance';
 import { EchecSondage, Sparkline, timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
@@ -203,6 +204,10 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
 
   return (
     <div className="mc-view es-view">
+      {/* La configuration arrêtée à la première arrivée, et le geste qui relance
+          l'assistant — ici parce que la Santé est ouverte à tout porteur du
+          jeton : sur une ruche sans compte, l'Intendance n'existe pas encore. */}
+      <EncartConfiguration refreshTick={refreshTick} />
       <section className="card">
         <header className="panel-head">
           <h2>

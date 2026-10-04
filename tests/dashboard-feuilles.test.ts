@@ -186,8 +186,10 @@ describe('les jetons du tableau de bord', () => {
     const RESERVE = new Map([
       // Les séries de graphes (docs/DIRECTION-ARTISTIQUE.md, « Graphes ») :
       // posées et jugées en contraste dans les deux thèmes, câblées par les
-      // lots d'écrans qui refont les graphes (essaim, balance).
-      ...[1, 2, 3, 4, 5, 6].map((n): [string, string] => [`--graphe-${n}`, 'séries de graphes']),
+      // lots d'écrans qui refont les graphes (essaim, balance). Les teintes
+      // 1, 2, 3, 4 et 6 sont lues par l'avatar des Workers ; la 5 (le rouge)
+      // n'y est jamais un visage, et attend encore ses graphes.
+      ['--graphe-5', 'séries de graphes'],
     ]);
     const muets = [...poses].filter((nom) => !lus.has(nom) && !RESERVE.has(nom));
     expect(muets, `jetons posés mais jamais lus : ${muets.join(' · ')}`).toEqual([]);

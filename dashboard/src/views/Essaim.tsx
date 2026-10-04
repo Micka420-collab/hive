@@ -11,6 +11,7 @@ import {
   fetchWaggle,
   fetchWorkers,
 } from '../api';
+import { AvatarWorker } from '../composants';
 import { RegistreGenome } from '../RegistreGenome';
 import type {
   Caste,
@@ -138,6 +139,9 @@ function NodeCard({
       aria-label={ouvrirTitre}
     >
       <header className="es-node-head">
+        {/* Le visage de l'ouvrière, tiré de son identifiant : le même ici, dans
+            sa fiche et sur tout écran (composants/avatar-worker.tsx). */}
+        <AvatarWorker id={node.id} taille={28} />
         <span
           className={`es-node-name${identiteChargee && baptConstate === null ? ' muted-text' : ''}`}
           title={baptConstate ? `${baptConstate} · ${node.name}` : node.name}

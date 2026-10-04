@@ -5,6 +5,8 @@
 //   npm run captures -- --langue en                   → captures-ecran/en/
 //   npm run captures -- --theme sombre                → captures-ecran/fr-sombre/
 //   npm run captures -- --vues ruche,chambre.mobile   → seulement celles-là
+//   npm run captures -- --vues assistant-mode         → une étape de l’assistant
+//                                                       de première arrivée
 //
 // La série publiée (`docs/images/captures/`) se refait avec la commande écrite
 // dans docs/CAPTURES.md, qui nomme ses sept images.
@@ -228,6 +230,7 @@ async function principal() {
   const { register } = await import('tsx/esm/api');
   register();
   const { SCRIPTS } = await import('../src/shared/demarrage.ts');
+  const { ETAPES_ASSISTANT } = await import('../src/shared/configuration-initiale.ts');
   const labo = await import('./captures-ecran-ruche.mjs');
 
   let chromium;
@@ -469,7 +472,7 @@ async function principal() {
   for (const format of FORMATS) postes.push(await ouvrir(format));
 
   // ─── 4. AU REPOS ────────────────────────────────────────────────────────────
-  for (const { page, photographier, naviguer, burger, ouvrirLaBarre } of postes) {
+  for (const { format, page, photographier, naviguer, burger, ouvrirLaBarre } of postes) {
     // La barre fait foi : chaque case dit sa vue (`data-vue`), et c'est ce nom
     // qui nomme l'image — lu AVANT le clic, pour qu'un clic qui échoue soit
     // consigné sous le nom de sa vue.
@@ -523,6 +526,52 @@ async function principal() {
       { tiroir: true },
     );
     await page.keyboard.press('Escape');
+
+    // ─── L'ASSISTANT DE PREMIÈRE ARRIVÉE, ÉTAPE PAR ÉTAPE ─────────────────
+    //
+    // La ruche de laboratoire a ARRÊTÉ sa configuration (sans quoi l'assistant
+    // couvrirait chaque vue) : on le RELANCE donc comme un administrateur, par
+    // l'encart de la Santé, on le rembobine jusqu'à l'accueil, puis chaque
+    // étape est photographiée (`assistant-<étape>`) avant « Suivant ». Le
+    // brouillon d'une configuration arrêtée ne range que l'étape : ces clics ne
+    // changent rien à la ruche. L'état se pilote HORS de `photographier`, qui
+    // saute son geste quand `--vues` écarte l'étape.
+    const etapes = [...ETAPES_ASSISTANT];
+    if (!etapes.some((e) => vueRetenue(vues, `assistant-${e}`, format.nom))) continue;
+    try {
+      const assistant = page.locator('[data-testid="premiere-arrivee"]');
+      await naviguer('#/sante');
+      await page.locator('.mc-view-loading').waitFor({ state: 'detached', timeout: 15_000 });
+      await page
+        .getByRole('button', { name: /assistant de première arrivée|first-arrival assistant/ })
+        .click();
+      await assistant.waitFor({ timeout: 15_000 });
+      const pied = assistant.locator('.pa-pied-droite button');
+      while ((await assistant.getAttribute('data-etape')) !== etapes[0]) {
+        const avant = await assistant.getAttribute('data-etape');
+        await pied.first().click();
+        await page.waitForFunction(
+          (e) => document.querySelector('[data-testid="premiere-arrivee"]')?.dataset.etape !== e,
+          avant,
+        );
+      }
+      for (const [i, etape] of etapes.entries()) {
+        await photographier(`assistant-${etape}`, () =>
+          page.locator(`[data-testid="premiere-arrivee"][data-etape="${etape}"]`).waitFor(),
+        );
+        if (i < etapes.length - 1) {
+          await pied.last().click();
+          await page
+            .locator(`[data-testid="premiere-arrivee"][data-etape="${etapes[i + 1]}"]`)
+            .waitFor({ timeout: 15_000 });
+        }
+      }
+      // « Plus tard » : la configuration arrêtée reste telle quelle.
+      await assistant.getByRole('button', { name: /Plus tard|Later/ }).click();
+    } catch (e) {
+      const raison = (e instanceof Error ? e.message : String(e)).split('\n')[0];
+      echecs.push({ vue: 'assistant', format: format.nom, raison });
+    }
   }
 
   // ─── 5. EN VOL ──────────────────────────────────────────────────────────────

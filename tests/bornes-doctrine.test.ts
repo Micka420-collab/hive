@@ -125,6 +125,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
     'une ligne par routine créée par un humain qui répond du projet (ADR 0014) — jamais auto-générée, supprimée avec son projet ; son historique (`routines_runs`) a son élagueur',
   identite_ruche:
     'l’empreinte publique de la ruche — UNE ligne (CHECK id = 1), tirée au premier démarrage, jamais réécrite',
+  configuration_initiale:
+    'une seule ligne pour toute la ruche — clé primaire tenue par CHECK (cle = ruche), choix de l’hôte',
 };
 
 /** Le corps de chaque méthode `prune*` du magasin, accolades suivies. */
