@@ -227,9 +227,11 @@ npm run cli -- livrer-local <projectId> --prolonger=1         # fix: advance hiv
   `origin` is the project repository, credentials stripped): `git fetch` from
   that path, or `git -C … push origin hive/mission-…` on the worker.
 - **With `--pousser`**, the worker pushes to the project address the hive sent
-  it, with **its own** git credentials — the ones used to clone —, never
-  forced, never another branch. A repository that does not answer within two
-  minutes (credentials awaited?) fails the push, and the report says so. It only does so if its operator started it with
+  it, with the credentials used to clone — the account the project URL
+  carries, otherwise the worker's own —, never forced, never another branch. A
+  repository that does not answer within two minutes (unreachable or mute)
+  fails the push, and the report says so; so does a refused token, with what to
+  change. It only does so if its operator started it with
   `HIVE_LIVRAISON_POUSSER=1`: the repository and the diff come from the hub, and
   the hive token sits on every member machine. And only the host asks for it
   (hive token or administrator account): the operator consented for the hive,

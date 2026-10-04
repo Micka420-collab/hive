@@ -439,11 +439,14 @@ de l'agent, puis, selon le réglage du projet dans Mission Control
 dépôt déclare et son hôte git — jamais le réseau local ni les métadonnées de
 nuage. Les clés de Claude Code et de Codex restent au nœud : le bac n'en voit
 que des leurres, que le proxy remplace vers l'API. Le clone de la tâche ne
-porte pas non plus d'identifiants de dépôt : l'URL d'un dépôt privé
-(`https://user:jeton@…`) n'atteint git que par l'environnement des commandes
-du nœud — clone, livraison —, jamais `.git/config`, jamais l'assistant
-d'identifiants du membre ; un `git push` lancé depuis la tâche n'a rien pour
-s'authentifier. Chaque refus apparaît au
+porte pas non plus d'identifiants de dépôt : le compte que porte l'URL d'un
+dépôt privé (`https://user:jeton@…`) n'atteint git que par l'environnement des
+commandes du nœud — clone, livraison — ; ni `.git/config`, ni une ligne de
+commande, ni l'assistant d'identifiants du membre ne le voient, et un
+`git push` lancé depuis la tâche ne trouve rien de ce que la ruche a reçu.
+Jusqu'à cette correction, ce jeton était lisible par chaque agent et confié à
+l'assistant du membre : **faites-le tourner** chez l'hébergeur (`hive doctor`
+cherche ceux qui traînent sur la machine). Chaque refus apparaît au
 journal de la tâche. Sans bac, ou avec un moteur dans une machine virtuelle,
 le réseau n'est pas filtré, et chaque tâche le dit. Posez
 `HIVE_ISOLEMENT=exige` — le nœud refusera de travailler sans bac ni réseau

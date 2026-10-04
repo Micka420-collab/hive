@@ -248,9 +248,11 @@ npm run cli -- livrer-local <projectId> --prolonger=1         # corriger : avanc
   `origin` est le dépôt du projet, identifiants retirés) : `git fetch` depuis ce
   chemin, ou `git -C … push origin hive/mission-…` sur l'ouvrière.
 - **Avec `--pousser`**, l'ouvrière pousse vers l'adresse du projet que la
-  ruche lui a envoyée, avec **ses** identifiants git — ceux du clone —, jamais
-  en force, jamais une autre branche. Un dépôt qui ne répond pas en deux
-  minutes (des identifiants attendus ?) fait échouer la poussée, qui le dit.
+  ruche lui a envoyée, avec les identifiants du clone — le compte que porte
+  l'URL du projet, sinon ceux de l'ouvrière —, jamais en force, jamais une
+  autre branche. Un dépôt qui ne répond pas en deux minutes (injoignable ou
+  muet) fait échouer la poussée, qui le dit ; un jeton refusé aussi, avec ce
+  qu'il faut changer.
   Elle ne le fait que si son opérateur l'a lancée avec
   `HIVE_LIVRAISON_POUSSER=1` : le dépôt et le diff viennent du hub, et le jeton
   de ruche circule sur chaque machine membre. Et seul l'hôte le demande (jeton

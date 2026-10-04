@@ -263,11 +263,14 @@ Mission Control (`integrations`, `dependances` by default, `ouvert`), the
 registries the repository declares and its git host — never the local network
 or cloud metadata. Claude Code and Codex keys stay on the node: the sandbox
 only sees decoys, which the proxy swaps for the real key towards the API. The
-task's clone carries no repository credentials either: a private repository's
-URL (`https://user:token@…`) reaches git only through the environment of the
-node's own commands — clone, delivery —, never `.git/config`, never the
-member's credential helper; a `git push` launched from the task has nothing to
-authenticate with. Each refusal shows in the task log. Without a sandbox, or with an engine inside a
+task's clone carries no repository credentials either: the account a private
+repository's URL carries (`https://user:token@…`) reaches git only through the
+environment of the node's own commands — clone, delivery —; neither
+`.git/config`, nor any command line, nor the member's credential helper sees
+it, and a `git push` launched from the task finds nothing the hive received.
+Until this fix, that token was readable by every agent and handed to the
+member's helper: **rotate it** at the host (`hive doctor` looks for the ones
+left on the machine). Each refusal shows in the task log. Without a sandbox, or with an engine inside a
 virtual machine, the network is not filtered, and each task says so. Set
 `HIVE_ISOLEMENT=exige` — the node will refuse to work without a sandbox and a
 filtered network. What CI proves, per OS and per sandbox (Linux,

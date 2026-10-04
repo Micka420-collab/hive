@@ -7,6 +7,24 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Pour monter
+
+- **Faites tourner le jeton de chaque projet privé dont l'URL en porte un**
+  (`https://user:jeton@…`). Jusqu'ici, le clone de chaque tâche l'écrivait
+  dans son `.git/config` — lisible par chaque agent —, et git le confiait à
+  l'assistant d'identifiants du membre qui clonait ou poussait : en clair dans
+  `~/.git-credentials` avec `store`, à la place de son entrée dans le
+  gestionnaire de Windows ou le trousseau de macOS. Révoquez-le chez
+  l'hébergeur ; l'URL d'un projet ne se change pas encore : recréez le projet
+  avec le nouveau. Sur chaque machine, `hive doctor` (`identifiants_git`)
+  nomme les fichiers et les hôtes qui gardent un jeton — jamais sa valeur ;
+  l'entrée se retire à la main (#551).
+- **git ≥ 2.31** sur les ouvrières et la Reine pour un projet dont l'URL porte
+  un jeton : en dessous, git ignorerait l'accès que la ruche lui passe par
+  l'environnement — le clone est refusé, en le disant (`hive doctor` : `git`).
+  Une URL au mot de passe sans nom (`https://:jeton@…`) est refusée aussi : git
+  n'envoie pas de compte au nom vide ; `https://<jeton>@…` convient (#551).
+
 ## [0.5.0] — 2026-09-28
 
 Hive s'installe désormais **comme une application** : la Reine, une ouvrière
