@@ -78,7 +78,15 @@ function envoyer(ws: WebSocket, msg: unknown): void {
   ws.send(JSON.stringify(msg));
 }
 
-/** Inscrit une ouvrière et rend son socket, une fois l'accusé reçu. */
+/**
+ * Inscrit une ouvrière et rend son socket, une fois l'accusé reçu.
+ *
+ * Elle ne bat PAS d'elle-même, à dessein (pas `aide/faux-noeud`) : ici le
+ * battement est l'objet du banc. `deService` l'envoie à la main, avec
+ * `onShift`, et attend que `lastSeen` bouge ; un battement de fond ferait
+ * bouger `lastSeen` sans `onShift` et lui rendrait la main trop tôt. Chaque
+ * banc tient en moins d'une seconde, loin des 15 s du faucheur.
+ */
 function inscrire(nom: string): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);

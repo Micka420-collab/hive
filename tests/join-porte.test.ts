@@ -25,7 +25,7 @@
 // d'ici, et ça se dit.
 
 import { execFile } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -141,4 +141,39 @@ describe('la porte des amis — les trois refus qui doivent être nets', () => {
       'Invitation invalide',
     );
   });
+});
+
+describe('une racine de travail que Windows ne peut pas créer', () => {
+  it('SE REFUSE AVANT TOUTE ANNONCE, attente ou question — l’ordre du code', () => {
+    // Une machine qui ne pourra pas travailler ne s'annonce pas sur le réseau
+    // local, n'attend pas une ruche et ne demande pas de billet : le refus
+    // précède chacun de ces gestes dans `main()`. Garde d'ORDRE, sur toutes
+    // les plateformes — le refus lui-même n'a lieu que sous Windows.
+    const source = readFileSync(JOIN, 'utf8');
+    const corps = source.slice(source.indexOf('async function main('));
+    const refus = corps.indexOf('refusRacineDeTravail(workRoot)');
+    expect(refus, 'le refus est dans main()').toBeGreaterThan(0);
+    for (const geste of [
+      'repriseMemorisee(',
+      'attendreSurLeReseau(',
+      'await askInvite()',
+      'new Signalement(',
+    ]) {
+      const i = corps.indexOf(geste);
+      expect(i, `${geste} est dans main()`).toBeGreaterThan(0);
+      expect(refus, `le refus précède ${geste}`).toBeLessThan(i);
+    }
+  });
+
+  it.runIf(process.platform === 'win32')(
+    'sous Windows, `HIVE_WORKDIR` réservé : code PREREQUIS, jamais la question du billet',
+    async () => {
+      const travail = mkdtempSync(path.join(tmpdir(), 'ruche-join-'));
+      aNettoyer.push(travail);
+      const r = await lancer([], { HIVE_WORKDIR: path.join(travail, 'aux') });
+      expect(r.code).toBe(CODE.PREREQUIS);
+      expect(r.sortie).toContain('aux');
+      expect(r.sortie).not.toContain('HIVE_INVITE=');
+    },
+  );
 });

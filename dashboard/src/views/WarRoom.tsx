@@ -28,14 +28,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { fetchWarRoom } from '../api';
-import type { Desaccord } from '../api';
+import type { Desaccord, FamilleWarRoom } from '../api';
 import { useT } from '../i18n';
 import type { Translate } from '../i18n';
 import { ConseilProjet } from './projets/Conseil';
 import { useApiPoll } from './shared';
 import type { ViewProps } from './shared';
-import { direEntree, direIssue, direRaisonRefus } from './warroom-rendu';
-import { sujetDe } from '../../../src/shared/war-room';
+import { direEntree, direFamille, direIssue, direRaisonRefus } from './warroom-rendu';
+import { FAMILLES_WAR_ROOM, sujetDe } from '../../../src/shared/war-room';
 import './warroom.css';
 
 const court = (id: string): string => id.slice(0, 8);
@@ -52,6 +52,10 @@ export default function WarRoom({
   // d'un projet se partage et survit au rechargement.
   const projetId = selectedId;
   const [tacheId, setTacheId] = useState<string | null>(null);
+  // La voix montrée par le fil. Elle SURVIT au changement de projet : qui
+  // relit les décisions humaines de la ruche veut relire celles d'un projet
+  // de la même façon.
+  const [famille, setFamille] = useState<FamilleWarRoom | null>(null);
   // Le conseil à déplier : tenu ICI, au-dessus du fil, pour survivre au
   // changement de projet qu'un clic depuis la vue de la ruche provoque. Un
   // objet neuf à chaque clic : recliquer le même conseil le redéplie. Il porte
@@ -141,6 +145,8 @@ export default function WarRoom({
       <FilWarRoom
         projetId={projetId}
         tacheId={tacheId}
+        famille={famille}
+        onFamille={setFamille}
         refreshTick={refreshTick}
         nomNoeud={(id) => nomsNoeuds.get(id) ?? court(id)}
         tacheVivante={(id) => tachesVivantes.has(id)}
@@ -160,6 +166,8 @@ export default function WarRoom({
 function FilWarRoom({
   projetId,
   tacheId,
+  famille,
+  onFamille,
   refreshTick,
   nomNoeud,
   tacheVivante,
@@ -171,6 +179,9 @@ function FilWarRoom({
 }: {
   projetId: string | null;
   tacheId: string | null;
+  /** La voix montrée par le fil, `null` pour toutes. */
+  famille: FamilleWarRoom | null;
+  onFamille: (famille: FamilleWarRoom | null) => void;
   refreshTick: number;
   nomNoeud: (nodeId: string) => string;
   tacheVivante: (taskId: string) => boolean;
@@ -184,7 +195,7 @@ function FilWarRoom({
 }) {
   const t = useT();
   const poll = useApiPoll(
-    () => fetchWarRoom({ projectId: projetId, taskId: tacheId }),
+    () => fetchWarRoom({ projectId: projetId, taskId: tacheId, famille }),
     30_000,
     refreshTick,
   );
@@ -196,12 +207,15 @@ function FilWarRoom({
   useEffect(() => {
     if (monte.current) refresh();
     monte.current = true;
-  }, [projetId, tacheId, refresh]);
+  }, [projetId, tacheId, famille, refresh]);
   // Une réponse n'est montrée que sous SON filtre : celle du filtre précédent,
   // encore en place le temps de la relecture, aurait l'air de répondre au
   // nouveau.
   const vue =
-    poll.data && poll.data.projectId === projetId && poll.data.taskId === tacheId
+    poll.data &&
+    poll.data.projectId === projetId &&
+    poll.data.taskId === tacheId &&
+    poll.data.famille === famille
       ? poll.data
       : null;
 
@@ -280,6 +294,22 @@ function FilWarRoom({
             </button>
           )}
         </header>
+        {/* Les voix du débat, une à la fois. Le filtre ne touche que le fil :
+            les désaccords, au-dessus, restent TOUS affichés — un filtre qui
+            cacherait ce qui attend quelqu'un serait le pire endroit où
+            l'oublier. */}
+        <div className="wr-familles" role="group" aria-label={t('Voix du fil', 'Thread voices')}>
+          {[null, ...FAMILLES_WAR_ROOM].map((f) => (
+            <button
+              key={f ?? 'toutes'}
+              className={`btn ghost wr-puce${famille === f ? ' actif' : ''}`}
+              aria-pressed={famille === f}
+              onClick={() => onFamille(f)}
+            >
+              {f === null ? t('Toutes les voix', 'All voices') : direFamille(f, t)}
+            </button>
+          ))}
+        </div>
         {vue.journalElague && (
           <p className="wr-aveu">
             {t(
@@ -290,10 +320,15 @@ function FilWarRoom({
         )}
         {lignes.length === 0 ? (
           <p className="muted-text">
-            {t(
-              'Rien encore : aucun Conseil, aucune contre-expertise, aucun renvoi ni revue dans le journal retenu.',
-              'Nothing yet: no Council, counter-review, retry or review in the retained journal.',
-            )}
+            {famille
+              ? t(
+                  `Rien de la voix « ${direFamille(famille, t)} » dans le journal retenu.`,
+                  `Nothing from the “${direFamille(famille, t)}” voice in the retained journal.`,
+                )
+              : t(
+                  'Rien encore : aucun Conseil, aucune contre-expertise, aucun renvoi ni revue dans le journal retenu.',
+                  'Nothing yet: no Council, counter-review, retry or review in the retained journal.',
+                )}
           </p>
         ) : (
           <ol className="wr-fil">
@@ -409,21 +444,36 @@ function DesaccordLigne({
   return (
     <li className="wr-desaccord wr-desaccord-tache">
       <p className="wr-desaccord-titre">
-        <span aria-hidden="true">⚔</span> « {titreTache(d.taskId)} »
+        <span aria-hidden="true">{d.genre === 'tache' ? '⚔' : '⊘'}</span> « {titreTache(d.taskId)} »
       </p>
-      <p className="wr-desaccord-pourquoi">
-        {t(
-          'La contre-expertise conteste cette production, et le renvoi en correction n’a pas eu lieu :',
-          'The counter-review contests this production, and the correction retry did not happen:',
-        )}{' '}
-        {direRaisonRefus(d.raison, t)} ({depuis}).
-      </p>
-      {d.objections.length > 0 && (
-        <ul className="wr-objections">
-          {d.objections.map((o, i) => (
-            <li key={i}>{o}</li>
-          ))}
-        </ul>
+      {d.genre === 'tache' ? (
+        <>
+          <p className="wr-desaccord-pourquoi">
+            {t(
+              'La contre-expertise conteste cette production, et le renvoi en correction n’a pas eu lieu :',
+              'The counter-review contests this production, and the correction retry did not happen:',
+            )}{' '}
+            {direRaisonRefus(d.raison, t)} ({depuis}).
+          </p>
+          {d.objections.length > 0 && (
+            <ul className="wr-objections">
+              {d.objections.map((o, i) => (
+                <li key={i}>{o}</li>
+              ))}
+            </ul>
+          )}
+        </>
+      ) : (
+        // Le FAIT journalisé, pas un verdict : la War Room ne lit pas celui de
+        // l'Evaluator, qu'une règle antérieure (une CI rouge…) peut rendre
+        // autre que « revue humaine requise ».
+        <p className="wr-desaccord-pourquoi">
+          {t(
+            'Personne n’a pu relire cette production, secours compris — aucun avis indépendant ne viendra, seul un humain peut en tenir lieu :',
+            'Nobody could review this production, fallback included — no independent opinion will come, only a human can stand in for it:',
+          )}{' '}
+          {d.cause} ({depuis}).
+        </p>
       )}
       {/* La Miellerie et le tiroir ne travaillent que sur les tâches que
           l'instantané du tableau de bord connaît (les plus récentes, bornées).

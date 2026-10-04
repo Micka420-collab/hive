@@ -80,6 +80,30 @@ export interface Livraison {
   corps: string;
   /** Message de commit. À défaut, le titre. */
   messageCommit?: string;
+  /**
+   * PROLONGER la pull request `pr` au lieu d'en ouvrir une : `branche` est
+   * alors SA branche, déjà sur GitHub, et le diff a été produit contre sa tête
+   * (l'ouvrière d'une reprise clone cette branche, `workspace.ts`).
+   *
+   * ─── CE QUI MANQUAIT ───────────────────────────────────────────────────────
+   *
+   * Une reprise créait une branche neuve depuis la base et ouvrait une SECONDE
+   * pull request, qui ne contenait que le correctif — pendant que la première,
+   * celle qu'un humain relisait, restait rouge. Le brief de la reprise disait
+   * pourtant « la MÊME branche, n'en ouvrez pas une seconde » : Hive se
+   * contredisait, et un gardien automatique de PR (G05) aurait multiplié les
+   * PR au lieu d'en réparer une.
+   *
+   * ─── AVANCER, JAMAIS RÉÉCRIRE ──────────────────────────────────────────────
+   *
+   * Le commit a pour UNIQUE parent la tête relue juste avant d'écrire, et la
+   * référence avance par `PATCH … { force: false }` : GitHub refuse tout ce qui
+   * n'est pas une avance rapide. Si un humain a poussé entre-temps, la rustine
+   * s'applique à SA tête au contexte exact — son commit reste, le nôtre vient
+   * après — ou elle refuse net. Aucun rebase, aucune poussée forcée : un commit
+   * humain sur la branche d'une PR ne disparaît jamais par la main de la ruche.
+   */
+  suite?: { pr: number };
 }
 
 export interface ResultatLivraison {
@@ -362,7 +386,8 @@ export async function lireContenu(
 
 /**
  * Livre une production : lit la base, applique le diff, crée la branche et
- * ouvre la pull request.
+ * ouvre la pull request — ou, pour une reprise (`suite`), fait avancer la
+ * branche de la pull request existante sans en ouvrir une autre.
  *
  * NE MERGE RIEN. Une PR ouverte est un objet inerte : elle attend un humain.
  */
@@ -376,26 +401,72 @@ export async function livrer(opts: OptionsLivraison, l: Livraison): Promise<Resu
     );
   }
 
+  // Une reprise n'avance QUE les branches de la ruche : une lignée corrompue
+  // qui nommerait `main` ne doit pas y faire entrer un commit.
+  if (l.suite && (!Number.isSafeInteger(l.suite.pr) || l.suite.pr <= 0)) {
+    throw new ErreurGithub('numéro de PR invalide', 400, 'Attendu : un entier positif.');
+  }
+  if (l.suite && !l.branche.startsWith(PREFIXE_BRANCHE)) {
+    throw new ErreurGithub(
+      'branche hors de la ruche',
+      400,
+      `Une reprise ne prolonge qu’une branche ${PREFIXE_BRANCHE}* ouverte par la ruche.`,
+    );
+  }
+
   // 1. La rustine, AVANT tout appel d'écriture : un diff inapplicable ne doit
   //    pas laisser une branche orpheline derrière lui.
   const rustine = analyserRustine(l.diff);
   const chemins = cheminsDe(rustine);
 
-  // 2. La base. On lit la référence, puis le contenu de chaque fichier visé —
-  //    séquentiellement : une rafale de requêtes sur un dépôt à 100 fichiers
-  //    déclencherait la limite secondaire de GitHub, qui est un bannissement
-  //    temporaire et non un simple 429.
-  const ref = await lire(ctx, `/repos/${ctx.depot}/git/ref/heads/${encodeURIComponent(l.base)}`);
+  // 1 bis. Une reprise relit d'abord SA pull request : on ne prolonge pas une
+  //    PR fermée ou fusionnée, ni une PR dont la tête n'est plus cette branche.
+  let urlPr = '';
+  if (l.suite) {
+    const pr = await lire(ctx, `/repos/${ctx.depot}/pulls/${l.suite.pr}`);
+    const tete = champ(pr, 'head');
+    const depotTete = chaine(champ(tete, 'repo'), 'full_name');
+    if (chaine(pr, 'state') !== 'open' || champ(pr, 'merged') === true) {
+      throw new ErreurGithub(
+        `la pull request #${l.suite.pr} n’est plus ouverte`,
+        409,
+        'Une PR fermée ou fusionnée ne se prolonge pas : il n’y a plus rien à y corriger.',
+      );
+    }
+    if (
+      chaine(tete, 'ref') !== l.branche ||
+      (depotTete !== '' && depotTete.toLowerCase() !== ctx.depot.toLowerCase())
+    ) {
+      throw new ErreurGithub(
+        `la pull request #${l.suite.pr} ne porte plus la branche ${l.branche}`,
+        409,
+        'La ruche ne prolonge que la branche qu’elle a livrée pour cette PR.',
+      );
+    }
+    urlPr = chaine(pr, 'html_url');
+  }
+
+  // 2. Le point de départ : la tête de la base pour une PR neuve, la tête de
+  //    SA branche pour une reprise. On lit la référence, puis le contenu de
+  //    chaque fichier visé à CE commit — séquentiellement : une rafale de
+  //    requêtes sur un dépôt à 100 fichiers déclencherait la limite
+  //    secondaire de GitHub, qui est un bannissement temporaire et non un
+  //    simple 429.
+  const depart = l.suite ? l.branche : l.base;
+  const ref = await lire(ctx, `/repos/${ctx.depot}/git/ref/heads/${encodeURIComponent(depart)}`);
   const baseSha = chaine(champ(ref, 'object'), 'sha');
   if (!baseSha) {
     throw new ErreurGithub(
-      `branche « ${l.base} » introuvable`,
+      `branche « ${depart} » introuvable`,
       404,
       'Vérifiez le nom de la branche de base du dépôt.',
     );
   }
+  // Une reprise lit au SHA relu, pas au nom : un commit arrivé entre les deux
+  // lectures ferait appliquer la rustine à un contenu qui n'est pas le parent.
+  const lueA = l.suite ? baseSha : l.base;
   const bases = new Map<string, string | null>();
-  for (const chemin of chemins) bases.set(chemin, await lireContenu(ctx, chemin, l.base));
+  for (const chemin of chemins) bases.set(chemin, await lireContenu(ctx, chemin, lueA));
 
   // 3. Application — tout ou rien. Lève avant la moindre écriture.
   const ecritures = appliquerRustine(rustine, bases);
@@ -432,6 +503,20 @@ export async function livrer(opts: OptionsLivraison, l: Livraison): Promise<Resu
   });
   const commitSha = chaine(commit, 'sha');
 
+  // 5. Une reprise AVANCE la branche de sa PR, et s'arrête là : la PR existe,
+  //    elle voit le nouveau commit. `force: false` est la garantie — GitHub
+  //    refuse toute mise à jour qui ne serait pas une avance rapide.
+  if (l.suite) {
+    await avancerBranche(ctx, l.branche, commitSha);
+    return {
+      branche: l.branche,
+      commitSha,
+      pr: l.suite.pr,
+      urlPr,
+      fichiers: ecritures.map((e: Ecriture) => e.chemin),
+    };
+  }
+
   // 5. La branche. `POST refs` échoue si elle existe : c'est voulu, on ne
   //    réécrit jamais une branche par surprise.
   await ecrire(ctx, `/repos/${ctx.depot}/git/refs`, {
@@ -455,6 +540,29 @@ export async function livrer(opts: OptionsLivraison, l: Livraison): Promise<Resu
     urlPr: chaine(pr, 'html_url'),
     fichiers: ecritures.map((e: Ecriture) => e.chemin),
   };
+}
+
+/**
+ * Avance `refs/heads/<branche>` sur `sha`, en avance rapide SEULEMENT.
+ *
+ * Le 422 de GitHub, ici, veut dire « ce n'est pas une avance rapide » : la
+ * branche a reçu un commit depuis qu'on a relu sa tête. Le message générique
+ * d'`ecrire` (« la branche existe peut-être déjà ») serait faux ; on dit ce
+ * qui s'est passé, et que rien n'a été écrasé.
+ */
+async function avancerBranche(ctx: Contexte, branche: string, sha: string): Promise<void> {
+  const chemin = `/repos/${ctx.depot}/git/refs/heads/${branche.split('/').map(encodeURIComponent).join('/')}`;
+  try {
+    await ecrire(ctx, chemin, { sha, force: false }, 'PATCH');
+  } catch (e) {
+    if (!(e instanceof ErreurGithub) || e.statut !== 422) throw e;
+    throw new ErreurGithub(
+      `la branche ${branche} a bougé pendant la livraison`,
+      409,
+      'Un commit y est arrivé depuis sa lecture ; la ruche n’écrase jamais un commit. ' +
+        'Reprenez la pull request à nouveau : la correction repartira de sa nouvelle tête.',
+    );
+  }
 }
 
 /**

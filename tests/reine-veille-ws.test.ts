@@ -50,7 +50,15 @@ async function reine(vieMs = VIE_MS): Promise<HiveServer> {
   return serveur;
 }
 
-/** Ouvre une socket et y envoie `premier` ; rend la socket une fois la réponse attendue reçue. */
+/**
+ * Ouvre une socket et y envoie `premier` ; rend la socket une fois la réponse
+ * attendue reçue.
+ *
+ * Pas `aide/faux-noeud`, à dessein : ce banc éprouve le silence au niveau du
+ * TRANSPORT (pings `ws`), avec un même ouvreur pour nœud et tableau de bord,
+ * en quelques centaines de ms. Un battement applicatif n'y changerait rien —
+ * la veille lit les pongs — et brouillerait ce que le banc isole.
+ */
 function ouvrir(
   port: number,
   premier: object,

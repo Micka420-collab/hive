@@ -1,9 +1,13 @@
-// Vue Ruche (vue d'ensemble) : le cockpit — KPIs, Swarm View 2D/3D, rayon de
-// miel du projet courant, file d'attente et journal condensé.
+// Vue Ruche (vue d'ensemble) : le cockpit — KPIs (dont la dépense déclarée),
+// ce qui arrête la ruche, Swarm View 2D/3D, rayon de miel du projet courant,
+// file d'attente, décisions récentes et journal condensé.
 
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { AccesWarRoom } from '../AccesWarRoom';
+import { AlertesRuche } from '../AlertesRuche';
+import { fetchCockpit } from '../api';
 import { AutonomiePulse } from '../AutonomiePulse';
+import { DecisionsRecentes } from '../DecisionsRecentes';
 import { useLang, useT } from '../i18n';
 import { Journal } from '../Journal';
 import { NodesPanel } from '../NodesPanel';
@@ -12,7 +16,7 @@ import { annoncesDepuisEvenements, calibrationDepuisEvenements } from '../horlog
 import { direDuree, direAnnonce } from '../../../src/shared/horloge-chantier';
 import { SwarmView } from '../SwarmView';
 import { activateProps, StatusBadge } from '../ui';
-import { Honeycomb } from './shared';
+import { Honeycomb, travailDesProjets, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 
 const SwarmView3D = lazy(() => import('../SwarmView3D'));
@@ -60,9 +64,20 @@ export default function Ruche({
     return () => window.clearInterval(id);
   }, []);
 
-  const total = snapshot.tasks.length;
-  const done = snapshot.tasks.filter((t) => t.status === 'done').length;
+  // L'avancement dit le travail des projets, sans les ombres du banc.
+  const travail = travailDesProjets(snapshot.tasks);
+  const total = travail.length;
+  const done = travail.filter((t) => t.status === 'done').length;
   const vide = snapshot.projects.length === 0;
+
+  // UNE lecture pour les trois blocs du cockpit (dépense, arrêts, décisions) :
+  // ils parlent du même instant. Trente secondes, comme les autres relevés de
+  // l'accueil ; `refreshTick` relit tout de suite après une reconnexion.
+  const cockpit = useApiPoll(fetchCockpit, 30_000, refreshTick);
+  const nomsDeNoeuds = useMemo(
+    () => new Map(snapshot.nodes.map((n) => [n.id, n.name] as const)),
+    [snapshot.nodes],
+  );
 
   return (
     <div className="mc-view mc-ruche">
@@ -94,8 +109,23 @@ export default function Ruche({
       {!vide && (
         <>
           <div className="mc-ruche-stats card">
-            <StatTiles snapshot={snapshot} throughput={throughput} calibration={note} />
+            <StatTiles
+              snapshot={snapshot}
+              throughput={throughput}
+              calibration={note}
+              {...(cockpit.error || !cockpit.data ? {} : { depense: cockpit.data.depense })}
+            />
           </div>
+
+          {/* Juste sous les chiffres : ce qui ne repartira pas sans quelqu'un.
+              Avant l'autonomie et la War Room — un arrêt passe avant un
+              désaccord, qui passe avant ce que la ruche fait seule. */}
+          <AlertesRuche
+            cockpit={cockpit}
+            nomsDeNoeuds={nomsDeNoeuds}
+            onOpenTask={onOpenTask}
+            onNavigate={onNavigate}
+          />
 
           <AutonomiePulse
             projets={snapshot.projects.map((p) => ({ id: p.id, name: p.name }))}
@@ -156,7 +186,7 @@ export default function Ruche({
                       {done}/{total} {t('tâches butinées', 'tasks foraged')}
                     </span>
                     <Honeycomb
-                      tasks={snapshot.tasks}
+                      tasks={travail}
                       deferred={deferred}
                       onSelect={(tk) => onOpenTask(tk.id)}
                       mini
@@ -251,6 +281,10 @@ export default function Ruche({
                   )}
                 </ul>
               </section>
+
+              {/* Les décisions AVANT le journal : le journal dit tout ce qui
+                  arrive, ce bloc ne dit que ce qui a été choisi. */}
+              <DecisionsRecentes cockpit={cockpit} onOpenTask={onOpenTask} />
 
               <Journal events={events} />
             </aside>

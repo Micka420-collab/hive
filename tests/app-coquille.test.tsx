@@ -355,6 +355,54 @@ describe('la coquille de l’App — les survivantes du balayage du soir', () =>
   });
 });
 
+describe('le compagnon — dans la barre, branché sur le flux', () => {
+  it('IL VIT DANS LA NAVIGATION, JAMAIS SUR LE CONTENU — et suit le flux réel', async () => {
+    // Deux promesses du compagnon, tenues au niveau de l'App et pas du
+    // composant seul : il est posé DANS la barre (un calque sur les vues
+    // finirait par masquer une ligne), et il lit l'état que la coquille reçoit
+    // — le flux coupé au montage, puis une tâche en cours dans un instantané.
+    let poignees: FeedHandlers | null = null;
+    vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
+      poignees = h;
+      return { close: () => {}, reconnecter: () => {} };
+    });
+    const dom = await monter();
+    const compagnon = dom.querySelector<HTMLElement>('[data-testid="compagnon"]');
+    expect(compagnon, 'le compagnon est monté').not.toBeNull();
+    expect(compagnon?.closest('nav.mc-sidebar'), 'il habite la barre').not.toBeNull();
+    expect(compagnon?.closest('main'), 'il n’est pas dans le contenu').toBeNull();
+    expect(compagnon?.dataset.humeur, 'flux pas encore ouvert : inconnu').toBe('inconnu');
+
+    await act(async () => {
+      const h = poignees as FeedHandlers;
+      h.onStatus(true);
+      h.onState({
+        projects: [],
+        nodes: [],
+        tasks: [
+          {
+            id: 't-1',
+            projectId: 'p-1',
+            title: 'Une tâche',
+            prompt: '',
+            status: 'running',
+            dependsOn: [],
+            assignedNodeId: null,
+            result: null,
+            branch: null,
+            attempts: 1,
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ],
+        tasksTotal: 1,
+      });
+    });
+    expect(compagnon?.dataset.humeur).toBe('occupe');
+    expect(compagnon?.querySelector('.cp-pastille')?.textContent).toBe('1');
+  });
+});
+
 describe('la sortie en direct — du flux au tiroir, et vidée quand la tâche ne vit plus', () => {
   const tache = (status: 'running' | 'done') => ({
     id: 'tache-en-direct',

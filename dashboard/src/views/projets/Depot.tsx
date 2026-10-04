@@ -239,6 +239,11 @@ export function LivraisonsProjet({
                   </button>
                 )
               )}
+              {/* Pas de bouton que la Reine refuserait — mais pas de silence non
+                  plus : la raison (reprise en vol, plafond) se lit ici. */}
+              {!repris[l.taskId] && !l.reprenable && l.nonReprenable && (
+                <span className="pj-liv-repris">{l.nonReprenable}</span>
+              )}
             </li>
           ))}
         </ul>

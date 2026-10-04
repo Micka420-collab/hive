@@ -223,7 +223,7 @@ describe('UNE RELECTURE NE CHANGE PAS DE FAMILLE', () => {
     scheduler = new Scheduler(store, {
       onCancel: (nodeId, taskId, reason) => annulations.push({ nodeId, taskId, reason }),
     });
-    const { producteur, relecteur, relecture, occupation } = scene();
+    const { producteur, relecteur, relecture, occupation, projet } = scene();
     store.patchTask(occupation, { status: 'done' }, T + 5);
     scheduler.tick(T + 5);
     scheduler.handleTaskUpdate(relecteur, relecture);
@@ -238,17 +238,24 @@ describe('UNE RELECTURE NE CHANGE PAS DE FAMILLE', () => {
           costMicros: 100_000,
           resourceUnits: 1,
         },
-        undefined,
         at,
       );
       expect(creation.ok, childTaskId).toBe(true);
       scheduler.tick(at);
     };
     deleguer('enfant', T + 6);
-    // Codex tient la relecture : l'enfant part chez Claude, seul libre…
+    // Codex tient la relecture : l'enfant part chez Claude, premier par le nom…
     expect(store.getTask('enfant')?.assignedNodeId).toBe(producteur);
+    // … mais une relecture qui attend son enfant relâche sa place
+    // (`slotsOccupes`). Pour que le second attende FAUTE DE PLACE, Codex porte
+    // un autre travail, qui n'attend personne — créé après les enfants, il
+    // passe derrière eux quand tout revient en file.
+    const autre = store.createTask(
+      { projectId: projet, title: 'Autre travail de Codex', prompt: 'x' },
+      T + 8,
+    );
+    store.patchTask(autre.id, { status: 'running', assignedNodeId: relecteur }, T + 8);
     deleguer('enfant-en-file', T + 7);
-    // … et le second attend en file, faute de place.
     expect(store.getTask('enfant-en-file')?.status).toBe('ready');
 
     scheduler.nodeDisconnected(relecteur, 'ws_close', T + 10);

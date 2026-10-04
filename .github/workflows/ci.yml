@@ -86,19 +86,33 @@ on:
         required: false
         default: ''
 
+# ─── LE JETON DE LA CI NE FAIT QUE LIRE ──────────────────────────────────────
+#
+# Aucun travail ne pousse, ne commente, ne publie ni n'étiquette : l'image se
+# construit sans être poussée, la montée lit les étiquettes. Le jeton reçoit
+# donc la lecture du dépôt et rien d'autre — une étape compromise (une
+# dépendance d'`npm ci`) n'hérite d'aucun droit d'écriture.
+permissions:
+  contents: read
+
 # ─── LA VERSION DE NODE, DÉCLARÉE UNE SEULE FOIS ─────────────────────────────
 #
-# `NODE_MINIMUM` vaut 24 dans `src/shared/doctor.ts`, et la CI doit tourner sur
-# le plancher qu'elle exige — sans quoi elle vérifierait une configuration que
-# personne n'installe.
+# `NODE_MINIMUM` vaut 24.18.0 dans `src/shared/doctor.ts` (et `engines.node`
+# dans `package.json`). Les jobs ci-dessous tournent sur le DERNIER 24 ; le job
+# `plancher`, lui, tourne sur le plancher EXACT, lu dans `engines.node` — sans
+# quoi on vérifierait une configuration plus récente que celle qu'on accepte.
 #
 # Le 24 n'est pas une préférence pour le neuf. Il retire une panne :
 # `better-sqlite3` est un module natif, et sous Node 20 aucun binaire prébuilt
-# n'existe pour cette ABI. Il faut compiler — 42 lignes de `node-gyp` sous
-# Linux, et sous Windows un échec net, le `node-gyp` d'npm 10 ne sachant pas
-# lire Visual Studio 2026. Sous Node 24, `prebuild-install` trouve le binaire :
-# zéro compilation, 28 secondes, aucun outillage C++ nécessaire. Les deux
-# comportements ont été mesurés sur le MÊME commit, dans le run 210.
+# n'existait pour cette ABI. Il fallait compiler — sous Windows un échec net,
+# le `node-gyp` d'npm 10 ne sachant pas lire Visual Studio 2026 (run 210).
+#
+# Depuis `better-sqlite3` 13 (ADR 0013), le binaire est N-API et voyage DANS
+# le paquet npm (`prebuilds/<os>-<arch>.node`) : ni `prebuild-install`, ni
+# téléchargement. Le même fichier sert Node 24, la CI, l'image et
+# l'application de bureau (Electron). Le mineur, 18, vient de npm : seul
+# npm ≥ 11.16 lit le refus `allowScripts` qui empêche un `node-gyp rebuild`
+# déduit du `binding.gyp` — et 24.18.0 est le premier Node 24 qui l'embarque.
 env:
   NODE: '24'
 
@@ -384,6 +398,101 @@ jobs:
   # Les graines sont ÉCRITES, dans `scripts/tamis-ordres.mjs`. Une graine tirée
   # au hasard ferait rougir la CI sur un ordre que personne ne peut rejouer, et
   # la première réaction serait de relancer plutôt que de lire.
+  # ═══ LE PLANCHER, EXACTEMENT ════════════════════════════════════════════════
+  #
+  # Node 24.0 à 24.17 embarquent npm 11.3 à 11.13, qui IGNORENT
+  # `allowScripts: { "better-sqlite3": false }` : ils lancent le
+  # `node-gyp rebuild` que npm déduit du `binding.gyp`. Sans python3, il échoue,
+  # et npm écarte la dépendance optionnelle EN SILENCE — « added 72 packages »,
+  # code 0, Reine morte sur « Cannot find module ». Toute la CI tournait sur
+  # le dernier 24 (npm 11.19) : elle ne pouvait pas le voir.
+  #
+  # Ce job tourne sur le PLUS VIEUX Node accepté, lu dans `engines.node` (un
+  # seul endroit), et sur une machine SANS python3 — celle où la panne se
+  # voit. Il affirme deux choses : aucun script n'a tourné pour
+  # `better-sqlite3` (pas de `build/`), et l'installation en une commande va
+  # jusqu'à une ruche qui répond. Baisser le plancher sous un npm qui ignore
+  # le refus le fera rougir.
+  plancher:
+    name: Le plus vieux Node accepté installe et démarre la ruche
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      # Le Node du runner lit le fichier ; il n'est pas celui qu'on éprouve.
+      - name: Lire le plancher dans engines.node
+        id: plancher
+        run: |
+          v=$(node -p "require('./package.json').engines.node.replace(/^>=/, '')")
+          case "$v" in
+            ''|*[!0-9.]*) echo "::error::engines.node illisible : « $v »"; exit 1 ;;
+          esac
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Installer Node.js ${{ steps.plancher.outputs.version }} — le plancher, pas le dernier
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.plancher.outputs.version }}
+
+      - name: C'est bien CE Node
+        env:
+          ATTENDU: ${{ steps.plancher.outputs.version }}
+        run: |
+          echo "node $(node -p process.versions.node) · npm $(npm -v)"
+          test "$(node -p process.versions.node)" = "$ATTENDU"
+
+      # La machine d'un arrivant sous Windows, ou l'image `slim` : pas de
+      # python3. node-gyp ne cherche que `python3` et `python` sur le PATH.
+      - name: Retirer python3 — là où la panne se voit
+        run: |
+          for p in python3 python; do
+            while command -v "$p" >/dev/null 2>&1; do sudo mv "$(command -v "$p")" "$(command -v "$p").cache-hive"; done
+          done
+          if command -v python3 || command -v python; then echo "::error::python toujours là"; exit 1; fi
+
+      - name: npm ci — aucun script pour better-sqlite3
+        run: |
+          set -o pipefail
+          npm ci --foreground-scripts 2>&1 | tee npm-ci.log
+          # Ce que npm 11.13 écrit, mesuré : « > node-gyp rebuild », « gyp info … ».
+          if grep -nE '^> node-gyp|gyp (info|ERR!)' npm-ci.log; then
+            echo "::error::npm a lancé node-gyp : allowScripts ignoré sous ce Node"
+            exit 1
+          fi
+          if [ -d node_modules/better-sqlite3/build ]; then
+            echo "::error::better-sqlite3 a été COMPILÉ : allowScripts ignoré sous ce Node"
+            exit 1
+          fi
+          node -e "const d = new (require('better-sqlite3'))(':memory:'); console.log('SQLite', d.prepare('select sqlite_version() as v').get().v); d.close()"
+
+      # Le binaire Linux de la 13 exige glibc 2.34. Debian 11 (bullseye) a la
+      # 2.31 : le module ne s'y charge pas, et le docteur doit le NOMMER — pas
+      # renvoyer vers un `npm install` qui n'y changerait rien. Le même arbre,
+      # monté tel quel : seule la libc change.
+      - name: Sous une glibc trop vieille, le docteur le dit
+        run: |
+          docker run --rm -v "$PWD":/app -w /app node:24-bullseye \
+            node scripts/lancer.mjs src/cli.ts doctor > docteur-bullseye.log 2>&1 || true
+          cat docteur-bullseye.log
+          grep -q 'glibc 2.31 : le binaire de better-sqlite3 exige 2.34' docteur-bullseye.log
+
+      - name: Nommer la révision à éprouver
+        run: git branch -f essai-du-seuil HEAD
+
+      - name: L'installation en une commande, jusqu'à une ruche qui répond
+        run: |
+          set +e
+          sh scripts/essai-installation.sh --depot "$PWD" --ref essai-du-seuil
+          code=$?
+          set -e
+          if [ "$code" = 78 ]; then
+            echo "::warning::essai non concluant — le port par défaut était tenu sur le runner"
+            exit 0
+          fi
+          exit "$code"
+
   tamis:
     name: La suite tient dans plusieurs ordres de tests
     runs-on: ubuntu-latest
@@ -578,8 +687,8 @@ jobs:
       #
       # `better-sqlite3` est une dépendance OPTIONNELLE : une image où il aurait
       # échoué à s'installer se construit quand même, et ne meurt qu'au premier
-      # démarrage. Construire sans démarrer laisserait passer précisément la
-      # panne que le choix de `slim` plutôt qu'`alpine` existe pour éviter.
+      # démarrage. Construire sans démarrer laisserait passer précisément
+      # cette panne-là.
       - name: La ruche démarre dans l'image, et répond
         run: |
           docker run -d --name ruche-ci \
@@ -634,6 +743,12 @@ jobs:
           u=$(docker run --rm hive:ci id -un)
           echo "utilisateur : $u"
           test "$u" = node
+
+      # La Reine lance git elle-même (le miroir du Rayon) : sans lui dans
+      # l'image, le code d'aucun projet ne se lisait en conteneur. Le travail
+      # `compose` ci-dessous le prouve de bout en bout, par un vrai clone.
+      - name: git est dans l'image — la Reine s'en sert
+        run: docker run --rm hive:ci git --version
 
       - name: Ce que l'image pèse
         run: docker image inspect hive:ci --format '{{.Size}}' | awk '{printf "%.0f Mo\n", $1/1048576}'
@@ -734,3 +849,154 @@ jobs:
       - name: Arrêter
         if: always()
         run: docker rm -f ruche-ci 2>/dev/null || true
+
+  # ═══ LA RUCHE EN COMPOSE, EXPLOITÉE COMME CHEZ QUELQU'UN ═══════════════════
+  #
+  # Le travail `image` prouve qu'un `docker run` NU démarre. Personne n'exploite
+  # une ruche ainsi : on la pose par `docker compose up`, elle redémarre, elle
+  # tombe, on la relance. Aucun de ces gestes n'était exercé, et les poser a
+  # trouvé deux pannes que seule l'exploitation montre — pas de git dans
+  # l'image (le code d'aucun projet ne se lisait), et un `.env` copié de
+  # l'exemple qui faisait écouter la Reine sur SA boucle locale : saine pour la
+  # sonde de santé, injoignable pour tous.
+  #
+  # Le déroulé est dans `scripts/essai-conteneurs.mjs` (en-tête) : `up --wait`
+  # depuis un `.env` d'opérateur, PID 1 tenu par un init, un compte, un projet,
+  # une clé de la Chambre et le code du projet relus après `compose restart`,
+  # après un `kill -9` de la Reine DEPUIS L'HÔTE (relevée par `unless-stopped`)
+  # et après `down` puis `up` ; la sauvegarde documentée sort du volume.
+  compose:
+    name: La ruche en compose survit aux redémarrages, et garde tout
+    runs-on: ubuntu-latest
+    # Quelques minutes d'ordinaire : un geste qui ne rend plus la main doit
+    # échouer vite, pas au bout des six heures de GitHub.
+    timeout-minutes: 20
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js ${{ env.NODE }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE }}
+          cache: npm
+
+      # L'hôte relit la sauvegarde avec `better-sqlite3` : d'où les dépendances.
+      - name: Installer les dépendances
+        run: npm ci --foreground-scripts
+
+      - name: Le cycle de vie, de bout en bout
+        run: node scripts/essai-conteneurs.mjs compose
+
+      # Même règle que le travail `image` : le journal doit sortir SURTOUT
+      # quand l'essai a échoué, c'est la seule fois où il sert.
+      - name: Ce que la ruche a dit
+        if: always()
+        run: docker compose -p hive-essai -f docker-compose.yml logs --no-color --tail 120 || echo '(aucun journal)'
+
+      - name: Arrêter, volumes compris
+        if: always()
+        run: docker compose -p hive-essai -f docker-compose.yml down -v || true
+
+  # ═══ HIVE CLOUD, DERRIÈRE LE VRAI CADDY ═════════════════════════════════════
+  #
+  # `docker-compose.cloud.yml` et le Caddyfile n'avaient jamais tourné : seule
+  # leur EXISTENCE était vérifiée. Ici ils tournent tels que livrés — le
+  # Caddyfile n'est pas remplacé par une copie d'essai. `HIVE_DOMAIN` y vaut
+  # un nom en `.localhost`, qui ne peut avoir de certificat public : Caddy le
+  # sert alors avec son autorité INTERNE, dont la racine est copiée hors du
+  # volume pour VÉRIFIER le certificat (un `curl -k` ne prouverait rien).
+  #
+  # Deux clients, dans deux conteneurs — deux adresses, comme sur Internet —
+  # éprouvent `HIVE_TRUST_PROXY=uniquelocal` à travers le vrai proxy : l'un
+  # s'acharne sous des `X-Forwarded-For` forgés jusqu'au 429, l'autre garde
+  # son compteur et monte en WebSocket. C'est la preuve « derrière un vrai
+  # Caddy » que la carte de la confiance au proxy réclamait.
+  cloud:
+    name: Hive Cloud répond derrière Caddy, un compteur par client
+    runs-on: ubuntu-latest
+    # Quelques minutes d'ordinaire : un geste qui ne rend plus la main doit
+    # échouer vite, pas au bout des six heures de GitHub.
+    timeout-minutes: 20
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Node.js ${{ env.NODE }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE }}
+          cache: npm
+
+      # La sonde parle HTTPS et WebSocket (`ws`), sur l'hôte comme dans les
+      # conteneurs clients.
+      - name: Installer les dépendances
+        run: npm ci --foreground-scripts
+
+      - name: Le Cloud derrière Caddy, de bout en bout
+        run: node scripts/essai-conteneurs.mjs cloud
+
+      - name: Ce que la ruche et Caddy ont dit
+        if: always()
+        run: docker compose -p hive-essai-cloud -f docker-compose.cloud.yml logs --no-color --tail 120 || echo '(aucun journal)'
+
+      - name: Arrêter, volumes compris
+        if: always()
+        run: docker compose -p hive-essai-cloud -f docker-compose.cloud.yml down -v || true
+
+  # ═══ LA MONTÉE DE VERSION, SUR LES DONNÉES D'UNE RUCHE QUI A VÉCU ═══════════
+  #
+  # `docs/RELEASING.md` promet qu'une ruche passe d'une version étiquetée à la
+  # suivante sans rien perdre. Ce travail le tient : la version PRÉCÉDENTE
+  # (la plus récente étiquette `vX.Y.Z` qui n'est pas l'arbre éprouvé) démarre
+  # en compose et pose ses données dans le volume ; l'arbre courant démarre
+  # sur le même volume et doit tout relire — compte, projet, clé, code.
+  #
+  # ─── SANS ÉTIQUETTE, IL LE DIT — IL NE FAIT PAS SEMBLANT ───────────────────
+  #
+  # Tant qu'aucune version n'est étiquetée, il n'y a rien d'où monter. Le
+  # premier pas l'écrit en avis dans le résumé de l'exécution, et les pas
+  # suivants sont sautés : un vert ici veut alors dire « rien à éprouver »,
+  # et c'est écrit, pas un vert muet.
+  montee:
+    name: La ruche monte de la version précédente sans rien perdre
+    runs-on: ubuntu-latest
+    # Quelques minutes d'ordinaire : un geste qui ne rend plus la main doit
+    # échouer vite, pas au bout des six heures de GitHub.
+    timeout-minutes: 20
+    steps:
+      # Toute l'histoire et les étiquettes : c'est d'elles qu'on part.
+      - name: Récupérer le code et ses étiquettes
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Installer Node.js ${{ env.NODE }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE }}
+          cache: npm
+
+      - name: La version d'où monter
+        id: precedente
+        run: node scripts/essai-conteneurs.mjs precedente
+
+      - name: Installer les dépendances
+        if: steps.precedente.outputs.etiquette != ''
+        run: npm ci --foreground-scripts
+
+      # L'étiquette passe par l'environnement, pas par le texte du script :
+      # une expression `${{ }}` collée dans `run:` devient du shell.
+      - name: De la version précédente à celle-ci, sur le même volume
+        if: steps.precedente.outputs.etiquette != ''
+        env:
+          ETIQUETTE: ${{ steps.precedente.outputs.etiquette }}
+        run: node scripts/essai-conteneurs.mjs montee --depuis "$ETIQUETTE"
+
+      - name: Ce que la ruche a dit
+        if: always() && steps.precedente.outputs.etiquette != ''
+        run: docker compose -p hive-montee -f docker-compose.yml logs --no-color --tail 120 || echo '(aucun journal)'
+
+      - name: Arrêter, volumes compris
+        if: always() && steps.precedente.outputs.etiquette != ''
+        run: docker compose -p hive-montee -f docker-compose.yml down -v || true

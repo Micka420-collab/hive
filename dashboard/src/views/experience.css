@@ -1,0 +1,191 @@
+/* Le graphe d'expérience (vue Mémoire) : une liste et un voisinage.
+   Préfixe exp- — complète les classes globales (card, panel, chip…) et celles
+   de la Mémoire (ch-mem-note, ch-linklike). */
+
+.exp-panel {
+  max-height: none;
+}
+
+.exp-barre {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 14px 0;
+}
+
+.exp-portee-choix {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.exp-portee-choix select {
+  max-width: 100%;
+  margin-left: 4px;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+
+.exp-genres {
+  padding: 10px 14px 0;
+}
+
+.exp-colonnes {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 12px;
+  padding: 12px 14px 14px;
+}
+
+.exp-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 52vh;
+  overflow-y: auto;
+}
+
+.exp-noeud {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  align-items: baseline;
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.exp-noeud:hover,
+.exp-noeud.actif {
+  border-color: color-mix(in srgb, var(--miel) 38%, var(--border));
+  background: color-mix(in srgb, var(--miel) 8%, var(--panel));
+}
+
+.exp-noeud .exp-nom {
+  overflow-wrap: anywhere;
+}
+
+.exp-noeud .jtime {
+  grid-column: 2 / 4;
+  font-size: var(--fs-2xs);
+}
+
+.exp-genre {
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+/* La nature d'un savoir, jamais laissée à la seule couleur : le mot est écrit. */
+.exp-nature {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-size: var(--fs-2xs);
+  line-height: 1.6;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.exp-nature-correlation {
+  border-style: dashed;
+  color: var(--blue);
+}
+
+.exp-nature-lecon_validee {
+  border-color: color-mix(in srgb, var(--green) 45%, var(--border));
+  color: var(--green);
+}
+
+.exp-voisinage {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+}
+
+.exp-invite {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.exp-centre {
+  margin: 0 0 4px;
+  font-size: var(--fs-md);
+  overflow-wrap: anywhere;
+}
+
+.exp-provenance {
+  margin: 0 0 8px;
+  font-size: var(--fs-xs);
+}
+
+.exp-aretes,
+.exp-similaires ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.exp-arete {
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.exp-arete em {
+  color: var(--muted);
+}
+
+.exp-soi {
+  font-weight: 600;
+}
+
+.exp-sources {
+  display: block;
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+}
+
+.exp-similaires {
+  margin-top: 12px;
+  font-size: var(--fs-sm);
+}
+
+.exp-similaires h4 {
+  margin: 0 0 6px;
+  font-size: var(--fs-sm);
+}
+
+/* Téléphone : le voisinage passe SOUS la liste, jamais à côté d'elle. */
+@media (max-width: 760px) {
+  .exp-colonnes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .exp-liste {
+    max-height: 40vh;
+  }
+}

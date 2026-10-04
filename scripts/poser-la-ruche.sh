@@ -30,6 +30,9 @@ RACINE="${HIVE_RACINE:-/opt/hive}"
 UTIL="${HIVE_UTILISATEUR:-hive}"
 PORT="${HIVE_PORT:-7777}"
 RESEAU_LOCAL="${HIVE_RESEAU:-192.168.0.0/16}"
+# Le plancher de Node — le même que `NODE_MINIMUM` (`src/shared/doctor.ts`),
+# gardé par `tests/installeurs.test.ts`.
+NODE_MIN=24.18.0
 
 # Les MÊMES codes que `src/codes-sortie.ts` et `install.sh` : un script
 # appelant n'a qu'une table à connaître.
@@ -49,9 +52,12 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq curl git ca-certificates openssl build-essential python3 >/dev/null
 
-dire "→ 2/6  Node 24"
-if ! command -v node >/dev/null 2>&1 || [ "$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)" -lt 24 ]; then
-  curl -fsSL https://deb.nodesource.com/setup_24.x | bash - >/dev/null
+dire "→ 2/6  Node ≥ $NODE_MIN"
+# `node` juge lui-même, mineur compris : sous ce plancher, son npm ignore
+# `allowScripts` et compilerait `better-sqlite3`. NodeSource pose alors le
+# DERNIER 24.
+if ! command -v node >/dev/null 2>&1 || ! node -e "const [a, b] = process.versions.node.split('.').map(Number); const [x, y] = '$NODE_MIN'.split('.').map(Number); process.exit(a > x || (a === x && b >= y) ? 0 : 1)" 2>/dev/null; then
+  curl -fsSL https://deb.nodesource.com/setup_${NODE_MIN%%.*}.x | bash - >/dev/null
   apt-get install -y -qq nodejs >/dev/null
 fi
 dire "     $(node --version)"
@@ -77,11 +83,11 @@ su -s /bin/sh -c "cd '$RACINE' && npm run build --silent" "$UTIL"
 
 # ─── LA SONDE QUI EMPÊCHE UNE RUCHE MORT-NÉE ────────────────────────────────
 #
-# `better-sqlite3` est une dépendance OPTIONNELLE : quand sa compilation native
-# échoue, npm l'écarte EN SILENCE et rend 0. La ruche démarre alors, répond, et
-# ne sait rien ranger. Le Dockerfile du dépôt porte déjà cette leçon — trois
-# essais, puis une sonde qui ouvre vraiment une base. On la refait ici, parce
-# qu'une leçon apprise dans une image ne protège pas une installation nue.
+# `better-sqlite3` est une dépendance OPTIONNELLE : quand npm l'écarte, il le
+# fait EN SILENCE et rend 0. La ruche démarre alors, répond, et ne sait rien
+# ranger. Le Dockerfile du dépôt porte déjà cette leçon — trois essais, puis
+# une sonde qui ouvre vraiment une base. On la refait ici, parce qu'une leçon
+# apprise dans une image ne protège pas une installation nue.
 essai=1
 while [ "$essai" -le 3 ]; do
   if su -s /bin/sh -c "cd '$RACINE' && node -e \"const D=require('better-sqlite3');const d=new D(':memory:');d.exec('CREATE TABLE s(x INTEGER)');d.prepare('INSERT INTO s VALUES (?)').run(1);if(d.prepare('SELECT count(*) AS n FROM s').get().n!==1)throw new Error('SQLite repond faux');d.close();require('fastify');\"" "$UTIL" 2>/dev/null; then
@@ -89,14 +95,18 @@ while [ "$essai" -le 3 ]; do
     break
   fi
   if [ "$essai" -eq 3 ]; then
+    # Plus de « npm rebuild better-sqlite3 » : avec la 13, le script du
+    # paquet est refusé (`allowScripts`) et son binaire vient tout fait —
+    # `rebuild` ne ferait rien. Sur ce type de machine, la cause qui reste est
+    # presque toujours la glibc : le binaire exige 2.34.
     dire ""
-    dire "  Le paquet peut être PRÉSENT et son binaire natif inutilisable : npm"
-    dire "  bloque les scripts d'installation depuis la 11.17, et le binaire"
-    dire "  compilé pour une autre version de Node ne se remplace pas tout seul."
-    dire "  \`npm install\` ne touche pas un paquet déjà à la bonne version — il"
-    dire "  rend 0 et la panne reste entière. Seul \`rebuild\` refait le binaire :"
+    dire "  Le binaire de better-sqlite3 exige glibc ≥ 2.34 (Ubuntu 22.04+,"
+    dire "  Debian 12+). Cette machine a : $(ldd --version 2>/dev/null | head -n 1 || echo '?')"
+    dire "  Sous ce plancher, mettez le système à jour, ou posez la ruche en"
+    dire "  conteneur (docker compose up -d, voir docs/INSTALLATION.md)."
+    dire "  Au-dessus, la vraie erreur s'affiche avec :"
     dire ""
-    dire "      cd $RACINE && sudo -u $UTIL npm rebuild better-sqlite3"
+    dire "      cd $RACINE && sudo -u $UTIL node -e \"new (require('better-sqlite3'))(':memory:')\""
     dire ""
     manque "better-sqlite3 reste inutilisable après 3 essais — la ruche naîtrait morte."
   fi

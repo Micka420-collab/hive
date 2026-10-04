@@ -507,6 +507,18 @@ export class GrandLivre {
     return this.comptes.get(projectId)?.depenseMs ?? 0;
   }
 
+  /**
+   * Oublie un projet SUPPRIMÉ : son solde quitte le livre, le filigrane ne
+   * bouge pas. Ses résultats sont partis avec lui — un rattrapage depuis 0 ne
+   * les compterait plus, et c'est ce que le livre doit rendre. Sans cela, le
+   * solde d'un projet qui n'existe plus resterait affiché par `/api/balance`
+   * et réécrit dans `balance_ledger_cache` à chaque sauvegarde, jusqu'au
+   * prochain redémarrage.
+   */
+  oublier(projectId: string): void {
+    this.comptes.delete(projectId);
+  }
+
   /** Vue lecture seule, triée par projectId. */
   soldes(): Array<{ projectId: string; depenseMs: number; tentatives: number }> {
     return [...this.comptes.entries()]

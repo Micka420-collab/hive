@@ -8,6 +8,7 @@ import { beforeEach, afterEach, describe, expect, it } from 'vitest';
 import { Scheduler } from '../src/orchestrator/scheduler.js';
 import { HiveStore } from '../src/orchestrator/store.js';
 import type { Task } from '../src/shared/types.js';
+import { fenetreSeule } from './aide/journal-retenu.js';
 
 /** Fabrique un résultat de tâche minimal. */
 function result(taskId: string, success = true) {
@@ -82,11 +83,11 @@ describe('HiveStore (persistance SQLite)', () => {
     expect(store.countEvents()).toBe(50);
 
     // Sous le plafond : rien n'est supprimé.
-    expect(store.pruneEvents(100)).toBe(0);
+    expect(store.pruneEvents(fenetreSeule(100)).supprimes).toBe(0);
     expect(store.countEvents()).toBe(50);
 
     // Au-dessus du plafond : on ne garde que les 10 plus récents.
-    const removed = store.pruneEvents(10);
+    const removed = store.pruneEvents(fenetreSeule(10)).supprimes;
     expect(removed).toBe(40);
     expect(store.countEvents()).toBe(10);
     const kept = store.listEvents(0, 1000);

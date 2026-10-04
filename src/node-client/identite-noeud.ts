@@ -42,6 +42,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { connect, createServer, type Server } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
+import { nomReserveWindows, segmentSur } from '../shared/noms-windows.js';
 import { ID_PATTERN } from '../shared/protocol.js';
 
 /** Ce qu'on accepte de mener de front quand rien n'est demandé. */
@@ -65,6 +66,62 @@ export function bornerConcurrence(brut: string | undefined): number {
   return Number.isInteger(n)
     ? Math.min(Math.max(n, CONCURRENCE_MIN), CONCURRENCE_MAX)
     : CONCURRENCE_PAR_DEFAUT;
+}
+
+/**
+ * La racine de travail d'un nœud qui n'a pas reçu `HIVE_WORKDIR` :
+ * `.hive-work/<nom>`, le nom tiré de `HIVE_NODE_NAME` ou de la machine.
+ *
+ * UNE copie, pour `main.ts` et `client.ts`, qui la recalculaient chacun : c'est
+ * dans ce dossier que vit l'identité (`identiteStable`), et deux calculs qui
+ * divergent un jour donneraient au nœud deux identités — un fantôme « hors
+ * ligne » dans la ruche.
+ *
+ * Le nom est NETTOYÉ (`[A-Za-z0-9_-]`) puis, SOUS WINDOWS SEULEMENT, rendu sûr
+ * (`segmentSur`) : un poste nommé `aux`, `nul` ou `com1` y désignait un
+ * périphérique, et le nœud ne pouvait créer ni son dossier ni son identité.
+ *
+ * Windows seul, à la différence des identifiants du protocole : ce dossier ne
+ * sert qu'à LA machine qui le calcule, et c'est lui qui porte l'identité
+ * (`node-id.txt`). Remappé partout, un poste Linux nommé `aux` changeait de
+ * dossier à la mise à jour — donc d'identité, et l'ancienne restait dans la
+ * ruche comme un fantôme « hors ligne ». Sous Windows, l'ancien dossier n'a
+ * jamais pu exister : rien à perdre.
+ */
+export function racineDeTravailParDefaut(
+  nom: string,
+  plateforme: NodeJS.Platform = process.platform,
+): string {
+  const nettoye = nom.replace(/[^A-Za-z0-9_-]+/g, '_');
+  return path.join('.hive-work', plateforme === 'win32' ? segmentSur(nettoye) : nettoye);
+}
+
+/**
+ * Le refus d'une racine de travail DONNÉE (`HIVE_WORKDIR`) que Windows ne peut
+ * pas créer, ou `null`.
+ *
+ * Celle-là, l'opérateur l'a choisie : on ne la remappe pas en silence (son
+ * `aux~` ne serait pas le dossier qu'il surveille, sauvegarde ou nettoie), on
+ * la refuse en nommant le segment fautif. Sans ce refus, `C:\hive\aux` faisait
+ * échouer le premier `mkdir` ou l'écriture de l'identité sur un périphérique,
+ * avec une erreur qui ne parle pas du nom.
+ *
+ * `.` et `..` ne sont pas des noms : ils finissent par un point sans que
+ * Windows ne les réécrive, d'où leur exclusion.
+ */
+export function refusRacineDeTravail(
+  racine: string,
+  plateforme: NodeJS.Platform = process.platform,
+): string | null {
+  if (plateforme !== 'win32') return null;
+  const fautif = racine
+    .split(/[\\/]/)
+    .find((segment) => segment !== '.' && segment !== '..' && nomReserveWindows(segment));
+  return fautif === undefined
+    ? null
+    : `HIVE_WORKDIR (${racine}) contient « ${fautif} », un nom que Windows réserve à un ` +
+        'périphérique ou réécrit (CON, PRN, AUX, NUL, COM1-9, LPT1-9, point ou espace final). ' +
+        'Choisissez un autre dossier.';
 }
 
 /** Où l'identité du nœud est mémorisée. */
@@ -140,6 +197,69 @@ export function rangerCle(racine: string, cle: string): void {
   } catch {
     // voir ci-dessus : dégrader, pas tuer
   }
+}
+
+/**
+ * Où l'adresse de la ruche est rangée, À CÔTÉ de la clé qu'elle accepte.
+ *
+ * La clé seule ne suffit pas à redémarrer : il faut savoir OÙ la présenter.
+ * Une machine venue par un billet collé le retrouve dans sa commande ; une
+ * machine accueillie sur le réseau local (`hive join --decouvrable`) n'a
+ * jamais rien eu à coller — sans cette adresse, chaque redémarrage la
+ * remettait en attente d'appariement, et l'administrateur émettait un billet
+ * neuf qu'elle n'échangeait même pas. Pas un secret : l'URL est aussi dans
+ * chaque billet, et dans la bannière de connexion.
+ */
+export function cheminAdresseRuche(racine: string): string {
+  return path.join(racine, 'ruche-url.txt');
+}
+
+/** L'adresse mémorisée, ou `null`. Mêmes règles que `lireCle`. */
+export function lireAdresseRuche(racine: string): string | null {
+  try {
+    const v = readFileSync(cheminAdresseRuche(racine), 'utf8').trim();
+    return v.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Range l'adresse ; un échec est avalé, comme pour `rangerCle`. */
+export function rangerAdresseRuche(racine: string, url: string): void {
+  try {
+    mkdirSync(racine, { recursive: true });
+    writeFileSync(cheminAdresseRuche(racine), url, { encoding: 'utf8', mode: 0o600 });
+  } catch {
+    // dégrader, pas tuer : le prochain démarrage redemandera un billet
+  }
+}
+
+/**
+ * La clé mémorisée, SI elle vaut pour la ruche `url` — sinon `null`.
+ *
+ * Une clé ne se présente qu'à la ruche qui l'a délivrée. Relancé avec le
+ * billet d'une AUTRE ruche, un nœud qui réutilisait sa clé l'envoyait à cette
+ * autre ruche — qui la refusait, et la tenait désormais —, et ne consommait
+ * même pas le billet reçu, resté valide dix minutes. Une clé rangée AVANT
+ * cette mémoire d'adresse (aucune adresse) garde l'ancien comportement : on
+ * ne sait pas d'où elle vient, et la jeter ferait perdre sa place au nœud.
+ */
+export function cleNoeudPour(racine: string, url: string): string | null {
+  const cle = lireCle(racine);
+  const memo = lireAdresseRuche(racine);
+  return cle !== null && (memo === null || memo === url) ? cle : null;
+}
+
+/**
+ * La REPRISE : clé ET adresse mémorisées, ou `null`. De quoi redémarrer sans
+ * billet ni appariement — `hive join` relancé à nu, ou une machine accueillie
+ * sur le réseau local (`hive join --decouvrable`) qui n'a jamais rien eu à
+ * coller.
+ */
+export function repriseMemorisee(racine: string): { url: string; cle: string } | null {
+  const cle = lireCle(racine);
+  const url = lireAdresseRuche(racine);
+  return cle !== null && url !== null ? { url, cle } : null;
 }
 
 /**

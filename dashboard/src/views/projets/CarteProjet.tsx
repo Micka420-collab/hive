@@ -4,21 +4,25 @@
 
 import { useState } from 'react';
 import { fetchReport } from '../../api';
-import type { AuthUser, BalanceState } from '../../api';
+import type { AuthUser, BalanceState, ProjetSupprime } from '../../api';
 import { useLang, useT } from '../../i18n';
 import { ProgressBar, STATUS_ICON, statusLabel } from '../../ui';
 import { BalanceProjet } from '../Balance';
 import { PleinEssaim } from '../../PleinEssaim';
 import { OnboardingEssaim } from '../../OnboardingEssaim';
 import { GardeFous } from '../../GardeFous';
+import { BancOmbre } from '../../BancOmbre';
+import { RapportMission } from '../../RapportMission';
 import { EchecSondage, Honeycomb, useApiPoll } from '../shared';
 import type { ViewProps } from '../shared';
 import { sansIdentifiants } from '../../../../src/shared/projet-public';
 import type { Project, Task } from '../../../../src/shared/types';
+import { MissionsProjet } from '../MissionsRejeu';
 import { ConflictsPanel, MergePanel } from './MergeEtConflits';
 import { EquipeProjet, PartagesProjet } from './Equipe';
 import { ConseilProjet } from './Conseil';
 import { IssuesProjet, LivraisonsProjet } from './Depot';
+import { SuppressionProjet } from './Suppression';
 import { STATUSES } from './commun';
 import '../projets.css';
 
@@ -35,6 +39,7 @@ export function ProjectCard({
   onBalanceChange,
   onOpenTask,
   onNavigate,
+  onSupprime,
   user,
 }: {
   project: Project;
@@ -52,6 +57,7 @@ export function ProjectCard({
   onBalanceChange: () => void;
   onOpenTask: ViewProps['onOpenTask'];
   onNavigate: ViewProps['onNavigate'];
+  onSupprime: (fait: ProjetSupprime) => void;
   user: AuthUser | null;
 }) {
   const t = useT();
@@ -61,6 +67,7 @@ export function ProjectCard({
   const [showMerge, setShowMerge] = useState(false);
   const [showConflicts, setShowConflicts] = useState(false);
   const [showConseil, setShowConseil] = useState(false);
+  const [showMission, setShowMission] = useState(false);
 
   const contributors = report
     ? report.contributingNodes.map((id) => nodeNames.get(id) ?? id.slice(0, 8)).join(', ')
@@ -156,6 +163,10 @@ export function ProjectCard({
       {/* L'Agent Garde-Fous : le réglage appris du trou de vol, opt-in par projet,
           juste sous l'autonomie — les deux réglages « jusqu'où la ruche va seule ». */}
       <GardeFous projectId={project.id} />
+      {/* Le banc d'ombre : l'autre réglage qui fait dépenser la ruche sans clic
+          — une part des tâches rejouée par un second modèle, pour comparer.
+          Sous le Garde-Fous, avec lui dans « ce que la ruche s'autorise ». */}
+      <BancOmbre projectId={project.id} />
 
       {/* L'équipe, sous l'autonomie : « qui a le droit de voir ça » se pose
           après « qu'est-ce que ça fait ». C'est aussi le seul endroit d'où un
@@ -172,6 +183,10 @@ export function ProjectCard({
           attendent qu'on le demande — voir plus haut. */}
       <IssuesProjet project={project} />
       <LivraisonsProjet project={project} taskTitles={taskTitles} />
+
+      {/* Les missions, APRÈS les livraisons : ce que le travail a donné, puis
+          comment le refaire autrement — et comparer. Lecture sur demande. */}
+      <MissionsProjet project={project} />
 
       {/* Le Conseil en dernier : c'est d'abord une lecture de délibération. Il
           ne s'affiche que si ce projet a délibéré — ou si l'on demande à le
@@ -233,7 +248,22 @@ export function ProjectCard({
         >
           {t('🔭 Réunir le Conseil', '🔭 Convene the Council')}
         </button>
+        <button
+          className="btn ghost"
+          aria-expanded={showMission}
+          data-testid="ouvrir-rapport-mission"
+          onClick={() => setShowMission((v) => !v)}
+        >
+          {t('📋 Rapport de mission', '📋 Mission report')}
+        </button>
       </div>
+
+      {/* Ce que chaque tâche a donné et ce que la mission a coûté : sur
+          demande, parce qu'il juge chaque production — la carte sonde déjà
+          l'avancement toutes les trente secondes. */}
+      {showMission && (
+        <RapportMission projectId={project.id} refreshTick={refreshTick} onOpenTask={onOpenTask} />
+      )}
 
       {showMerge && (
         <MergePanel project={project} taskTitles={taskTitles} refreshTick={refreshTick} />
@@ -241,6 +271,10 @@ export function ProjectCard({
       {showConflicts && (
         <ConflictsPanel projectId={project.id} taskTitles={taskTitles} refreshTick={refreshTick} />
       )}
+
+      {/* En DERNIER, sous toutes les actions : le seul geste de la carte qui
+          emporte tout ne se trouve pas à côté de ceux qu'on fait tous les jours. */}
+      <SuppressionProjet project={project} user={user} onSupprime={onSupprime} />
     </article>
   );
 }

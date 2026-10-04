@@ -7,6 +7,7 @@ import type {
   DelegationEvent,
   DelegationRecord,
   DroneRace,
+  EnveloppeDelegation,
   RaceVictory,
   TaskDelegationGraph,
 } from './api';
@@ -17,6 +18,7 @@ import { formatMs, StatusBadge, useDialog } from './ui';
 import { direAnnonce, direDuree } from '../../src/shared/horloge-chantier';
 import { verdictAnnonce } from './horloge-vue';
 import { RoutageTache } from './RoutageTache';
+import { ConsigneRoutageTache } from './ConsigneRoutageTache';
 import { ChronologieTache } from './ChronologieTache';
 import { ConsoleDeTache } from './ConsoleDirecte';
 import type { MagasinSorties } from './sorties-directes';
@@ -59,6 +61,11 @@ function annulationDelegation(
         `Annulée : ${ancetre} a échoué, plus personne n’attendait ce résultat.`,
         `Cancelled: ${ancetre} failed, nobody was waiting for this result any more.`,
       );
+    case 'root_cost_budget_exhausted':
+      return t(
+        `Annulée : la dépense déclarée de l’arbre de ${ancetre} a atteint son budget coût.`,
+        `Cancelled: the declared spend of ${ancetre}'s tree reached its cost budget.`,
+      );
     default:
       return t(`Annulée avec ${ancetre}.`, `Cancelled along with ${ancetre}.`);
   }
@@ -74,9 +81,44 @@ function budgetDelegation(record: DelegationRecord | null, t: ReturnType<typeof 
   const duree = formatMs(record.durationMs);
   const cout = String(record.costMicros);
   return t(
-    `Budget demandé : ${duree} · coût ${cout} µ · ressources ${record.resourceUnits}`,
-    `Requested budget: ${duree} · cost ${cout} µ · resources ${record.resourceUnits}`,
+    `Budget réservé : ${duree} · coût ${cout} µUSD · ressources ${record.resourceUnits}`,
+    `Reserved budget: ${duree} · cost ${cout} µUSD · resources ${record.resourceUnits}`,
   );
+}
+
+/**
+ * L'enveloppe de la RACINE, telle que la Reine la tient : ce que tout l'arbre
+ * a réservé sur chaque plafond, et ce qu'il a dépensé selon les CLI. Une
+ * dépense avec des tentatives au coût inconnu est dite « au moins » : ce n'est
+ * pas une somme, c'est un plancher, et l'écran ne la présente pas comme
+ * complète.
+ */
+function enveloppeDelegation(e: EnveloppeDelegation, t: ReturnType<typeof useT>): string {
+  const { limites, reserve, depense } = e;
+  const reservee = t(
+    `Enveloppe de la racine — réservé : ${formatMs(reserve.durationMs)} / ${formatMs(limites.maxDurationMs)} · ${reserve.costMicros} / ${limites.maxCostMicros} µUSD · ${reserve.resourceUnits} / ${limites.maxResourceUnits} unités.`,
+    `Root envelope — reserved: ${formatMs(reserve.durationMs)} / ${formatMs(limites.maxDurationMs)} · ${reserve.costMicros} / ${limites.maxCostMicros} µUSD · ${reserve.resourceUnits} / ${limites.maxResourceUnits} units.`,
+  );
+  if (depense.tentatives === 0) {
+    return `${reservee} ${t('Aucune tentative rendue.', 'No attempt returned yet.')}`;
+  }
+  const plancher = depense.sansCout > 0;
+  const declaree = plancher
+    ? t(
+        `Dépense déclarée : au moins ${depense.micros} µUSD — ${depense.sansCout} tentative(s) sur ${depense.tentatives} sans coût déclaré (inconnu, pas zéro).`,
+        `Declared spend: at least ${depense.micros} µUSD — ${depense.sansCout} of ${depense.tentatives} attempt(s) declared no cost (unknown, not zero).`,
+      )
+    : t(
+        `Dépense déclarée : ${depense.micros} µUSD sur ${depense.tentatives} tentative(s).`,
+        `Declared spend: ${depense.micros} µUSD over ${depense.tentatives} attempt(s).`,
+      );
+  const epuise = e.coutEpuise
+    ? t(
+        ' Budget coût épuisé : plus aucun enfant n’est admis sous cette racine.',
+        ' Cost budget exhausted: no further child is admitted under this root.',
+      )
+    : '';
+  return `${reservee} ${declaree}${epuise}`;
 }
 
 /**
@@ -372,6 +414,8 @@ export function TaskDrawer({
           nodes={nodes}
         />
 
+        <ConsigneRoutageTache task={task} nodes={nodes} />
+
         <section className="delegation-panel" aria-labelledby="delegation-title">
           <div className="delegation-panel-head">
             <h3 id="delegation-title">{t('Délégation Hive', 'Hive delegation')}</h3>
@@ -392,6 +436,19 @@ export function TaskDrawer({
               {t('Graphe indisponible :', 'Graph unavailable:')} {delegationError}
             </p>
           )}
+          {!delegationLoading &&
+            !delegationError &&
+            delegation?.enveloppe &&
+            // Un arbre sans enfant Hive n'a rien réservé ni dépensé : la ligne
+            // ne serait que du bruit dans le tiroir de chaque tâche.
+            delegation.graph.some((n) => n.origine === 'hive' && n.parentTaskId !== null) && (
+              <p
+                className={`delegation-tree-budget${delegation.enveloppe.coutEpuise ? ' epuise' : ''}`}
+                data-testid="delegation-enveloppe"
+              >
+                {enveloppeDelegation(delegation.enveloppe, t)}
+              </p>
+            )}
           {!delegationLoading && !delegationError && delegation && delegation.graph.length <= 1 && (
             <p className="muted-text">
               {t('Aucune sous-tâche Hive persistée.', 'No persisted Hive child task.')}

@@ -20,6 +20,9 @@ dashboard/dist/
 dashboard/node_modules/
 
 # ─── Ce qui ne sert pas à construire ────────────────────────────────────────
+# L'application de bureau (ADR 0013) : un projet npm à part, avec son Electron
+# (des centaines de Mo dans `desktop/node_modules/`) — l'image n'en a rien.
+desktop/
 .git/
 .github/
 .hive-work/

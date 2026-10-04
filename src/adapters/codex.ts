@@ -8,6 +8,7 @@ import { LIMITS } from '../shared/protocol.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
+import { CONSIGNES_CODEX, consignesDuDepot, noteLiensNonSuivis } from './consignes-depot.js';
 import { assertRealExecutionAllowed, runCommand, runCommandFlux } from './exec.js';
 import {
   codexMcpOverrides,
@@ -66,9 +67,9 @@ const CODEX_TIMEOUT_MS = 15 * 60_000;
  * sur le répertoire que Codex voit (dans le bac : `MONTAGE`) : rien n'est
  * écrit, et la configuration du dépôt reste lettre morte, comme avant.
  *
- * COMPROMIS ACCEPTÉ : un dépôt `untrusted` ne livre pas non plus son
- * `AGENTS.md` à Codex (core/src/agents_md.rs). Le réinjecter comme simple
- * donnée bornée est un suivi, comme le `CLAUDE.md` de Claude Code.
+ * Un dépôt `untrusted` ne livre pas non plus son `AGENTS.md` à Codex
+ * (core/src/agents_md.rs) : Hive le relit lui-même, comme simple donnée
+ * bornée, et le met en tête du prompt (voir `argvCodex`).
  */
 export type ExecutionCodex =
   | { sandbox: 'danger-full-access'; depot: typeof MONTAGE }
@@ -90,6 +91,13 @@ function depotNonFiable(execution: ExecutionCodex): string[] {
   return ['-c', `projects={${JSON.stringify(execution.depot)}={trust_level="untrusted"}}`];
 }
 
+// PAS D'EFFORT ICI, et c'est voulu : `model_reasoning_effort` (via `-c`) prend
+// des valeurs ANNONCÉES PAR CHAQUE MODÈLE (`ReasoningEffort::Custom`,
+// codex-rs/protocol/src/openai_models.rs), que `codex exec --help` (0.156.0)
+// ne documente pas. Un niveau refusé par le modèle brûlerait la tentative en
+// échec d'infrastructure, sans verdict. L'adaptateur ne déclare donc aucun
+// effort, et l'Aiguillage ne lui en commande jamais (`shared/effort.ts`).
+
 /**
  * Arguments `codex exec` avec le modèle aiguillé et le pont MCP optionnels.
  *
@@ -108,12 +116,33 @@ function depotNonFiable(execution: ExecutionCodex): string[] {
  * La clé du dépôt est une chaîne TOML (`JSON.stringify`, comme
  * `codexMcpOverrides`) sous la clé `projects` entière : une clé pointée
  * (`projects."/x".trust_level`) se couperait aux points du chemin.
+ *
+ * ─── LES CONSIGNES DU DÉPÔT, EN TÊTE DU PROMPT ──────────────────────────────
+ *
+ * `consignes` : l'`AGENTS.md` du dépôt relu comme DONNÉES
+ * (`consignes-depot.ts`), que le dépôt `untrusted` retire à Codex. Il part EN
+ * TÊTE DU PROMPT, comme le contexte de la ruche (`composeAgentPrompt`) : au
+ * rang `user`, celui où Codex range lui-même l'`AGENTS.md` d'un dépôt de
+ * confiance (`UserInstructions::role`, core/src/context/user_instructions.rs,
+ * tag rust-v0.156.0) — pas plus haut que la consigne de la tâche, que le pied
+ * du bloc déclare seule à faire foi.
+ *
+ * PAS PAR `-c developer_instructions`, ESSAYÉ PUIS ÉCARTÉ : c'est un message
+ * `developer`, AU-DESSUS de la tâche (session/mod.rs,
+ * `build_initial_context_with_world_state`) — le texte de l'auteur du dépôt
+ * y aurait pesé plus que la consigne. Et c'est la couche la plus haute de la
+ * configuration : elle REMPLAÇAIT les `developer_instructions` du membre
+ * (ses garde-fous, peut-être), au gré du dépôt — il suffisait d'y poser un
+ * `AGENTS.md`. `model_instructions_file` et `instructions`, eux, remplacent le
+ * prompt de base de Codex. Le prompt n'ajoute rien à la configuration du
+ * membre ni à la confiance du dépôt.
  */
 export function argvCodex(
   prompt: string,
   execution: ExecutionCodex,
   modele?: string,
   bridge?: DelegationBridge,
+  consignes?: string,
 ): string[] {
   return [
     'exec',
@@ -126,9 +155,20 @@ export function argvCodex(
     ...(modele ? ['--model', modele] : []),
     ...(bridge ? codexMcpOverrides(bridge) : []),
     '--',
-    prompt,
+    consignes ? `${consignes}\n\n${prompt}` : prompt,
   ];
 }
+
+/**
+ * Budget du bloc de consignes pour Codex, en caractères : la moitié de celui
+ * de Claude Code, qui le reçoit par fichier. Ici il passe sur la ligne de
+ * commande, dans le prompt, et Windows borne la ligne entière à 32 767
+ * caractères (CreateProcess). Le bloc est du JSON par lignes ; la mise entre
+ * guillemets de libuv ne fait qu'échapper `"` et doubler les `\` qui le
+ * précèdent — au pire le DOUBLE, U+007F compris (laissé tel quel). Codex, lui,
+ * lirait jusqu'à 32 Kio d'`AGENTS.md` (`project_doc_max_bytes`).
+ */
+const MAX_CONSIGNES_CODEX = 8_000;
 
 /**
  * La sonde du bac de Codex : `true`, sous le MÊME bac que `codex exec
@@ -184,8 +224,11 @@ async function sonderBacCodex(
   const sonde = await runCommand('codex', argvSondeBacCodex(execution), ctx, SONDE_BAC_CODEX_MS);
   if (sonde.success) return undefined;
   // `codex` ne s'est pas lancé du tout : ce n'est pas son bac, c'est le binaire
-  // — l'échec d'infra de l'exécuteur, que le nœud sait déjà traiter.
-  if (sonde.infra) return sonde;
+  // — l'échec d'infra de l'exécuteur, que le nœud sait déjà traiter. Et une
+  // tâche annulée pendant la sonde se dit annulée (`LIGNE_ANNULATION`, jamais
+  // `infra`) : la lire ici comme un bac cassé soufflerait un remède à un poste
+  // qui n'a rien.
+  if (sonde.infra || ctx.signal.aborted) return sonde;
   const dit = texteDEchec(sonde.logs)
     .split('\n')
     .map((l) => l.trim())
@@ -330,6 +373,15 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
         if (ctx.delegate && ctx.waitForDelegationResult && ctx.rendezVous) {
           bridge = await createDelegationBridge(ctx, task.id);
         }
+        // Relu sur l'hôte (`ctx.cwd`), même dans le bac : c'est le même dépôt.
+        const consignes = consignesDuDepot(ctx.cwd, CONSIGNES_CODEX, MAX_CONSIGNES_CODEX);
+        if (consignes) {
+          ctx.onProgress({
+            log: 'AGENTS.md du dépôt relu comme simple donnée (le dépôt reste non fiable pour Codex)',
+          });
+        }
+        const liens = noteLiensNonSuivis(ctx.cwd, CONSIGNES_CODEX);
+        if (liens) ctx.onProgress({ log: liens });
         // `--` avant le prompt : sans lui, un prompt commençant par un tiret est
         // lu comme une option de `codex exec` (cf. src/adapters/prompt-argv.ts,
         // où l'injection est démontrée sur le binaire claude).
@@ -345,7 +397,7 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
         });
         const result = await runCommandFlux(
           'codex',
-          argvCodex(task.prompt, execution, ctx.modele, bridge),
+          argvCodex(task.prompt, execution, ctx.modele, bridge, consignes),
           ctx,
           flux,
           CODEX_TIMEOUT_MS,

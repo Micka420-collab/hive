@@ -15,7 +15,7 @@
 // On monte donc un serveur réel, on branche un nœud en WebSocket, on crée une
 // tâche, et on lit ce que le nœud reçoit.
 
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -23,6 +23,7 @@ import WebSocket from 'ws';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import { LIMITS } from '../src/shared/protocol.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-cerveau-suffisamment-long';
 
@@ -74,33 +75,31 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
 
   async function brancherNoeud(srv: HiveServer, nodeId: string): Promise<Assignation[]> {
     const recues: Assignation[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (data) => {
-      const msg = JSON.parse(data.toString()) as Assignation;
-      if (msg.type === 'assign_task') recues.push(msg);
-    });
-    await new Promise<void>((resolve, reject) => {
-      ws.once('open', () => resolve());
-      ws.once('error', reject);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    const { ws } = await brancherFauxNoeud<Assignation>(
+      srv.port,
+      {
         token: TOKEN,
         name: nodeId,
         ownerName: 'test',
         agentType: 'shell',
         maxConcurrency: 1,
         nodeId,
-      }),
+      },
+      (msg) => {
+        if (msg.type === 'assign_task') recues.push(msg);
+      },
     );
+    sockets.push(ws);
     return recues;
   }
 
-  function creerTache(srv: HiveServer, prompt: string, titre = 'Une tâche'): string {
-    const projet = srv.store.createProject({ name: 'Ruche' });
-    const t = srv.store.createTask({ projectId: projet.id, title: titre, prompt });
+  function creerTache(
+    srv: HiveServer,
+    prompt: string,
+    titre = 'Une tâche',
+    projectId = srv.store.createProject({ name: 'Ruche' }).id,
+  ): string {
+    const t = srv.store.createTask({ projectId, title: titre, prompt });
     srv.store.patchTask(t.id, { status: 'ready' });
     return t.id;
   }
@@ -112,6 +111,17 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
     }
     expect(recues.length, 'aucune assignation reçue').toBeGreaterThan(0);
     return recues[0] as Assignation;
+  }
+
+  /** L'assignation d'UNE tâche : une reprise d'une autre porte ses propres leçons. */
+  async function attendrePour(recues: Assignation[], taskId: string): Promise<Assignation> {
+    const fin = Date.now() + 15_000;
+    let a: Assignation | undefined;
+    while (Date.now() < fin && !(a = recues.find((r) => r.task?.id === taskId))) {
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    expect(a, `aucune assignation reçue pour ${taskId}`).toBeDefined();
+    return a as Assignation;
   }
 
   const noteInvariant = [
@@ -221,7 +231,10 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
       // « s'améliorer en se corrigeant ».
       const srv = await demarrer({});
       const recues = await brancherNoeud(srv, 'ouvriere-boucle');
-      const t1 = creerTache(srv, 'compiler le module natif', 'Première tâche');
+      // UN projet pour les deux tâches : un projet est privé par défaut, et
+      // l'épisode d'un projet privé ne sort pas de son projet (#527).
+      const projet = srv.store.createProject({ name: 'Ruche' }).id;
+      const t1 = creerTache(srv, 'compiler le module natif', 'Première tâche', projet);
       const a1 = await attendre(recues);
       expect(a1.task?.id).toBe(t1);
 
@@ -255,13 +268,162 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
 
       // Une tâche SUIVANTE, sur le même sujet, doit recevoir cet épisode.
       recues.length = 0;
-      creerTache(srv, 'compiler le module natif encore', 'Deuxième tâche');
-      const a2 = await attendre(recues, 15_000);
+      srv.store.patchTask(t1, { status: 'failed' });
+      const t2 = creerTache(srv, 'compiler le module natif encore', 'Deuxième tâche', projet);
+      const a2 = await attendrePour(recues, t2);
       expect(a2.hiveContext, 'aucun contexte joint à la seconde tâche').toBeTruthy();
       expect(
         a2.hiveContext,
         'l’épisode écrit par la ruche ne revient pas dans le contexte suivant',
       ).toContain('MODULE_INTROUVABLE_SIGNATURE_UNIQUE');
+    },
+  );
+
+  it(
+    'L’ÉPISODE D’UN PROJET PRIVÉ NE SORT PAS DE SON PROJET — et part avec lui',
+    { timeout: 40_000 },
+    async () => {
+      // #527 : un épisode porte les mots d'un échec — ici un journal, ailleurs
+      // les objections d'un relecteur ou un rejet de l'Evaluator. Servi à toute
+      // la ruche, il faisait lire à un projet ce qu'un projet PRIVÉ avait
+      // produit, et survivait à sa suppression.
+      const srv = await demarrer({});
+      const recues = await brancherNoeud(srv, 'ouvriere-cloison');
+      // Deux PROPRIÉTAIRES : la cloison protège entre personnes (`savoirAdmis`).
+      const prive = srv.store.createProject({
+        name: 'Privé',
+        visibility: 'private',
+        ownerId: 'alice',
+      }).id;
+      const voisin = srv.store.createProject({
+        name: 'Voisin',
+        visibility: 'private',
+        ownerId: 'bob',
+      }).id;
+      const t1 = creerTache(srv, 'compiler le module natif', 'Tâche privée', prive);
+      await attendrePour(recues, t1);
+      const ws = sockets[sockets.length - 1] as WebSocket;
+      ws.send(
+        JSON.stringify({
+          type: 'task_result',
+          taskId: t1,
+          success: false,
+          diff: '',
+          logs: 'Error: SECRET_DU_PROJET_PRIVE lors de la compilation',
+          durationMs: 10,
+          subAgents: [],
+        }),
+      );
+      const fin = Date.now() + 10_000;
+      let episode: Record<string, unknown> | undefined;
+      while (!episode && Date.now() < fin) {
+        episode = srv.store.listEvents(0, 500).find((e) => e.type === 'cerveau_episode')?.payload;
+        if (!episode) await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(episode, 'le banc : la ruche doit écrire l’épisode').toMatchObject({
+        projectId: prive,
+      });
+      srv.store.patchTask(t1, { status: 'failed' });
+
+      // Le voisin, sur le même sujet, ne le reçoit pas…
+      const t2 = creerTache(srv, 'compiler le module natif encore', 'Tâche voisine', voisin);
+      const a2 = await attendrePour(recues, t2);
+      expect(a2.hiveContext ?? '', 'l’épisode privé a fui').not.toContain('SECRET_DU_PROJET_PRIVE');
+      srv.store.patchTask(t2, { status: 'failed' });
+      // …le projet lui-même, si.
+      const t3 = creerTache(srv, 'compiler le module natif toujours', 'Tâche privée 2', prive);
+      const a3 = await attendrePour(recues, t3);
+      expect(a3.hiveContext, 'le projet a perdu sa propre leçon').toContain(
+        'SECRET_DU_PROJET_PRIVE',
+      );
+      srv.store.patchTask(t3, { status: 'failed' });
+
+      // Supprimer le projet (un COMPTE : le premier inscrit administre) retire
+      // l'épisode du dossier.
+      const base = `http://127.0.0.1:${srv.port}`;
+      const inscription = await fetch(`${base}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
+        body: JSON.stringify({
+          email: 'admin@hive.test',
+          password: 'mot-de-passe-assez-long-42',
+          displayName: 'Admin',
+        }),
+      });
+      const { token } = (await inscription.json()) as { token: string };
+      const r = await fetch(`${base}/api/projects/${prive}?force=true`, {
+        method: 'DELETE',
+        headers: { 'x-hive-token': TOKEN, authorization: `Bearer ${token}` },
+      });
+      expect(r.status, await r.clone().text()).toBe(200);
+      expect(await r.json()).toMatchObject({ cerveau: 'efface', episodes: 1 });
+      const dossier = path.join(dir ?? '', 'data', 'cerveau');
+      expect(
+        readdirSync(dossier).filter((f) => f.endsWith('.md')),
+        'l’épisode a survécu à son projet',
+      ).toEqual([]);
+    },
+  );
+
+  it(
+    'LES ÉPISODES CIRCULENT ENTRE LES PROJETS D’UNE MÊME PERSONNE — pas au-delà',
+    { timeout: 60_000 },
+    async () => {
+      // La cloison protège entre PERSONNES : deux projets d'un même compte, ou
+      // deux projets sans propriétaire (la ruche au seul jeton), partagent ce
+      // qu'ils apprennent ; un projet possédé et un projet sans propriétaire,
+      // non. Même règle que les souvenirs du Hive Mind (`savoirAdmis`).
+      const srv = await demarrer({});
+      const recues = await brancherNoeud(srv, 'ouvriere-personnes');
+      const projet = (ownerId: string | null): string =>
+        srv.store.createProject({ name: 'Projet', visibility: 'private', ownerId }).id;
+      const echouer = async (projectId: string, secret: string): Promise<void> => {
+        const t = creerTache(srv, 'compiler le module natif', 'Tâche source', projectId);
+        await attendrePour(recues, t);
+        (sockets[sockets.length - 1] as WebSocket).send(
+          JSON.stringify({
+            type: 'task_result',
+            taskId: t,
+            success: false,
+            diff: '',
+            logs: `Error: ${secret} lors de la compilation`,
+            durationMs: 10,
+            subAgents: [],
+          }),
+        );
+        const fin = Date.now() + 10_000;
+        while (
+          !srv.store
+            .listEvents(0, 500)
+            .some((e) => e.type === 'cerveau_episode' && e.payload.projectId === projectId) &&
+          Date.now() < fin
+        ) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        srv.store.patchTask(t, { status: 'failed' });
+      };
+      const contexte = async (projectId: string): Promise<string> => {
+        const t = creerTache(srv, 'compiler le module natif encore', 'Tâche cible', projectId);
+        const a = await attendrePour(recues, t);
+        srv.store.patchTask(t, { status: 'failed' });
+        return a.hiveContext ?? '';
+      };
+
+      await echouer(projet('alice'), 'SECRET_D_ALICE');
+      await echouer(projet(null), 'SECRET_SANS_PROPRIETAIRE');
+
+      const chezAlice = await contexte(projet('alice'));
+      expect(chezAlice, 'un projet d’Alice perd la leçon d’un autre').toContain('SECRET_D_ALICE');
+      expect(chezAlice, 'sans propriétaire → possédé : a fui').not.toContain(
+        'SECRET_SANS_PROPRIETAIRE',
+      );
+      const sansProprietaire = await contexte(projet(null));
+      expect(sansProprietaire, 'deux projets sans propriétaire ne partagent plus').toContain(
+        'SECRET_SANS_PROPRIETAIRE',
+      );
+      expect(sansProprietaire, 'possédé → sans propriétaire : a fui').not.toContain(
+        'SECRET_D_ALICE',
+      );
     },
   );
 
@@ -301,7 +463,7 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
     const ws = sockets[sockets.length - 1] as WebSocket;
     const vues = new Set<string>();
 
-    creerTache(srv, 'compiler quelque chose de récalcitrant');
+    const tache = creerTache(srv, 'compiler quelque chose de récalcitrant');
 
     // La tâche est re-tentée : chaque assignation reçoit le MÊME échec, donc
     // la même signature, donc la même note incrémentée.
@@ -329,6 +491,10 @@ describe('le Cerveau arrive jusqu’à l’ouvrière', () => {
     const props = srv.store.listEvents(0, 500).filter((e) => e.type === 'cerveau_consolidation');
     expect(props.length, 'aucune consolidation proposée après trois échecs').toBeGreaterThan(0);
     expect(JSON.stringify(props[0]?.payload)).toMatch(/recurrences/);
+    // Le fait porte la tâche qui l'a mûri : c'est par elle que la suppression
+    // du projet le retrouve. Sans cette clé, le TITRE de la tâche survivait au
+    // projet dans le journal.
+    expect(props[0]?.payload).toMatchObject({ taskId: tache });
   });
 
   it('LE CONTEXTE RESTE DANS LE BUDGET DU PROTOCOLE', { timeout: 20_000 }, async () => {
@@ -395,27 +561,14 @@ describe('la contre-expertise est annoncée à chaque production', () => {
 
   async function noeud(srv: HiveServer, nodeId: string, agentType: string): Promise<Assignation[]> {
     const recues: Assignation[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (data) => {
-      const m = JSON.parse(data.toString()) as Assignation;
-      if (m.type === 'assign_task') recues.push(m);
-    });
-    await new Promise<void>((r, j) => {
-      ws.once('open', () => r());
-      ws.once('error', j);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
-        token: TOKEN,
-        name: nodeId,
-        ownerName: 'test',
-        agentType,
-        maxConcurrency: 1,
-        nodeId,
-      }),
+    const { ws } = await brancherFauxNoeud<Assignation>(
+      srv.port,
+      { token: TOKEN, name: nodeId, ownerName: 'test', agentType, maxConcurrency: 1, nodeId },
+      (m) => {
+        if (m.type === 'assign_task') recues.push(m);
+      },
     );
+    sockets.push(ws);
     return recues;
   }
 
@@ -1006,24 +1159,16 @@ describe('la contre-expertise est annoncée à chaque production', () => {
       expect(srv.store.getTask(idRelecture)?.status).toBe('ready');
 
       // Le producteur se ré-inscrit en DÉCLARANT la relecture : ré-adoptée.
-      const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-      sockets.push(ws);
-      await new Promise<void>((r, j) => {
-        ws.once('open', () => r());
-        ws.once('error', j);
+      const { ws } = await brancherFauxNoeud(srv.port, {
+        token: TOKEN,
+        name: 'producteur',
+        ownerName: 'test',
+        agentType: 'claude-code',
+        maxConcurrency: 1,
+        nodeId: 'producteur',
+        activeTasks: [idRelecture],
       });
-      ws.send(
-        JSON.stringify({
-          type: 'register',
-          token: TOKEN,
-          name: 'producteur',
-          ownerName: 'test',
-          agentType: 'claude-code',
-          maxConcurrency: 1,
-          nodeId: 'producteur',
-          activeTasks: [idRelecture],
-        }),
-      );
+      sockets.push(ws);
       const fin2 = Date.now() + 5_000;
       while (srv.store.getTask(idRelecture)?.assignedNodeId !== 'producteur' && Date.now() < fin2) {
         await new Promise((r) => setTimeout(r, 40));

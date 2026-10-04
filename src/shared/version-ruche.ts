@@ -40,7 +40,15 @@ export interface VersionRuche {
  * une image n'a pas de `.git`, et c'est normal. Ce qui serait fautif, c'est de
  * lui inventer un commit.
  */
-export type Pose = 'git' | 'inconnue';
+export type Pose = 'git' | 'bureau' | 'inconnue';
+
+/**
+ * La variable que l'application de bureau pose à ses enfants (ADR 0013 § 10).
+ * Sa ruche vit dans le dossier de l'app, sans `.git` : sans ce fait, elle se
+ * lirait `inconnue` et on lui conseillerait de « relancer l'installeur », alors
+ * qu'elle se met à jour toute seule.
+ */
+export const POSE_BUREAU = 'bureau';
 
 /**
  * La version que le `package.json` DÉCLARE, ou « inconnue ».
@@ -72,7 +80,11 @@ export function versionDeclaree(paquet: unknown): string {
   return 'inconnue';
 }
 
-export function poseDepuis(v: VersionRuche): Pose {
+export function poseDepuis(v: VersionRuche, env: NodeJS.ProcessEnv = process.env): Pose {
+  // Le fait POSÉ par celui qui a lancé la ruche passe avant la déduction : une
+  // app de bureau n'a pas de `.git`, et n'en aurait-elle un par hasard (une
+  // ruche lancée depuis un clone), sa marche à suivre reste la sienne.
+  if (env.HIVE_POSE === POSE_BUREAU) return 'bureau';
   return v.commit !== null ? 'git' : 'inconnue';
 }
 
@@ -124,16 +136,27 @@ export function marcheASuivre(pose: Pose): readonly (readonly string[])[] {
     Object.freeze(['git', 'pull', '--ff-only']),
     Object.freeze(['npm', 'ci']),
     // La forme MINIMALE, et sans métacaractère de shell — ces commandes sont
-    // faites pour être collées dans un terminal. `require` suffit : si le
-    // module natif manque, node sort en erreur, et le code de sortie EST le
-    // verdict. Rien à lire, rien à interpréter.
+    // faites pour être collées dans un terminal. Si le module natif manque,
+    // node sort en erreur, et le code de sortie EST le verdict. Ouvrir une
+    // base en mémoire, pas seulement `require` : `better-sqlite3` 13 ne
+    // charge son binaire qu'au premier `new Database`.
     //
     // Le Dockerfile en fait une plus profonde (il ouvre une base et écrit
     // dedans) parce qu'il construit l'image ; ici on répond à « est-ce que le
     // module a survécu au `npm ci` ? », et c'est la question qui coûte.
-    Object.freeze(['node', '-e', "require('better-sqlite3')"]),
+    Object.freeze(['node', '-e', "new (require('better-sqlite3'))(':memory:').close()"]),
     Object.freeze(['npm', 'run', 'build']),
   ]);
+}
+
+/**
+ * Ce qu'on dit d'une ruche posée par l'application de bureau : il n'y a rien à
+ * coller dans un terminal, l'app va chercher les versions publiées elle-même.
+ */
+export function conseilBureau(lang: 'fr' | 'en' = 'fr'): string {
+  return lang === 'en'
+    ? 'Desktop app: it updates itself from the published releases (tray menu → Check for updates).'
+    : 'Application de bureau : elle se met à jour toute seule depuis les versions publiées (barre système → Rechercher une mise à jour).';
 }
 
 /**

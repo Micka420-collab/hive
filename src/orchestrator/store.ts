@@ -10,10 +10,14 @@ import { LIMITS } from '../shared/protocol.js';
 import type { OutilConstate } from '../shared/protocol.js';
 import { LIMITE_TACHES_INSTANTANE, NIVEAUX_ISOLEMENT } from '../shared/types.js';
 import type { Partage } from '../shared/partage.js';
+import type { AntecedentFige } from '../shared/mission-rejouable.js';
 import type { GenreSauvegarde, Sauvegarde, SauvegardeResume } from '../shared/sauvegardes.js';
 import { libelleEtape } from '../shared/sauvegardes.js';
-import { CORPUS_AIGUILLAGE } from './aiguillage.js';
+import { CORPUS_AIGUILLAGE, type ElectionEnVol } from './aiguillage.js';
+import { estEffort, type Effort } from '../shared/effort.js';
 import { CORPUS_GARDE_FOU } from './garde-fou.js';
+import type { ReglageBancOmbre, RevueCote, UsageBancOmbre } from './shadow-bench.js';
+import type { Categorie } from './aiguillage.js';
 import type { Echelon, FaitsProduction } from './garde-fou.js';
 import type { Suite } from './polyethisme.js';
 import type {
@@ -29,8 +33,22 @@ import {
   estEtatDeValidation,
   validationsBacDepuis,
 } from '../shared/validations-bac.js';
+import type { ValidationState } from '../shared/validations-bac.js';
 import { agreger, type Avis } from '../shared/contre-expertise.js';
+import {
+  MOTIFS_FAIT_CONNU,
+  bilanDeRetraits,
+  clotureDe,
+  estPreuve,
+  planDeRetention,
+  type BilanJournal,
+  type LigneJournal,
+  type MotifElagage,
+  type PolitiqueJournal,
+} from '../shared/retention-journal.js';
+import { constatBloquant, lireConstats } from '../shared/critique-structuree.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
+import type { SourceEpisode } from '../shared/cerveau.js';
 import { CORPUS_BALANCE, LOT_GRAND_LIVRE, VERSION_BALANCE } from './balance.js';
 import { depenseHote, fermerSession, ouvrirSession } from './horloge-hote.js';
 import type { SessionHote } from './horloge-hote.js';
@@ -66,17 +84,25 @@ import {
   type MotifRefusHorizon,
 } from './horizon.js';
 import { validerMotifPerso, type MotifPersoRefus } from './motifs.js';
-import { rankMemoriesHybrid } from './hive-mind.js';
-import type { Memory, ScoredMemory } from './hive-mind.js';
+import { rankMemoriesHybrid, suiteSouvenir } from './hive-mind.js';
+import type {
+  IssueSouvenir,
+  Memory,
+  ScoredMemory,
+  ValidationSouvenir,
+  VerdictSouvenir,
+} from './hive-mind.js';
 import {
+  AUCUNE_DEPENSE,
   jugerDelegation,
   type DemandeDelegation,
-  type LimitesDelegation,
+  type DepenseDeclaree,
   type NoeudDelegation,
   type OrigineDelegation,
   type PlanDelegation,
   type VerdictDelegation,
 } from './delegation.js';
+import { lireConsigneRoutage, type ConsigneRoutage } from '../shared/consigne-routage.js';
 import type {
   HiveEvent,
   HiveNode,
@@ -106,6 +132,167 @@ export interface LigneObservationAiguillage {
   nodeId?: string;
   /** Modèle réellement choisi pour ce résultat, quand le lancement l'a tracé. */
   modeleExact?: string;
+  /** Harness du bras commandé (`aiguillage_bras`) ; absent : bras inconnu. */
+  harness?: string;
+  /** Effort commandé ; absent : aucun effort, ou bras inconnu. */
+  effort?: Effort;
+  /** Coût déclaré par le CLI pour la production jugée ; absent : non déclaré. */
+  coutUsd?: number;
+}
+
+/**
+ * La tâche qu'un événement nomme (`payload.taskId`), telle que l'index
+ * `idx_events_tache` la range — et telle que chaque lecture PAR TÂCHE doit
+ * l'écrire, au caractère près : SQLite ne sert une requête par un index
+ * d'expression que si elle en répète l'expression exacte.
+ *
+ * Gardée par `json_valid` : l'index est bâti à l'ouverture sur TOUTES les
+ * lignes d'une base existante, et un seul payload illisible (base retouchée à
+ * la main) ferait échouer `json_extract`, donc la création de l'index, donc le
+ * démarrage de la Reine. Gardée, une ligne illisible ne nomme simplement
+ * aucune tâche.
+ *
+ * Pourquoi un index : la rétention garde les preuves avec leur tâche, et le
+ * journal ne tient plus en 5 000 lignes. Mesuré sur 42 000 événements, relire
+ * les verdicts d'UN résultat coûtait 2,9 ms par l'index de type (tous les
+ * verdicts de la ruche parcourus) et 0,004 ms par celui-ci — à chaque
+ * évaluation, chaque élection, chaque critique relue.
+ */
+const TACHE_DE_L_EVENEMENT = `json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.taskId')`;
+/** Une entrée du journal append-only des connecteurs externes (src/connectors). */
+export interface EntreeJournalConnecteur {
+  id: string;
+  connecteurId: string;
+  projectId: string | null;
+  portee: string;
+  acte: string;
+  cible: string | null;
+  resultat: 'ok' | 'echec' | 'refuse';
+  qui: string;
+  apercu: string;
+  chargeDigest: string;
+  creeA: number;
+}
+
+/**
+ * Ce qu'un côté d'une comparaison du banc a donné, RANGÉ (`taches_ombre`) :
+ * le résultat jugé, son succès, l'état `tests` de ses validations, le commit
+ * de base de ces tests et l'avis de la contre-revue sur CE résultat.
+ */
+export interface CoteOmbreRange {
+  resultId: number;
+  succes: boolean;
+  tests: ValidationState | null;
+  baseSha: string | null;
+  revue: RevueCote;
+}
+
+/**
+ * Le lien d'une OMBRE (`taches_ombre`) : la tâche qui rejoue, la production
+ * originale qu'elle mesure, les deux modèles, ce que le banc y a dépensé —
+ * et les deux côtés de la comparaison, rangés à l'instant où chacun est
+ * connu. Voir shadow-bench.ts.
+ */
+export interface TacheOmbre {
+  tacheOmbre: string;
+  tacheOriginale: string;
+  projectId: string;
+  /** Le résultat EXACT de l'originale que l'ombre mesure (sa première production). */
+  resultatOriginal: number;
+  modeleOriginal: string;
+  modeleOmbre: string;
+  /** Le genre de la tâche, figé à l'ouverture : l'ombre et l'originale partagent le même. */
+  categorie: Categorie;
+  coutDeclareUsd: number;
+  executionsMuettes: number;
+  creeA: number;
+  original: CoteOmbreRange;
+  /** `null` tant que l'ombre n'a rien rendu. */
+  ombre: CoteOmbreRange | null;
+}
+
+/** Une ligne brute de `taches_ombre`, avant d'être relue en `TacheOmbre`. */
+interface TacheOmbreRow {
+  tacheOmbre: string;
+  tacheOriginale: string;
+  projectId: string;
+  resultatOriginal: number;
+  modeleOriginal: string;
+  modeleOmbre: string;
+  categorie: string;
+  coutDeclareUsd: number;
+  executionsMuettes: number;
+  creeA: number;
+  originalSucces: number;
+  originalTests: string | null;
+  originalBase: string | null;
+  originalRevue: string;
+  ombreResultat: number | null;
+  ombreSucces: number | null;
+  ombreTests: string | null;
+  ombreBase: string | null;
+  ombreRevue: string;
+}
+
+/**
+ * Les tâches du BANC, en SQL : chaque ombre (`id` = elle-même) et chaque
+ * relecture d'une ombre (`id` = la relecture), avec l'ombre qu'elles servent.
+ * Une relecture d'ombre juge un travail qui ne se livre jamais : payée par le
+ * banc, elle reste hors de tout ce que l'ombre elle-même ne touche pas —
+ * thermorégulation, phéromones, élections de l'Aiguillage, lignes de
+ * production du Genome. La lire à part laissait le banc déplacer, par ses
+ * relectrices, les entrées du routing qu'il promet de ne pas toucher.
+ */
+const TACHES_DU_BANC_SQL = `
+  SELECT tacheOmbre AS id, tacheOmbre FROM taches_ombre
+  UNION ALL
+  SELECT ce.relectureTaskId AS id, o.tacheOmbre
+    FROM contre_expertises ce JOIN taches_ombre o ON o.tacheOmbre = ce.productionTaskId`;
+
+/**
+ * Une mission (#512) est le travail du PROJET : le banc d'ombre (#501) — une
+ * ombre, ou sa relecture — n'y entre pas. Membre, l'ombre tenait la mission
+ * ouverte, entrait à son instantané comme une tâche du plan, et son rejeu
+ * l'aurait recréée comme une tâche ordinaire.
+ */
+const HORS_BANC = `id NOT IN (SELECT id FROM (${TACHES_DU_BANC_SQL}))`;
+
+const REVUES_COTE: readonly RevueCote[] = ['validee', 'contestee', 'absente'];
+const revueRangee = (v: string): RevueCote =>
+  (REVUES_COTE as readonly string[]).includes(v) ? (v as RevueCote) : 'absente';
+const testsRanges = (v: string | null): ValidationState | null =>
+  estEtatDeValidation(v) ? v : null;
+
+function rowToTacheOmbre(r: TacheOmbreRow): TacheOmbre {
+  return {
+    tacheOmbre: r.tacheOmbre,
+    tacheOriginale: r.tacheOriginale,
+    projectId: r.projectId,
+    resultatOriginal: r.resultatOriginal,
+    modeleOriginal: r.modeleOriginal,
+    modeleOmbre: r.modeleOmbre,
+    categorie: r.categorie as Categorie,
+    coutDeclareUsd: r.coutDeclareUsd,
+    executionsMuettes: r.executionsMuettes,
+    creeA: r.creeA,
+    original: {
+      resultId: r.resultatOriginal,
+      succes: r.originalSucces === 1,
+      tests: testsRanges(r.originalTests),
+      baseSha: r.originalBase,
+      revue: revueRangee(r.originalRevue),
+    },
+    ombre:
+      r.ombreResultat === null || r.ombreSucces === null
+        ? null
+        : {
+            resultId: r.ombreResultat,
+            succes: r.ombreSucces === 1,
+            tests: testsRanges(r.ombreTests),
+            baseSha: r.ombreBase,
+            revue: revueRangee(r.ombreRevue),
+          },
+  };
 }
 
 const SCHEMA = `
@@ -484,6 +671,39 @@ CREATE TABLE IF NOT EXISTS livraisons (
 );
 CREATE INDEX IF NOT EXISTS idx_livraisons_projet ON livraisons(projectId, etat);
 
+-- ─── La lignée d'une reprise : quelle tâche PROLONGE quelle pull request ────
+-- Une reprise (POST .../livraisons/:taskId/reprendre) corrige une PR déjà
+-- livrée SUR SA BRANCHE. Sans cette ligne, rien ne relie la tâche de reprise à
+-- la branche qu'elle doit prolonger : le scheduler lui donnait hive/<nouvelId>,
+-- l'ouvrière clonait la branche par défaut (sans le travail de la PR), et la
+-- livraison ouvrait une SECONDE pull request qui ne contenait que le
+-- correctif, pendant que la première restait rouge. La lignée ne vivait que
+-- dans l'événement livraison_reprise, qu'aucune décision ne relit.
+--
+-- origine : la tâche de la PREMIÈRE livraison de la PR — le plafond de
+--           reprises se compte sur elle, pas sur le numéro de PR ;
+-- parent  : la livraison reprise directement (l'origine, ou une reprise
+--           précédente déjà livrée) ;
+-- tete    : le SHA de tête que GitHub montrait à la reprise. Provenance
+--           seulement : la livraison relit la tête au moment d'écrire.
+--
+-- Table LATÉRALE (règle 2 : aucune migration), écrite une fois par reprise et
+-- jamais réécrite (INSERT sans remplacement : la lignée est un fait daté).
+-- BORNE D'ÉLAGAGE (règle 3), dans le MÊME changement : « pruneReprisesLivraison »,
+-- référentielle — la lignée ne survit pas à la tâche de reprise.
+CREATE TABLE IF NOT EXISTS reprises_livraison (
+  taskId    TEXT PRIMARY KEY,
+  origine   TEXT NOT NULL,
+  parent    TEXT NOT NULL,
+  projectId TEXT NOT NULL,
+  depot     TEXT NOT NULL,
+  pr        INTEGER NOT NULL,
+  branche   TEXT NOT NULL,
+  tete      TEXT NOT NULL,
+  creeA     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reprises_livraison_origine ON reprises_livraison(origine);
+
 -- ─── D'où vient une tâche : l'issue qui l'a demandée ────────────────────────
 -- Table LATÉRALE, et pas une colonne de plus sur « tasks » : la très grande
 -- majorité des tâches ne vient d'aucune issue, et une colonne vide sur toutes
@@ -583,6 +803,84 @@ CREATE TABLE IF NOT EXISTS aiguillage_modeles (
   choisiA INTEGER NOT NULL
 );
 
+-- La consigne de l'OPÉRATEUR sur le routage d'une tâche (shared/consigne-routage.ts) :
+-- familles ou modèles imposés, familles ou modèles exclus. UNE INTENTION
+-- HUMAINE, pas un calcul — la ligne absente EST « aucune consigne », comme
+-- pour « budgets » : pas de drapeau, pas de consigne vide déguisée.
+--
+-- Une table LATÉRALE clé-par-tâche et non une colonne « tasks » : la règle 2
+-- (aucune colonne sur une table existante, aucun ALTER) tient, et le résultat
+-- est le même — une valeur nullable par tâche, additive et idempotente
+-- (CREATE TABLE IF NOT EXISTS) sur une base déjà en service.
+--
+-- definiPar : userId du compte qui l'a posée, NULL pour le jeton de ruche. Une
+-- trace, pas une autorisation : la garde est celle des décisions sur une tâche.
+--
+-- BORNE (règle 3) : cascade de pruneTasks — la consigne part avec sa tâche.
+CREATE TABLE IF NOT EXISTS consignes_routage (
+  taskId    TEXT PRIMARY KEY,
+  consigne  TEXT NOT NULL,
+  definiPar TEXT,
+  majA      INTEGER NOT NULL
+);
+
+-- La dépense DÉCLARÉE de chaque tentative d'un enfant délégué — le seul fait
+-- qui manque pour tenir le budget coût d'un arbre. Le coût vivait déjà au
+-- journal (task_done / task_retry / task_failed), mais le journal s'élague PAR
+-- NOMBRE (EVENT_RETENTION) : sur une ruche occupée, la dépense d'un arbre
+-- encore en vol pouvait s'y effacer, et son budget se remplir tout seul.
+--
+-- Une ligne par TENTATIVE, ouverte à l'envoi au nœud (ouvrirTentativeDelegation,
+-- un drone de course compte pour une) et close par insertResult dans la même
+-- transaction que son résultat (resultId). Ouverte à l'envoi et non au
+-- résultat : une tentative interrompue SANS résultat — nœud perdu, annulation,
+-- enveloppe épuisée — a pu dépenser, et resterait sinon invisible. Elle garde
+-- resultId NULL et coutMicros NULL : inconnue, jamais zéro (voir
+-- DepenseDeclaree, delegation.ts).
+--
+-- BORNE (règle 3) : cascade de pruneTasks, par RACINE — elle ne part qu'avec
+-- l'arbre entier. Élaguée avec l'enfant, la dépense d'une racine encore
+-- vivante aurait baissé, et son budget avec.
+CREATE TABLE IF NOT EXISTS depenses_delegation (
+  id         INTEGER PRIMARY KEY,
+  rootTaskId TEXT NOT NULL,
+  taskId     TEXT NOT NULL,
+  nodeId     TEXT NOT NULL,
+  resultId   INTEGER UNIQUE,
+  coutMicros INTEGER,
+  creeA      INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_depenses_delegation_racine
+  ON depenses_delegation(rootTaskId, coutMicros);
+CREATE INDEX IF NOT EXISTS idx_depenses_delegation_tache
+  ON depenses_delegation(taskId, nodeId, resultId);
+
+-- Le RESTE du bras commandé (VERSION_AIGUILLAGE 3) : le harness (l'agentType
+-- du nœud) et l'effort, à côté du modèle d'aiguillage_modeles. Table LATÉRALE
+-- et jumelle (règle 2 : aiguillage_modeles ne prend pas de colonne), même clé,
+-- même cycle de vie : posée et effacée avec elle, par les mêmes appels.
+-- effort NULL : aucun effort commandé, le CLI garde son défaut.
+--
+-- coutUsd : le coût que le CLI a DÉCLARÉ pour la production rendue sous ce
+-- bras (task_done, fournisseur.coutUsd), NULL tant qu'il n'a rien déclaré —
+-- jamais estimé, jamais tiré des jetons. Une réassignation REPOSE la ligne :
+-- le coût d'une tentative ne survit pas à la suivante, comme le verdict lu est
+-- celui de la dernière production.
+--
+-- Une tâche sans ligne ici (élection d'avant la v3) : aucun effort n'était
+-- commandé, et son harness se CONSTATE sur le nœud du résultat relu
+-- (observationsAiguillage) ; sans lui, le verdict nourrit le seul niveau modèle,
+-- jamais un bras par supposition.
+--
+-- BORNE (règle 3) : pruneAiguillageModeles l'élague avec sa jumelle.
+CREATE TABLE IF NOT EXISTS aiguillage_bras (
+  taskId  TEXT PRIMARY KEY,
+  harness TEXT NOT NULL,
+  effort  TEXT,
+  coutUsd REAL,
+  choisiA INTEGER NOT NULL
+);
+
 -- L'Agent Garde-Fous : quel ÉCHELON de garde-fous a gouverné quelle tâche. Fait
 -- posé à l'assignation, clé par tâche, motif aiguillage_modeles au mot près
 -- (INSERT OR REPLACE : une réassignation ré-élit, la dernière gouverne). On ne
@@ -617,6 +915,77 @@ CREATE TABLE IF NOT EXISTS garde_fou_exigences (
   exigence         TEXT NOT NULL CHECK (exigence IN ('exigee', 'dispensee')),
   decideA          INTEGER NOT NULL
 );
+
+-- Le banc d'ombre (shadow-bench.ts) — le CONSENTEMENT d'un projet, et rien
+-- d'autre. Motif « garde_fous » : UNE INTENTION HUMAINE (règle 1), posée par
+-- qui répond du projet ; le banc ne s'allume ni n'élargit jamais son budget
+-- lui-même. Ligne ABSENTE = banc éteint : il coûte de vrais appels de modèle.
+--
+-- BORNE STRUCTURELLE (règle 3) : une ligne par projet. Pas d'élagueur, et il
+-- ne faut jamais en ajouter « par symétrie » — l'effacer éteindrait un banc
+-- que l'humain avait allumé, ou relâcherait son budget, sans un mot.
+CREATE TABLE IF NOT EXISTS banc_ombre (
+  projectId         TEXT PRIMARY KEY REFERENCES projects(id),
+  actif             INTEGER NOT NULL DEFAULT 0,
+  tauxPourMille     INTEGER NOT NULL,
+  executionsParJour INTEGER NOT NULL,
+  plafondCoutUsd    REAL NOT NULL,
+  version           INTEGER NOT NULL DEFAULT 1,
+  definiPar         TEXT,
+  updatedAt         INTEGER NOT NULL
+);
+
+-- Les ombres : quelle tâche REJOUE quelle production, avec quel modèle — et
+-- ce que la comparaison a donné.
+-- Table LATÉRALE, motif « contre_expertises » : elle MARQUE une tâche comme
+-- ombre — sans cette marque, l'ombre se livrerait, se fusionnerait et
+-- nourrirait le routing comme une production ordinaire — et elle CORRÈLE
+-- l'ombre à la production originale qu'elle mesure (resultatOriginal).
+--
+-- Le modèle de l'ombre vit ICI et nulle part ailleurs, jamais dans
+-- aiguillage_modeles : c'est ce qui la tient hors de la récompense et des
+-- élections en vol de l'Aiguillage (décision écrite en tête de shadow-bench.ts).
+--
+-- UNIQUE sur la tâche originale : une ombre par tâche, jamais deux.
+-- coutDeclareUsd / executionsMuettes : ce que l'ombre et ses relectures ont
+-- DÉCLARÉ coûter, et combien n'ont rien déclaré. Le budget se lit ici : un
+-- journal élagué à 5 000 événements l'aurait oublié avant la fin de la journée.
+--
+-- LES DEUX CÔTÉS DE LA COMPARAISON, RANGÉS ICI pour la même raison : le banc
+-- PAIE chaque comparaison, et un registre Genome qui la relirait du journal
+-- l'oublierait après 5 000 événements — une ruche occupée perdrait sa semaine
+-- de mesures en une nuit. original* est figé à l'ouverture (la production
+-- originale est déjà jugée par ses tests) ; ombre* à son rendu (une seule
+-- tentative) ; *Revue ('validee' | 'contestee' | 'absente') à chaque avis de
+-- contre-revue sur CE résultat exact. Des faits, jamais un verdict : le
+-- verdict et la confiance se recalculent à la lecture (comparerOmbre), une
+-- seule règle pour tous.
+--
+-- BORNE D'ÉLAGAGE (règle 3), dans le MÊME changement : pruneTachesOmbre,
+-- référentielle — une ligne dont l'ombre a disparu ne désigne plus rien. Les
+-- comparaisons vivent donc aussi longtemps que les tâches (TACHES_RETENTION_MS).
+CREATE TABLE IF NOT EXISTS taches_ombre (
+  tacheOmbre        TEXT PRIMARY KEY,
+  tacheOriginale    TEXT NOT NULL UNIQUE,
+  projectId         TEXT NOT NULL,
+  resultatOriginal  INTEGER NOT NULL,
+  modeleOriginal    TEXT NOT NULL,
+  modeleOmbre       TEXT NOT NULL,
+  categorie         TEXT NOT NULL,
+  coutDeclareUsd    REAL NOT NULL DEFAULT 0,
+  executionsMuettes INTEGER NOT NULL DEFAULT 0,
+  creeA             INTEGER NOT NULL,
+  originalSucces    INTEGER NOT NULL,
+  originalTests     TEXT,
+  originalBase      TEXT,
+  originalRevue     TEXT NOT NULL DEFAULT 'absente',
+  ombreResultat     INTEGER,
+  ombreSucces       INTEGER,
+  ombreTests        TEXT,
+  ombreBase         TEXT,
+  ombreRevue        TEXT NOT NULL DEFAULT 'absente'
+);
+CREATE INDEX IF NOT EXISTS idx_taches_ombre_projet ON taches_ombre(projectId, creeA);
 
 -- ─── Le trou de vol ─────────────────────────────────────────────────────────
 -- Deux tables, une par nature, et surtout PAS une seule : un billet est une
@@ -796,6 +1165,34 @@ CREATE TABLE IF NOT EXISTS events (
 -- Lecture par FENÊTRE TEMPORELLE (thermorégulation) : ts en tête pour la
 -- borne « ts >= ? », type ensuite pour filtrer sans ouvrir la ligne.
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts, type);
+-- Lecture PAR TYPE (et par id, que l'index porte avec la clé) : les preuves
+-- d'une tâche se relisent par type — la CI d'un résultat, l'annonce d'une
+-- relecture, le verdict humain. Depuis que la rétention garde les preuves avec
+-- leur tâche, le journal ne tient plus en 5 000 lignes : sans cet index,
+-- chacune de ces lectures parcourrait tout le journal retenu, jusqu'au plafond.
+CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
+-- Lecture PAR TÂCHE : les preuves d'une production (sa CI, ses verdicts, sa
+-- critique, sa mesure) sans parcourir celles de toutes les autres. Voir
+-- TACHE_DE_L_EVENEMENT pour l'expression, et pourquoi elle est gardée.
+CREATE INDEX IF NOT EXISTS idx_events_tache ON events(${TACHE_DE_L_EVENEMENT}, type);
+
+-- ─── Ce que la rétention du journal a retiré, par type et par motif ─────────
+-- Le compte DURABLE de l'élagage : l'événement journal_elagage raconte chaque
+-- passe mais sort lui-même du journal avec la fenêtre. Sans cette table, le
+-- type d'un événement élagué se perdait avec lui, et le Genome devait se dire
+-- tronqué dès la première trace retirée (cf. HiveStore.faitsElagues).
+-- Une ligne par couple (type, motif), cumulée : bornée par le vocabulaire
+-- FERMÉ des types que le code émet, jamais une ligne par événement.
+-- avant_registre : les suppressions faites AVANT que ce registre existe, dont
+-- le type est perdu — posée une fois, à la première ouverture d'une base qui
+-- en avait (cf. HiveStore.amorcerRegistreElagages).
+CREATE TABLE IF NOT EXISTS journal_elagages (
+  type      TEXT NOT NULL,
+  motif     TEXT NOT NULL CHECK (motif IN ('trace', 'orpheline', 'echue', 'plafond_close', 'plafond_vivante', 'plafond_coupe', 'avant_registre')),
+  supprimes INTEGER NOT NULL,
+  dernierA  INTEGER NOT NULL,
+  PRIMARY KEY (type, motif)
+);
 
 CREATE TABLE IF NOT EXISTS memories (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -806,6 +1203,51 @@ CREATE TABLE IF NOT EXISTS memories (
   createdAt INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_memories_task ON memories(taskId);
+
+-- Le souvenir qu'une production PROPOSE au Hive Mind, en attendant qu'on la
+-- juge. Écrit À LA RÉCEPTION d'une réussite (scheduler.handleTaskResult) :
+-- c'est le seul instant où la réponse finale de l'agent est en main — le
+-- journal ne la garde pas pour un succès (insertResult), et le souvenir en est
+-- fait. Il n'entre dans « memories » qu'à l'acceptation de l'Evaluator ou à
+-- l'approbation humaine (hive-mind.ts, suiteSouvenir).
+--
+-- POURQUOI UNE TABLE LATÉRALE : « memories » n'a pas de colonne pour dire
+-- « pas encore validé », et en ajouter une serait une migration (règle 2).
+--
+-- POURQUOI UNE ISSUE RANGÉE, alors que la règle 1 interdit d'écrire un calcul :
+-- ce n'est pas le verdict qu'on range — l'Evaluator le recalcule à chaque
+-- lecture —, c'est ce que la ruche en a DÉJÀ FAIT. Sans elle, chaque fait relu
+-- (un avis, une CI, une revue) reverserait au Cerveau le même rejet, et le
+-- compteur de récurrences mentirait.
+--
+-- resultId : la production exacte jugée ; une nouvelle production de la même
+--            tâche REMPLACE la ligne (clé primaire taskId), et un verdict
+--            rendu sur l'ancienne ne touche plus rien.
+-- validePar : QUI a validé le souvenir retenu (hive-mind.ts,
+--            ValidationSouvenir) — une approbation humaine retirée le
+--            retire, une preuve de l'Evaluator qui vieillit, non. NULL hors de
+--            « retenu », et pour un souvenir HÉRITÉ d'avant ce registre
+--            (adopterSouvenirHerite), dont on ne sait pas qui l'a validé.
+-- episode  : la porte qui a DÉJÀ versé au Cerveau l'échec de CETTE production.
+--            Un échec, un épisode : sans elle, une objection arrivée après un
+--            rejet de l'Evaluator, ou un rejet défait puis redit, compterait
+--            la même panne deux fois — et le seuil de consolidation mentirait.
+--
+-- BORNE (règle 3) : une ligne par tâche, et pruneSouvenirsProposes,
+-- référentielle, câblée dans server.ts après pruneTasks. Le souvenir RETENU,
+-- lui, vit dans « memories » et survit à sa tâche (voir pruneTasks).
+CREATE TABLE IF NOT EXISTS souvenirs_proposes (
+  taskId    TEXT PRIMARY KEY,
+  resultId  INTEGER NOT NULL,
+  projectId TEXT NOT NULL,
+  title     TEXT NOT NULL,
+  content   TEXT NOT NULL DEFAULT '',
+  issue     TEXT NOT NULL DEFAULT 'en_attente'
+            CHECK (issue IN ('en_attente', 'retenu', 'rejete')),
+  validePar TEXT CHECK (validePar IN ('evaluator', 'revue_humaine')),
+  episode   TEXT CHECK (episode IN ('echec_worker', 'contre_revue', 'rejet_evaluator')),
+  proposeA  INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS reviews (
   taskId    TEXT PRIMARY KEY,
@@ -887,6 +1329,18 @@ CREATE TABLE IF NOT EXISTS machines_noeuds (
 CREATE TABLE IF NOT EXISTS modeles_noeuds (
   nodeId  TEXT PRIMARY KEY REFERENCES nodes(id),
   modeles TEXT NOT NULL,
+  majA    INTEGER NOT NULL
+);
+
+-- BORNE STRUCTURELLE (regle 3), jumelle de « modeles_noeuds » et même règle :
+-- une ligne par noeud, la re-inscription ECRASE, l'inscription qui ne les
+-- REDIT pas EFFACE. Les EFFORTS que le noeud sait commander à son CLI (ceux que
+-- son adaptateur documente, src/shared/effort.ts), rangés en JSON. Sans ligne,
+-- l'Aiguillage ne lui commande AUCUN effort : un noeud d'avant cette version
+-- ignorerait le champ, et son verdict serait rangé sous un effort jamais tourné.
+CREATE TABLE IF NOT EXISTS efforts_noeuds (
+  nodeId  TEXT PRIMARY KEY REFERENCES nodes(id),
+  efforts TEXT NOT NULL,
   majA    INTEGER NOT NULL
 );
 
@@ -1033,6 +1487,143 @@ CREATE TABLE IF NOT EXISTS motifs_projet (
   creeA     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_motifs_projet ON motifs_projet(projectId, creeA DESC);
+
+-- Connecteurs externes (src/connectors) — AUTORISATION par projet. L'hôte
+-- accorde un connecteur + un jeu de portées, et (Slack) des canaux et usagers
+-- explicitement inscrits, à UN projet. Le SECRET du connecteur vit dans le
+-- .env Queen, JAMAIS ici : cette table ne porte que la décision d'accès, pas
+-- de quoi appeler l'extérieur. TABLE LATÉRALE — une ligne par (connecteur, projet).
+-- ON DELETE CASCADE : un accord n'a aucun sens sans son projet, et sans la
+-- cascade (foreign_keys = ON) supprimer un projet autorisé échouerait sur la
+-- contrainte. Le JOURNAL, lui, n'a pas de clé étrangère (un appel refusé peut
+-- ne nommer aucun projet) ; les deux tables sont dans EFFACEMENT_PROJET :
+-- supprimer un projet n'est pas l'archiver, et l'aperçu caviardé d'un appel
+-- cite encore le titre d'une de ses tâches. Seul « project_deleted » reste.
+CREATE TABLE IF NOT EXISTS connecteurs_projet (
+  connecteurId TEXT NOT NULL,
+  projectId    TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  portees      TEXT NOT NULL DEFAULT '[]',
+  canaux       TEXT NOT NULL DEFAULT '[]',
+  usagers      TEXT NOT NULL DEFAULT '[]',
+  actif        INTEGER NOT NULL DEFAULT 1,
+  creeA        INTEGER NOT NULL,
+  majA         INTEGER NOT NULL,
+  PRIMARY KEY (connecteurId, projectId)
+);
+CREATE INDEX IF NOT EXISTS idx_connecteurs_projet ON connecteurs_projet(projectId);
+
+-- Journal APPEND-ONLY de chaque appel externe d'un connecteur : qui l'a
+-- déclenché, quel acte, sous quelle portée, avec quel résultat, et une empreinte
+-- SHA-256 de la charge CAVIARDÉE plus un aperçu caviardé. JAMAIS de secret,
+-- JAMAIS la charge en clair. Répond à « qu'a fait ce connecteur, et quand ? »
+-- sans jamais rejouer ce qu'il a envoyé. Élagué par le TEMPS, comme les events.
+CREATE TABLE IF NOT EXISTS connecteurs_journal (
+  id           TEXT PRIMARY KEY,
+  connecteurId TEXT NOT NULL,
+  projectId    TEXT,
+  portee       TEXT NOT NULL,
+  acte         TEXT NOT NULL,
+  cible        TEXT,
+  resultat     TEXT NOT NULL,
+  qui          TEXT NOT NULL,
+  apercu       TEXT NOT NULL DEFAULT '',
+  chargeDigest TEXT NOT NULL DEFAULT '',
+  creeA        INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_connecteurs_journal_projet ON connecteurs_journal(projectId, creeA DESC);
+CREATE INDEX IF NOT EXISTS idx_connecteurs_journal_creeA ON connecteurs_journal(creeA);
+
+-- ─── Les MISSIONS REJOUABLES (src/shared/mission-rejouable.ts) ─────────────
+--
+-- Trois tables NEUVES et LATÉRALES (règle 2 : aucune migration, aucune
+-- colonne sur une table existante). Une base d'avant les gagne vides à
+-- l'ouverture, et n'y perd rien.
+--
+-- missions : un épisode d'activité d'un projet, et ses DEUX instantanés
+-- (JSON, format versionné). Le début est écrit à l'ouverture, en même temps
+-- que la ligne ; la fin, une seule fois, à la clôture. Pas de REFERENCES vers
+-- projects, à dessein : une clé étrangère ferait échouer la suppression d'un
+-- projet qui a eu des missions — c'est l'élagueur qui retire les orphelines.
+--
+-- missions_taches : QUI est dans la mission, rangé à l'ouverture puis à
+-- chaque relevé. L'appartenance ne se déduit PAS des dates : une tâche finie
+-- qu'on ranime (relance de l'Evaluator, remise en file) a la naissance d'une
+-- AUTRE mission — la borner par « née depuis l'ouverture » faisait avaler à
+-- la mission suivante tout le plan de la précédente, et son rejeu le recréait.
+--
+-- rejeux : marque un projet comme le REJEU d'une mission. C'est cette marque
+-- que relisent l'ordonnanceur (modèle et routage imposés) et toutes les
+-- portes des actions irréversibles (simulées, jamais exécutées sans humain).
+-- Le Genome FIGÉ y est recopié à la création (politique « figee ») : le
+-- routage d'un rejeu en vol ne doit pas dépendre de la survie de l'instantané
+-- source à l'élagage. missionRejeu : la PREMIÈRE mission du projet de
+-- rejeu, rangée à son ouverture — c'est ELLE que la comparaison oppose à la
+-- source, et l'élagueur l'épargne comme il épargne la source.
+--
+-- rejeux_actions : ce qu'un rejeu a demandé d'irréversible, et ce qui en a
+-- été fait (simulée, ou validée par un humain). Unique par validateur
+-- (idx_rejeux_actions_une, parUserId vide pour une simulation) : une ruche
+-- autonome qui redemande à chaque cycle la même livraison n'en range qu'une,
+-- mais un SECOND humain qui valide la même action est rangé à son nom — un
+-- UNIQUE sans lui taisait le second validateur.
+--
+-- BORNE D'ÉLAGAGE (règle 3), dans le MÊME changement : pruneMissions — les
+-- lignes dont le projet a disparu, puis les plus vieilles missions de chaque
+-- projet au-delà d'un plafond (sauf celles qu'un rejeu compare encore), puis
+-- les SIMULATIONS au-delà d'un plafond par projet — jamais une validation
+-- humaine, jamais la marque d'une livraison ou d'une fusion simulée (voir
+-- pruneMissions).
+CREATE TABLE IF NOT EXISTS missions (
+  id              TEXT PRIMARY KEY,
+  projectId       TEXT NOT NULL,
+  ouverteA        INTEGER NOT NULL,
+  closeA          INTEGER,
+  depuisEvenement INTEGER NOT NULL,
+  debut           TEXT NOT NULL,
+  fin             TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_missions_projet ON missions(projectId, ouverteA DESC);
+
+CREATE TABLE IF NOT EXISTS rejeux (
+  projectId     TEXT PRIMARY KEY,
+  missionSource TEXT NOT NULL,
+  projetSource  TEXT NOT NULL,
+  surcharges    TEXT NOT NULL,
+  genomeFige    TEXT,
+  creePar       TEXT,
+  creeA         INTEGER NOT NULL,
+  missionRejeu  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_rejeux_source ON rejeux(missionSource);
+
+CREATE TABLE IF NOT EXISTS rejeux_actions (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  projectId TEXT NOT NULL,
+  genre     TEXT NOT NULL,
+  cible     TEXT NOT NULL,
+  issue     TEXT NOT NULL CHECK (issue IN ('simulee', 'validee')),
+  parUserId TEXT,
+  creeA     INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rejeux_actions_une
+  ON rejeux_actions(projectId, genre, cible, issue, IFNULL(parUserId, ''));
+
+CREATE TABLE IF NOT EXISTS missions_taches (
+  missionId TEXT NOT NULL,
+  taskId    TEXT NOT NULL,
+  PRIMARY KEY (missionId, taskId)
+);
+CREATE INDEX IF NOT EXISTS idx_missions_taches_tache ON missions_taches(taskId);
+
+-- L'empreinte PUBLIQUE de la ruche (shared/empreinte-ruche.ts) : UNE ligne,
+-- tirée au sort au premier démarrage, jamais réécrite. Rangée ici parce
+-- qu'elle doit survivre aux redémarrages (sinon les membres de la ruche lui
+-- deviendraient étrangers) sans être dérivée d'aucun secret — elle est
+-- diffusée sur le réseau local. Borne structurelle : une ligne (CHECK).
+CREATE TABLE IF NOT EXISTS identite_ruche (
+  id        INTEGER PRIMARY KEY CHECK (id = 1),
+  empreinte TEXT NOT NULL
+);
 `;
 
 interface ProjectRow {
@@ -1139,6 +1730,43 @@ function rowToResultatBalance(r: ResultatRow): ResultatBalance {
 }
 
 /**
+ * Une mission telle qu'elle est RANGÉE : ses deux instantanés sont du JSON
+ * brut, relu par `lireInstantane` (format versionné, lecture défensive).
+ */
+export interface MissionRangee {
+  id: string;
+  projectId: string;
+  ouverteA: number;
+  closeA: number | null;
+  /** Dernier événement AVANT l'ouverture : le journal de la mission commence après. */
+  depuisEvenement: number;
+  debut: string;
+  fin: string | null;
+}
+
+/** La marque de rejeu d'un projet. Les surcharges sont relues champ par champ. */
+export interface RejeuRange {
+  projectId: string;
+  missionSource: string;
+  projetSource: string;
+  surcharges: { modele?: string; politiqueRoutage?: string; autonomie?: string };
+  /** Le Genome de l'instantané source, recopié pour la politique `figee`. */
+  genomeFige: AntecedentFige[] | null;
+  creePar: string | null;
+  creeA: number;
+  /** La première mission du projet de rejeu — `null` tant qu'elle n'est pas ouverte. */
+  missionRejeu: string | null;
+}
+
+export interface ActionRejeuRangee {
+  genre: string;
+  cible: string;
+  issue: 'simulee' | 'validee';
+  parUserId: string | null;
+  creeA: number;
+}
+
+/**
  * Plafond de dépense posé par un humain sur un projet. Ligne de la table
  * `budgets`, rendue telle quelle : aucun calcul, aucune dérivation.
  */
@@ -1186,8 +1814,10 @@ export interface CleNoeudRangee {
  * Une livraison de la ruche sur le dépôt de l'utilisateur.
  *
  * `etat` : `en_cours` (réservation avant l'appel GitHub) · `ouverte` (PR en
- * attente) · `fusionnee` · `echouee`. Un état terminal reste VISIBLE avec son
- * motif plutôt que d'être effacé — une livraison qui disparaît sans laisser de
+ * attente) · `fusionnee` · `echouee` · `relayee` (une reprise livrée a fait
+ * avancer la même PR : c'est SA ligne qui la porte désormais, cf.
+ * `ETAT_LIVRAISON_RELAYEE`). Un état terminal reste VISIBLE avec son motif
+ * plutôt que d'être effacé — une livraison qui disparaît sans laisser de
  * trace, c'est une ruche qui retentera la même chose demain.
  */
 export interface LivraisonRangee {
@@ -1205,6 +1835,30 @@ export interface LivraisonRangee {
 
 /** État transitoire qui réserve une tâche pendant l'appel GitHub asynchrone. */
 export const ETAT_LIVRAISON_EN_COURS = 'en_cours';
+
+/**
+ * État d'une livraison dont la pull request est désormais portée par une
+ * reprise livrée sur la MÊME branche.
+ *
+ * Une PR = UNE ligne vivante. Sans ce passage, la ligne d'origine resterait
+ * `ouverte` à côté de celle de la reprise : la fusion autonome la prendrait
+ * pour une seconde PR à fusionner, et l'écran montrerait deux fois la même.
+ * La ligne reste (règle des états terminaux) : elle dit qui a relayé.
+ */
+export const ETAT_LIVRAISON_RELAYEE = 'relayee';
+
+/** La lignée d'une tâche de reprise (table `reprises_livraison`). */
+export interface RepriseLivraison {
+  taskId: string;
+  origine: string;
+  parent: string;
+  projectId: string;
+  depot: string;
+  pr: number;
+  branche: string;
+  tete: string;
+  creeA: number;
+}
 
 /** Une session de Conseil telle qu'elle est rangée. */
 export interface SessionRangee {
@@ -1266,6 +1920,14 @@ interface EventRow {
   payload: string;
 }
 
+/** Ce qu'une sélection de souvenirs écarte, avant la borne du corpus. */
+export interface FiltreSouvenirs {
+  /** Le projet SOURCE du souvenir est-il admis ? (`savoirAdmis`, server.ts) */
+  admis?: (projectId: string) => boolean;
+  /** La tâche dont le souvenir ne compte pas (une ombre rejoue l'originale). */
+  exclureTache?: string;
+}
+
 interface MemoryRow {
   id: number;
   projectId: string;
@@ -1313,6 +1975,8 @@ export interface NodeProfile {
    * redit à chaque inscription).
    */
   modeles?: string[];
+  /** Les efforts déclarés à CETTE inscription. Absents : la ligne connue est EFFACÉE. */
+  efforts?: Effort[];
   /**
    * Les outils IA CONSTATÉS sur la machine du nœud. Absents : on n'écrase pas
    * ce qu'on sait — un client d'avant cette version ne doit pas effacer les
@@ -1352,6 +2016,63 @@ export interface ProjectMember {
 
 /** Résultats allégés au maximum par passe : borne le coût d'un tick. */
 const LOT_ALLEGEMENT = 2_000;
+
+/**
+ * Le corpus de l'Aiguillage, en SQL : les productions dont on connaît le
+ * verdict de contre-visite (`cv`) et soit le modèle commandé (`am`), soit le
+ * modèle exact prouvé par le DERNIER verdict de contre-revue (`ce`), les plus
+ * récentes d'abord — avec le BRAS de chacune (VERSION_AIGUILLAGE 3 : harness,
+ * effort, coût déclaré ; voir `observationsAiguillage` pour sa provenance).
+ * UNE définition, deux lecteurs : `observationsAiguillage`
+ * qui apprend, et la rétention du journal qui garde ce verdict tant que la
+ * production compte (`faitsRanges`) — une copie de l'une dans l'autre finirait
+ * par garder un autre ensemble que celui qu'on apprend.
+ *
+ * Le dernier verdict de chaque production est relu en UNE passe groupée
+ * (`derniers`), pas par une sous-requête corrélée par production : mesuré sur
+ * 1 500 productions et 3 000 verdicts, la forme corrélée coûtait ~130 ms à
+ * chaque élection de modèle, et la rétention garde désormais les verdicts avec
+ * leur production au lieu de les élaguer au bout de 5 000 événements.
+ * `json_valid` d'abord : la rétention relit ce corpus à chaque passe, et un
+ * seul payload illisible ne doit pas l'arrêter pour de bon — le journal
+ * grandirait alors sans borne. `LIMIT ?` : la borne, `CORPUS_AIGUILLAGE`.
+ */
+const CORPUS_AIGUILLAGE_SQL = `
+  WITH derniers AS (
+    SELECT json_extract(payload, '$.taskId') AS taskId, MAX(id) AS id
+      FROM events
+     WHERE type = 'contre_expertise_verdict'
+       AND json_valid(payload)
+       AND json_extract(payload, '$.source') = 'hive_counter_review'
+       AND json_extract(payload, '$.resultId') IS NOT NULL
+     GROUP BY json_extract(payload, '$.taskId')
+  )
+  SELECT ce.id AS verdictId, t.title AS title, t.prompt AS prompt,
+         COALESCE(am.modele, json_extract(ce.payload, '$.producteurModele')) AS modele,
+         cv.suite AS suite,
+         r.nodeId AS nodeId,
+         json_extract(ce.payload, '$.producteurModele') AS modeleExact,
+         CASE WHEN ce.id IS NULL THEN ab.harness
+              ELSE COALESCE(json_extract(ce.payload, '$.producteurHarness'), n.agentType)
+          END AS harness,
+         CASE WHEN ce.id IS NULL THEN ab.effort
+              ELSE json_extract(ce.payload, '$.producteurEffort')
+          END AS effort,
+         CASE WHEN ce.id IS NULL THEN ab.coutUsd
+              ELSE json_extract(ce.payload, '$.producteurCoutUsd')
+          END AS coutUsd
+    FROM contre_visites cv
+    LEFT JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
+    LEFT JOIN aiguillage_bras ab    ON ab.taskId = cv.productionTaskId
+    JOIN tasks t                    ON t.id      = cv.productionTaskId
+    LEFT JOIN derniers d            ON d.taskId  = cv.productionTaskId
+    LEFT JOIN events ce             ON ce.id     = d.id
+    LEFT JOIN results r ON r.id = CAST(json_extract(ce.payload, '$.resultId') AS INTEGER)
+    LEFT JOIN nodes n   ON n.id = r.nodeId
+   WHERE am.taskId IS NOT NULL
+      OR json_extract(ce.payload, '$.producteurModele') IS NOT NULL
+   ORDER BY cv.renduA DESC, cv.productionTaskId DESC
+   LIMIT ?`;
 
 /**
  * Relit les griefs d'une ligne de garde. Tolérant par conception : une ligne
@@ -1395,7 +2116,8 @@ function rowToDelegation(row: DelegationRow): DelegationRangee {
 
 /** `running` est calculé à la volée depuis les tâches actives — jamais stocké. */
 const NODE_SELECT = `
-  SELECT n.*, m.plateforme AS plateforme, md.modeles AS modeles, o.outils AS outils,
+  SELECT n.*, m.plateforme AS plateforme, md.modeles AS modeles, ef.efforts AS efforts,
+    o.outils AS outils,
     i.niveau AS isolementNiveau, i.fournisseur AS isolementFournisseur, (
     SELECT COUNT(*) FROM tasks t
     WHERE t.assignedNodeId = n.id AND t.status IN ('assigned', 'running')
@@ -1403,6 +2125,7 @@ const NODE_SELECT = `
   FROM nodes n
   LEFT JOIN machines_noeuds m ON m.nodeId = n.id
   LEFT JOIN modeles_noeuds md ON md.nodeId = n.id
+  LEFT JOIN efforts_noeuds ef ON ef.nodeId = n.id
   LEFT JOIN outils_noeuds o ON o.nodeId = n.id
   LEFT JOIN isolements_noeuds i ON i.nodeId = n.id
 `;
@@ -1411,6 +2134,7 @@ const NODE_SELECT = `
 interface NodeRowBrut extends NodeRow {
   plateforme: PlateformeNoeud | null;
   modeles: string | null;
+  efforts: string | null;
   outils: string | null;
   isolementNiveau: string | null;
   isolementFournisseur: string | null;
@@ -1425,6 +2149,22 @@ function lireModeles(brut: string): string[] {
   try {
     const lus: unknown = JSON.parse(brut);
     return Array.isArray(lus) ? lus.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Une liste JSON de chaînes, robuste à la corruption : une base éditée à la
+ * main, une valeur non-tableau ou un élément non-chaîne rendent une liste vide
+ * (ou l'ignorent), jamais une exception ni un accès inventé. Sert aux
+ * autorisations de connecteurs (portées, canaux, usagers).
+ */
+function listeDeChaines(brut: string): string[] {
+  try {
+    const lu: unknown = JSON.parse(brut);
+    if (!Array.isArray(lu)) return [];
+    return lu.filter((x): x is string => typeof x === 'string' && x.length > 0);
   } catch {
     return [];
   }
@@ -1460,6 +2200,11 @@ function lireOutils(brut: string): OutilConstate[] {
   }
 }
 
+/** Un coût déclaré relu : fini et positif, sinon « non déclaré » — jamais 0. */
+function coutLisible(v: unknown): number | null {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : null;
+}
+
 /**
  * De la ligne brute au `HiveNode` : replier les colonnes JSON (`modeles`,
  * `outils`) en tableaux. `plateforme` et `running` passent tels quels. Une
@@ -1467,7 +2212,7 @@ function lireOutils(brut: string): OutilConstate[] {
  * n'a pas de `modeles: []` inventé, et un nœud sans constat pas d'`outils: []`.
  */
 function rowToNode(row: NodeRowBrut): HiveNode {
-  const { modeles, outils, isolementNiveau, isolementFournisseur, ...reste } = row;
+  const { modeles, efforts, outils, isolementNiveau, isolementFournisseur, ...reste } = row;
   const node = reste as unknown as HiveNode;
   // Un niveau illisible (base éditée à la main) vaut « non déclaré ».
   const niveau = NIVEAUX_ISOLEMENT.find((n) => n === isolementNiveau);
@@ -1481,10 +2226,159 @@ function rowToNode(row: NodeRowBrut): HiveNode {
   }
   const liste = typeof modeles === 'string' ? lireModeles(modeles) : [];
   if (liste.length > 0) node.modeles = liste;
+  // Tolérante comme `lireModeles`, et plus stricte sur le fond : un niveau que
+  // Hive ne connaît pas est écarté, jamais commandé.
+  const niveaux = typeof efforts === 'string' ? lireModeles(efforts).filter(estEffort) : [];
+  if (niveaux.length > 0) node.efforts = niveaux;
   const constats = typeof outils === 'string' ? lireOutils(outils) : [];
   if (constats.length > 0) node.outils = constats;
   return node;
 }
+
+// ─── CE QU'UN PROJET POSSÈDE, TABLE PAR TABLE ────────────────────────────────
+//
+// La liste de ce que `effacerProjet` retire, DANS L'ORDRE où il le retire.
+// L'ordre n'est pas cosmétique, il a deux raisons :
+//
+//   · `foreign_keys = ON` (voir le constructeur) : `annonces_duree` référence
+//     `tasks`, et `tasks`, `essaim`, `garde_fous`, `abonnements`, `fabriques`,
+//     `horizon_ledger`, `motifs_projet` référencent `projects`. Effacer le
+//     parent d'abord ferait échouer TOUTE la transaction.
+//   · les sous-requêtes relisent `tasks` et `conseil_sessions` : ce qui s'y
+//     rattache part AVANT elles, sinon plus rien ne dirait à qui c'était.
+//
+// Le JOURNAL passe en premier, pour la même raison : un événement ne connaît sa
+// tâche que par un identifiant, et cet identifiant ne désigne plus rien une fois
+// `tasks` vidée. Il part s'il nomme le projet, une de ses tâches (sous toutes
+// les clés qui portent un identifiant de tâche — un fait de délégation n'a pas
+// de `taskId`, il a `childTaskId`), une de ses séances de Conseil, ou une
+// réquisition ouverte pendant une de ses tâches. On n'efface PAS sur un texte
+// qui « ressemble » : un identifiant de tâche peut être court (`socle`, `tests`)
+// et un motif ou une catégorie porter le même mot — seules les clés qui
+// DÉSIGNENT une tâche comptent.
+//
+// `budgets` n'est pas ici : son unique `DELETE` est celui de `setBudget`, que
+// `effacerProjet` appelle (verrou de tests/security-invariants.test.ts — aucune
+// autre suppression sur cette table, nulle part).
+//
+// ⚠ UNE TABLE NOUVELLE QUI PORTE `projectId`, un identifiant de tâche, de
+// séance ou de résultat DOIT entrer ici : tests/suppression-projet.test.ts
+// relit le schéma et rougit tant qu'elle n'y est pas — sinon, supprimer un
+// projet laisserait ses lignes derrière lui, pour toujours.
+const TACHES_DU_PROJET = 'SELECT id FROM tasks WHERE projectId = @p';
+
+/**
+ * Combien de faits d'audit `project_deleted` la rétention du journal épargne —
+ * les plus récents (`faitsRanges`). Compté dans l'inégalité du plafond
+ * (tests/retention-journal.test.ts) comme les autres faits rangés.
+ */
+export const AUDITS_SUPPRESSION_CONSERVES = 1_000;
+const SEANCES_DU_PROJET = 'SELECT id FROM conseil_sessions WHERE projectId = @p';
+const CLES_DE_TACHE = [
+  'taskId',
+  'parentTaskId',
+  'childTaskId',
+  'rootTaskId',
+  'productionTaskId',
+  'relectureTaskId',
+  'ancestorTaskId',
+]
+  .map((cle) => `'${cle}'`)
+  .join(', ');
+// Le journal peut porter une charge utile illisible (base ancienne, ligne
+// écrite à la main) : `json_extract` / `json_each` LÈVENT sur elle, et une seule
+// ligne abîmée ferait échouer toute suppression de projet. Relue gardée, comme
+// l'index `idx_events_tache` et la rétention (`TACHE_DE_L_EVENEMENT`) : elle ne
+// nomme rien, donc elle reste.
+const CHARGE_LISIBLE = `(CASE WHEN json_valid(events.payload) THEN events.payload ELSE '{}' END)`;
+const JOURNAL_DU_PROJET = `json_extract(${CHARGE_LISIBLE}, '$.projectId') = @p
+      OR json_extract(${CHARGE_LISIBLE}, '$.sessionId') IN (${SEANCES_DU_PROJET})
+      OR EXISTS (
+        SELECT 1 FROM json_each(${CHARGE_LISIBLE}) j
+         WHERE j.key IN (${CLES_DE_TACHE}) AND j.value IN (${TACHES_DU_PROJET})
+      )
+      OR (
+        type IN ('requisition_ouverte', 'requisition_reponse')
+        AND json_extract(${CHARGE_LISIBLE}, '$.id') IN (
+          SELECT id FROM requisitions WHERE taskId IN (${TACHES_DU_PROJET})
+        )
+      )`;
+const EFFACEMENT_PROJET = [
+  ['events', JOURNAL_DU_PROJET],
+  ['requisitions', `taskId IN (${TACHES_DU_PROJET})`],
+  ['presences_rayon', `taskId IN (${TACHES_DU_PROJET})`],
+  ['conseil_avis', `sessionId IN (${SEANCES_DU_PROJET})`],
+  ['conseil_propositions', `sessionId IN (${SEANCES_DU_PROJET})`],
+  ['conseil_taches', `sessionId IN (${SEANCES_DU_PROJET}) OR taskId IN (${TACHES_DU_PROJET})`],
+  ['conseil_plans', `projectId = @p OR sessionId IN (${SEANCES_DU_PROJET})`],
+  ['conseil_sessions', 'projectId = @p'],
+  ['gardiennes', `taskId IN (${TACHES_DU_PROJET})`],
+  ['sauvegardes', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  ['memories', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  ['souvenirs_proposes', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  ['consignes_routage', `taskId IN (${TACHES_DU_PROJET})`],
+  ['depenses_delegation', `taskId IN (${TACHES_DU_PROJET}) OR rootTaskId IN (${TACHES_DU_PROJET})`],
+  ['results', `taskId IN (${TACHES_DU_PROJET})`],
+  ['reviews', `taskId IN (${TACHES_DU_PROJET})`],
+  [
+    'task_delegations',
+    `childTaskId IN (${TACHES_DU_PROJET}) OR parentTaskId IN (${TACHES_DU_PROJET})
+      OR rootTaskId IN (${TACHES_DU_PROJET})`,
+  ],
+  [
+    'contre_expertises',
+    `relectureTaskId IN (${TACHES_DU_PROJET}) OR productionTaskId IN (${TACHES_DU_PROJET})`,
+  ],
+  ['contre_visites', `productionTaskId IN (${TACHES_DU_PROJET})`],
+  ['aiguillage_modeles', `taskId IN (${TACHES_DU_PROJET})`],
+  ['aiguillage_bras', `taskId IN (${TACHES_DU_PROJET})`],
+  ['garde_fou_echelons', `taskId IN (${TACHES_DU_PROJET})`],
+  ['garde_fou_exigences', `productionTaskId IN (${TACHES_DU_PROJET})`],
+  ['annonces_duree', `taskId IN (${TACHES_DU_PROJET})`],
+  ['taches_issue', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  ['livraisons', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  ['reprises_livraison', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  // Les missions rejouables (#512) : l'appartenance d'abord (elle relit
+  // `missions`), puis les instantanés — plan, prompts, titres —, même quand un
+  // rejeu d'un AUTRE projet les compare encore : supprimer n'est pas archiver,
+  // et sa comparaison dira sa source absente. La marque `rejeux` d'un projet
+  // de rejeu ne part qu'avec LUI : l'ôter parce que sa source a disparu
+  // rendrait ses actions irréversibles exécutables sans humain.
+  [
+    'missions_taches',
+    `missionId IN (SELECT id FROM missions WHERE projectId = @p) OR taskId IN (${TACHES_DU_PROJET})`,
+  ],
+  ['missions', 'projectId = @p'],
+  ['rejeux', 'projectId = @p'],
+  ['rejeux_actions', 'projectId = @p'],
+  ['taches_ombre', `projectId = @p OR tacheOmbre IN (${TACHES_DU_PROJET})`],
+  ['banc_ombre', 'projectId = @p'],
+  ['horloge_hote', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  ['fabriques', 'projectId = @p'],
+  ['tasks', 'projectId = @p'],
+  ['horizon_ledger', 'projectId = @p'],
+  ['motifs_projet', 'projectId = @p'],
+  ['partages', 'projectId = @p'],
+  ['project_members', 'projectId = @p'],
+  ['essaim', 'projectId = @p'],
+  ['garde_fous', 'projectId = @p'],
+  ['abonnements', 'projectId = @p'],
+  ['connecteurs_projet', 'projectId = @p'],
+  ['connecteurs_journal', 'projectId = @p'],
+  ['serveurs', 'projectId = @p'],
+  ['horloge_soldes', 'projectId = @p'],
+  ['balance_ledger_cache', 'projectId = @p'],
+] as const;
+
+/** Une table dont `effacerProjet` retire les lignes d'un projet. */
+export type TableDUnProjet = (typeof EFFACEMENT_PROJET)[number][0] | 'budgets' | 'projects';
+
+/**
+ * Ce qu'effacer un projet a retiré, TABLE PAR TABLE — une entrée par table
+ * visitée, zéro compris : un bilan qui omettrait les tables vides ne dirait pas
+ * si elles ont été vues.
+ */
+export type BilanEffacement = Readonly<Record<TableDUnProjet, number>>;
 
 export class HiveStore {
   private readonly db: Database.Database;
@@ -1536,7 +2430,50 @@ export class HiveStore {
     // disque réel) — à chaque démarrage d'une Reine neuve, à chaque banc qui
     // en ouvre une. Tout-ou-rien, en prime : un démarrage interrompu ne laisse
     // plus un schéma à moitié posé.
-    this.db.transaction(() => this.db.exec(SCHEMA))();
+    this.db.transaction(() => {
+      this.db.exec(SCHEMA);
+      this.amorcerRegistreElagages(Date.now());
+    })();
+  }
+
+  /**
+   * Pose, une seule fois, ce que le registre des élagages ne peut pas savoir :
+   * combien d'événements une base avait DÉJÀ perdus quand il est apparu.
+   *
+   * `events.id` est AUTOINCREMENT — `sqlite_sequence` garde le plus grand id
+   * jamais attribué et les ids ne sont jamais réutilisés : attribués moins
+   * restants, c'est exactement ce que l'ancienne rétention a supprimé, types
+   * inconnus. Posé sous le motif `avant_registre`, daté de cette ouverture :
+   * une tâche créée APRÈS n'a rien pu perdre à l'ancienne rétention, une tâche
+   * créée avant, si (`faitsElagues`). Idempotent — un registre déjà tenu,
+   * même vide de ce motif, n'est jamais réamorcé ; une base neuve n'a rien
+   * perdu et n'en reçoit pas.
+   */
+  private amorcerRegistreElagages(now: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO journal_elagages (type, motif, supprimes, dernierA)
+         SELECT '*', 'avant_registre', perdus, ?
+           FROM (SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'events'), 0)
+                        - (SELECT COUNT(*) FROM events) AS perdus)
+          WHERE perdus > 0 AND NOT EXISTS (SELECT 1 FROM journal_elagages)`,
+      )
+      .run(now);
+  }
+
+  /**
+   * L'empreinte publique de cette ruche : lue, ou TIRÉE (`tirer`) et rangée si
+   * la base n'en a pas encore. `INSERT OR IGNORE` puis relecture : deux
+   * appels concurrents sur la même base rendent la même, la première écrite.
+   */
+  empreinteRuche(tirer: () => string): string {
+    this.db
+      .prepare('INSERT OR IGNORE INTO identite_ruche (id, empreinte) VALUES (1, ?)')
+      .run(tirer());
+    const ligne = this.db.prepare('SELECT empreinte FROM identite_ruche WHERE id = 1').get() as {
+      empreinte: string;
+    };
+    return ligne.empreinte;
   }
 
   close(): void {
@@ -1692,6 +2629,30 @@ export class HiveStore {
   }
 
   /**
+   * Tout membre de `cible` est-il aussi `proprietaire` de `source` ou membre de
+   * `source` ? Autrement dit : ceux qui lisent `cible` lisent déjà `source`.
+   *
+   * La question du savoir partagé (`savoirAdmis`, server.ts) : un projet ne
+   * sert un autre projet du même propriétaire — ou, sans propriétaire, un autre
+   * projet sans propriétaire (`proprietaire` nul : seuls les membres comptent)
+   * — que si l'auditoire de la cible est inclus dans celui de la source. Fermée, comme `estMembre` : on cherche
+   * UN membre de trop, on ne liste personne.
+   */
+  auditoireInclus(cible: string, source: string, proprietaire: string | null): boolean {
+    const deTrop = this.db
+      .prepare(
+        `SELECT 1 FROM project_members t
+          WHERE t.projectId = ? AND t.userId IS NOT ?
+            AND NOT EXISTS (
+              SELECT 1 FROM project_members s WHERE s.projectId = ? AND s.userId = t.userId
+            )
+          LIMIT 1`,
+      )
+      .get(cible, proprietaire, source);
+    return deTrop === undefined;
+  }
+
+  /**
    * Retire un membre d'un projet. Rend `true` si quelqu'un a bien été retiré.
    *
    * Ne touche PAS à `ownerId` : retirer le propriétaire de la liste des membres
@@ -1728,6 +2689,73 @@ export class HiveStore {
          ORDER BY pm.joinedAt DESC`,
       )
       .all(userId) as (ProjectMember & { projectName: string })[];
+  }
+
+  // ─── Supprimer un projet ───────────────────────────────────────────────────
+  /**
+   * Efface un projet ET tout ce qu'il possède, en UNE transaction : tout part,
+   * ou rien. Rend le bilan table par table, ou `null` si le projet n'existe pas
+   * (rien n'est alors touché).
+   *
+   * ─── SUPPRIMER, PAS ARCHIVER — DÉCISION DU PROPRIÉTAIRE ─────────────────────
+   *
+   * Un projet supprimé n'existe plus nulle part dans la base : ni ses tâches,
+   * ni leurs résultats, ni son journal, ni ce que la ruche en avait appris
+   * (mémoires du Hive Mind, observations de l'Aiguillage, verdicts). Seul
+   * survit l'événement d'audit `project_deleted`, posé par l'appelant APRÈS
+   * cette cascade, dans la même transaction (`Scheduler.supprimerProjet`).
+   *
+   * ─── CE QU'ELLE NE FAIT PAS, ET QUI LE FAIT ──────────────────────────────────
+   *
+   * Elle ne juge pas si la suppression est PERMISE (la garde de la route), ni
+   * si du travail tourne encore (le planificateur annule d'abord ce qui est en
+   * vol ; la route refuse ce qui ne s'annule pas). Elle ne touche pas au disque
+   * (le miroir du Rayon, `Miroir.effacer`) ni aux machines des ouvrières.
+   *
+   * ─── CE QU'ELLE NE PEUT PAS ATTEINDRE ────────────────────────────────────────
+   *
+   * Une ligne qui ne dit plus à quel projet elle appartient. `pruneTasks`
+   * efface des tâches sans effacer leurs `results` (allégés, gardés) : ceux-là
+   * ne portent qu'un `taskId` qui ne désigne plus rien, et aucune jointure ne
+   * les rattache à un projet. Ils étaient déjà orphelins avant la suppression.
+   */
+  effacerProjet(projectId: string, now = Date.now()): BilanEffacement | null {
+    return this.enTransaction(() => {
+      if (!this.getProject(projectId)) return null;
+      // Le registre de la rétention (`journal_elagages`) doit EXPLIQUER ces
+      // retraits : sinon `faitsElagues` les compte « inexpliqués » et le
+      // registre Genome se dit tronqué pour toute la vie de la base, après une
+      // seule suppression. Une preuve d'une tâche du projet est orpheline (sa
+      // tâche part dans la même transaction), le reste une trace — deux motifs
+      // qui ne touchent aucune tâche encore connue. Compté AVANT le DELETE.
+      const partis = this.db
+        .prepare(
+          `SELECT type, ${TACHE_DE_L_EVENEMENT} IS NOT NULL AS deTache, COUNT(*) AS n
+             FROM events WHERE ${JOURNAL_DU_PROJET} GROUP BY type, deTache`,
+        )
+        .all({ p: projectId }) as Array<{ type: string; deTache: number; n: number }>;
+      this.consignerElagages(
+        partis.map(({ type, deTache, n }) => ({
+          type,
+          motif: deTache === 1 && estPreuve(type) ? 'orpheline' : 'trace',
+          n,
+        })),
+        now,
+      );
+      const bilan = {} as Record<TableDUnProjet, number>;
+      for (const [table, ou] of EFFACEMENT_PROJET) {
+        bilan[table] = this.db
+          .prepare(`DELETE FROM ${table} WHERE ${ou}`)
+          .run({ p: projectId }).changes;
+      }
+      // Le plafond part par SON chemin (`setBudget(…, null)`), le seul DELETE
+      // de `budgets` du dépôt ; le cache de la porte est invalidé par le
+      // planificateur, dans le même geste.
+      bilan.budgets = this.getBudget(projectId) ? 1 : 0;
+      this.setBudget(projectId, null);
+      bilan.projects = this.db.prepare('DELETE FROM projects WHERE id = ?').run(projectId).changes;
+      return bilan;
+    });
   }
 
   // ─── Nœuds ─────────────────────────────────────────────────────────────────
@@ -1791,6 +2819,18 @@ export class HiveStore {
         .run(id, JSON.stringify(profile.modeles), now);
     } else {
       this.db.prepare('DELETE FROM modeles_noeuds WHERE nodeId = ?').run(id);
+    }
+    // Les efforts : même règle que les modèles, pour la même raison — un effort
+    // qui n'est plus redit ne doit plus être commandé.
+    if (profile.efforts !== undefined) {
+      this.db
+        .prepare(
+          'INSERT INTO efforts_noeuds (nodeId, efforts, majA) VALUES (?, ?, ?) ' +
+            'ON CONFLICT(nodeId) DO UPDATE SET efforts = excluded.efforts, majA = excluded.majA',
+        )
+        .run(id, JSON.stringify(profile.efforts), now);
+    } else {
+      this.db.prepare('DELETE FROM efforts_noeuds WHERE nodeId = ?').run(id);
     }
     // Les constats d'outils suivent la règle de la PLATEFORME, pas celle des
     // modèles ni du bac : ABSENTS, on ne touche à rien ; présents, la dernière
@@ -2685,6 +3725,202 @@ export class HiveStore {
     }
   }
 
+  // ─── Connecteurs externes (src/connectors) ──────────────────────────────────
+  //
+  // Deux surfaces : l'AUTORISATION par projet (qui peut, quoi, sur quels canaux)
+  // et le JOURNAL append-only des appels. Le secret du connecteur n'apparaît
+  // dans NI l'une NI l'autre — il vit dans le `.env` Queen. Les portées, canaux
+  // et usagers sont des listes JSON de chaînes ; une valeur illisible (base
+  // éditée à la main) vaut « rien accordé », jamais un accès inventé.
+
+  /**
+   * Accorde (ou met à jour) l'autorisation d'un connecteur sur un projet. Les
+   * listes sont réécrites en entier — accorder REMPLACE, il n'ajoute pas à
+   * l'aveugle : l'humain voit à l'écran exactement ce qu'il pose. Idempotent.
+   */
+  autoriserConnecteur(
+    input: {
+      connecteurId: string;
+      projectId: string;
+      portees: readonly string[];
+      canaux?: readonly string[];
+      usagers?: readonly string[];
+      actif?: boolean;
+    },
+    now = Date.now(),
+  ): void {
+    const portees = JSON.stringify([...input.portees]);
+    const canaux = JSON.stringify([...(input.canaux ?? [])]);
+    const usagers = JSON.stringify([...(input.usagers ?? [])]);
+    const actif = input.actif === false ? 0 : 1;
+    this.db
+      .prepare(
+        `INSERT INTO connecteurs_projet (connecteurId, projectId, portees, canaux, usagers, actif, creeA, majA)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(connecteurId, projectId) DO UPDATE SET
+           portees = excluded.portees, canaux = excluded.canaux, usagers = excluded.usagers,
+           actif = excluded.actif, majA = excluded.majA`,
+      )
+      .run(input.connecteurId, input.projectId, portees, canaux, usagers, actif, now, now);
+  }
+
+  /** Révoque l'autorisation d'un connecteur sur un projet. Rend vrai si une ligne partait. */
+  revoquerConnecteur(connecteurId: string, projectId: string): boolean {
+    return (
+      this.db
+        .prepare('DELETE FROM connecteurs_projet WHERE connecteurId = ? AND projectId = ?')
+        .run(connecteurId, projectId).changes > 0
+    );
+  }
+
+  /** L'autorisation d'un connecteur sur un projet, ou `null`. Listes robustes à la corruption. */
+  lireAutorisationConnecteur(
+    connecteurId: string,
+    projectId: string,
+  ): {
+    connecteurId: string;
+    projectId: string;
+    portees: string[];
+    canaux: string[];
+    usagers: string[];
+    actif: boolean;
+    majA: number;
+  } | null {
+    const row = this.db
+      .prepare(
+        'SELECT connecteurId, projectId, portees, canaux, usagers, actif, majA FROM connecteurs_projet WHERE connecteurId = ? AND projectId = ?',
+      )
+      .get(connecteurId, projectId) as
+      | {
+          connecteurId: string;
+          projectId: string;
+          portees: string;
+          canaux: string;
+          usagers: string;
+          actif: number;
+          majA: number;
+        }
+      | undefined;
+    if (!row) return null;
+    return {
+      connecteurId: row.connecteurId,
+      projectId: row.projectId,
+      portees: listeDeChaines(row.portees),
+      canaux: listeDeChaines(row.canaux),
+      usagers: listeDeChaines(row.usagers),
+      actif: row.actif !== 0,
+      majA: row.majA,
+    };
+  }
+
+  /** Les autorisations d'un projet (pour l'écran de réglages). */
+  listerAutorisationsProjet(projectId: string): Array<{
+    connecteurId: string;
+    portees: string[];
+    canaux: string[];
+    usagers: string[];
+    actif: boolean;
+    majA: number;
+  }> {
+    const rows = this.db
+      .prepare(
+        'SELECT connecteurId, portees, canaux, usagers, actif, majA FROM connecteurs_projet WHERE projectId = ? ORDER BY connecteurId',
+      )
+      .all(projectId) as Array<{
+      connecteurId: string;
+      portees: string;
+      canaux: string;
+      usagers: string;
+      actif: number;
+      majA: number;
+    }>;
+    return rows.map((r) => ({
+      connecteurId: r.connecteurId,
+      portees: listeDeChaines(r.portees),
+      canaux: listeDeChaines(r.canaux),
+      usagers: listeDeChaines(r.usagers),
+      actif: r.actif !== 0,
+      majA: r.majA,
+    }));
+  }
+
+  /** Ajoute une entrée au journal append-only des connecteurs. Rend l'entrée écrite. */
+  journaliserConnecteur(
+    entree: {
+      connecteurId: string;
+      projectId: string | null;
+      portee: string;
+      acte: string;
+      cible: string | null;
+      resultat: 'ok' | 'echec' | 'refuse';
+      qui: string;
+      apercu?: string;
+      chargeDigest?: string;
+    },
+    now = Date.now(),
+  ): EntreeJournalConnecteur {
+    const id = randomUUID();
+    this.db
+      .prepare(
+        `INSERT INTO connecteurs_journal
+           (id, connecteurId, projectId, portee, acte, cible, resultat, qui, apercu, chargeDigest, creeA)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        entree.connecteurId,
+        entree.projectId,
+        entree.portee,
+        entree.acte,
+        entree.cible,
+        entree.resultat,
+        entree.qui,
+        entree.apercu ?? '',
+        entree.chargeDigest ?? '',
+        now,
+      );
+    return {
+      id,
+      ...entree,
+      apercu: entree.apercu ?? '',
+      chargeDigest: entree.chargeDigest ?? '',
+      creeA: now,
+    };
+  }
+
+  /** Les entrées du journal, filtrables par projet ou connecteur. Récentes d'abord. */
+  listerJournalConnecteurs(opts?: {
+    projectId?: string;
+    connecteurId?: string;
+    limit?: number;
+  }): EntreeJournalConnecteur[] {
+    const limit = Math.min(Math.max(opts?.limit ?? 100, 1), 500);
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (opts?.projectId) {
+      clauses.push('projectId = ?');
+      params.push(opts.projectId);
+    }
+    if (opts?.connecteurId) {
+      clauses.push('connecteurId = ?');
+      params.push(opts.connecteurId);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const rows = this.db
+      .prepare(
+        `SELECT id, connecteurId, projectId, portee, acte, cible, resultat, qui, apercu, chargeDigest, creeA
+         FROM connecteurs_journal ${where} ORDER BY creeA DESC LIMIT ?`,
+      )
+      .all(...params, limit) as EntreeJournalConnecteur[];
+    return rows;
+  }
+
+  /** Élague le journal des connecteurs par le temps (comme `events`). */
+  pruneConnecteursJournal(retentionMs: number, now = Date.now()): number {
+    return this.db.prepare('DELETE FROM connecteurs_journal WHERE creeA < ?').run(now - retentionMs)
+      .changes;
+  }
+
   setNodeStatus(id: string, status: NodeStatus): void {
     this.db.prepare('UPDATE nodes SET status = ? WHERE id = ?').run(status, id);
   }
@@ -2765,8 +4001,69 @@ export class HiveStore {
         depth: row.depth,
         status: row.taskStatus,
         origine: row.origin,
+        budget: {
+          durationMs: row.durationMs,
+          costMicros: row.costMicros,
+          resourceUnits: row.resourceUnits,
+        },
       })),
     ];
+  }
+
+  /**
+   * La dépense déclarée de l'arbre de `rootTaskId` (voir `DepenseDeclaree`) :
+   * une lecture d'index, jamais le journal — qui s'élague par nombre.
+   *
+   * Une tentative ENCORE EN VOL (sans résultat, sa tâche toujours portée par
+   * ce nœud) n'est pas comptée : sa dépense n'est pas finie, elle n'est pas
+   * encore « inconnue ». Une tentative sans résultat dont la tâche a quitté ce
+   * nœud a été interrompue : comptée, au coût inconnu. Un drone non primaire
+   * d'une course vit sous l'assignation du primaire : il est lu interrompu
+   * tant qu'il vole — la dépense se dit alors « au moins », jamais moins.
+   */
+  depenseDeclareeRacine(rootTaskId: string): DepenseDeclaree {
+    const ligne = this.db
+      .prepare(
+        `SELECT COUNT(*) AS tentatives, COUNT(d.coutMicros) AS declarees,
+                COALESCE(SUM(d.coutMicros), 0) AS micros
+           FROM depenses_delegation d LEFT JOIN tasks t ON t.id = d.taskId
+          WHERE d.rootTaskId = ?
+            AND NOT (d.resultId IS NULL AND t.assignedNodeId = d.nodeId
+                     AND t.status IN ('assigned', 'running'))`,
+      )
+      .get(rootTaskId) as { tentatives: number; declarees: number; micros: number };
+    if (ligne.tentatives === 0) return { ...AUCUNE_DEPENSE };
+    return {
+      micros: ligne.micros,
+      tentatives: ligne.tentatives,
+      sansCout: ligne.tentatives - ligne.declarees,
+    };
+  }
+
+  /**
+   * Par nœud, les tâches ACTIVES de l'arbre de `rootTaskId` — la racine
+   * comprise — qui attendent un enfant délégué Hive encore en vol. Ce sont les
+   * places que cet arbre, et lui seul, peut reprendre (`slotsOccupes`,
+   * delegation.ts) : une autre tâche voit ces parents occuper leur place.
+   *
+   * Lu à la volée, comme `running` : le fait vit dans le statut des tâches et
+   * les arêtes du graphe, jamais dans un compteur qui pourrait dériver.
+   */
+  parentsEnAttenteSousRacine(rootTaskId: string): Map<string, number> {
+    const lignes = this.db
+      .prepare(
+        `SELECT t.assignedNodeId AS nodeId, COUNT(*) AS n FROM tasks t
+          WHERE t.assignedNodeId IS NOT NULL AND t.status IN ('assigned', 'running')
+            AND (t.id = ? OR t.id IN (SELECT childTaskId FROM task_delegations WHERE rootTaskId = ?))
+            AND EXISTS (
+              SELECT 1 FROM task_delegations d JOIN tasks enfant ON enfant.id = d.childTaskId
+               WHERE d.parentTaskId = t.id AND d.origin = 'hive'
+                 AND enfant.status NOT IN ('done', 'failed')
+            )
+          GROUP BY t.assignedNodeId`,
+      )
+      .all(rootTaskId, rootTaskId) as { nodeId: string; n: number }[];
+    return new Map(lignes.map((l) => [l.nodeId, l.n]));
   }
 
   getDelegation(taskId: string): DelegationRangee | null {
@@ -2782,21 +4079,27 @@ export class HiveStore {
   /**
    * Valide, crée la tâche enfant et range son arête dans UNE transaction.
    * Aucun enfant orphelin ne peut donc devenir visible au scheduler.
+   *
+   * Les budgets se jugent contre l'enveloppe de la RACINE : réservations de
+   * tout l'arbre et dépense déclarée sont relues ici, dans la même
+   * transaction que l'écriture de l'enfant (`jugerDelegation`).
    */
-  createDelegatedTask(
-    demande: DemandeDelegation,
-    limites?: Readonly<LimitesDelegation>,
-    now = Date.now(),
-  ): CreationDeleguee {
+  createDelegatedTask(demande: DemandeDelegation, now = Date.now()): CreationDeleguee {
     const tx = this.db.transaction((): CreationDeleguee => {
       const parent = this.getTask(demande.parentTaskId);
       const graphe = parent ? this.listDelegationGraph(parent.id) : [];
       if (this.getTask(demande.childTaskId)) {
         return { ok: false, code: 'task_id_duplique', motif: 'identifiant enfant déjà utilisé' };
       }
-      const verdict = limites
-        ? jugerDelegation(demande, graphe, limites)
-        : jugerDelegation(demande, graphe);
+      // La dépense est relue DANS la transaction, comme le graphe : deux
+      // demandes concurrentes ne peuvent pas passer toutes deux sous un
+      // plafond que la première a déjà fait franchir.
+      const depense = this.depenseDeclareeRacine(graphe[0]?.rootTaskId ?? demande.parentTaskId);
+      // Les bornes sont celles que tout le reste de la Reine tient
+      // (`LIMITES_DELEGATION_DEFAUT`) : l'enveloppe coût, son annulation et
+      // l'écran les relisent là — une borne injectée ici seulement ferait
+      // admettre ce que la clôture refuserait.
+      const verdict = jugerDelegation(demande, graphe, { depense });
       if (!verdict.ok) return verdict;
       if (!parent) {
         // `jugerDelegation` couvre déjà ce cas. Cette garde maintient le
@@ -2848,13 +4151,33 @@ export class HiveStore {
     return row ? rowToTask(row) : undefined;
   }
 
-  listTasks(projectId?: string): Task[] {
+  /**
+   * Le TRAVAIL des projets — jamais une ombre du banc (shadow-bench.ts).
+   *
+   * C'est par ici que passent tout ce qui livre, fusionne ou compte le travail
+   * d'un projet : plan et exécution du merge, livraison de mission, candidates
+   * de la livraison autonome, décision du Plein Essaim, rapport d'avancement,
+   * détection de conflits, dépendances admises à la création. Une ombre rejoue
+   * une tâche DÉJÀ comptée : la voir ici, c'était la livrer ou la fusionner une
+   * seconde fois, et compter deux fois le même travail. L'exclure à la source
+   * ferme toutes ces portes d'un coup ; le planificateur, lui, lit les tâches
+   * par statut (`tasksByStatus`) et voit bien les ombres qu'il doit lancer.
+   *
+   * `avecOmbres` : pour ce qui décrit l'ACTIVITÉ d'une ouvrière (sa Chambre,
+   * « ce qui tourne en ce moment ») et non le travail d'un projet. Une ombre y
+   * a bel et bien tourné : la cacher là, c'était montrer une ouvrière occupée
+   * (`running` la compte) sans rien dans sa liste.
+   */
+  listTasks(projectId?: string, { avecOmbres = false }: { avecOmbres?: boolean } = {}): Task[] {
+    const horsOmbres = avecOmbres ? '1' : 'id NOT IN (SELECT tacheOmbre FROM taches_ombre)';
     const rows = (
       projectId
         ? this.db
-            .prepare('SELECT * FROM tasks WHERE projectId = ? ORDER BY createdAt, id')
+            .prepare(
+              `SELECT * FROM tasks WHERE projectId = ? AND ${horsOmbres} ORDER BY createdAt, id`,
+            )
             .all(projectId)
-        : this.db.prepare('SELECT * FROM tasks ORDER BY createdAt, id').all()
+        : this.db.prepare(`SELECT * FROM tasks WHERE ${horsOmbres} ORDER BY createdAt, id`).all()
     ) as TaskRow[];
     return rows.map(rowToTask);
   }
@@ -2904,6 +4227,15 @@ export class HiveStore {
           LIMIT ?`,
       )
       .all(limite) as TaskRow[];
+    // Les OMBRES du banc sont marquées (`Task.ombre`) : l'écran les montre là
+    // où elles ont tourné, mais jamais dans la file de revue ni les compteurs
+    // du travail des projets. UNE lecture de la table latérale pour toute la
+    // fenêtre (bornée comme les tâches, `pruneTachesOmbre`), pas une par tâche.
+    const ombres = new Set(
+      (
+        this.db.prepare('SELECT tacheOmbre FROM taches_ombre').all() as { tacheOmbre: string }[]
+      ).map((r) => r.tacheOmbre),
+    );
     // Les DEUX bornes du départage — `a.id < b.id` et `a.id > b.id` — sont des
     // mutants ÉQUIVALENTS, et c'est CONSIGNÉ, pas un test qui manque : elles ne
     // diffèrent de `<=` / `>=` que pour `a.id === b.id`, et `id` est la clé
@@ -2917,7 +4249,9 @@ export class HiveStore {
     // banc bien écrit ne nomme pas la fonction interne qu'il traverse).
     return (
       rows
-        .map(rowToTask)
+        .map((row) =>
+          ombres.has(row.id) ? { ...rowToTask(row), ombre: true as const } : rowToTask(row),
+        )
         // loupe : équivalent — < → <= ; loupe : équivalent — > → >=
         // (voir la consignation au-dessus de ce `return`.)
         .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
@@ -2956,7 +4290,8 @@ export class HiveStore {
    *    perdre.
    *
    * `reviews`, elle, cascade : un verdict sur une tâche qui n'existe plus ne
-   * désigne rien, et aucune autre borne ne la nettoierait.
+   * désigne rien, et aucune autre borne ne la nettoierait. `annonces_duree`
+   * aussi : elle référence `tasks(id)`, et la laisser ferait échouer la passe.
    */
   pruneTasks(retentionMs: number, now = Date.now()): number {
     const seuil = now - retentionMs;
@@ -3007,6 +4342,19 @@ export class HiveStore {
         const trous = lot.map(() => '?').join(', ');
         this.db.prepare(`DELETE FROM reviews WHERE taskId IN (${trous})`).run(...lot);
         this.db.prepare(`DELETE FROM task_delegations WHERE childTaskId IN (${trous})`).run(...lot);
+        this.db.prepare(`DELETE FROM consignes_routage WHERE taskId IN (${trous})`).run(...lot);
+        // L'annonce de durée RÉFÉRENCE sa tâche (`foreign_keys = ON`) : oubliée
+        // ici, une seule annonce plus jeune que `pruneAnnonces` (180 j) sur une
+        // tâche close depuis 30 j fait jeter TOUTE la transaction — et, par le
+        // tick, figeait toutes les bornes suivantes. Elle suit donc sa tâche :
+        // la calibration de l'horloge ne compte plus que les ~30 derniers jours
+        // de tâches, ce qui est la fenêtre qu'elle a vraiment (décision #527).
+        this.db.prepare(`DELETE FROM annonces_duree WHERE taskId IN (${trous})`).run(...lot);
+        // Par RACINE : la dépense d'un arbre ne part qu'avec l'arbre entier
+        // (voir le schéma de depenses_delegation).
+        this.db
+          .prepare(`DELETE FROM depenses_delegation WHERE rootTaskId IN (${trous})`)
+          .run(...lot);
         partis += this.db.prepare(`DELETE FROM tasks WHERE id IN (${trous})`).run(...lot).changes;
       }
       return partis;
@@ -3239,6 +4587,58 @@ export class HiveStore {
 
   // ─── Résultats ─────────────────────────────────────────────────────────────
   /**
+   * Ouvre la ligne de dépense d'une tentative d'enfant délégué Hive, à l'envoi
+   * au nœud (voir le schéma de `depenses_delegation`). Une tâche sans arête
+   * Hive n'a pas d'enveloppe à tenir : rien n'est écrit.
+   */
+  ouvrirTentativeDelegation(taskId: string, nodeId: string, now: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO depenses_delegation (rootTaskId, taskId, nodeId, creeA)
+         SELECT rootTaskId, childTaskId, ?, ? FROM task_delegations
+          WHERE childTaskId = ? AND origin = 'hive'`,
+      )
+      .run(nodeId, now, taskId);
+  }
+
+  /**
+   * Clôt la tentative que ce résultat termine — la dernière ouverte pour ce
+   * couple (tâche, nœud) — avec sa dépense déclarée, dans la transaction du
+   * résultat. Sans tentative ouverte (résultat rangé hors de l'ordonnanceur),
+   * la ligne naît ici, close.
+   *
+   * Le montant est converti UNE fois, ici, en micro-USD entiers : c'est l'unité
+   * du budget (`costMicros`), et une somme d'entiers ne dérive pas comme une
+   * somme de flottants. Un coût absent reste NULL — inconnu, jamais zéro.
+   */
+  private rangerDepenseDelegation(resultId: number, res: TaskResult, now: number): void {
+    const coutUsd = res.fournisseur?.coutUsd;
+    const coutMicros =
+      typeof coutUsd === 'number' && Number.isFinite(coutUsd) && coutUsd >= 0
+        ? Math.round(coutUsd * 1_000_000)
+        : null;
+    const ouverte = this.db
+      .prepare(
+        `SELECT id FROM depenses_delegation
+          WHERE taskId = ? AND nodeId = ? AND resultId IS NULL ORDER BY id DESC LIMIT 1`,
+      )
+      .get(res.taskId, res.nodeId) as { id: number } | undefined;
+    if (ouverte) {
+      this.db
+        .prepare('UPDATE depenses_delegation SET resultId = ?, coutMicros = ? WHERE id = ?')
+        .run(resultId, coutMicros, ouverte.id);
+      return;
+    }
+    this.db
+      .prepare(
+        `INSERT INTO depenses_delegation (rootTaskId, taskId, nodeId, resultId, coutMicros, creeA)
+         SELECT rootTaskId, childTaskId, ?, ?, ?, ? FROM task_delegations
+          WHERE childTaskId = ? AND origin = 'hive'`,
+      )
+      .run(res.nodeId, resultId, coutMicros, now, res.taskId);
+  }
+
+  /**
    * Range un résultat et rend son `results.id`. Le retour est ADDITIF (les
    * appelants qui l'ignoraient continuent de compiler) : il sert aux Gardiennes
    * à faire pointer leur verdict sur la production exacte qu'elles ont
@@ -3261,6 +4661,7 @@ export class HiveStore {
         now,
       );
     const resultId = Number(info.lastInsertRowid);
+    this.rangerDepenseDelegation(resultId, res, now);
     // Les colonnes historiques de `results` restent inchangées : la mesure
     // locale est un fait d'exécution borné, rangé dans le journal et relié au
     // résultat exact. Cela évite une migration SQLite tout en permettant sa
@@ -3281,17 +4682,18 @@ export class HiveStore {
     //
     // Même voie que la mesure locale juste au-dessus — le journal, relié au
     // `resultId` exact, sans migration de `results`. Mais PAS pour tous les
-    // résultats : chaque événement rangé raccourcit d'autant la fenêtre de
-    // EVENT_RETENTION où vivent d'autres preuves (lancements de contre-
-    // expertise, CI), et un succès ordinaire n'a aucun lecteur DIFFÉRÉ de son
+    // résultats : chaque texte rangé est une preuve que la rétention garde
+    // avec sa tâche (`shared/retention-journal.ts`) et qui pèse sur le plafond
+    // du journal, et un succès ordinaire n'a aucun lecteur DIFFÉRÉ de son
     // texte final — la contre-expertise le lit en direct, sur le message.
     //
     // Deux lecteurs le relisent plus tard, et eux seuls justifient la ligne :
     //   · les ÉCHECS — Couveuse, leçons croisées, dérive (`texteDEchec`) ;
     //   · les éclaireuses que le Conseil n'a pas encore dépouillées : il lit
     //     leur réponse au tick suivant, depuis la base.
-    // Hors fenêtre du journal, le texte n'existe plus : ses lecteurs retombent
-    // sur ce qu'ils savent faire sans lui, jamais sur une invention.
+    // Sa tâche disparue ou close depuis longtemps, le texte n'existe plus : ses
+    // lecteurs retombent sur ce qu'ils savent faire sans lui, jamais sur une
+    // invention.
     if (res.finalText && (!res.success || this.eclaireuseAttendue(res.taskId))) {
       this.appendEvent(
         'worker_final_text',
@@ -3450,7 +4852,10 @@ export class HiveStore {
     const rows = this.db
       .prepare('SELECT * FROM results WHERE taskId = ? ORDER BY id')
       .all(taskId) as ResultRow[];
-    const usages = this.usagesForResults(rows.map((r) => r.id));
+    const usages = this.usagesForResults(
+      taskId,
+      rows.map((r) => r.id),
+    );
     return rows.map((r) => ({
       resultId: r.id,
       taskId: r.taskId,
@@ -3500,8 +4905,16 @@ export class HiveStore {
     );
   }
 
-  /** Mesures reliées aux résultats exacts, relues depuis les événements bornés. */
-  private usagesForResults(resultIds: readonly number[]): Map<number, TaskResult['usage']> {
+  /**
+   * Mesures reliées aux résultats exacts d'UNE tâche, relues dans le journal —
+   * où la rétention les garde avec elle. La tâche nommée sert l'index
+   * `idx_events_tache` : sans elle, chaque lecture parcourait les mesures de
+   * toute la ruche retenue.
+   */
+  private usagesForResults(
+    taskId: string,
+    resultIds: readonly number[],
+  ): Map<number, TaskResult['usage']> {
     const ids = [...new Set(resultIds.filter((id) => Number.isSafeInteger(id) && id > 0))];
     if (ids.length === 0) return new Map();
     const placeholders = ids.map(() => '?').join(', ');
@@ -3515,10 +4928,11 @@ export class HiveStore {
                 json_extract(payload, '$.heapUsedBytes') AS heapUsedBytes
            FROM events
           WHERE type = 'worker_usage'
+            AND ${TACHE_DE_L_EVENEMENT} = ?
             AND json_extract(payload, '$.resultId') IN (${placeholders})
           ORDER BY id`,
       )
-      .all(...ids) as Array<{
+      .all(taskId, ...ids) as Array<{
       resultId: number | null;
       userCpuMicros: number | null;
       systemCpuMicros: number | null;
@@ -3590,9 +5004,14 @@ export class HiveStore {
   listResultsForPheromones(
     limit = 500,
   ): Array<{ taskId: string; nodeId: string; success: boolean; createdAt: number }> {
+    // Une ombre n'y dépose rien, ni ses relectures (`TACHES_DU_BANC_SQL`) :
+    // les phéromones départagent les nœuds, et le banc ne touche à aucun
+    // poids du routing (décision de shadow-bench.ts).
     const rows = this.db
       .prepare(
-        'SELECT taskId, nodeId, success, createdAt FROM results ORDER BY createdAt DESC, id DESC LIMIT ?',
+        `SELECT taskId, nodeId, success, createdAt FROM results
+          WHERE taskId NOT IN (SELECT id FROM (${TACHES_DU_BANC_SQL}))
+          ORDER BY createdAt DESC, id DESC LIMIT ?`,
       )
       .all(Math.max(1, Math.min(limit, 2000))) as {
       taskId: string;
@@ -3663,6 +5082,31 @@ export class HiveStore {
       .prepare('SELECT MAX(id) AS id FROM results WHERE taskId = ?')
       .get(taskId) as { id: number | null };
     return row.id;
+  }
+
+  /**
+   * Les productions RÉUSSIES d'un nœud rendues depuis `depuis`, les plus
+   * récentes d'abord, bornées — la matière de la qualité d'un Worker. Plan
+   * couvrant sur `idx_results_recent` : ni diff ni journaux ne sont ouverts
+   * (même raison que `listResultsForPheromones`).
+   */
+  productionsDuNoeud(
+    nodeId: string,
+    depuis: number,
+    limite = 100,
+  ): Array<{ resultId: number; taskId: string }> {
+    const rows = this.db
+      .prepare(
+        `SELECT id, taskId FROM results INDEXED BY idx_results_recent
+          WHERE createdAt >= ? AND nodeId = ? AND success = 1
+          ORDER BY createdAt DESC, id DESC LIMIT ?`,
+      )
+      .all(
+        Number.isFinite(depuis) ? depuis : Number.MAX_SAFE_INTEGER,
+        nodeId,
+        Math.max(1, Math.min(limite, 500)),
+      ) as Array<{ id: number; taskId: string }>;
+    return rows.map((r) => ({ resultId: r.id, taskId: r.taskId }));
   }
 
   /** Id du dernier résultat inséré (0 si la table est vide). */
@@ -4324,7 +5768,8 @@ export class HiveStore {
     const rows = this.db
       .prepare(
         `SELECT id, nodeId, taskId, logs, createdAt FROM results
-         WHERE success = 0 ORDER BY id DESC LIMIT ?`,
+         WHERE success = 0 AND taskId NOT IN (SELECT tacheOmbre FROM taches_ombre)
+         ORDER BY id DESC LIMIT ?`,
       )
       .all(limit) as Array<{
       id: number;
@@ -4518,8 +5963,9 @@ export class HiveStore {
   /**
    * Ne conserve que les `maxKeep` inspections les plus récentes (par id) —
    * BORNE D'ÉLAGAGE de la table, livrée dans le même commit qu'elle (doctrine,
-   * règle 3). Motif `pruneEvents` à la lettre, et pour la même raison : cette
-   * table croît avec l'histoire de la ruche.
+   * règle 3). Les N plus récentes par id, comme le journal l'était avant sa
+   * rétention par tâche, et pour la même raison : cette table croît avec
+   * l'histoire de la ruche.
    *
    * Elle SUPPRIME au lieu d'alléger, contrairement à `pruneResults` : une ligne
    * de garde privée de ses griefs ne dit plus rien du tout (un verdict sans son
@@ -4746,12 +6192,38 @@ export class HiveStore {
    * est celle dont on lira le verdict, et `contre_visites` fait exactement le
    * même choix (dernière relecture gagne).
    */
-  poserModeleAiguillage(taskId: string, modele: string, now = Date.now()): void {
+  poserModeleAiguillage(
+    taskId: string,
+    modele: string,
+    now = Date.now(),
+    bras?: { harness: string; effort: Effort | null },
+  ): void {
     this.db
       .prepare(
         'INSERT OR REPLACE INTO aiguillage_modeles (taskId, modele, choisiA) VALUES (?, ?, ?)',
       )
       .run(taskId, modele, now);
+    // Le reste du bras suit le modèle, ligne pour ligne : un modèle reposé SANS
+    // bras (appelant d'avant la v3) efface l'ancien, qui décrirait une autre
+    // tentative — et son coût avec.
+    if (bras) {
+      this.db
+        .prepare(
+          'INSERT OR REPLACE INTO aiguillage_bras (taskId, harness, effort, coutUsd, choisiA) ' +
+            'VALUES (?, ?, ?, NULL, ?)',
+        )
+        .run(taskId, bras.harness, bras.effort, now);
+    } else this.db.prepare('DELETE FROM aiguillage_bras WHERE taskId = ?').run(taskId);
+  }
+
+  /**
+   * Range le coût que le CLI a DÉCLARÉ pour la production rendue sous le bras
+   * courant de la tâche. Sans bras rangé, rien : un coût n'est attribué qu'à
+   * un bras connu. Appelé seulement quand le CLI a déclaré un coût — l'absence
+   * reste `NULL`, jamais 0.
+   */
+  poserCoutAiguillage(taskId: string, coutUsd: number): void {
+    this.db.prepare('UPDATE aiguillage_bras SET coutUsd = ? WHERE taskId = ?').run(coutUsd, taskId);
   }
 
   /**
@@ -4764,6 +6236,76 @@ export class HiveStore {
    */
   effacerModeleAiguillage(taskId: string): void {
     this.db.prepare('DELETE FROM aiguillage_modeles WHERE taskId = ?').run(taskId);
+    this.db.prepare('DELETE FROM aiguillage_bras WHERE taskId = ?').run(taskId);
+  }
+
+  /** Effort commandé à la tentative courante ; `null` : aucun (ou bras inconnu). */
+  effortAiguillageDe(taskId: string): Effort | null {
+    return this.brasAiguillageDe(taskId)?.effort ?? null;
+  }
+
+  /**
+   * Le bras rangé pour la tentative courante (sans le modèle, cf.
+   * `modeleAiguillageDe`) ; `null` sans élection v3. Un effort illisible vaut
+   * « aucun », un coût hors bornes « non déclaré » — rien n'est deviné.
+   */
+  brasAiguillageDe(
+    taskId: string,
+  ): { harness: string; effort: Effort | null; coutUsd: number | null } | null {
+    const row = this.db
+      .prepare('SELECT harness, effort, coutUsd FROM aiguillage_bras WHERE taskId = ?')
+      .get(taskId) as
+      { harness: string; effort: string | null; coutUsd: number | null } | undefined;
+    if (!row) return null;
+    return {
+      harness: row.harness,
+      effort: estEffort(row.effort) ? row.effort : null,
+      coutUsd: coutLisible(row.coutUsd),
+    };
+  }
+
+  /**
+   * La consigne de l'opérateur sur le routage d'une tâche, ou `null`.
+   *
+   * Relue au travers de `lireConsigneRoutage`, comme au réseau : une ligne
+   * illisible (base éditée à la main, version future) vaut « aucune consigne
+   * lisible » — la tâche route selon l'Aiguillage, jamais selon une consigne
+   * devinée.
+   */
+  consigneRoutage(
+    taskId: string,
+  ): { consigne: ConsigneRoutage; definiPar: string | null; majA: number } | null {
+    const row = this.db
+      .prepare('SELECT consigne, definiPar, majA FROM consignes_routage WHERE taskId = ?')
+      .get(taskId) as { consigne: string; definiPar: string | null; majA: number } | undefined;
+    if (!row) return null;
+    let brut: unknown;
+    try {
+      brut = JSON.parse(row.consigne);
+    } catch {
+      return null;
+    }
+    const lue = lireConsigneRoutage(brut);
+    return lue.ok ? { consigne: lue.consigne, definiPar: row.definiPar, majA: row.majA } : null;
+  }
+
+  /** Pose (ou lève, avec `null`) la consigne de routage d'une tâche. */
+  poserConsigneRoutage(
+    taskId: string,
+    consigne: ConsigneRoutage | null,
+    definiPar: string | null,
+    now = Date.now(),
+  ): void {
+    if (consigne === null) {
+      this.db.prepare('DELETE FROM consignes_routage WHERE taskId = ?').run(taskId);
+      return;
+    }
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO consignes_routage (taskId, consigne, definiPar, majA)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(taskId, JSON.stringify(consigne), definiPar, now);
   }
 
   /** Modèle choisi pour la tentative actuellement représentée par la tâche. */
@@ -4836,7 +6378,8 @@ export class HiveStore {
            JOIN gardiennes g ON g.id = (SELECT MAX(id) FROM gardiennes WHERE taskId = e.taskId)
            LEFT JOIN contre_visites cv     ON cv.productionTaskId = e.taskId
            LEFT JOIN garde_fou_exigences ex ON ex.productionTaskId = e.taskId
-          WHERE cv.productionTaskId IS NOT NULL OR ex.productionTaskId IS NOT NULL
+          WHERE (cv.productionTaskId IS NOT NULL OR ex.productionTaskId IS NOT NULL)
+            AND e.taskId NOT IN (SELECT tacheOmbre FROM taches_ombre)
           ORDER BY e.choisiA DESC
           LIMIT ?`,
       )
@@ -4857,44 +6400,53 @@ export class HiveStore {
    * `slice(-CORPUS)` redevient un no-op puisque la borne est déjà le `LIMIT`.
    */
   observationsAiguillage(limite = CORPUS_AIGUILLAGE): LigneObservationAiguillage[] {
+    // LE BRAS VOYAGE AVEC LA PREUVE, comme le modèle. Quand le verdict porte
+    // son `resultId` (ce), harness, effort et coût viennent de l'annonce figée
+    // au lancement de la contre-revue (`producteurHarness`…), JAMAIS
+    // d'`aiguillage_bras` : une correction a pu réaffecter la tâche depuis, et
+    // cette ligne décrit alors la tentative suivante — un verdict tardif
+    // aurait été rangé sous un bras qui n'a jamais tourné, chargé du coût d'un
+    // autre.
+    //
+    // LE BRAS D'UN VERDICT D'AVANT LA V3 n'est pas deviné, il est CONSTATÉ :
+    // aucun effort n'était alors commandé (`effort` NULL est un fait), et le
+    // harness est l'agentType du nœud qui a produit le résultat relu. Sans ce
+    // repli, la mise à jour aurait réduit tout le vécu appris au seul niveau
+    // modèle. Sans résultat relu ni bras rangé, le harness reste inconnu.
     // Une contre-visite peut survivre à une nouvelle tentative de la même
     // tâche. Le seul lien qui garde l'identité de la production est le
     // `resultId` du verdict de contre-revue ; sans lui, l'observation reste
     // globale et ne doit pas être attribuée au dernier Worker par supposition.
     const rows = this.db
-      .prepare(
-        `SELECT t.title AS title, t.prompt AS prompt,
-                COALESCE(am.modele, json_extract(ce.payload, '$.producteurModele')) AS modele,
-                cv.suite AS suite,
-                r.nodeId AS nodeId,
-                json_extract(ce.payload, '$.producteurModele') AS modeleExact
-           FROM contre_visites cv
-           LEFT JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
-           JOIN tasks t              ON t.id      = cv.productionTaskId
-           LEFT JOIN events ce ON ce.id = (
-             SELECT e.id
-               FROM events e
-              WHERE e.type = 'contre_expertise_verdict'
-                AND json_extract(e.payload, '$.source') = 'hive_counter_review'
-                AND json_extract(e.payload, '$.taskId') = cv.productionTaskId
-                AND json_extract(e.payload, '$.resultId') IS NOT NULL
-              ORDER BY e.id DESC
-              LIMIT 1
-           )
-           LEFT JOIN results r ON r.id = CAST(json_extract(ce.payload, '$.resultId') AS INTEGER)
-          WHERE am.taskId IS NOT NULL
-             OR json_extract(ce.payload, '$.producteurModele') IS NOT NULL
-           ORDER BY cv.renduA DESC, cv.productionTaskId DESC
-          LIMIT ?`,
-      )
+      .prepare(CORPUS_AIGUILLAGE_SQL)
       .all(Math.max(1, Math.min(limite, CORPUS_AIGUILLAGE))) as Array<
-      LigneObservationAiguillage & { nodeId: string | null; modeleExact: string | null }
+      Omit<
+        LigneObservationAiguillage,
+        'nodeId' | 'modeleExact' | 'harness' | 'effort' | 'coutUsd'
+      > & {
+        verdictId: number | null;
+        nodeId: string | null;
+        modeleExact: string | null;
+        harness: string | null;
+        effort: string | null;
+        coutUsd: number | null;
+      }
     >;
-    return rows.reverse().map(({ nodeId, modeleExact, ...ligne }) => ({
-      ...ligne,
-      ...(nodeId ? { nodeId } : {}),
-      ...(modeleExact ? { modeleExact } : {}),
-    }));
+    return rows
+      .reverse()
+      .map(({ verdictId: _verdict, nodeId, modeleExact, harness, effort, coutUsd, ...ligne }) => {
+        const cout = coutLisible(coutUsd);
+        return {
+          ...ligne,
+          ...(nodeId ? { nodeId } : {}),
+          ...(modeleExact ? { modeleExact } : {}),
+          ...(harness ? { harness } : {}),
+          // Un effort illisible (base éditée à la main) vaut « aucun » : il n'est
+          // jamais deviné vers un niveau voisin.
+          ...(estEffort(effort) ? { effort } : {}),
+          ...(cout !== null ? { coutUsd: cout } : {}),
+        };
+      });
   }
 
   /**
@@ -4916,16 +6468,30 @@ export class HiveStore {
    *   (`assigned`/`running`) : un essai en vol est un essai qui va, vraiment,
    *   rendre un verdict bientôt.
    */
-  electionsEnVolAiguillage(): { title: string; prompt: string; modele: string }[] {
-    return this.db
+  electionsEnVolAiguillage(): ElectionEnVol[] {
+    const rows = this.db
       .prepare(
-        `SELECT t.title AS title, t.prompt AS prompt, am.modele AS modele
+        `SELECT t.title AS title, t.prompt AS prompt, am.modele AS modele,
+                COALESCE(ab.harness, n.agentType) AS harness, ab.effort AS effort
            FROM aiguillage_modeles am
            JOIN tasks t ON t.id = am.taskId
+           LEFT JOIN aiguillage_bras ab ON ab.taskId = am.taskId
+           LEFT JOIN nodes n ON n.id = t.assignedNodeId
           WHERE t.status IN ('assigned', 'running')
             AND am.taskId NOT IN (SELECT productionTaskId FROM contre_visites)`,
       )
-      .all() as { title: string; prompt: string; modele: string }[];
+      .all() as {
+      title: string;
+      prompt: string;
+      modele: string;
+      harness: string | null;
+      effort: string | null;
+    }[];
+    return rows.map(({ harness, effort, ...e }) => ({
+      ...e,
+      ...(harness ? { harness } : {}),
+      ...(estEffort(effort) ? { effort } : {}),
+    }));
   }
 
   /**
@@ -4934,6 +6500,7 @@ export class HiveStore {
    * `pruneTasks` fait disparaître des tâches pour de bon depuis le lot 17.
    */
   pruneAiguillageModeles(): number {
+    this.db.prepare('DELETE FROM aiguillage_bras WHERE taskId NOT IN (SELECT id FROM tasks)').run();
     return this.db
       .prepare('DELETE FROM aiguillage_modeles WHERE taskId NOT IN (SELECT id FROM tasks)')
       .run().changes;
@@ -4962,6 +6529,262 @@ export class HiveStore {
           WHERE relectureTaskId NOT IN (SELECT id FROM tasks)
              OR productionTaskId NOT IN (SELECT id FROM tasks)`,
       )
+      .run().changes;
+  }
+
+  // ─── Le banc d'ombre (shadow-bench.ts) ─────────────────────────────────────
+
+  /**
+   * Pose le CONSENTEMENT du banc d'ombre d'un projet — motif `setGardeFou` :
+   * une intention humaine écrasée en place, jamais un calcul de la ruche. Les
+   * bornes sont validées par la route (`BORNES_REGLAGE`) : le store range.
+   */
+  setBancOmbre(
+    projectId: string,
+    reglage: ReglageBancOmbre,
+    definiPar: string | null = null,
+    now = Date.now(),
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO banc_ombre
+           (projectId, actif, tauxPourMille, executionsParJour, plafondCoutUsd, version, definiPar, updatedAt)
+         VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+         ON CONFLICT(projectId) DO UPDATE SET
+           actif = excluded.actif,
+           tauxPourMille = excluded.tauxPourMille,
+           executionsParJour = excluded.executionsParJour,
+           plafondCoutUsd = excluded.plafondCoutUsd,
+           definiPar = excluded.definiPar,
+           updatedAt = excluded.updatedAt`,
+      )
+      .run(
+        projectId,
+        reglage.actif ? 1 : 0,
+        reglage.tauxPourMille,
+        reglage.executionsParJour,
+        reglage.plafondCoutUsd,
+        definiPar,
+        now,
+      );
+  }
+
+  /** Le consentement d'un projet, ou `null` : pas de ligne ⇒ banc ÉTEINT. */
+  getBancOmbre(
+    projectId: string,
+  ): (ReglageBancOmbre & { definiPar: string | null; updatedAt: number }) | null {
+    const row = this.db
+      .prepare(
+        `SELECT actif, tauxPourMille, executionsParJour, plafondCoutUsd, definiPar, updatedAt
+           FROM banc_ombre WHERE projectId = ?`,
+      )
+      .get(projectId) as
+      | (Omit<ReglageBancOmbre, 'actif'> & {
+          actif: number;
+          definiPar: string | null;
+          updatedAt: number;
+        })
+      | undefined;
+    return row ? { ...row, actif: row.actif === 1 } : null;
+  }
+
+  /**
+   * Crée l'ombre ET son lien en UNE transaction. Une ombre sans son lien serait
+   * une production ordinaire — livrable, fusionnable, apprise par le routing —
+   * pendant l'instant qui sépare les deux écritures, et pour toujours si la
+   * seconde échouait. La tâche naît `pending` sans dépendance : rien ne la
+   * prend avant une passe du planificateur, et le lien est déjà là.
+   *
+   * Le côté ORIGINAL de la comparaison est rangé ici, au moment où il est
+   * connu : sa production est déjà rendue et jugée par ses tests.
+   */
+  creerTacheOmbre(
+    o: {
+      original: Pick<Task, 'id' | 'projectId' | 'prompt'>;
+      titre: string;
+      categorie: Categorie;
+      modeleOriginal: string;
+      modeleOmbre: string;
+      coteOriginal: CoteOmbreRange;
+    },
+    now = Date.now(),
+  ): TacheOmbre {
+    const tacheOmbre = randomUUID();
+    const c = o.coteOriginal;
+    this.enTransaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO tasks (id, projectId, title, prompt, status, dependsOn, attempts, createdAt, updatedAt)
+           VALUES (?, ?, ?, ?, 'pending', '[]', 0, ?, ?)`,
+        )
+        .run(tacheOmbre, o.original.projectId, o.titre, o.original.prompt, now, now);
+      this.db
+        .prepare(
+          `INSERT INTO taches_ombre
+             (tacheOmbre, tacheOriginale, projectId, resultatOriginal, modeleOriginal, modeleOmbre,
+              categorie, creeA, originalSucces, originalTests, originalBase, originalRevue)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          tacheOmbre,
+          o.original.id,
+          o.original.projectId,
+          c.resultId,
+          o.modeleOriginal,
+          o.modeleOmbre,
+          o.categorie,
+          now,
+          c.succes ? 1 : 0,
+          c.tests,
+          c.baseSha,
+          c.revue,
+        );
+    });
+    return this.ombreDe(tacheOmbre) as TacheOmbre;
+  }
+
+  /** Le lien d'une OMBRE, ou `null` : cette tâche n'en est pas une. */
+  ombreDe(taskId: string): TacheOmbre | null {
+    const row = this.db.prepare('SELECT * FROM taches_ombre WHERE tacheOmbre = ?').get(taskId) as
+      TacheOmbreRow | undefined;
+    return row ? rowToTacheOmbre(row) : null;
+  }
+
+  /** L'ombre lancée pour cette tâche ORIGINALE, ou `null`. */
+  ombreDeOriginale(taskId: string): TacheOmbre | null {
+    const row = this.db
+      .prepare('SELECT * FROM taches_ombre WHERE tacheOriginale = ?')
+      .get(taskId) as TacheOmbreRow | undefined;
+    return row ? rowToTacheOmbre(row) : null;
+  }
+
+  /**
+   * L'ombre que sert cette tâche — elle-même si c'en est une, celle qu'elle
+   * relit si c'est une relecture d'ombre —, ou `null` : une tâche hors banc.
+   */
+  ombreLieeA(taskId: string): string | null {
+    const row = this.db
+      .prepare(`SELECT tacheOmbre FROM (${TACHES_DU_BANC_SQL}) WHERE id = ? LIMIT 1`)
+      .get(taskId) as { tacheOmbre: string } | undefined;
+    return row?.tacheOmbre ?? null;
+  }
+
+  /**
+   * Range le côté OMBRE de la comparaison : son unique production. La
+   * PREMIÈRE seulement (`ombreResultat IS NULL`) — une ombre n'a qu'un essai
+   * (scheduler.ts), et un résultat rejoué ne réécrit pas ce qui a été jugé.
+   */
+  consignerRenduOmbre(
+    tacheOmbre: string,
+    rendu: Pick<CoteOmbreRange, 'resultId' | 'succes' | 'tests' | 'baseSha'>,
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE taches_ombre
+            SET ombreResultat = ?, ombreSucces = ?, ombreTests = ?, ombreBase = ?
+          WHERE tacheOmbre = ? AND ombreResultat IS NULL`,
+      )
+      .run(rendu.resultId, rendu.succes ? 1 : 0, rendu.tests, rendu.baseSha, tacheOmbre);
+  }
+
+  /**
+   * Range l'avis de la contre-revue sur un côté — le RÉSUMÉ de tous les avis
+   * de ce résultat exact (`revue`), jamais un vote isolé : une objection
+   * suffit à dire le côté contesté. Une production qui n'est ni une ombre ni
+   * la production originale mesurée d'une ombre ne touche aucune ligne.
+   */
+  consignerRevueOmbre(productionTaskId: string, resultId: number, revue: RevueCote): void {
+    this.db
+      .prepare(
+        `UPDATE taches_ombre SET ombreRevue = ?
+          WHERE tacheOmbre = ? AND ombreResultat = ?`,
+      )
+      .run(revue, productionTaskId, resultId);
+    this.db
+      .prepare(
+        `UPDATE taches_ombre SET originalRevue = ?
+          WHERE tacheOriginale = ? AND resultatOriginal = ?`,
+      )
+      .run(revue, productionTaskId, resultId);
+  }
+
+  /**
+   * Ce que le banc a dépensé pour un projet depuis `depuis`. Les ombres EN VOL
+   * se comptent sans fenêtre : une ombre lancée hier et toujours en file tient
+   * encore sa place (`OMBRES_EN_VOL_MAX`). En vol = l'ombre elle-même n'est
+   * pas close, OU une de ses relectures ne l'est pas : leur coût n'arrive
+   * qu'à leur retour, et admettre la suivante avant lui laisserait le plafond
+   * franchir une ombre de plus.
+   */
+  usageBancOmbre(projectId: string, depuis: number): UsageBancOmbre {
+    const fenetre = this.db
+      .prepare(
+        `SELECT COUNT(*) AS executions,
+                COALESCE(SUM(coutDeclareUsd), 0) AS coutDeclareUsd,
+                COALESCE(SUM(executionsMuettes), 0) AS executionsMuettes
+           FROM taches_ombre WHERE projectId = ? AND creeA >= ?`,
+      )
+      .get(projectId, depuis) as Omit<UsageBancOmbre, 'enVol'>;
+    const { enVol } = this.db
+      .prepare(
+        `SELECT COUNT(*) AS enVol
+           FROM taches_ombre o JOIN tasks t ON t.id = o.tacheOmbre
+          WHERE o.projectId = ?
+            AND (
+              t.status NOT IN ('done', 'failed')
+              OR EXISTS (
+                SELECT 1 FROM contre_expertises ce JOIN tasks r ON r.id = ce.relectureTaskId
+                 WHERE ce.productionTaskId = o.tacheOmbre AND r.status NOT IN ('done', 'failed')
+              )
+            )`,
+      )
+      .get(projectId) as { enVol: number };
+    return { ...fenetre, enVol };
+  }
+
+  /**
+   * Ajoute ce qu'une exécution liée à une ombre — l'ombre elle-même, ou une de
+   * ses relectures — a DÉCLARÉ coûter. `null` : le CLI n'a rien déclaré, et
+   * c'est compté comme tel, jamais estimé.
+   */
+  consignerCoutOmbre(tacheOmbre: string, coutUsd: number | null): void {
+    this.db
+      .prepare(
+        `UPDATE taches_ombre
+            SET coutDeclareUsd = coutDeclareUsd + ?, executionsMuettes = executionsMuettes + ?
+          WHERE tacheOmbre = ?`,
+      )
+      .run(coutUsd ?? 0, coutUsd === null ? 1 : 0, tacheOmbre);
+  }
+
+  /**
+   * Les dernières ombres — d'un projet, ou de toute la ruche (`null`) —, avec
+   * l'état de leur tâche (`null` si elle a disparu), les plus récentes
+   * d'abord. Bornée par `limite`. C'est la source DURABLE des comparaisons que
+   * le registre Genome replie : elles vivent ici, pas dans le journal.
+   */
+  ombresRecentes(
+    projectId: string | null,
+    limite = 20,
+  ): Array<TacheOmbre & { statut: TaskStatus | null; titre: string | null }> {
+    const rows = this.db
+      .prepare(
+        `SELECT o.*, t.status AS statut, t.title AS titre
+           FROM taches_ombre o LEFT JOIN tasks t ON t.id = o.tacheOmbre
+          WHERE (? IS NULL OR o.projectId = ?)
+          ORDER BY o.creeA DESC, o.tacheOmbre DESC
+          LIMIT ?`,
+      )
+      .all(projectId, projectId, Math.max(1, Math.min(limite, 5_000))) as Array<
+      TacheOmbreRow & { statut: TaskStatus | null; titre: string | null }
+    >;
+    return rows.map((r) => ({ ...rowToTacheOmbre(r), statut: r.statut, titre: r.titre }));
+  }
+
+  /** Élague les liens dont l'ombre n'existe plus. Référentielle, motif `pruneContreExpertises`. */
+  pruneTachesOmbre(): number {
+    return this.db
+      .prepare('DELETE FROM taches_ombre WHERE tacheOmbre NOT IN (SELECT id FROM tasks)')
       .run().changes;
   }
 
@@ -5432,13 +7255,17 @@ export class HiveStore {
     now?: number;
   }): boolean {
     const now = l.now ?? Date.now();
+    // Une OMBRE ne se réserve jamais (shadow-bench.ts) : la garde vit dans
+    // l'insertion même, la frontière atomique que toutes les voies de livraison
+    // traversent — la route humaine, le runner, et celles qui viendront.
     const info = this.db
       .prepare(
         `INSERT INTO livraisons (taskId, projectId, depot, pr, branche, etat, motif, version, creeA, majA)
-         VALUES (?, ?, ?, 0, ?, ?, '', 1, ?, ?)
+         SELECT ?, ?, ?, 0, ?, ?, '', 1, ?, ?
+          WHERE NOT EXISTS (SELECT 1 FROM taches_ombre WHERE tacheOmbre = ?)
          ON CONFLICT(taskId) DO NOTHING`,
       )
-      .run(l.taskId, l.projectId, l.depot, l.branche, ETAT_LIVRAISON_EN_COURS, now, now);
+      .run(l.taskId, l.projectId, l.depot, l.branche, ETAT_LIVRAISON_EN_COURS, now, now, l.taskId);
     return info.changes === 1;
   }
 
@@ -5455,32 +7282,113 @@ export class HiveStore {
     pr: number;
     etat: 'ouverte' | 'echouee';
     motif?: string;
+    /**
+     * Une REPRISE vient de faire avancer la PR `pr` : les autres lignes de la
+     * même PR passent `relayee`, dans la même transaction que celle-ci passe
+     * `ouverte` — il n'existe aucun instant où la PR a deux lignes vivantes,
+     * ni aucun où elle n'en a plus.
+     */
+    relaie?: boolean;
     now?: number;
   }): boolean {
     const now = l.now ?? Date.now();
-    const info = this.db
-      .prepare(
-        `UPDATE livraisons
-            SET pr = ?, etat = ?, motif = ?, majA = ?
-          WHERE taskId = ?
-            AND projectId = ?
-            AND depot = ?
-            AND branche = ?
-            AND pr = 0
-            AND etat = ?`,
-      )
-      .run(
-        l.pr,
-        l.etat,
-        l.motif ?? '',
-        now,
-        l.taskId,
-        l.projectId,
-        l.depot,
-        l.branche,
-        ETAT_LIVRAISON_EN_COURS,
-      );
-    return info.changes === 1;
+    return this.enTransaction(() => {
+      const info = this.db
+        .prepare(
+          `UPDATE livraisons
+              SET pr = ?, etat = ?, motif = ?, majA = ?
+            WHERE taskId = ?
+              AND projectId = ?
+              AND depot = ?
+              AND branche = ?
+              AND pr = 0
+              AND etat = ?`,
+        )
+        .run(
+          l.pr,
+          l.etat,
+          l.motif ?? '',
+          now,
+          l.taskId,
+          l.projectId,
+          l.depot,
+          l.branche,
+          ETAT_LIVRAISON_EN_COURS,
+        );
+      if (info.changes !== 1) return false;
+      if (l.relaie && l.etat === 'ouverte' && l.pr > 0) {
+        this.db
+          .prepare(
+            `UPDATE livraisons
+                SET etat = ?, motif = ?, majA = ?
+              WHERE projectId = ? AND depot = ? AND pr = ? AND taskId <> ?
+                AND etat IN ('ouverte', 'echouee')`,
+          )
+          .run(
+            ETAT_LIVRAISON_RELAYEE,
+            `relayée par la reprise ${l.taskId}`,
+            now,
+            // Le projet d'abord, comme la réservation : deux projets branchés
+            // sur le même dépôt ont chacun leurs lignes pour le même numéro.
+            l.projectId,
+            l.depot,
+            l.pr,
+            l.taskId,
+          );
+      }
+      return true;
+    });
+  }
+
+  // ─── Reprises : une correction prolonge la PR qu'elle corrige ─────────────
+
+  /**
+   * Inscrit la lignée d'une tâche de reprise. Idempotent : une seconde
+   * inscription de la même tâche ne réécrit rien et rend `false`.
+   */
+  inscrireReprise(r: Omit<RepriseLivraison, 'creeA'> & { now?: number }): boolean {
+    return (
+      this.db
+        .prepare(
+          `INSERT INTO reprises_livraison
+             (taskId, origine, parent, projectId, depot, pr, branche, tete, creeA)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(taskId) DO NOTHING`,
+        )
+        .run(
+          r.taskId,
+          r.origine,
+          r.parent,
+          r.projectId,
+          r.depot,
+          r.pr,
+          r.branche,
+          r.tete,
+          r.now ?? Date.now(),
+        ).changes === 1
+    );
+  }
+
+  /** La lignée d'une tâche, ou `null` si ce n'est pas une reprise. */
+  repriseDe(taskId: string): RepriseLivraison | null {
+    return (
+      (this.db.prepare('SELECT * FROM reprises_livraison WHERE taskId = ?').get(taskId) as
+        RepriseLivraison | undefined) ?? null
+    );
+  }
+
+  /** Les reprises d'une livraison d'origine, les plus anciennes d'abord. */
+  reprisesDeLivraison(origine: string): RepriseLivraison[] {
+    return this.db
+      .prepare('SELECT * FROM reprises_livraison WHERE origine = ? ORDER BY creeA ASC, taskId ASC')
+      .all(origine) as RepriseLivraison[];
+  }
+
+  /** Borne référentielle : la lignée ne survit pas à la tâche de reprise. */
+  pruneReprisesLivraison(): number {
+    return this.db
+      .prepare('DELETE FROM reprises_livraison WHERE taskId NOT IN (SELECT id FROM tasks)')
+      .run().changes;
   }
 
   /**
@@ -5660,7 +7568,8 @@ export class HiveStore {
    *
    * `events.id` est AUTOINCREMENT : `sqlite_sequence` garde le plus grand id
    * JAMAIS attribué, suppressions comprises, et les ids ne sont jamais
-   * réutilisés. Seul `pruneEvents` supprime des événements ; il en manque donc
+   * réutilisés. Seuls `pruneEvents` et la suppression d'un projet
+   * (`effacerProjet`) suppriment des événements ; il en manque donc
    * exactement quand plus d'ids ont été attribués qu'il ne reste de lignes.
    * Un fait que tout repli du journal (registre Genome) doit dire : ce qu'il
    * compte n'est plus toute l'histoire de la ruche.
@@ -5682,131 +7591,285 @@ export class HiveStore {
   }
 
   /**
-   * Ne conserve que les `maxKeep` événements les plus récents (par id), en
-   * préservant les derniers verdicts de contre-revue qui alimentent encore le
-   * corpus borné de l'Aiguillage. Leur `producteurModele` est la seule preuve
-   * du modèle exact d'un résultat après réassignation : supprimer l'événement
-   * tout en gardant `contre_visites` ferait apprendre le modèle courant à la
-   * place du producteur historique. Les preuves conservées sont bornées par
-   * `CORPUS_AIGUILLAGE`, comme la lecture qu'elles servent.
+   * LE PROPRIÉTAIRE UNIQUE DE LA RÉTENTION DU JOURNAL. La politique, et pourquoi
+   * elle remplace l'élagage aveugle des 5 000 derniers événements, vivent dans
+   * `shared/retention-journal.ts` ; ici, on rassemble les faits, on laisse
+   * `planDeRetention` décider, on supprime.
    *
-   * La DÉCISION HUMAINE COURANTE de chaque Conseil encore rangé est gardée de
-   * même (`council_decided`, cf. `shared/war-room.ts`). C'est un geste humain,
-   * pas une trace machine : l'élaguer ferait dire « à trancher » à un conseil
-   * que quelqu'un a déjà tranché, et laisserait trancher à nouveau comme si de
-   * rien n'était. Bornée par `pruneConseils` : une par session conservée, et
-   * la protection tombe avec la session.
+   *   1. Sous la fenêtre (`id <= dernier − fenetre`), chaque ligne est relue
+   *      avec le `taskId` de son payload : c'est par là, et par rien d'autre,
+   *      qu'une preuve est liée à sa tâche.
+   *   2. Les faits que leur propre borne tient déjà restent hors du jeu
+   *      (`faitsRanges`).
+   *   3. Chaque tâche citée par une preuve est relue une fois (`cloturesDe`).
+   *   4. Ce que le plan retire part par lots de 900 (limite de variables liées
+   *      de SQLite), et s'ajoute au registre `journal_elagages`, par type et par
+   *      motif.
    *
-   * Le DERNIER REFUS DE RENVOI de chaque tâche encore rangée l'est aussi
-   * (`evaluator_retry_skipped`). C'est le seul endroit où la ruche dit « des
-   * relecteurs contestent cette production, et la correction n'a pas eu
-   * lieu » : l'élaguer effacerait de la War Room une contestation levée
-   * pendant une nuit de travail avant que quiconque l'ait lue — le journal
-   * tourne en quelques heures. Ce qui la LÈVE (revue humaine, nouvel essai)
-   * se relit dans les tables rangées, pas ici (`TacheRangee`). Bornée par
-   * `pruneTasks` : une par tâche conservée, et la protection tombe avec elle.
-   *
-   * La contre-revue en cours du DERNIER résultat d'une production rendue
-   * (`done`) garde aussi ses faits : les annonces de lancement (filigrane
-   * `resultId` que `eventForRelecture` relit pour compter les relectures en
-   * vol et rattacher une clôture) et l'impossibilité consignée
-   * (`contreRevueImpossible`, sur laquelle l'Evaluator nomme sa revue
-   * humaine). Élagués, une production en attente d'humain retombait en
-   * « preuves manquantes », et une relecture de secours close ensuite perdait
-   * sa suite. Bornée aux `CORPUS_AIGUILLAGE` productions rendues les plus
-   * récentes : au plus trois faits chacune (lancement, secours, impossibilité).
-   * « Productions » au sens strict — les tâches qui ont des relectures
-   * (`contre_expertises.productionTaskId`) : compter toute tâche `done`
-   * laisserait les relectures elles-mêmes, et les tâches jamais relues,
-   * occuper la moitié des places et élaguer plus tôt que promis.
+   * UNE transaction IMMEDIATE : la clôture d'une tâche est relue au même instant
+   * que les lignes qu'elle garde, et le registre compte exactement ce qui est
+   * parti — jamais un compte sans suppression, ni l'inverse. La fenêtre n'est
+   * jamais touchée : `/api/events?since=` et les écrans qui rattrapent le direct
+   * la lisent telle qu'elle était. Rend le bilan de la passe, que la Reine
+   * journalise quand il retire quelque chose.
    */
-  pruneEvents(maxKeep: number): number {
-    const cutoff = this.lastEventId() - Math.max(0, maxKeep);
-    if (cutoff <= 0) return 0;
-    const info = this.db
+  pruneEvents(politique: PolitiqueJournal, now = Date.now()): BilanJournal {
+    const retenir = this.db.transaction((): BilanJournal => {
+      const cutoff = this.lastEventId() - Math.max(0, politique.fenetre);
+      if (cutoff <= 0) return bilanDeRetraits([], this.countEvents());
+      const lignes = (
+        this.db
+          .prepare(
+            `SELECT id, type, ${TACHE_DE_L_EVENEMENT} AS taskId
+               FROM events WHERE id <= ? ORDER BY id`,
+          )
+          .all(cutoff) as Array<{ id: number; type: string; taskId: unknown }>
+      ).map((l): LigneJournal => ({
+        id: l.id,
+        type: l.type,
+        taskId: typeof l.taskId === 'string' && l.taskId !== '' ? l.taskId : null,
+      }));
+      const citees = lignes.flatMap((l) =>
+        l.taskId !== null && estPreuve(l.type) ? [l.taskId] : [],
+      );
+      const clotures = this.cloturesDe(citees);
+      const retraits = planDeRetention(
+        lignes,
+        (taskId) => clotures.get(taskId),
+        this.faitsRanges(),
+        this.tachesProuveesDansLaFenetre(cutoff),
+        politique,
+        this.countEvents(),
+        now,
+      );
+      const LOT = 900;
+      for (let i = 0; i < retraits.length; i += LOT) {
+        const lot = retraits.slice(i, i + LOT).map((r) => r.id);
+        this.db
+          .prepare(`DELETE FROM events WHERE id IN (${lot.map(() => '?').join(', ')})`)
+          .run(...lot);
+      }
+      const comptes = new Map<string, { type: string; motif: MotifElagage; n: number }>();
+      for (const r of retraits) {
+        const cle = `${r.type}\u0000${r.motif}`;
+        const compte = comptes.get(cle) ?? { type: r.type, motif: r.motif, n: 0 };
+        compte.n += 1;
+        comptes.set(cle, compte);
+      }
+      this.consignerElagages(comptes.values(), now);
+      return bilanDeRetraits(retraits, this.countEvents());
+    });
+    return retenir.immediate();
+  }
+
+  /**
+   * Ajoute au registre `journal_elagages` ce qu'un chemin vient de retirer du
+   * journal, par type et par motif. Les DEUX chemins qui suppriment des
+   * événements y passent — la rétention et la suppression d'un projet — pour
+   * que « le journal a perdu des lignes que le registre n'explique pas »
+   * (`faitsElagues`) ne soit vrai que d'une perte réelle.
+   */
+  private consignerElagages(
+    comptes: Iterable<{ type: string; motif: MotifElagage; n: number }>,
+    now: number,
+  ): void {
+    const noter = this.db.prepare(
+      `INSERT INTO journal_elagages (type, motif, supprimes, dernierA) VALUES (?, ?, ?, ?)
+       ON CONFLICT(type, motif) DO UPDATE
+         SET supprimes = supprimes + excluded.supprimes, dernierA = excluded.dernierA`,
+    );
+    for (const { type, motif, n } of comptes) noter.run(type, motif, n, now);
+  }
+
+  /**
+   * Les tâches qui ont au moins une preuve AU-DESSUS de `cutoff` — dans la
+   * fenêtre, que la passe ne touche jamais — avec les types de ces preuves. Le
+   * plafond ne les prend pas entières : il ne retirerait que la moitié de leur
+   * dossier ; en dernier recours il les COUPE, en commençant par les preuves
+   * qu'une plus récente du même type remplace, fût-ce dans la fenêtre
+   * (`planDeRetention`). La fenêtre est bornée (`fenetre` lignes) ; DISTINCT
+   * replie les milliers de progrès d'une même tâche en une ligne par type.
+   */
+  private tachesProuveesDansLaFenetre(cutoff: number): Map<string, Set<string>> {
+    const rows = this.db
+      .prepare(`SELECT DISTINCT type, ${TACHE_DE_L_EVENEMENT} AS taskId FROM events WHERE id > ?`)
+      .all(cutoff) as Array<{ type: string; taskId: unknown }>;
+    const out = new Map<string, Set<string>>();
+    for (const r of rows) {
+      if (typeof r.taskId !== 'string' || r.taskId === '' || !estPreuve(r.type)) continue;
+      const types = out.get(r.taskId) ?? new Set<string>();
+      types.add(r.type);
+      out.set(r.taskId, types);
+    }
+    return out;
+  }
+
+  /**
+   * La clôture de chaque tâche citée (`clotureDe`), relue dans les tables
+   * RANGÉES — l'état, la livraison, le verdict humain, et si elle est rendue à
+   * une autre (relecture d'une production, enfant délégué) — jamais déduite du
+   * journal qu'on est en train d'élaguer. Une tâche absente de `tasks` n'est pas
+   * dans la carte : elle n'existe plus, ses preuves sont orphelines. Par lots de
+   * 900, chaque jointure servie par une clé primaire.
+   */
+  private cloturesDe(taskIds: readonly string[]): Map<string, number | null> {
+    const uniques = [...new Set(taskIds)];
+    const out = new Map<string, number | null>();
+    const LOT = 900;
+    for (let i = 0; i < uniques.length; i += LOT) {
+      const lot = uniques.slice(i, i + LOT);
+      const rows = this.db
+        .prepare(
+          `SELECT t.id AS id, t.status AS status, t.updatedAt AS updatedAt,
+                  l.etat AS livraisonEtat, l.majA AS livraisonMajA,
+                  r.state AS revueEtat, r.updatedAt AS revueA,
+                  (EXISTS (SELECT 1 FROM contre_expertises c WHERE c.relectureTaskId = t.id)
+                   OR EXISTS (SELECT 1 FROM task_delegations d WHERE d.childTaskId = t.id))
+                    AS rendueAUneAutre
+             FROM tasks t
+             LEFT JOIN livraisons l ON l.taskId = t.id
+             LEFT JOIN reviews r    ON r.taskId = t.id
+            WHERE t.id IN (${lot.map(() => '?').join(', ')})`,
+        )
+        .all(...lot) as Array<{
+        id: string;
+        status: string;
+        updatedAt: number;
+        livraisonEtat: string | null;
+        livraisonMajA: number | null;
+        revueEtat: string | null;
+        revueA: number | null;
+        rendueAUneAutre: number;
+      }>;
+      for (const r of rows) {
+        out.set(
+          r.id,
+          clotureDe({
+            status: r.status,
+            updatedAt: r.updatedAt,
+            livraison:
+              r.livraisonEtat === null
+                ? null
+                : { etat: r.livraisonEtat, majA: r.livraisonMajA ?? 0 },
+            revue: r.revueEtat === null ? null : { state: r.revueEtat, updatedAt: r.revueA ?? 0 },
+            rendueAUneAutre: r.rendueAUneAutre === 1,
+          }),
+        );
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Les faits que leur PROPRE borne tient déjà : la rétention du journal ne les
+   * touche jamais — ni la fenêtre, ni l'échéance, ni le plafond. Chacun est
+   * borné par un nombre fixe, et le plafond de la Reine est choisi au-dessus de
+   * leur somme avec la fenêtre (un test tient l'inégalité).
+   *
+   *   · La DÉCISION HUMAINE COURANTE de chaque Conseil encore rangé
+   *     (`council_decided`, cf. `shared/war-room.ts`). C'est un geste humain, pas
+   *     une trace machine : l'élaguer ferait redire « à trancher » à un conseil
+   *     que quelqu'un a tranché, et laisserait trancher à nouveau comme si de
+   *     rien n'était. Un Conseil n'est la preuve d'aucune tâche — sans cette
+   *     clause, sa décision serait une trace. Bornée par `pruneConseils` : une
+   *     par session conservée, et la protection tombe avec la session.
+   *   · Le DERNIER VERDICT de contre-revue de chaque production du corpus de
+   *     l'Aiguillage — l'appartenance exacte que relit `observationsAiguillage`,
+   *     par la même requête (`CORPUS_AIGUILLAGE_SQL`).
+   *     Son `producteurModele` est la seule preuve du modèle exact d'un résultat
+   *     après réassignation : supprimé alors que `contre_visites` reste,
+   *     l'Aiguillage apprendrait le modèle COURANT à la place du producteur
+   *     historique. Le verdict est aussi une preuve de sa production ; cette
+   *     clause le tient au-delà de sa clôture et hors du plafond, tant que la
+   *     production compte pour l'apprentissage. Bornée par `CORPUS_AIGUILLAGE`.
+   *   · Les `AUDITS_SUPPRESSION_CONSERVES` derniers faits d'AUDIT d'une
+   *     suppression de projet (`project_deleted`). C'est tout ce qui reste d'un
+   *     projet supprimé (décision du propriétaire : supprimer, pas archiver —
+   *     sauf cette ligne) : l'élaguer au bout de quelques heures de journal
+   *     ferait qu'il n'aurait jamais existé, ni personne pour l'avoir effacé.
+   *     « Un geste humain » ne bornait rien : un script qui crée puis supprime
+   *     des projets en boucle en pose autant qu'il veut, et chacun échappait à
+   *     la fenêtre ET au plafond. Au-delà du nombre, les plus anciens
+   *     redeviennent des traces que la rétention retire — et compte au
+   *     registre, comme tout ce qu'elle retire (#527).
+   */
+  private faitsRanges(): Set<number> {
+    const decisions = this.db
       .prepare(
-        `DELETE FROM events
-          WHERE id <= ?
-            AND NOT (
-              (
-                type = 'contre_expertise_verdict'
-              AND json_extract(payload, '$.source') = 'hive_counter_review'
-              AND json_extract(payload, '$.resultId') IS NOT NULL
-              AND json_extract(payload, '$.taskId') IN (
-                SELECT cv.productionTaskId
-                  FROM contre_visites cv
-                  JOIN tasks t ON t.id = cv.productionTaskId
-                  LEFT JOIN aiguillage_modeles am ON am.taskId = cv.productionTaskId
-                  LEFT JOIN events ce ON ce.id = (
-                    SELECT e0.id
-                      FROM events e0
-                     WHERE e0.type = 'contre_expertise_verdict'
-                       AND json_extract(e0.payload, '$.source') = 'hive_counter_review'
-                       AND json_extract(e0.payload, '$.taskId') = cv.productionTaskId
-                       AND json_extract(e0.payload, '$.resultId') IS NOT NULL
-                     ORDER BY e0.id DESC
-                     LIMIT 1
-                  )
-                 WHERE am.taskId IS NOT NULL
-                    OR json_extract(ce.payload, '$.producteurModele') IS NOT NULL
-                 ORDER BY cv.renduA DESC, cv.productionTaskId DESC
-                 LIMIT ?
-              )
-              AND id = (
-                SELECT e.id
-                  FROM events e
-                 WHERE e.type = 'contre_expertise_verdict'
-                   AND json_extract(e.payload, '$.source') = 'hive_counter_review'
-                   AND json_extract(e.payload, '$.taskId') = json_extract(events.payload, '$.taskId')
-                   AND json_extract(e.payload, '$.resultId') IS NOT NULL
-                 ORDER BY e.id DESC
-                 LIMIT 1
-              )
-              )
-              OR (
-                type = 'worker_usage'
-                AND json_extract(payload, '$.resultId') IN (
-                  SELECT id FROM results ORDER BY id DESC LIMIT ?
-                )
-              )
-              OR (
-                type = 'council_decided'
-                AND json_extract(payload, '$.sessionId') IN (SELECT id FROM conseil_sessions)
-                AND id = (
-                  SELECT MAX(d.id)
-                    FROM events d
-                   WHERE d.type = 'council_decided'
-                     AND json_extract(d.payload, '$.sessionId') = json_extract(events.payload, '$.sessionId')
-                )
-              )
-              OR (
-                type = 'evaluator_retry_skipped'
-                AND json_extract(payload, '$.taskId') IN (SELECT id FROM tasks)
-                AND id = (
-                  SELECT MAX(r.id)
-                    FROM events r
-                   WHERE r.type = 'evaluator_retry_skipped'
-                     AND json_extract(r.payload, '$.taskId') = json_extract(events.payload, '$.taskId')
-                )
-              )
-              OR (
-                type IN ('contre_expertise', 'contre_expertise_impossible')
-                AND json_extract(payload, '$.taskId') IN (
-                  SELECT t.id FROM tasks t
-                   WHERE t.status = 'done'
-                     AND t.id IN (SELECT productionTaskId FROM contre_expertises)
-                   ORDER BY t.updatedAt DESC, t.id DESC
-                   LIMIT ?
-                )
-                AND json_extract(payload, '$.resultId') = (
-                  SELECT MAX(r.id) FROM results r
-                   WHERE r.taskId = json_extract(events.payload, '$.taskId')
-                )
-              )
-            )`,
+        `SELECT id FROM (
+           SELECT MAX(id) AS id,
+                  json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.sessionId') AS sessionId
+             FROM events
+            WHERE type = 'council_decided'
+            GROUP BY sessionId
+         )
+         WHERE sessionId IN (SELECT id FROM conseil_sessions)`,
       )
-      .run(cutoff, CORPUS_AIGUILLAGE, Math.max(0, maxKeep), CORPUS_AIGUILLAGE);
-    return info.changes;
+      .all() as Array<{ id: number }>;
+    const verdicts = this.db.prepare(CORPUS_AIGUILLAGE_SQL).all(CORPUS_AIGUILLAGE) as Array<{
+      verdictId: number | null;
+    }>;
+    const suppressions = this.db
+      .prepare(`SELECT id FROM events WHERE type = 'project_deleted' ORDER BY id DESC LIMIT ?`)
+      .all(AUDITS_SUPPRESSION_CONSERVES) as Array<{ id: number }>;
+    return new Set([
+      ...decisions.map((r) => r.id),
+      ...suppressions.map((r) => r.id),
+      ...verdicts.flatMap((r) => (r.verdictId === null ? [] : [r.verdictId])),
+    ]);
+  }
+
+  /**
+   * Des faits de ces types, d'une tâche ENCORE CONNUE, ont-ils pu sortir du
+   * journal ? La question qu'un repli par tâche (registre Genome) doit se poser
+   * avant de se dire tronqué — et que `journalElague` ne sait pas trancher : il
+   * voit qu'il manque des lignes, pas lesquelles, si bien qu'une passe qui n'a
+   * ôté que des battements de cœur l'allume aussi.
+   *
+   * Vrai quand l'une de ces trois choses est vraie :
+   *   · le registre compte un fait de ces types retiré pour un motif qui touche
+   *     une tâche connue (`MOTIFS_FAIT_CONNU` : échu, ou pris par le plafond), et
+   *     une tâche créée avant le DERNIER de ces retraits est toujours là. Une
+   *     tâche créée après n'a rien pu y perdre ; quand la dernière d'avant
+   *     disparaît (`pruneTasks`), l'aveu tombe avec elle — le Genome ignore déjà
+   *     les faits d'une tâche disparue. Sans ce lien, un seul fait échu
+   *     allumait « tronqué » pour toute la vie de la base. Le lien reste
+   *     CONSERVATEUR : le registre compte par type et par motif, pas par tâche,
+   *     si bien qu'une vieille tâche restée en `ready` tient l'aveu allumé pour
+   *     un fait échu d'une AUTRE. Il peut dire « tronqué » à tort, jamais
+   *     « complet » à tort ;
+   *   · l'ancienne rétention a supprimé des lignes de types inconnus
+   *     (`avant_registre`) et une tâche créée avant qu'on le constate est
+   *     toujours là — ses faits ont pu partir avec ;
+   *   · le journal a perdu des lignes que le registre n'explique pas, par un
+   *     autre chemin que `pruneEvents` : inconnu, donc compté comme une perte.
+   * Les traces et les orphelines n'y entrent pas : un repli par tâche ignore
+   * déjà les événements d'une tâche disparue, et une trace n'en nomme aucune.
+   */
+  faitsElagues(types: readonly string[]): boolean {
+    if (types.length === 0) return false;
+    const marques = types.map(() => '?').join(', ');
+    const motifs = MOTIFS_FAIT_CONNU.map(() => '?').join(', ');
+    const row = this.db
+      .prepare(
+        `SELECT
+           EXISTS (SELECT 1 FROM tasks
+                    WHERE createdAt <= (SELECT MAX(dernierA) FROM journal_elagages
+                                         WHERE type IN (${marques})
+                                           AND motif IN (${motifs}))) AS connus,
+           EXISTS (SELECT 1 FROM tasks
+                    WHERE createdAt <= (SELECT dernierA FROM journal_elagages
+                                         WHERE motif = 'avant_registre')) AS anciens,
+           COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'events'), 0)
+             - (SELECT COUNT(*) FROM events)
+             - COALESCE((SELECT SUM(supprimes) FROM journal_elagages), 0) AS inexpliques`,
+      )
+      .get(...types, ...MOTIFS_FAIT_CONNU) as {
+      connus: number;
+      anciens: number;
+      inexpliques: number;
+    };
+    return row.connus === 1 || row.anciens === 1 || row.inexpliques > 0;
   }
 
   /**
@@ -5822,7 +7885,7 @@ export class HiveStore {
     // tâche (`build_api` matcherait `build-api`).
     const row = this.db
       .prepare(
-        "SELECT * FROM events WHERE type = ? AND json_extract(payload, '$.taskId') = ? ORDER BY id DESC LIMIT 1",
+        `SELECT * FROM events WHERE type = ? AND ${TACHE_DE_L_EVENEMENT} = ? ORDER BY id DESC LIMIT 1`,
       )
       .get(type, taskId) as EventRow | undefined;
     if (!row) return null;
@@ -5848,7 +7911,7 @@ export class HiveStore {
       .prepare(
         `SELECT * FROM events
           WHERE type IN (${marques})
-            AND json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.taskId') = ?
+            AND ${TACHE_DE_L_EVENEMENT} = ?
           ORDER BY id DESC LIMIT ?`,
       )
       .all(...types, taskId, Math.max(1, Math.min(limite, 500))) as EventRow[];
@@ -5953,7 +8016,7 @@ export class HiveStore {
       .prepare(
         `SELECT * FROM events
          WHERE type IN ('validation_recorded', 'ci_validation_recorded')
-           AND json_extract(payload, '$.taskId') = ?
+           AND ${TACHE_DE_L_EVENEMENT} = ?
            AND json_extract(payload, '$.resultId') = ?
          ORDER BY id DESC LIMIT 1`,
       )
@@ -6056,7 +8119,7 @@ export class HiveStore {
       .prepare(
         `SELECT payload FROM events
          WHERE type = 'contre_expertise_impossible'
-           AND json_extract(payload, '$.taskId') = ?
+           AND ${TACHE_DE_L_EVENEMENT} = ?
            AND json_extract(payload, '$.resultId') = ?
          ORDER BY id DESC LIMIT 1`,
       )
@@ -6076,7 +8139,7 @@ export class HiveStore {
       .prepare(
         `SELECT * FROM events
          WHERE type = 'contre_expertise_verdict'
-           AND json_extract(payload, '$.taskId') = ?
+           AND ${TACHE_DE_L_EVENEMENT} = ?
            AND json_extract(payload, '$.resultId') = ?
          ORDER BY id ASC`,
       )
@@ -6102,7 +8165,13 @@ export class HiveStore {
       // l'indépendance.
       const producerAgent = payload.producteur;
       const objections = payload.objections;
+      // Les constats d'un marqueur `HIVE_CRITIQUE` lu (`noterVerdict`).
+      // Absents : une critique libre. Présents mais hors grille : ce payload
+      // n'a pas été écrit par la ruche, et l'avis est écarté comme le sont des
+      // objections illisibles — jamais relu à moitié.
+      const constats = payload.findings === undefined ? [] : lireConstats(payload.findings);
       if (
+        constats === null ||
         payload.source !== 'hive_counter_review' ||
         task !== taskId ||
         result !== resultId ||
@@ -6126,7 +8195,9 @@ export class HiveStore {
         .map((objection) => champSurUneLigne(objection, 300).trim())
         .filter((objection) => objection !== '');
       const decision =
-        payload.conteste === true || boundedObjections.length > 0 ? 'ameliorer' : 'appliquer';
+        payload.conteste === true || boundedObjections.length > 0 || constats.some(constatBloquant)
+          ? 'ameliorer'
+          : 'appliquer';
       votes.push({
         relectureTaskId: relecture,
         reviewerNodeId,
@@ -6141,6 +8212,7 @@ export class HiveStore {
         agentType: reviewerAgent,
         valide: decision === 'appliquer',
         objections: boundedObjections,
+        ...(payload.findings === undefined ? {} : { marqueur: { etat: 'lu' as const, constats } }),
       });
     }
 
@@ -6154,6 +8226,7 @@ export class HiveStore {
       decision: verdict.conteste ? 'ameliorer' : 'appliquer',
       reviewers: votes,
       objections: verdict.objections,
+      findings: verdict.constats,
       reviewerCount: votes.length,
       contestingReviewers: votes.filter((vote) => vote.decision === 'ameliorer').length,
       approvingReviewers: votes.filter((vote) => vote.decision === 'appliquer').length,
@@ -6167,6 +8240,19 @@ export class HiveStore {
    * rendait la fenêtre de 10 minutes fictive dès que la ruche était active (un
    * flot de `task_progress` évinçait les issues). Servi par l'index
    * `idx_events_ts` — pas de tri temporaire, pas de scan complet.
+   *
+   * `INDEXED BY` : le plan est ÉPINGLÉ, parce qu'il a déjà bougé seul. Depuis
+   * `idx_events_type`, le planificateur préférait l'égalité sur le type à la
+   * borne sur `ts` — or ces quatre types sont des preuves que la rétention garde
+   * des semaines : il aurait relu, et trié, toutes les issues retenues pour en
+   * garder dix minutes, à chaque tick. Épinglé, un index disparu fait échouer
+   * la requête au lieu de la ralentir en silence (le rôle que la documentation
+   * de SQLite donne à cette clause).
+   *
+   * Sans les tâches du BANC (`TACHES_DU_BANC_SQL`) : la température dit la
+   * santé de la PRODUCTION. Une ombre qui échoue — second modèle plus faible,
+   * modèle disparu — ferait monter la fièvre et brider la concurrence de
+   * toute la ruche pour une tâche que personne n'attend.
    */
   listEventsInWindow(
     since: number,
@@ -6176,7 +8262,11 @@ export class HiveStore {
     const placeholders = types.map(() => '?').join(', ');
     const rows = this.db
       .prepare(
-        `SELECT ts, type, payload FROM events WHERE ts >= ? AND type IN (${placeholders}) ORDER BY ts`,
+        `SELECT ts, type, payload FROM events INDEXED BY idx_events_ts
+          WHERE ts >= ? AND type IN (${placeholders})
+            AND COALESCE(${TACHE_DE_L_EVENEMENT}, '')
+                NOT IN (SELECT id FROM (${TACHES_DU_BANC_SQL}))
+          ORDER BY ts`,
       )
       .all(since, ...types) as Array<{ ts: number; type: string; payload: string }>;
     return rows.map((r) => ({
@@ -6248,6 +8338,34 @@ export class HiveStore {
    * `numeroDeMission` qui tranche (`hive/mission-p-` couvre aussi le projet
    * `p-1`).
    */
+  /**
+   * Les commits journalisés d'UNE branche de mission, dans l'ordre : qui l'a
+   * commitée (le nœud qui la tient) et à quel commit. Le dernier est sa tête.
+   *
+   * C'est ce que prolonger une mission relit (`livraison-locale`, `prolonger`) :
+   * la tête que la RUCHE a livrée, jamais ce qu'un dépôt en dirait. Correspondance
+   * exacte (json_extract), comme `lastEventFor`.
+   */
+  commitsDeMission(projectId: string, branche: string): Array<{ nodeId: string; commit: string }> {
+    const rows = this.db
+      .prepare(
+        `SELECT json_extract(payload, '$.nodeId') AS nodeId, json_extract(payload, '$.commit') AS sha
+           FROM events
+          WHERE type = 'livraison_locale'
+            AND json_extract(payload, '$.etat') = 'commitee'
+            AND json_extract(payload, '$.projectId') = ?
+            AND json_extract(payload, '$.branche') = ?
+          ORDER BY id ASC`,
+      )
+      .all(projectId, branche) as Array<{ nodeId: unknown; sha: unknown }>;
+    // `sha` et pas `commit` : COMMIT est un mot réservé de SQLite.
+    return rows.flatMap((r) =>
+      typeof r.nodeId === 'string' && typeof r.sha === 'string'
+        ? [{ nodeId: r.nodeId, commit: r.sha }]
+        : [],
+    );
+  }
+
   branchesDeMissionJournalisees(prefixe: string): string[] {
     const rows = this.db
       .prepare(
@@ -6310,11 +8428,31 @@ export class HiveStore {
     };
   }
 
-  /** Souvenirs les plus récents (corpus borné pour garder le scoring rapide). */
-  listMemories(limit = 500): Memory[] {
-    return this.db
-      .prepare('SELECT * FROM memories ORDER BY createdAt DESC, id DESC LIMIT ?')
-      .all(Math.max(1, Math.min(limit, 2000))) as MemoryRow[];
+  /**
+   * Souvenirs les plus récents (corpus borné pour garder le scoring rapide).
+   *
+   * Le filtre (`FiltreSouvenirs`) passe AVANT la borne, pas après : filtré
+   * après, un projet voisin prolifique remplirait le corpus de souvenirs
+   * écartés et priverait la tâche de ceux qui lui reviennent. La table est
+   * elle-même bornée (`pruneMemories`) : le parcours l'est aussi.
+   */
+  listMemories(limit = 500, { admis, exclureTache }: FiltreSouvenirs = {}): Memory[] {
+    const borne = Math.max(1, Math.min(limit, 2000));
+    if (!admis && exclureTache === undefined) {
+      return this.db
+        .prepare('SELECT * FROM memories ORDER BY createdAt DESC, id DESC LIMIT ?')
+        .all(borne) as MemoryRow[];
+    }
+    const corpus: Memory[] = [];
+    const lignes = this.db
+      .prepare('SELECT * FROM memories ORDER BY createdAt DESC, id DESC')
+      .iterate() as IterableIterator<MemoryRow>;
+    for (const m of lignes) {
+      if (m.taskId === exclureTache || (admis && !admis(m.projectId))) continue;
+      corpus.push(m);
+      if (corpus.length === borne) break;
+    }
+    return corpus;
   }
 
   countMemories(): number {
@@ -6322,20 +8460,213 @@ export class HiveStore {
     return row.n;
   }
 
-  /** Récupère les souvenirs pertinents (BM25 + trigrammes sur le corpus récent). */
-  searchMemories(query: string, limit = 3): ScoredMemory[] {
-    return rankMemoriesHybrid(query, this.listMemories(500), limit);
+  /**
+   * Récupère les souvenirs pertinents (BM25 + trigrammes sur le corpus récent),
+   * parmi ceux que le filtre laisse passer (`listMemories`) :
+   *
+   *   · `admis` : la cloison du projet source (`savoirAdmis`, server.ts) ;
+   *   · `exclureTache` : le souvenir de CETTE tâche ne compte pas. Une ombre
+   *     rejoue une tâche dont la production a déjà laissé un souvenir — même
+   *     titre, même prompt, donc le plus pertinent de tous : le lui servir,
+   *     c'était lui souffler la réponse de l'autre modèle, et la comparaison
+   *     ne mesurait plus rien.
+   */
+  searchMemories(query: string, limit = 3, filtre: FiltreSouvenirs = {}): ScoredMemory[] {
+    return rankMemoriesHybrid(query, this.listMemories(500, filtre), limit);
+  }
+
+  /**
+   * Range le souvenir qu'une production réussie PROPOSE — sans l'écrire dans
+   * la mémoire (voir `souvenirs_proposes`). Une nouvelle production de la même
+   * tâche remplace la proposition précédente, issue comprise.
+   */
+  proposerSouvenir(
+    m: { projectId: string; taskId: string; resultId: number; title: string; content: string },
+    now = Date.now(),
+  ): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO souvenirs_proposes
+           (taskId, resultId, projectId, title, content, issue, proposeA)
+         VALUES (?, ?, ?, ?, ?, 'en_attente', ?)`,
+      )
+      .run(
+        m.taskId,
+        m.resultId,
+        m.projectId,
+        m.title.slice(0, LIMITS.title),
+        m.content.slice(0, LIMITS.prompt),
+        now,
+      );
+  }
+
+  /** La proposition en cours pour une tâche : la production visée et son issue. */
+  souvenirPropose(taskId: string): { resultId: number; issue: IssueSouvenir } | null {
+    const row = this.db
+      .prepare('SELECT resultId, issue FROM souvenirs_proposes WHERE taskId = ?')
+      .get(taskId) as { resultId: number; issue: IssueSouvenir } | undefined;
+    return row ?? null;
+  }
+
+  /**
+   * Adopte le souvenir qu'une tâche a laissé AVANT ce registre : jusque-là, la
+   * mémoire s'écrivait à la simple réussite, sans proposition. Sans adoption,
+   * un rejet rendu aujourd'hui sur une telle production ne trouverait rien à
+   * statuer — le souvenir jamais validé resterait, et l'échec ne laisserait
+   * aucun épisode. C'est exactement l'arriéré de la Miellerie au jour de la
+   * mise à jour.
+   *
+   * Paresseuse plutôt qu'au démarrage (règle 2 : aucune migration) : la
+   * proposition naît au premier fait qui juge la tâche, sur son DERNIER
+   * résultat, `retenu` puisque le souvenir est en mémoire — `validePar`
+   * inconnu, donc qu'aucune preuve qui vieillit ne retire. Rend `true` quand
+   * une proposition vient d'être adoptée.
+   */
+  adopterSouvenirHerite(taskId: string): boolean {
+    return (
+      this.db
+        .prepare(
+          `INSERT INTO souvenirs_proposes (taskId, resultId, projectId, title, content, issue, proposeA)
+           SELECT m.taskId, r.resultId, m.projectId, m.title, m.content, 'retenu', m.createdAt
+             FROM memories m, (SELECT MAX(id) AS resultId FROM results WHERE taskId = ?) r
+            WHERE m.taskId = ? AND r.resultId IS NOT NULL
+              AND NOT EXISTS (SELECT 1 FROM souvenirs_proposes WHERE taskId = ?)
+            ORDER BY m.createdAt DESC, m.id DESC
+            LIMIT 1`,
+        )
+        .run(taskId, taskId, taskId).changes > 0
+    );
+  }
+
+  /**
+   * Applique à la proposition de `resultId` le verdict qui vient d'être rendu,
+   * et rend ce qui a CHANGÉ — `null` quand l'issue n'a pas bougé (verdict
+   * identique, preuve vieillie qui ne révoque pas, ou proposition qui ne vise
+   * plus cette production).
+   *
+   * UN seul geste : l'issue et la mémoire bougent ensemble, sinon un souvenir
+   * pourrait rester dans la mémoire d'une production marquée rejetée.
+   * `oublie` dit qu'un souvenir vient d'en SORTIR — l'appelant le journalise.
+   */
+  statuerSouvenir(
+    taskId: string,
+    resultId: number,
+    verdict: VerdictSouvenir,
+    now = Date.now(),
+  ): {
+    avant: IssueSouvenir;
+    apres: IssueSouvenir;
+    memoire: Memory | null;
+    oublie: boolean;
+  } | null {
+    return this.db.transaction(() => {
+      const propose = this.db
+        .prepare(
+          `SELECT projectId, title, content, issue, validePar FROM souvenirs_proposes
+            WHERE taskId = ? AND resultId = ?`,
+        )
+        .get(taskId, resultId) as
+        | {
+            projectId: string;
+            title: string;
+            content: string;
+            issue: IssueSouvenir;
+            validePar: ValidationSouvenir | null;
+          }
+        | undefined;
+      if (!propose) return null;
+      const apres = suiteSouvenir(propose.issue, verdict.issue, propose.validePar);
+      if (apres === null) {
+        // Toujours retenu, mais l'Evaluator accepte désormais ce que seul un
+        // humain validait : c'est la validation la plus forte qu'on range —
+        // effacer l'approbation ne retirera plus un savoir que l'Evaluator a
+        // prouvé.
+        if (
+          propose.issue === 'retenu' &&
+          verdict.validePar === 'evaluator' &&
+          propose.validePar !== 'evaluator'
+        ) {
+          this.db
+            .prepare(`UPDATE souvenirs_proposes SET validePar = 'evaluator' WHERE taskId = ?`)
+            .run(taskId);
+        }
+        return null;
+      }
+      this.db
+        .prepare('UPDATE souvenirs_proposes SET issue = ?, validePar = ? WHERE taskId = ?')
+        .run(apres, apres === 'retenu' ? verdict.validePar : null, taskId);
+      if (apres === 'retenu') {
+        // Né à la validation, pas à la proposition : c'est l'instant où ce
+        // savoir devient transmissible, et `pruneMemories` garde les plus
+        // récents.
+        const memoire = this.recordMemory(
+          { projectId: propose.projectId, taskId, title: propose.title, content: propose.content },
+          now,
+        );
+        return { avant: propose.issue, apres, memoire, oublie: false };
+      }
+      // Hors de « retenu », la tâche n'a plus AUCUN souvenir — pas même celui
+      // d'une production antérieure qu'une nouvelle proposition a remplacée :
+      // la dernière production de la tâche fait foi (`recordMemory`).
+      const oublie =
+        this.db.prepare('DELETE FROM memories WHERE taskId = ?').run(taskId).changes > 0;
+      return { avant: propose.issue, apres, memoire: null, oublie };
+    })();
+  }
+
+  /**
+   * La porte qui a déjà versé au Cerveau l'échec de la production `resultId`,
+   * ou `null` : aucune, ou la proposition vise une autre production.
+   */
+  episodeDeProduction(taskId: string, resultId: number): SourceEpisode | null {
+    const row = this.db
+      .prepare('SELECT episode FROM souvenirs_proposes WHERE taskId = ? AND resultId = ?')
+      .get(taskId, resultId) as { episode: SourceEpisode | null } | undefined;
+    return row?.episode ?? null;
+  }
+
+  /**
+   * Consigne que l'échec de la production `resultId` a été versé au Cerveau
+   * par `source`. La première porte reste : c'est elle qui a écrit l'épisode.
+   */
+  marquerEpisodeProduction(taskId: string, resultId: number, source: SourceEpisode): void {
+    this.db
+      .prepare(
+        `UPDATE souvenirs_proposes SET episode = ?
+          WHERE taskId = ? AND resultId = ? AND episode IS NULL`,
+      )
+      .run(source, taskId, resultId);
+  }
+
+  /**
+   * Propositions dont la tâche n'existe plus : borne RÉFÉRENTIELLE, câblée
+   * après `pruneTasks` (motif `pruneAiguillageModeles`). Le souvenir retenu,
+   * lui, reste dans `memories` : le savoir dure plus longtemps que la tâche.
+   */
+  pruneSouvenirsProposes(): number {
+    return this.db
+      .prepare('DELETE FROM souvenirs_proposes WHERE taskId NOT IN (SELECT id FROM tasks)')
+      .run().changes;
   }
 
   /** Ne conserve que les `maxKeep` souvenirs les plus récents. Retourne le nombre supprimé. */
   pruneMemories(maxKeep: number): number {
     const keep = Math.max(0, maxKeep);
+    // Une relecture n'est pas un savoir sur le projet (`proposerSouvenir`,
+    // scheduler.ts) — mais avant ce registre, chacune laissait son « valide »
+    // ou son « conteste » en mémoire, servi aux tâches voisines. Purgées ici,
+    // à chaque passe : idempotent, et borné par la table des relectures.
+    const relectures = this.db
+      .prepare(
+        'DELETE FROM memories WHERE taskId IN (SELECT relectureTaskId FROM contre_expertises)',
+      )
+      .run().changes;
     const info = this.db
       .prepare(
         'DELETE FROM memories WHERE id NOT IN (SELECT id FROM memories ORDER BY createdAt DESC, id DESC LIMIT ?)',
       )
       .run(keep);
-    return info.changes;
+    return relectures + info.changes;
   }
 
   // ─── Revues humaines (Miellerie) ───────────────────────────────────────────
@@ -6414,6 +8745,447 @@ export class HiveStore {
       .prepare('SELECT state, updatedAt FROM reviews WHERE taskId = ?')
       .get(taskId) as { state: 'approved' | 'rejected'; updatedAt: number } | undefined;
     return row ?? null;
+  }
+
+  // ─── Les missions rejouables (src/shared/mission-rejouable.ts) ─────────────
+
+  /** La mission OUVERTE d'un projet (il n'y en a jamais qu'une), ou `null`. */
+  missionOuverte(projectId: string): MissionRangee | null {
+    const row = this.db
+      .prepare(
+        'SELECT * FROM missions WHERE projectId = ? AND closeA IS NULL ORDER BY ouverteA DESC LIMIT 1',
+      )
+      .get(projectId) as MissionRangee | undefined;
+    return row ?? null;
+  }
+
+  getMission(id: string): MissionRangee | null {
+    const row = this.db.prepare('SELECT * FROM missions WHERE id = ?').get(id) as
+      MissionRangee | undefined;
+    return row ?? null;
+  }
+
+  /** Les missions d'un projet, de la plus récente à la plus ancienne. */
+  listMissions(projectId: string, limite = 50): MissionRangee[] {
+    return this.db
+      .prepare('SELECT * FROM missions WHERE projectId = ? ORDER BY ouverteA DESC, id LIMIT ?')
+      .all(projectId, Math.max(1, Math.min(limite, 200))) as MissionRangee[];
+  }
+
+  /**
+   * Ouvre une mission AVEC son instantané de début, en une écriture.
+   *
+   * Conditionnelle : si une mission est déjà ouverte sur ce projet (deux
+   * créations de tâches rapprochées ont chacune programmé une ouverture), la
+   * seconde ne fait rien et rend `false` — « une seule mission ouverte par
+   * projet » tient par la base, pas par la chance de l'ordonnancement.
+   */
+  ouvrirMission(m: {
+    id: string;
+    projectId: string;
+    ouverteA: number;
+    depuisEvenement: number;
+    membres: readonly string[];
+    debut: string;
+  }): boolean {
+    return this.enTransaction(() => {
+      if (this.missionOuverte(m.projectId)) return false;
+      this.db
+        .prepare(
+          `INSERT INTO missions (id, projectId, ouverteA, closeA, depuisEvenement, debut, fin)
+           VALUES (?, ?, ?, NULL, ?, ?, NULL)`,
+        )
+        .run(m.id, m.projectId, m.ouverteA, m.depuisEvenement, m.debut);
+      this.ajouterMembresMission(m.id, m.membres);
+      // La PREMIÈRE mission d'un projet de rejeu est celle que la comparaison
+      // oppose à la source : rangée ici, une fois, dans la même écriture.
+      this.db
+        .prepare('UPDATE rejeux SET missionRejeu = ? WHERE projectId = ? AND missionRejeu IS NULL')
+        .run(m.id, m.projectId);
+      return true;
+    });
+  }
+
+  /** Range des tâches dans une mission (idempotent). */
+  ajouterMembresMission(missionId: string, taskIds: readonly string[]): void {
+    const inserer = this.db.prepare(
+      'INSERT OR IGNORE INTO missions_taches (missionId, taskId) VALUES (?, ?)',
+    );
+    for (const id of taskIds) inserer.run(missionId, id);
+  }
+
+  /** Les tâches rangées dans une mission. */
+  membresDeMission(missionId: string): string[] {
+    return (
+      this.db
+        .prepare('SELECT taskId FROM missions_taches WHERE missionId = ? ORDER BY taskId')
+        .all(missionId) as Array<{ taskId: string }>
+    ).map((r) => r.taskId);
+  }
+
+  /** La dernière mission CLOSE d'un projet, ou `null`. */
+  derniereMissionClose(projectId: string): MissionRangee | null {
+    const row = this.db
+      .prepare(
+        `SELECT * FROM missions WHERE projectId = ? AND closeA IS NOT NULL
+          ORDER BY closeA DESC, ouverteA DESC LIMIT 1`,
+      )
+      .get(projectId) as MissionRangee | undefined;
+    return row ?? null;
+  }
+
+  /**
+   * Re-prend l'instantané de FIN d'une mission close : une décision tombée
+   * APRÈS la clôture sur l'une de ses tâches (relecture humaine, livraison,
+   * action de rejeu) lui appartient. `closeA` ne bouge pas.
+   */
+  rafraichirFinMission(id: string, fin: string): boolean {
+    return (
+      this.db
+        .prepare('UPDATE missions SET fin = ? WHERE id = ? AND closeA IS NOT NULL')
+        .run(fin, id).changes > 0
+    );
+  }
+
+  /** Clôt une mission avec son instantané de fin — une seule fois. */
+  cloreMission(id: string, closeA: number, fin: string): boolean {
+    const info = this.db
+      .prepare('UPDATE missions SET closeA = ?, fin = ? WHERE id = ? AND closeA IS NULL')
+      .run(closeA, fin, id);
+    return info.changes > 0;
+  }
+
+  /** Tâches encore EN VOL d'un projet (productions comme relectures). */
+  compterTachesVivantes(projectId: string): number {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM tasks
+          WHERE projectId = ? AND status IN ('pending', 'ready', 'assigned', 'running')
+            AND ${HORS_BANC}`,
+      )
+      .get(projectId) as { n: number };
+    return row.n;
+  }
+
+  /**
+   * La plus ancienne naissance parmi les tâches EN VOL nées APRÈS `apres` (la
+   * clôture précédente) : elle date l'ouverture d'une mission. Une tâche
+   * ranimée (relance de l'Evaluator, remise en file) garde sa vieille date de
+   * naissance — la compter tirerait la mission dans le passé de la précédente.
+   */
+  naissanceDesNouvelles(projectId: string, apres: number): number | null {
+    const row = this.db
+      .prepare(
+        `SELECT MIN(createdAt) AS a FROM tasks
+          WHERE projectId = ? AND createdAt > ?
+            AND status IN ('pending', 'ready', 'assigned', 'running')
+            AND ${HORS_BANC}`,
+      )
+      .get(projectId, apres) as { a: number | null };
+    return row.a;
+  }
+
+  /**
+   * Les tâches d'un projet qu'une mission ouverte doit compter : celles EN VOL
+   * (une ranimée y revient), et celles NÉES depuis `nees` (une tâche née et
+   * finie entre deux relevés).
+   */
+  tachesAMissionner(projectId: string, nees: number): string[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT id FROM tasks WHERE projectId = ?
+             AND (status IN ('pending', 'ready', 'assigned', 'running') OR createdAt >= ?)
+             AND ${HORS_BANC}`,
+        )
+        .all(projectId, nees) as Array<{ id: string }>
+    ).map((r) => r.id);
+  }
+
+  /** Les tâches de ces identifiants, dans l'ordre de création. Bornée. */
+  tachesParIds(ids: readonly string[], limite = 1_000): Task[] {
+    if (ids.length === 0) return [];
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM tasks WHERE id IN (SELECT value FROM json_each(?))
+            ORDER BY createdAt, id LIMIT ?`,
+        )
+        .all(JSON.stringify(ids), limite) as TaskRow[]
+    ).map(rowToTask);
+  }
+
+  /** Parmi ces tâches, celles qui sont des relectures ou des délégations. */
+  rolesDesTaches(taskIds: readonly string[]): { relectures: Set<string>; deleguees: Set<string> } {
+    const relectures = new Set<string>();
+    const deleguees = new Set<string>();
+    for (let i = 0; i < taskIds.length; i += 500) {
+      const lot = taskIds.slice(i, i + 500);
+      const marques = lot.map(() => '?').join(', ');
+      for (const r of this.db
+        .prepare(
+          `SELECT relectureTaskId AS id FROM contre_expertises WHERE relectureTaskId IN (${marques})`,
+        )
+        .all(...lot) as Array<{ id: string }>) {
+        relectures.add(r.id);
+      }
+      for (const r of this.db
+        .prepare(`SELECT childTaskId AS id FROM task_delegations WHERE childTaskId IN (${marques})`)
+        .all(...lot) as Array<{ id: string }>) {
+        deleguees.add(r.id);
+      }
+    }
+    return { relectures, deleguees };
+  }
+
+  /**
+   * Le journal d'une mission : les événements de ces types, postérieurs à
+   * `depuisId`, qui visent l'une de SES tâches (`membres`) — ou, sans tâche,
+   * ce projet. Un événement d'une tâche du projet qui n'est pas de la mission
+   * (la relecture tardive d'une mission précédente) n'y entre pas. En ordre
+   * chronologique, borné.
+   */
+  evenementsDeMission(
+    projectId: string,
+    membres: readonly string[],
+    depuisId: number,
+    types: readonly string[],
+    limite = 10_000,
+  ): HiveEvent[] {
+    if (types.length === 0) return [];
+    const marques = types.map(() => '?').join(', ');
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM (
+           SELECT *,
+             json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.taskId') AS tache,
+             json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.projectId') AS projet
+             FROM events WHERE id > ? AND type IN (${marques})
+         )
+          WHERE (tache IS NULL AND projet = ?)
+             OR tache IN (SELECT value FROM json_each(?))
+          ORDER BY id LIMIT ?`,
+      )
+      .all(
+        depuisId,
+        ...types,
+        projectId,
+        JSON.stringify(membres),
+        Math.max(1, Math.min(limite, 10_000)),
+      ) as EventRow[];
+    const evenements: HiveEvent[] = [];
+    for (const row of rows) {
+      try {
+        evenements.push({
+          id: row.id,
+          ts: row.ts,
+          type: row.type,
+          payload: JSON.parse(row.payload) as Record<string, unknown>,
+        });
+      } catch {
+        // Payload illisible : ignoré, jamais deviné.
+      }
+    }
+    return evenements;
+  }
+
+  /** Le dernier événement journalisé STRICTEMENT avant `ts` (0 : aucun). */
+  dernierEvenementAvant(ts: number): number {
+    const row = this.db.prepare('SELECT MAX(id) AS id FROM events WHERE ts < ?').get(ts) as {
+      id: number | null;
+    };
+    return row.id ?? 0;
+  }
+
+  /**
+   * Le journal couvre-t-il encore tout ce qui suit `depuisId` ? Faux dès que
+   * l'élagage a emporté un événement postérieur — l'instantané le dira.
+   */
+  journalCouvre(depuisId: number): boolean {
+    if (!this.journalElague()) return true;
+    const row = this.db.prepare('SELECT MIN(id) AS id FROM events').get() as { id: number | null };
+    // Journal vide après élagage : rien de ce qui suit `depuisId` n'est garanti.
+    return row.id !== null && row.id <= depuisId + 1;
+  }
+
+  /** Marque un projet comme le rejeu d'une mission. */
+  inscrireRejeu(r: Omit<RejeuRange, 'missionRejeu'>): void {
+    this.db
+      .prepare(
+        `INSERT INTO rejeux (projectId, missionSource, projetSource, surcharges, genomeFige, creePar, creeA)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        r.projectId,
+        r.missionSource,
+        r.projetSource,
+        JSON.stringify(r.surcharges),
+        r.genomeFige ? JSON.stringify(r.genomeFige) : null,
+        r.creePar,
+        r.creeA,
+      );
+  }
+
+  /** La marque de rejeu d'un projet, ou `null` : un projet ordinaire. */
+  rejeuDuProjet(projectId: string): RejeuRange | null {
+    const row = this.db.prepare('SELECT * FROM rejeux WHERE projectId = ?').get(projectId) as
+      | (Omit<RejeuRange, 'surcharges' | 'genomeFige'> & {
+          surcharges: string;
+          genomeFige: string | null;
+        })
+      | undefined;
+    if (!row) return null;
+    let surcharges: Record<string, unknown> = {};
+    try {
+      const brut = JSON.parse(row.surcharges) as unknown;
+      if (typeof brut === 'object' && brut !== null && !Array.isArray(brut)) {
+        surcharges = brut as Record<string, unknown>;
+      }
+    } catch {
+      // Illisible : aucune surcharge — le rejeu reste un rejeu (simulé), sans plus.
+    }
+    let genomeFige: AntecedentFige[] | null = null;
+    try {
+      const brut = row.genomeFige === null ? null : (JSON.parse(row.genomeFige) as unknown);
+      // UNE entrée illisible rend TOUT le Genome illisible : en retirer une
+      // rejouerait sous un vécu qui n'a jamais existé, sans le dire.
+      const lisible = (a: unknown): a is AntecedentFige =>
+        typeof a === 'object' &&
+        a !== null &&
+        ((a as AntecedentFige).niveau === 'modele' || (a as AntecedentFige).niveau === 'bras') &&
+        typeof (a as AntecedentFige).cle === 'string' &&
+        typeof (a as AntecedentFige).essais === 'number' &&
+        typeof (a as AntecedentFige).recompenseTotale === 'number';
+      if (Array.isArray(brut) && brut.every(lisible)) genomeFige = brut;
+    } catch {
+      // Illisible : `null` — l'ordonnanceur le dit (le rejeu figé attend).
+    }
+    return {
+      ...row,
+      genomeFige,
+      surcharges: {
+        ...(typeof surcharges.modele === 'string' ? { modele: surcharges.modele } : {}),
+        ...(typeof surcharges.politiqueRoutage === 'string'
+          ? { politiqueRoutage: surcharges.politiqueRoutage }
+          : {}),
+        ...(typeof surcharges.autonomie === 'string' ? { autonomie: surcharges.autonomie } : {}),
+      },
+    };
+  }
+
+  /** Les projets qui rejouent une mission. */
+  rejeuxDeMission(missionId: string): string[] {
+    return (
+      this.db
+        .prepare('SELECT projectId FROM rejeux WHERE missionSource = ? ORDER BY creeA, projectId')
+        .all(missionId) as Array<{ projectId: string }>
+    ).map((r) => r.projectId);
+  }
+
+  /**
+   * Range une action irréversible d'un rejeu. Rend `true` si elle est NEUVE :
+   * une demande répétée (la ruche autonome redemande à chaque cycle) n'est
+   * rangée — et journalisée — qu'une fois.
+   */
+  enregistrerActionRejeu(
+    a: { projectId: string; genre: string; cible: string; issue: 'simulee' | 'validee' },
+    parUserId: string | null,
+    now = Date.now(),
+  ): boolean {
+    const info = this.db
+      .prepare(
+        `INSERT OR IGNORE INTO rejeux_actions (projectId, genre, cible, issue, parUserId, creeA)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(a.projectId, a.genre, a.cible, a.issue, parUserId, now);
+    return info.changes > 0;
+  }
+
+  /** Cette action de rejeu est-elle déjà rangée (simulée ou validée) ? */
+  actionRejeuRangee(projectId: string, genre: string, cible: string): boolean {
+    return (
+      this.db
+        .prepare(
+          'SELECT 1 FROM rejeux_actions WHERE projectId = ? AND genre = ? AND cible = ? LIMIT 1',
+        )
+        .get(projectId, genre, cible) !== undefined
+    );
+  }
+
+  /** Les actions irréversibles d'un rejeu, dans l'ordre où elles ont été demandées. */
+  actionsDuRejeu(projectId: string, limite = 200): ActionRejeuRangee[] {
+    return this.db
+      .prepare(
+        `SELECT genre, cible, issue, parUserId, creeA FROM rejeux_actions
+          WHERE projectId = ? ORDER BY id LIMIT ?`,
+      )
+      .all(projectId, Math.max(1, Math.min(limite, 1_000))) as ActionRejeuRangee[];
+  }
+
+  /**
+   * La borne des trois tables des missions (règle 3).
+   *
+   *   · une ligne dont le projet a disparu ne désigne plus rien ;
+   *   · au-delà de `parProjet` missions, les plus vieilles partent — SAUF
+   *     celles qu'un rejeu encore rangé compare (sa source, et la première
+   *     mission du rejeu lui-même) : la comparaison dirait « élaguée » — ou
+   *     pire, comparerait une autre mission — alors que l'humain la regarde ;
+   *   · l'appartenance d'une mission partie part avec elle ;
+   *   · les SIMULATIONS d'un rejeu au-delà de `parProjet * 10` partent, les
+   *     plus anciennes d'abord — et c'est tout ce qui part de son vivant :
+   *       - une validation humaine (`validee`) est le seul fait qui dit QUI a
+   *         laissé partir un effet réel ; elle reste tant que le projet vit ;
+   *       - la marque d'une livraison ou d'une fusion simulée (`livraison_pr`,
+   *         `fusion_pr`) est ce qui retire la production des « à livrer » de
+   *         la ruche autonome (`livraisonSimulee`, server.ts) : élaguée, la
+   *         ruche la re-simulerait, et le plafond la ré-élaguerait — une
+   *         boucle. Elles sont bornées par les productions et les PR du
+   *         projet lui-même, et partent avec lui.
+   */
+  pruneMissions(parProjet: number): number {
+    return this.enTransaction(() => {
+      let n = 0;
+      n += this.db
+        .prepare('DELETE FROM rejeux WHERE projectId NOT IN (SELECT id FROM projects)')
+        .run().changes;
+      n += this.db
+        .prepare('DELETE FROM rejeux_actions WHERE projectId NOT IN (SELECT id FROM projects)')
+        .run().changes;
+      n += this.db
+        .prepare(
+          `DELETE FROM missions
+            WHERE projectId NOT IN (SELECT id FROM projects)
+              AND id NOT IN (SELECT missionSource FROM rejeux)
+              AND id NOT IN (SELECT missionRejeu FROM rejeux WHERE missionRejeu IS NOT NULL)`,
+        )
+        .run().changes;
+      n += this.db
+        .prepare(
+          `DELETE FROM missions WHERE id IN (
+             SELECT id FROM (
+               SELECT id, ROW_NUMBER() OVER (PARTITION BY projectId ORDER BY ouverteA DESC, id) AS rang
+                 FROM missions
+             ) WHERE rang > ?
+           ) AND id NOT IN (SELECT missionSource FROM rejeux)
+             AND id NOT IN (SELECT missionRejeu FROM rejeux WHERE missionRejeu IS NOT NULL)`,
+        )
+        .run(Math.max(1, parProjet)).changes;
+      n += this.db
+        .prepare('DELETE FROM missions_taches WHERE missionId NOT IN (SELECT id FROM missions)')
+        .run().changes;
+      n += this.db
+        .prepare(
+          `DELETE FROM rejeux_actions WHERE id IN (
+             SELECT id FROM (
+               SELECT id, ROW_NUMBER() OVER (PARTITION BY projectId ORDER BY id DESC) AS rang
+                 FROM rejeux_actions
+                WHERE issue = 'simulee' AND genre NOT IN ('livraison_pr', 'fusion_pr')
+             ) WHERE rang > ?
+           )`,
+        )
+        .run(Math.max(1, parProjet) * 10).changes;
+      return n;
+    });
   }
 
   // ─── Snapshot ──────────────────────────────────────────────────────────────

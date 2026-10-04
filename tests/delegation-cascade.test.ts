@@ -80,7 +80,7 @@ describe('clôture du sous-arbre délégué à la transition terminale', () => {
   };
 
   const deleguer = (parentTaskId: string, childTaskId: string): void => {
-    const creation = store.createDelegatedTask(demande(parentTaskId, childTaskId), undefined, T);
+    const creation = store.createDelegatedTask(demande(parentTaskId, childTaskId), T);
     expect(creation.ok).toBe(true);
   };
 
@@ -91,8 +91,17 @@ describe('clôture du sous-arbre délégué à la transition terminale', () => {
   };
 
   /**
+   * Un descendant encore EN FILE, jamais parti : sa place n'est plus une
+   * question de capacité — un parent qui attend son enfant relâche la sienne
+   * (`slotsOccupes`) —, c'est la consigne de l'opérateur qui l'y retient :
+   * aucune ouvrière `codex` dans ce banc.
+   */
+  const retenirEnFile = (taskId: string): void =>
+    store.poserConsigneRoutage(taskId, { agent: 'codex' }, null, T);
+
+  /**
    * parent (running @a) ─┬─ enfant (running @c) ── petit-enfant (assigned @d)
-   *                      ├─ enfant-2 (ready : plus aucune capacité)
+   *                      ├─ enfant-2 (ready : retenu en file par une consigne)
    *                      └─ enfant-fini (done)
    * independante (assigned @b) : même projet, aucun lien.
    */
@@ -108,9 +117,10 @@ describe('clôture du sous-arbre délégué à la transition terminale', () => {
     deleguer('enfant', 'petit-enfant');
     scheduler.tick(T);
     deleguer('parent', 'enfant-2');
+    retenirEnFile('enfant-2');
     deleguer('parent', 'enfant-fini');
-    scheduler.tick(T);
     store.patchTask('enfant-fini', { status: 'done' }, T);
+    scheduler.tick(T);
     expect(store.getTask('enfant')?.status).toBe('running');
     expect(store.getTask('petit-enfant')?.status).toBe('assigned');
     expect(store.getTask('enfant-2')?.status).toBe('ready');
@@ -228,7 +238,7 @@ describe('clôture du sous-arbre délégué à la transition terminale', () => {
    * rouvre — puis le parent se termine.
    *
    * parent (running) ─┬─ enfant (rouvert, assigned) ── petit-enfant (assigned)
-   *                   └─ enfant-2 (ready : jamais entendu par le parent)
+   *                   └─ enfant-2 (ready, retenu en file : jamais entendu par le parent)
    */
   function monterCorrection(): void {
     for (const nom of ['a', 'b', 'c']) scheduler.registerNode(profil(nom), T);
@@ -252,6 +262,7 @@ describe('clôture du sous-arbre délégué à la transition terminale', () => {
     scheduler.tick(T);
     // Et un second enfant que le parent n'a jamais entendu, lui, est orphelin.
     deleguer('parent', 'enfant-2');
+    retenirEnFile('enfant-2');
     scheduler.tick(T);
     expect(store.getTask('enfant')?.status).toBe('assigned');
     expect(store.getTask('petit-enfant')?.status).toBe('assigned');
@@ -402,8 +413,11 @@ describe('clôture du sous-arbre délégué à la transition terminale', () => {
       if (!course.ok) throw new Error(course.error);
       deleguer('parent', 'enfant');
       scheduler.tick(T);
+      // Le parent attend son enfant : la place de son drone primaire est
+      // relâchée (`slotsOccupes`), l'enfant peut donc y atterrir — sa
+      // clôture reste un `cancel_task` à part, vérifié plus bas.
       const noeudEnfant = noeudDe('enfant');
-      expect(course.drones).not.toContain(noeudEnfant);
+      expect(store.getTask('enfant')?.status).toBe('assigned');
 
       // Gagnée : le premier drone suffit. Perdue : chacun rend son échec.
       for (const drone of succes ? course.drones.slice(0, 1) : course.drones) {

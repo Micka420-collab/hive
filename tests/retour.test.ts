@@ -11,12 +11,14 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  CONSEIL_CONFLIT,
   MAX_BRIEF_RETOUR,
   briefDeRetour,
   controlesEnEchec,
   demandeDuTravail,
   direEtat,
   etatLivraison,
+  reprenableSurLaBranche,
   verdictsCourants,
 } from '../src/shared/retour.js';
 import type { FaitsPr } from '../src/shared/retour.js';
@@ -159,6 +161,14 @@ describe('demandeDuTravail — ce qui appelle une reprise, et ce qui n’appelle
     }
   });
 
+  it('une reprise sait faire tout ce travail, sauf lever un conflit', () => {
+    expect(reprenableSurLaBranche('ci_rouge')).toBe(true);
+    expect(reprenableSurLaBranche('changements_demandes')).toBe(true);
+    expect(demandeDuTravail('en_conflit'), 'le conflit reste du travail…').toBe(true);
+    expect(reprenableSurLaBranche('en_conflit'), '…que la reprise ne fait pas').toBe(false);
+    expect(CONSEIL_CONFLIT).toMatch(/Update branch/);
+  });
+
   it('chaque état se dit en une phrase qui porte sa conséquence', () => {
     for (const e of [
       'fusionnee',
@@ -234,14 +244,17 @@ describe('briefDeRetour — la consigne qui repart en travail', () => {
     expect(brief, 'un contrôle qui tourne encore non plus').not.toContain('e2e');
   });
 
-  it('un conflit sans autre fait donne quand même une consigne exploitable', () => {
+  it('un conflit ne fabrique pas de consigne : une reprise ne sait pas le lever', () => {
+    // La reprise avance la branche d'un commit posé sur sa tête ; un conflit
+    // avec la base ne se lève qu'en intégrant la base. La consigne d'avant
+    // (« rebasez ou refaites le diff ») faisait travailler une ouvrière pour
+    // une PR qui restait en conflit — ou en ouvrait une seconde.
     const brief = briefDeRetour({
       faits: faits({ fusionnable: false }),
       etat: 'en_conflit',
       tache: 't',
     });
-    expect(brief).toContain('CONFLIT');
-    expect(brief).toContain(FERMETURE_DONNEES);
+    expect(brief).toBe('');
   });
 
   it('le brief tient dans son budget, commentaire démesuré compris', () => {

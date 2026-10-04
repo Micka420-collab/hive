@@ -160,8 +160,9 @@ describe('LE RELEVÉ COMPLET, SUR UNE RACINE FABRIQUÉE', () => {
       expect(r.base.integre, 'pas de base ⇒ rien à vérifier').toBeNull();
 
       // Et le jugement tient : douze lignes, aucune exception.
-      // Treize depuis que `secret_session` est arrivé — voir tests/doctor.test.ts.
-      expect(diagnostiquer(r)).toHaveLength(13);
+      // Treize depuis que `secret_session` est arrivé, quatorze depuis
+      // `decouverte` — voir tests/doctor.test.ts.
+      expect(diagnostiquer(r)).toHaveLength(14);
     } finally {
       rmSync(nue, { recursive: true, force: true });
     }
@@ -410,7 +411,7 @@ describe('LA COMMANDE, LANCÉE POUR DE VRAI', () => {
         verdict: string;
         diagnostics: { cle: string; gravite: string; reparation: string | null }[];
       };
-      expect(vu.diagnostics, 'les treize de la mission').toHaveLength(13);
+      expect(vu.diagnostics, 'les quatorze de la mission').toHaveLength(14);
       // Une racine nue n'a ni .env ni jeton : le verdict DOIT être bloquant, et
       // le code de sortie doit le dire à la supervision qui l'écoute.
       expect(vu.verdict).toBe('bloquant');
@@ -578,5 +579,37 @@ describe('LE SECRET DE SESSION EST RELEVÉ DEPUIS L’ENVIRONNEMENT INJECTÉ', (
       (bloc as RegExpExecArray)[0],
       'le relevé doit lire `env`, le paramètre — jamais `process.env`',
     ).not.toContain('process.env');
+  });
+});
+
+describe('LA DÉCOUVERTE EST RELEVÉE COMME LA RUCHE ET LE NŒUD LA LISENT', () => {
+  // `loadConfigFromEnv` et `main.ts`/`join.ts` n'allument la découverte que sur
+  // « 1 ». Un docteur plus permissif annoncerait une découverte que la ruche
+  // n'écoute pas — et surtout le cas ⚠ « demandée sur une écoute locale »
+  // disparaîtrait avec une lecture qui prendrait `HIVE_HOST` ailleurs.
+  const sansAgent = async () => ({ tous: ['shell' as const], nonConnectes: [], presents: [] });
+
+  it('seul « 1 » allume, et l’écoute locale se lit dans HIVE_HOST', async () => {
+    const racine = mkdtempSync(path.join(os.tmpdir(), 'hive-decouv-'));
+    try {
+      const allumee = await relever(
+        racine,
+        { HIVE_PORT: '0', HIVE_DECOUVERTE: '1', HIVE_DECOUVRABLE: '1' },
+        'linux',
+        sansAgent,
+      );
+      expect(allumee.decouverte).toEqual({ ruche: true, machine: true, ecouteLocale: true });
+      expect(diagnostiquer(allumee).find((d) => d.cle === 'decouverte')?.gravite).toBe('risque');
+
+      const ouverte = await relever(
+        racine,
+        { HIVE_PORT: '0', HIVE_HOST: '0.0.0.0', HIVE_DECOUVERTE: 'true', HIVE_DECOUVRABLE: 'oui' },
+        'linux',
+        sansAgent,
+      );
+      expect(ouverte.decouverte).toEqual({ ruche: false, machine: false, ecouteLocale: false });
+    } finally {
+      rmSync(racine, { recursive: true, force: true });
+    }
   });
 });

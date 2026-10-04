@@ -3,10 +3,11 @@ import {
   ancetreEchoue,
   descendantsEnVol,
   jugerDelegation,
-  LIMITES_DELEGATION_DEFAUT,
+  slotsOccupes,
   type DemandeDelegation,
   type NoeudDelegation,
 } from '../src/orchestrator/delegation.js';
+import { LIMITES_DELEGATION_DEFAUT } from '../src/shared/limites-delegation.js';
 
 const root = (patch: Partial<NoeudDelegation> = {}): NoeudDelegation => ({
   taskId: 'root',
@@ -162,6 +163,8 @@ describe('descendants orphelins d’une tâche qui se termine', () => {
     { cause: 'ancestor_done', attendus: ['a1'] },
     { cause: 'ancestor_failed', attendus: ['b', 'a1', 'b1'] },
     { cause: 'ancestor_cancelled', attendus: ['b', 'a1', 'b1'] },
+    // L'enveloppe coût épuisée ne sera jamais rendue : rien n'est épargné.
+    { cause: 'root_cost_budget_exhausted', attendus: ['b', 'a1', 'b1'] },
   ] as const;
 
   for (const { cause, attendus } of cas) {
@@ -191,5 +194,106 @@ describe('ancêtre échoué d’une tâche que l’Evaluator voudrait rouvrir', 
     // Abouti, un ancêtre peut encore être rouvert et relire la correction.
     expect(ancetreEchoue(chaine('done', 'done'), 'a1')).toBe(false);
     expect(ancetreEchoue(chaine('failed', 'failed'), 'root')).toBe(false);
+  });
+});
+
+// ─── L'ENVELOPPE DE LA RACINE ─────────────────────────────────────────────────
+//
+// Durée, coût et ressources se jugent CUMULÉS sur tout l'arbre : jugé enfant
+// par enfant, chacun pouvait réserver le plafond entier — seize enfants, seize
+// fois la demi-heure et les cinq dollars. Et chaque refus nomme sa borne.
+describe('l’enveloppe cumulée d’une racine', () => {
+  const L = LIMITES_DELEGATION_DEFAUT;
+  /** Un enfant Hive de la racine, qui a déjà réservé `budget`. */
+  const enfant = (
+    taskId: string,
+    budget: Partial<NonNullable<NoeudDelegation['budget']>>,
+    patch: Partial<NoeudDelegation> = {},
+  ): NoeudDelegation =>
+    root({
+      taskId,
+      parentTaskId: 'root',
+      depth: 1,
+      status: 'done',
+      budget: { durationMs: 0, costMicros: 0, resourceUnits: 0, ...budget },
+      ...patch,
+    });
+
+  it.each([
+    ['duree', 'durationMs', L.maxDurationMs - 60_000, 120_000, 60_000],
+    ['cout', 'costMicros', L.maxCostMicros - 1_000, 5_000, 1_000],
+    ['ressources', 'resourceUnits', L.maxResourceUnits - 1, 2, 1],
+  ] as const)(
+    'refuse le budget %s qui ne tient plus dans ce que l’arbre a laissé — et dit ce qui reste',
+    (code, champ, reservee, demandee, reste) => {
+      // Un enfant TERMINÉ garde sa réservation : elle ne se rend pas.
+      const graphe = [root(), enfant('fini', { [champ]: reservee })];
+      const verdict = jugerDelegation(demande({ [champ]: demandee }), graphe);
+      expect(verdict).toMatchObject({ ok: false, code });
+      if (verdict.ok) return;
+      expect(verdict.motif).toContain('cumulés par racine');
+      expect(verdict.motif).toContain(`il en reste ${reste}`);
+      // Ce que l'arbre a laissé, et pas un iota de plus, passe encore.
+      expect(jugerDelegation(demande({ [champ]: reste }), graphe).ok).toBe(true);
+    },
+  );
+
+  it('compte toute la profondeur de l’arbre, pas les seuls frères', () => {
+    // root ── a ── a1 : la réservation du petit-enfant pèse sur l'enveloppe de
+    // la racine quand `a` délègue à son tour.
+    const graphe = [
+      root(),
+      enfant('a', { durationMs: 10 * 60_000 }, { status: 'running' }),
+      enfant('a1', { durationMs: 15 * 60_000 }, { parentTaskId: 'a', depth: 2 }),
+    ];
+    const verdict = jugerDelegation(demande({ parentTaskId: 'a', durationMs: 6 * 60_000 }), graphe);
+    expect(verdict).toMatchObject({ ok: false, code: 'duree' });
+  });
+
+  it('les sous-agents natifs ne réservent rien sur l’enveloppe Hive', () => {
+    const natif = enfant('natif', { costMicros: L.maxCostMicros }, { origine: 'native' });
+    expect(jugerDelegation(demande(), [root(), natif]).ok).toBe(true);
+  });
+
+  it('une dépense déclarée qui atteint le plafond ferme la racine — et un coût inconnu n’est pas un zéro', () => {
+    const epuise = jugerDelegation(demande({ costMicros: 0 }), [root()], {
+      depense: { micros: L.maxCostMicros, tentatives: 3, sansCout: 1 },
+    });
+    expect(epuise).toMatchObject({ ok: false, code: 'cout' });
+    if (epuise.ok) return;
+    expect(epuise.motif).toContain('budget coût de la racine épuisé');
+    expect(epuise.motif).toContain('dont 1 au coût inconnu');
+    expect(epuise.motif).toContain('plancher');
+    // Des tentatives sans coût déclaré ne font pas franchir le plafond :
+    // Hive n'invente pas de montant.
+    const inconnu = jugerDelegation(demande(), [root()], {
+      depense: { micros: 0, tentatives: 5, sansCout: 5 },
+    });
+    expect(inconnu.ok).toBe(true);
+  });
+
+  it('chaque refus de structure nomme sa borne', () => {
+    const profond = root({ taskId: 'p', depth: L.maxDepth });
+    const motif = (v: ReturnType<typeof jugerDelegation>): string => (v.ok ? '' : v.motif);
+    expect(motif(jugerDelegation(demande({ parentTaskId: 'p' }), [profond]))).toContain(
+      `la borne est ${L.maxDepth}`,
+    );
+    const pleins = Array.from({ length: L.maxChildrenPerParent }, (_, i) => enfant(`c${i}`, {}));
+    expect(motif(jugerDelegation(demande(), [root(), ...pleins]))).toContain(
+      `${L.maxChildrenPerParent}/${L.maxChildrenPerParent}`,
+    );
+    expect(motif(jugerDelegation(demande({ title: ' ' }), [root()]))).toContain(
+      `1 à ${L.maxTitleChars} caractères`,
+    );
+    expect(motif(jugerDelegation(demande({ durationMs: -1 }), [root()]))).toContain(
+      `entier de 0 à ${L.maxDurationMs} ms`,
+    );
+  });
+});
+
+describe('les places d’une ouvrière', () => {
+  it('un parent qui attend son enfant ne tient pas de place — pour son propre arbre', () => {
+    expect(slotsOccupes({ running: 3 }, 2)).toBe(1);
+    expect(slotsOccupes({ running: 2 })).toBe(2);
   });
 });

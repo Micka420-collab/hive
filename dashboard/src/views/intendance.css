@@ -361,3 +361,195 @@
   font-family: var(--mono);
   white-space: nowrap;
 }
+
+/* ─── Connecteurs externes (src/connectors) ─────────────────────────────── */
+.in-connecteur {
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 12px;
+  /* Même retrait de 14 px que les clés juste au-dessus : sans lui, les
+     encadrés collaient au bord de la carte. */
+  margin: 0 14px 10px;
+  background: var(--panel-2);
+}
+.in-connecteur-tete {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.in-connecteur-tete strong {
+  font-size: var(--fs-md);
+}
+.in-connecteur-actif,
+.in-connecteur-dormant,
+.in-connecteur-mode {
+  font-size: var(--fs-2xs);
+  font-family: var(--mono);
+  padding: 1px 6px;
+  border-radius: var(--r-sm);
+}
+.in-connecteur-actif {
+  color: var(--green);
+  border: 1px solid var(--green);
+}
+.in-connecteur-dormant {
+  color: var(--faint);
+  border: 1px solid var(--border-2);
+}
+.in-connecteur-mode {
+  color: var(--muted);
+  margin-left: auto;
+}
+.in-connecteur-hint {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  margin: 6px 0;
+}
+.in-connecteur-secrets {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+.in-connecteur-secrets label {
+  display: grid;
+  gap: 3px;
+  /* Piste bornée à la carte : une piste `auto` prendrait la largeur minimale
+     du champ, et le bouton « remplacer » déborderait sur un téléphone. */
+  grid-template-columns: minmax(0, 1fr);
+}
+.in-secret-nom {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.in-secret-pose {
+  color: var(--green);
+  font-weight: 400;
+}
+.in-secret-option {
+  color: var(--faint);
+  font-weight: 400;
+}
+.in-secret-hint {
+  font-size: var(--fs-2xs);
+  color: var(--faint);
+}
+.in-secret-ligne {
+  display: flex;
+  gap: 6px;
+}
+.in-secret-ligne input {
+  flex: 1;
+  /* Sans `min-width: 0`, le champ garde sa largeur intrinsèque et pousse le
+     bouton hors de la carte sur un téléphone. */
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+.in-connecteurs-projet {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding: 10px 14px 12px;
+}
+.in-connecteurs-projet h3 {
+  font-size: var(--fs-sm);
+  margin: 10px 0 6px;
+}
+.in-projet-choix {
+  font-size: var(--fs-xs);
+}
+.in-connecteur-message {
+  font-size: var(--fs-xs);
+  color: var(--blue);
+}
+.in-autorisation {
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 10px;
+  margin-bottom: 8px;
+}
+.in-autorisation-tete {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.in-portees {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: var(--fs-xs);
+}
+.in-portee {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.in-slack-listes {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+.in-slack-listes label {
+  display: grid;
+  gap: 3px;
+  font-size: var(--fs-xs);
+}
+.in-slack-listes input {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}
+.in-autorisation-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.in-autorisation-actions .in-revoquer {
+  color: var(--red);
+  border-color: var(--red);
+}
+.in-connecteurs-journal {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 4px;
+  font-size: var(--fs-xs);
+}
+.in-connecteurs-journal li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+.in-journal-quand {
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+}
+.in-journal-quoi {
+  font-family: var(--mono);
+}
+.in-journal-ok {
+  color: var(--text);
+}
+.in-journal-echec {
+  color: var(--amber);
+}
+.in-journal-refuse {
+  color: var(--red);
+}
+.in-journal-qui {
+  color: var(--muted);
+}
+.in-journal-apercu {
+  color: var(--faint);
+  font-size: var(--fs-2xs);
+  /* L'aperçu est du JSON d'une seule ligne : sans coupure, il élargit la page
+     au-delà de l'écran d'un téléphone. */
+  overflow-wrap: anywhere;
+}

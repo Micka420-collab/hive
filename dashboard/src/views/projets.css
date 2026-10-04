@@ -172,6 +172,11 @@
   display: flex;
   flex-direction: column;
   gap: 9px;
+  /* Élément de grille : sans ce zéro, sa largeur minimale est celle de son
+     contenu le plus large (un tableau de comparaison, un chemin de dépôt), et
+     la carte pousse la page de côté sur un téléphone au lieu de laisser ce
+     contenu défiler dans sa propre boîte. */
+  min-width: 0;
 }
 
 .pj-card.pj-selected {
@@ -304,6 +309,76 @@
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 2px;
+}
+
+/* Le rapport de mission : les chiffres de tête (toujours avec leur
+   couverture), puis une ligne par tâche. Le tableau défile seul : une carte
+   projet étroite ne doit pas élargir la page. */
+.mission-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.mission-panel h4 {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.mission-kpi {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.mission-kpi dt {
+  font-size: var(--fs-2xs);
+  color: var(--muted);
+}
+
+.mission-kpi dd {
+  margin: 2px 0 0;
+  font-size: var(--fs-sm);
+}
+
+.mission-couverture,
+.mission-meta,
+.mission-fenetre {
+  color: var(--faint);
+  font-size: var(--fs-2xs);
+}
+
+.mission-meta {
+  display: block;
+}
+
+.mission-defile {
+  overflow-x: auto;
+}
+
+.mission-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.mission-table th,
+.mission-table td {
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.mission-table thead th {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 /* ─── Sous-panneaux (plan de merge, conflits Sting) ────────────────────── */
@@ -1454,4 +1529,228 @@
   margin: 0;
   color: var(--red);
   overflow-wrap: anywhere;
+}
+
+/* ─── Supprimer le projet ─────────────────────────────────────────────────
+   En bas de carte, séparé par un filet rouge : le seul geste qui emporte tout
+   ne se confond pas avec l'équipe ou les liens juste au-dessus. */
+.pj-suppression {
+  border-top: 1px dashed var(--red);
+  padding-top: 10px;
+}
+
+.pj-suppression-dit {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.pj-suppression-envol p {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--amber);
+}
+
+.pj-suppression-envol ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: var(--fs-xs);
+  /* Des titres de tâches : du texte d'utilisateur, qui ne pousse rien. */
+  overflow-wrap: anywhere;
+}
+
+/* Ce qui vient de partir se DIT, en tête de la liste. */
+.pj-supprime {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  border-left: 3px solid var(--red);
+}
+
+.pj-supprime p {
+  margin: 0;
+  flex: 1 1 32ch;
+  overflow-wrap: anywhere;
+}
+
+/* ── Le banc d'ombre ────────────────────────────────────────────────────────
+   Le budget est sous l'interrupteur, pas dans une fenêtre à part : allumer le
+   banc, c'est faire payer de vrais appels de modèle, et le geste se fait en
+   voyant ce qu'il coûte. */
+.banc-ombre-reglage {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin: 10px 0;
+}
+.banc-ombre-champ {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.banc-ombre-champ input {
+  width: 9rem;
+  max-width: 100%;
+}
+.banc-ombre-budget,
+.banc-ombre-arret {
+  margin: 0 0 8px;
+  font-size: var(--fs-sm);
+}
+.banc-ombre-arret {
+  color: var(--red);
+}
+.banc-ombre-muettes {
+  color: var(--muted);
+}
+.banc-ombre-liste {
+  margin: 6px 0 0;
+  padding-left: 1.1em;
+  font-size: var(--fs-xs);
+}
+.banc-ombre-modeles {
+  font-family: var(--mono, ui-monospace, monospace);
+}
+
+/* ─── Missions · Time Travel (MissionsRejeu.tsx) ─────────────────────────── */
+
+.pj-missions-liste li {
+  align-items: center;
+}
+
+.pj-mission-etat {
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.pj-mission-etat.vol {
+  color: var(--text);
+  border-color: var(--miel-2);
+}
+
+/* Le formulaire de rejeu prend toute la ligne, sous sa mission. */
+.pj-rejeu-form {
+  flex: 1 1 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+
+.pj-rejeu-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+/* Un <select> prend la largeur de sa plus longue option : sur un téléphone,
+   elle débordait la carte de quelques pixels. La boîte le borne. */
+.pj-rejeu-form input,
+.pj-rejeu-form select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--fs-sm);
+}
+
+.pj-rejeu-form input:focus-visible,
+.pj-rejeu-form select:focus-visible {
+  outline: 2px solid var(--honey);
+  outline-offset: 1px;
+}
+
+.pj-rejeu-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Le bandeau d'un projet de rejeu : il doit se voir avant tout le reste. */
+.pj-rejeu-bandeau {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--miel-2);
+  background: var(--panel-2);
+  font-size: var(--fs-xs);
+}
+
+.pj-rejeu-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pj-rejeu-issue {
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+}
+
+.pj-rejeu-issue.simulee {
+  color: var(--muted);
+}
+
+.pj-rejeu-issue.validee {
+  color: var(--honey);
+}
+
+/* La comparaison défile DANS sa boîte sur un téléphone : jamais la page. */
+.pj-rejeu-cmp {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.pj-rejeu-cmp table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-xs);
+}
+
+.pj-rejeu-cmp th,
+.pj-rejeu-cmp td {
+  text-align: left;
+  vertical-align: top;
+  padding: 3px 8px 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+/* Les chiffres ne se coupent pas ; le libellé du fait, lui, passe à la ligne. */
+.pj-rejeu-cmp td {
+  white-space: nowrap;
+}
+
+.pj-rejeu-cmp tbody th {
+  font-weight: 500;
+  color: var(--muted);
+  min-width: 9em;
+}
+
+.pj-rejeu-ecart {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.pj-rejeu-prov {
+  font-weight: 400;
+  color: var(--faint);
 }

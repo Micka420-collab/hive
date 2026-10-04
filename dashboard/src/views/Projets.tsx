@@ -5,12 +5,13 @@
 
 import { useMemo, useState } from 'react';
 import { fetchBalance } from '../api';
+import type { ProjetSupprime } from '../api';
 import { EmptyState } from '../composants';
 import { useT } from '../i18n';
 import { activateProps, StatusBadge } from '../ui';
 import { FiltreTravaux, useOptionsTaches } from './FiltreTravaux';
 import { FILTRE_VIDE, filtreActif, filtrerProjets, ouvriereDeTache } from './filtre-travaux';
-import { useApiPoll } from './shared';
+import { travailDesProjets, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import type { Task } from '../../../src/shared/types';
 import { QueenBee } from './projets/AtelierQueenBee';
@@ -33,14 +34,30 @@ export default function Projets({
   user,
 }: ViewProps) {
   const t = useT();
+  // Le dernier projet supprimé depuis cet écran, et ceux à ne plus montrer :
+  // l'instantané de la Reine arrive un quart de seconde plus tard, et la carte
+  // d'un projet qui n'existe plus ne doit pas rester cliquable entre-temps.
+  const [suppression, setSuppression] = useState<ProjetSupprime | null>(null);
+  const [retires, setRetires] = useState<ReadonlySet<string>>(new Set());
   // Récents d'abord : la dernière alvéole créée est en tête de rayon.
   const recents = useMemo(
-    () => [...snapshot.projects].sort((a, b) => b.createdAt - a.createdAt),
-    [snapshot.projects],
+    () =>
+      snapshot.projects.filter((p) => !retires.has(p.id)).sort((a, b) => b.createdAt - a.createdAt),
+    [snapshot.projects, retires],
   );
+  // Une suppression RÉUSSIE se voit : un bandeau en tête de la liste, qui dit
+  // ce qui est parti, et le retour à la liste (plus de projet sélectionné dans
+  // l'adresse — la sélection désignerait un projet disparu).
+  const surSuppression = (fait: ProjetSupprime) => {
+    setSuppression(fait);
+    setRetires((avant) => new Set(avant).add(fait.projectId));
+    if (selectedId === fait.projectId) onNavigate('projets', undefined, { replace: true });
+    window.scrollTo?.({ top: 0 });
+  };
   const tasksByProject = useMemo(() => {
+    // Le travail de chaque projet, sans les ombres du banc (`travailDesProjets`).
     const m = new Map<string, Task[]>();
-    for (const task of snapshot.tasks) {
+    for (const task of travailDesProjets(snapshot.tasks)) {
       const list = m.get(task.projectId);
       if (list) list.push(task);
       else m.set(task.projectId, [task]);
@@ -81,6 +98,40 @@ export default function Projets({
 
   return (
     <div className="mc-view pj-view">
+      {suppression && (
+        <section className="card pj-supprime" role="status">
+          <p>
+            {t(
+              `Projet « ${suppression.name} » supprimé — ${suppression.lignes} ligne(s) effacée(s)${
+                suppression.annulees > 0 ? `, ${suppression.annulees} tâche(s) annulée(s)` : ''
+              }. Il ne reste qu’une ligne d’audit au journal.`,
+              `Project “${suppression.name}” deleted — ${suppression.lignes} row(s) erased${
+                suppression.annulees > 0 ? `, ${suppression.annulees} task(s) cancelled` : ''
+              }. Only one audit line remains in the journal.`,
+            )}
+          </p>
+          {suppression.cerveau === 'echec' && (
+            <p className="panel-error">
+              {t(
+                'Les épisodes du Cerveau nés de ce projet n’ont pas pu être effacés : la console de la Reine nomme le dossier où les retirer à la main.',
+                'The Cerveau episodes born of this project could not be removed: the Queen’s console names the folder to clean by hand.',
+              )}
+            </p>
+          )}
+          {suppression.miroir === 'echec' && (
+            <p className="panel-error">
+              {t(
+                'Le miroir du code n’a pas pu être effacé du disque de la Reine : sa console nomme le dossier à retirer à la main.',
+                'The code mirror could not be removed from the Queen’s disk: her console names the folder to delete by hand.',
+              )}
+            </p>
+          )}
+          <button className="btn ghost" onClick={() => setSuppression(null)}>
+            {t('Fermer', 'Close')}
+          </button>
+        </section>
+      )}
+
       {/* Connecter un dépôt vient AVANT l'atelier : c'est le premier geste de
           quelqu'un qui arrive avec du code existant, alors que la Queen Bee
           s'adresse à qui part d'une idée. */}
@@ -189,6 +240,7 @@ export default function Projets({
               onBalanceChange={balance.refresh}
               onOpenTask={onOpenTask}
               onNavigate={onNavigate}
+              onSupprime={surSuppression}
               user={user}
             />
           ))}

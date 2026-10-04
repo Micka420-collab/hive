@@ -66,6 +66,23 @@ des avertissements.
   donc administrateur — sans lui, Intendance et Cerveau manqueraient.
 - **Remplie par l'API**, comme le ferait le tableau : deux projets, sept
   tâches, une dépendance en chaîne, et une tâche qui échoue puis reprend.
+- **Un débat joué pour la War Room** (`amorcerDebat`). Le `shell` simulé ne
+  relit jamais personne : sans seconde famille, chaque production finirait en
+  « aucun second modèle en ligne ». Une seconde ouvrière, `relectrice-demo`,
+  est branchée comme on branche n'importe quelle IA en CLI — l'adaptateur
+  « commande libre » (`HIVE_AGENT=custom`) pointé sur
+  `scripts/captures-relectrice.mjs`, qui répond selon le **titre exact** de
+  la production relue. Tout le reste est la vraie ruche : un troisième projet,
+  « Paiement — revue croisée », où « Validation des montants » est contestée
+  jusqu'à épuiser ses essais, « Arrondi des taxes » n'obtient aucun avis
+  (relecture impossible, #484), « Export CSV des paiements » est rejetée par
+  un humain avec sa raison puis approuvée, et deux Conseils se tiennent — le
+  premier tranché, le second laissé tel qu'il se clôt. Les issues des Conseils
+  ne sont pas décidées : elles sont **constatées** et rangées dans le
+  manifeste (`debat`). La relectrice est arrêtée ensuite — laissée en ligne,
+  elle prendrait des productions du vol — et les vues la montrent hors ligne,
+  ce qui est vrai. Son chemin ne doit pas contenir d'espace (`HIVE_AGENT_CMD`
+  est découpé sur les espaces) : le script le refuse en le disant.
 
 ## Ce qui est photographié
 
@@ -78,8 +95,12 @@ des avertissements.
   case dit sa vue, `data-vue`), une vue ajoutée demain est photographiée sans
   toucher au script ;
 - la **Chambre** de l'ouvrière et le **tiroir** de la tâche reprise ;
-- **en vol** : un lot est confié, la Ruche et la Chambre sont photographiées
-  pendant que les sous-agents travaillent ;
+- la **War Room filtrée sur les décisions humaines** (`warroom-decisions`) :
+  le fil entier, nourri par chaque tour de Conseil, noierait ce que l'humain
+  a tranché ;
+- **en vol** : un lot est confié, la Ruche, la Chambre et la Chronique sont
+  photographiées pendant que les sous-agents travaillent. La Chronique ne lit
+  que le journal reçu depuis l'ouverture de l'onglet : au repos, elle est vide ;
 - `captures.json` : pour chaque image, le **débordement horizontal** mesuré,
   la hauteur de page et les **erreurs de console** survenues pendant la vue —
   plus le commit photographié et l'état de l'arbre.
@@ -97,34 +118,51 @@ La page de **Partage** (un lien porteur, rendue à la place de l'App), l'écran 
 (Inviter, Nouveau projet). Elles demandent un autre état de la ruche — un lien
 de partage, une ruche sans compte — que le script ne monte pas encore.
 
-## Première série
+## La série publiée
 
 Dans `docs/images/captures/`, avec son manifeste (`captures.json` : le commit
-photographié, l'arbre propre ou non, et les mesures de chaque image). Elle se
-refait, à l'identique de sa sélection, par :
+photographié, l'arbre propre ou non, les issues des Conseils du débat, et les
+mesures de chaque image). Chaque image a été ouverte et regardée avant d'être
+versée. Elle se refait, à l'identique de sa sélection, par :
 
 ```
-npm run captures -- --sortie docs/images/captures --vues ruche.bureau,ruche-en-vol.bureau,chambre-en-vol.bureau,tache.bureau,essaim.bureau,ruche.mobile,miellerie.mobile
+npm run captures -- --sortie docs/images/captures --vues warroom,warroom-decisions,miellerie,ruche,essaim,ruche-en-vol.bureau,chambre-en-vol.bureau,chronique-en-vol,tache.bureau
 ```
 
 <p align="center">
-  <img src="images/captures/ruche.bureau.png" width="840" alt="Ruche au repos : 7 tâches terminées, l'ouvrière atelier-demo, la file vide.">
+  <img src="images/captures/warroom.bureau.png" width="840" alt="War Room : trois désaccords non résolus — une contestation aux essais épuisés avec ses objections, une relecture impossible, un Conseil sans convergence à trancher — puis les voix du fil.">
 </p>
 <p align="center">
-  <img src="images/captures/ruche-en-vol.bureau.png" width="840" alt="Ruche en vol : deux tâches en cours reliées à l'ouvrière, file d'attente et journal en direct.">
+  <img src="images/captures/warroom-decisions.bureau.png" width="840" alt="War Room filtrée sur les décisions humaines : un Conseil tranché avec sa justification, une production approuvée, un rejet avec sa raison.">
 </p>
 <p align="center">
-  <img src="images/captures/chambre-en-vol.bureau.png" width="840" alt="Chambre de l'ouvrière pendant un vol : deux missions en cours, journal des événements.">
+  <img src="images/captures/ruche.bureau.png" width="840" alt="Mission Control, vue Ruche : 55 tâches terminées, l'accès à la War Room et ses désaccords, l'ouvrière et la relectrice (hors ligne).">
+</p>
+<p align="center">
+  <img src="images/captures/miellerie.bureau.png" width="840" alt="Miellerie : la file de revue par projet, le diff, le verdict et la critique transmise.">
+</p>
+<p align="center">
+  <img src="images/captures/essaim.bureau.png" width="840" alt="Essaim : l'ouvrière shell et la relectrice « commande personnalisée », Waggle Board, phéromones.">
+</p>
+<p align="center">
+  <img src="images/captures/chronique-en-vol.bureau.png" width="840" alt="Chronique pendant un vol : le journal des événements en direct, par famille.">
+</p>
+<p align="center">
+  <img src="images/captures/ruche-en-vol.bureau.png" width="840" alt="Ruche en vol : tâches en cours reliées à l'ouvrière, file d'attente et journal en direct.">
+</p>
+<p align="center">
+  <img src="images/captures/chambre-en-vol.bureau.png" width="840" alt="Chambre de l'ouvrière pendant un vol : missions en cours, journal des événements.">
 </p>
 <p align="center">
   <img src="images/captures/tache.bureau.png" width="840" alt="Tiroir de tâche : une reprise, où est passé le temps, pourquoi ce Worker.">
 </p>
 <p align="center">
-  <img src="images/captures/essaim.bureau.png" width="840" alt="Essaim : la fiche de l'ouvrière, bac déclaré processus seul, Waggle Board, phéromones.">
-</p>
-<p align="center">
-  <img src="images/captures/ruche.mobile.png" width="300" alt="Ruche sur mobile, page entière.">
-  <img src="images/captures/miellerie.mobile.png" width="300" alt="Miellerie sur mobile, page entière.">
+  <img src="images/captures/warroom.mobile.png" width="200" alt="War Room sur mobile, page entière : le fil complet du débat.">
+  <img src="images/captures/warroom-decisions.mobile.png" width="200" alt="War Room sur mobile, décisions humaines.">
+  <img src="images/captures/ruche.mobile.png" width="200" alt="Ruche sur mobile, page entière.">
+  <img src="images/captures/miellerie.mobile.png" width="200" alt="Miellerie sur mobile, page entière.">
+  <img src="images/captures/essaim.mobile.png" width="200" alt="Essaim sur mobile, page entière.">
+  <img src="images/captures/chronique-en-vol.mobile.png" width="200" alt="Chronique sur mobile pendant un vol : le journal en direct, par famille.">
 </p>
 
 ## Ce que la première exécution a trouvé
@@ -160,10 +198,42 @@ npm run captures -- --sortie docs/images/captures --vues ruche.bureau,ruche-en-v
   la vue explique elle-même ; le navigateur les compte comme des ressources en
   échec.
 
+## Ce que le débat de la War Room a trouvé
+
+- **Une objection suffit à contester.** La relectrice répondait d'abord
+  « valide » suivi d'une ligne « - rien à objecter » : chaque production
+  validée repartait en correction. C'est la règle (`agreger` compte comme
+  contestation tout avis qui porte une objection) ; elle est désormais écrite
+  dans [PROTOCOLE-DEBAT.md](PROTOCOLE-DEBAT.md), et la relectrice valide sans
+  ligne d'objection.
+- **Les souvenirs précèdent la consigne.** Le nœud fait précéder le prompt du
+  contexte de la ruche, souvenirs Hive Mind compris — des consignes de
+  relecture passées y figurent en toutes lettres. Lue au premier marqueur, la
+  relecture d'« Export CSV » répondait à celle d'« Arrondi des taxes ». Un vrai
+  agent lit la dernière consigne ; la relectrice aussi, désormais.
+- **La borne d'essais n'a pas le même point de départ** selon la voie : une
+  production contestée à chaque fois s'exécute quatre fois avant
+  `attempts_exhausted`, quand un échec Worker fait échouer la tâche à sa
+  troisième exécution. Consigné au protocole, laissé à une décision.
+- **La Chronique d'un onglet neuf est vide** sur une ruche qui a déjà
+  travaillé : « Rien pour l'instant » au-dessus de plus de cinquante tâches
+  terminées. Le rattrapage du journal (`/api/events`) ne sert qu'aux
+  reconnexions. D'où la capture « en vol », sur les deux formats — et
+  pourquoi le débat n'y figure pas : il est joué avant que l'onglet s'ouvre, et
+  c'est la War Room qui le relit (`warroom*.png`). Le panneau « Journal » de la
+  Ruche en dit autant (`ruche.mobile.png` : « Journal 0 — Rien pour
+  l'instant »).
+- **Miellerie, mobile** : au-delà des 11 px de débordement des onglets déjà
+  relevés, la barre d'actions (Approuver, raison, Rejeter) recouvre le diff
+  (`miellerie.mobile.png`) — non corrigé ici.
+
 ## Ce qui reste
 
 - **Les vues non photographiées** (ci-dessus) : Partage, connexion, premier
   lancement, modales.
+- **La Chronique au premier affichage** : relire le journal retenu à
+  l'ouverture de l'onglet, comme la War Room le fait par sa route, plutôt que
+  d'attendre le direct.
 - **`npm run ruche` ne dit pas son port à l'ouvrière.** Le lanceur ne pose pas
   `HIVE_URL`, et l'ouvrière retombe sur `ws://localhost:7777/ws`
   (`src/node-client/main.ts`) : un `.env` qui dit `HIVE_PORT=7911` sans

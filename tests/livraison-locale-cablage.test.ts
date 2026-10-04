@@ -25,6 +25,7 @@ import { HiveNodeClient } from '../src/node-client/client.js';
 import type { AgentAdapter } from '../src/adapters/index.js';
 import type { MergeResultMsg } from '../src/shared/protocol.js';
 import type { HiveEvent, StateSnapshot } from '../src/shared/types.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-livraison-locale-long';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -231,6 +232,66 @@ describe('livraison locale — une vraie ouvrière, un vrai dépôt', () => {
       branche: result.livraison.branche,
       poussee: 'poussee',
     });
+    const fusion = (await evenements(base)).find(
+      (e) => e.type === 'merge_completed' && e.payload.mergeId === depart.mergeId,
+    );
+    expect(fusion?.payload).toMatchObject({ livraison: 'commitee' });
+  });
+
+  it('PROLONGER avance la branche journalisée, sur l’ouvrière qui la tient — pas de n+1', async () => {
+    const propre = await origine(path.join(dir, 'depot-prolonge'));
+    const { project } = mission(server, propre.nu, [['pa', propre.patchA]]);
+    const premiere = (await (
+      await poster(base, `/api/projects/${project.id}/livraison-locale`, {})
+    ).json()) as { mergeId: string };
+    const r1 = await resultatDe(base, project.id, premiere.mergeId);
+    if (r1.livraison?.etat !== 'commitee') throw new Error(r1.logs);
+
+    // Une branche que la ruche n'a jamais livrée ne se prolonge pas.
+    const inconnue = await poster(base, `/api/projects/${project.id}/livraison-locale`, {
+      prolonger: 9,
+    });
+    expect(inconnue.status).toBe(409);
+    expect(await inconnue.json()).toMatchObject({ code: 'mission_inconnue' });
+
+    // La correction arrive : une tâche de plus dans la mission.
+    server.store.createTask({ id: 'pb', projectId: project.id, title: 'pb', prompt: 'p' });
+    server.store.patchTask('pb', { status: 'done' });
+    server.store.insertResult({
+      taskId: 'pb',
+      nodeId: 'seed',
+      success: true,
+      diff: propre.patchB,
+      logs: '',
+      durationMs: 1,
+      subAgents: [],
+    });
+    const res = await poster(base, `/api/projects/${project.id}/livraison-locale`, {
+      prolonger: 1,
+    });
+    expect(res.status, await res.clone().text()).toBe(202);
+    const depart = (await res.json()) as { mergeId: string; noeud: string; prolonge: string };
+    expect(depart).toMatchObject({
+      noeud: 'ouvriere-livraison',
+      prolonge: `hive/mission-${project.id}-1`,
+    });
+    const r2 = await resultatDe(base, project.id, depart.mergeId);
+    expect(r2.livraison, r2.logs).toMatchObject({
+      etat: 'commitee',
+      branche: `hive/mission-${project.id}-1`,
+    });
+    if (r2.livraison?.etat !== 'commitee') throw new Error(r2.logs);
+    const durable = simpleGit({ baseDir: path.join(workRoot, 'livraisons', `${project.id}.git`) });
+    expect((await durable.raw(['rev-parse', `${r2.livraison.commit}^@`])).trim()).toBe(
+      r1.livraison.commit,
+    );
+    expect(await durable.raw(['for-each-ref', '--format=%(refname)'])).not.toContain(
+      `hive/mission-${project.id}-2`,
+    );
+    // Le journal connaît la nouvelle tête : la prochaine suite partira d'elle.
+    expect(
+      server.store.commitsDeMission(project.id, `hive/mission-${project.id}-1`).at(-1)?.commit,
+    ).toBe(r2.livraison.commit);
   });
 
   it('l’Evaluator arrête la mission — et un forçage signé la laisse partir, journalisé', async () => {
@@ -403,7 +464,6 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
   let server: HiveServer;
   let base: string;
   const sockets: WebSocket[] = [];
-  const battements: NodeJS.Timeout[] = [];
 
   beforeAll(async () => {
     dir = mkdtempSync(path.join(os.tmpdir(), 'hive-livloc-faux-'));
@@ -412,7 +472,6 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
   });
 
   afterAll(async () => {
-    for (const c of battements.splice(0)) clearInterval(c);
     for (const ws of sockets.splice(0)) ws.close();
     await server.stop();
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
@@ -421,16 +480,9 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
   /** Un nœud au niveau du protocole, qui retient ce qu'il reçoit. */
   async function noeud(nodeId: string, pousseLivraisons?: boolean) {
     const recus: Record<string, unknown>[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (d) => recus.push(JSON.parse(d.toString()) as Record<string, unknown>));
-    await new Promise<void>((r, j) => {
-      ws.once('open', () => r());
-      ws.once('error', j);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    const { ws } = await brancherFauxNoeud<{ type: string } & Record<string, unknown>>(
+      server.port,
+      {
         token: TOKEN,
         name: nodeId,
         ownerName: 't',
@@ -438,14 +490,10 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
         maxConcurrency: 1,
         nodeId,
         ...(pousseLivraisons !== undefined ? { pousseLivraisons } : {}),
-      }),
+      },
+      (m) => recus.push(m),
     );
-    const coeur = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN)
-        ws.send(JSON.stringify({ type: 'heartbeat', running: 0 }));
-    }, 300);
-    battements.push(coeur);
-    await attendre(async () => recus.some((m) => m.type === 'registered'));
+    sockets.push(ws);
     return { ws, recus };
   }
 
@@ -503,6 +551,48 @@ describe('livraison locale — ce qu’une vraie ouvrière ne sait pas mal faire
       etat: 'non_commitee',
       motif: expect.stringContaining('version de Hive ne sait pas encore livrer'),
     });
+    // L'événement de fusion porte la même issue : qui ne lit que lui (le
+    // compagnon) ne doit pas y voir une livraison entrée dans le projet.
+    const fusion = (await evenements(base)).find(
+      (e) => e.type === 'merge_completed' && e.payload.mergeId === mergeId,
+    );
+    expect(fusion?.payload).toMatchObject({ applied: 1, livraison: 'non_commitee' });
+  });
+
+  it('PROLONGER exige l’ouvrière qui TIENT la branche, en ligne, et qui sait prolonger — sous plafond', async () => {
+    // Chaque refus part AVANT tout travail, avec sa raison : une suite confiée
+    // à un autre nœud refuserait après tout le merge, et un nœud d'avant le
+    // contrat perdrait `suite` et ouvrirait une branche n+1.
+    const n = await seul('n-vieux');
+    const { project } = mission(server, '/depot/fictif-prolonge', [['fp', 'diff']]);
+    const commitee = (numero: number, nodeId: string, commit: string): void => {
+      server.store.appendEvent('livraison_locale', {
+        etat: 'commitee',
+        projectId: project.id,
+        branche: `hive/mission-${project.id}-${numero}`,
+        nodeId,
+        commit,
+      });
+    };
+    const prolonger = async (numero: number) =>
+      (await (
+        await poster(base, `/api/projects/${project.id}/livraison-locale`, { prolonger: numero })
+      ).json()) as { code: string };
+
+    commitee(1, 'n-vieux', 'a'.repeat(40));
+    expect(await prolonger(1)).toMatchObject({ code: 'noeud_sans_prolongation' });
+
+    commitee(2, 'n-eteint', 'b'.repeat(40));
+    expect(await prolonger(2)).toMatchObject({ code: 'noeud_de_la_branche_absent' });
+
+    // Une livraison et trois prolongations : la quatrième se refuse.
+    for (const c of ['c', 'd', 'e', 'f']) commitee(3, 'n-vieux', c.repeat(40));
+    expect(await prolonger(3)).toMatchObject({ code: 'plafond_reprises' });
+
+    expect(
+      n.recus.filter((m) => m.type === 'assign_merge'),
+      'rien n’est parti',
+    ).toEqual([]);
   });
 
   it('une livraison ne partage pas son projet : ni avec un merge d’essai, ni l’inverse', async () => {

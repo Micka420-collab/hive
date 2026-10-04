@@ -53,6 +53,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 }));
 
 import {
+  ApiError,
   fetchChantiers,
   fetchRuns,
   fetchVerdictChantier,
@@ -365,6 +366,28 @@ describe('les workflows GitHub, depuis le même écran', () => {
       vi.mocked(lancerWorkflowGithub).mock.calls[0]?.[2],
       'la branche saisie a été remplacée',
     ).toBe('dev');
+  });
+
+  it('UN WORKFLOW SIMULÉ PAR UN REJEU LE DIT, et s’offre à la validation humaine', async () => {
+    // 409 `rejeu_simule` : rien n'est parti chez GitHub. Sans ce cas, l'écran
+    // rechargeait comme après un vrai lancement — on croyait le run parti.
+    vi.mocked(lancerWorkflowGithub).mockRejectedValueOnce(
+      new ApiError('Projet de rejeu : simulée et rangée', 409, undefined, 'rejeu_simule'),
+    );
+    const dom = await monter();
+    await act(async () => {
+      bouton(zoneGithub(dom), 'Lancer').click();
+    });
+    expect(dom.textContent).toContain('SIMULÉ et rangé — rien n’a été lancé chez GitHub');
+
+    vi.mocked(lancerWorkflowGithub).mockResolvedValueOnce({ workflow: WORKFLOW, ref: 'main' });
+    await act(async () => {
+      bouton(dom, 'Valider pour de vrai').click();
+    });
+    expect(
+      vi.mocked(lancerWorkflowGithub).mock.lastCall?.[3],
+      'la validation n’est pas portée',
+    ).toBe(true);
   });
 
   it('PENDANT L’ENVOI D’UN WORKFLOW, son bouton le DIT aussi', async () => {

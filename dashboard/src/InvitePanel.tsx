@@ -11,6 +11,7 @@ import { useT } from './i18n';
 import { useDialog, Voile } from './ui';
 import { copierTexte } from './copier';
 import { isWsUrl } from '../../src/shared/invite';
+import { DecouvertsReseau } from './DecouvertsReseau';
 
 /**
  * Le cadre du dialogue, dans un composant À LUI : `useDialog` agit au montage
@@ -162,6 +163,16 @@ export function InvitePanel() {
                 )}
               </p>
             )}
+
+            {/* ─── LA MACHINE D'À CÔTÉ, EN UN CLIC ET UN CODE ──────────────────
+                En tête : c'est le chemin le plus court quand la machine est sur
+                le même réseau. Éteinte (le défaut), la section dit en une
+                ligne comment l'allumer. */}
+            <DecouvertsReseau />
+
+            <h3 className="invite-sous-titre">
+              {t('Ou par billet, depuis n’importe où', 'Or with a ticket, from anywhere')}
+            </h3>
 
             {/* ─── UNE SEULE ÉTAPE, ET C'EST TOUT LE SUJET ────────────────────
                 Cette liste en comptait DEUX : « votre ami récupère Hive et lance

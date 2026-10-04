@@ -26,6 +26,7 @@ import { TYPES_THERMO, lireTemperature } from '../src/orchestrator/thermo.js';
 import { buildWaggleBoard } from '../src/orchestrator/waggle.js';
 import type { HiveEvent } from '../src/shared/types.js';
 import { NOW, rejouerScenario, resultat } from './harnais-rejeu.js';
+import { fenetreSeule } from './aide/journal-retenu.js';
 
 describe('Balance : non-régression par rejeu de séquence', () => {
   it('T1 — éteinte, en observation ou en strict : la ruche se comporte à l’IDENTIQUE', () => {
@@ -651,8 +652,10 @@ describe('Balance : la porte (borner)', () => {
     expect(p.scheduler.balance.soldes.find((s) => s.projectId === p.autre)).toBeUndefined();
 
     // Et même APRÈS la disparition de l'événement (journal purgé), l'état parle.
-    store.pruneEvents(0);
-    expect(store.listEvents(0, 100)).toEqual([]);
+    // Le seuil est une trace, pas la preuve d'une tâche : la fenêtre l'emporte
+    // (les preuves des tâches encore ouvertes, elles, restent).
+    store.pruneEvents(fenetreSeule(0));
+    expect(store.listEvents(0, 100).filter((e) => e.type.startsWith('balance_'))).toEqual([]);
     expect(p.scheduler.balance.soldes[0]?.bloque).toBe(true);
     expect(store.getBudget(p.projet)).toMatchObject({ plafondMs: 1_000, definiPar: null });
   });
