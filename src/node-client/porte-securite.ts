@@ -105,6 +105,7 @@ import type {
 } from '../shared/porte-securite.js';
 import { surLePath, VARIABLES_PROXY, type BacExecution } from './isolement.js';
 import { runProc } from './merge-runner.js';
+import { BaseFalsifiee } from './base-verifiee.js';
 import { fichierDeBase } from './validations-bac.js';
 import { buildSandboxEnv } from './workspace.js';
 
@@ -611,12 +612,29 @@ async function voletDependances(
       );
       let base: Paire['base'] = null;
       if (estSurveille(f.avant) && depot) {
-        const contenu = await fichierDeBase(depot.depot, depot.baseSha, f.avant);
-        if (contenu === null) {
+        let falsifiee = false;
+        let contenu: string | null = null;
+        try {
+          contenu = await fichierDeBase(depot.depot, depot.baseSha, f.avant);
+        } catch (err) {
+          // La base relue est falsifiée : l'agent a forgé l'objet git du
+          // lockfile de base pour faire passer une vulnérabilité qu'il
+          // introduit pour « déjà présente » (`base-verifiee.ts`). On ne
+          // compare pas à un contenu forgé — la base reste ABSENTE, donc tout
+          // ce que la tête porte reste INTRODUIT —, et la falsification est un
+          // constat bloquant, nommé et journalisé. La tête se lit normalement
+          // ci-dessous : comparée à rien, elle n'excuse rien.
+          if (!(err instanceof BaseFalsifiee)) throw err;
+          illisibles.push({ genre: 'lockfile_illisible', fichier, motif: 'base_falsifiee' });
+          falsifiee = true;
+        }
+        // Base illisible (absente, mal formée) SANS falsification : rien à quoi
+        // comparer, le fichier est écarté — son constat `non_verifie` le dit.
+        if (contenu === null && !falsifiee) {
           nonVerifiables.push('lockfile_illisible');
           continue;
         }
-        base = { chemin: f.avant, contenu };
+        base = contenu === null ? null : { chemin: f.avant, contenu };
       }
       // Un fichier supprimé n'introduit rien : rien à extraire.
       if (!estSurveille(f.apres)) continue;

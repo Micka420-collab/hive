@@ -177,6 +177,11 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     // passer les bancs ci-dessus pour de mauvaises raisons.
     ['tests/fixtures/faux-outils-porte.ts', 'securite'],
     ['tests/fixtures/verrous-porte.ts', 'securite'],
+    // La lecture vérifiée de la base (la faille des objets git non vérifiés) et
+    // ses bancs : l'affaiblir rouvrirait la forgerie que la porte ferme.
+    ['src/node-client/base-verifiee.ts', 'securite'],
+    ['tests/base-verifiee.test.ts', 'securite'],
+    ['tests/base-forgee-bout-en-bout.test.ts', 'securite'],
     // Les verdicts test par test (G11b) : le lecteur qui excuse un échec déjà
     // rouge à la base, ses bancs et les sorties réelles qu'ils rejouent.
     ['src/shared/lecture-tests.ts', 'permissions'],

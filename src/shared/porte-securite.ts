@@ -256,7 +256,14 @@ export interface ConstatVulnerabilite {
 export interface ConstatLockfileIllisible {
   genre: 'lockfile_illisible';
   fichier: string;
-  motif: 'pas_un_fichier' | 'mal_forme';
+  /**
+   * `pas_un_fichier`/`mal_forme` : la TÊTE livre un lockfile illisible (défaut
+   * de la production). `base_falsifiee` : la BASE relue ne correspond pas à son
+   * empreinte — l'agent a forgé l'objet git du lockfile de base
+   * (`node-client/base-verifiee.ts`) ; on ne compare pas à un contenu forgé,
+   * et ce qui est introduit à la tête reste introduit.
+   */
+  motif: 'pas_un_fichier' | 'mal_forme' | 'base_falsifiee';
 }
 
 export type ConstatDependance = ConstatVulnerabilite | ConstatLockfileIllisible;
@@ -720,7 +727,9 @@ function constatDependanceDepuis(v: unknown): ConstatDependance | null {
   if (c.genre === 'lockfile_illisible') {
     const { fichier, motif } = c;
     if (!texteBorne(fichier, BORNES_PORTE.fichier)) return null;
-    if (motif !== 'pas_un_fichier' && motif !== 'mal_forme') return null;
+    if (motif !== 'pas_un_fichier' && motif !== 'mal_forme' && motif !== 'base_falsifiee') {
+      return null;
+    }
     return { genre: 'lockfile_illisible', fichier, motif };
   }
   if (c.genre !== 'vulnerabilite') return null;

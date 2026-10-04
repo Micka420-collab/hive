@@ -171,6 +171,11 @@ export function texteControle(detail: DetailControle, t: Traduire): string {
         'la production a modifié .npmrc, qui règle la façon dont npm lance les scripts : non lancé',
         'the production changed .npmrc, which controls how npm runs scripts: not run',
       );
+    case 'base_falsifiee':
+      return t(
+        'base falsifiée dans l’espace de travail : un objet git de la base ne correspond pas à son empreinte — non lancé, la production est rejetée',
+        'base forged in the workspace: a git object of the base does not match its hash — not run, the production is rejected',
+      );
     case 'sans_bac':
       return t(
         'non lancé : ce nœud n’a pas de bac à sable, et le code d’un agent ne tourne pas sur l’hôte nu — installez podman, docker ou bubblewrap (HIVE_ISOLEMENT=auto les trouve au démarrage du nœud)',
