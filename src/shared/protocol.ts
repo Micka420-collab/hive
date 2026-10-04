@@ -346,8 +346,10 @@ export interface TaskRejectMsg {
   infra?: boolean;
   /**
    * Avec `infra` : l'échec a eu lieu AVANT que l'agent ne soit lancé — le
-   * dépôt de la tâche ne s'est pas cloné. Aucun modèle n'a tourné, aucun n'est
-   * écarté des reprises ; la tâche part ailleurs sans brûler de tentative.
+   * dépôt de la tâche ne s'est pas cloné, ou l'assignation elle-même était
+   * illisible pour ce nœud (`assignationIllisible`). Aucun modèle n'a tourné,
+   * aucun n'est écarté des reprises ; la tâche part ailleurs sans brûler de
+   * tentative.
    */
   avantAgent?: boolean;
   /**
@@ -1700,10 +1702,130 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
 }
 
 /**
- * Valide un repoUrl : uniquement des schémas de transport sûrs. Bloque le
- * transport `ext::` de git (exécution de commande arbitraire = RCE) et les URL
- * commençant par « - » (injection d'argument dans git clone).
+ * La cause d'une assignation illisible quand ce n'est pas son dépôt : un champ
+ * hors protocole — un niveau qu'un nœud plus ancien ne connaît pas, une borne
+ * qu'un producteur n'a pas tenue. Le geste vaut pour les deux.
  */
+const ASSIGNATION_HORS_PROTOCOLE =
+  'assignation illisible pour ce nœud — mettez ce nœud et la Reine à la même version';
+
+/** Une assignation que `parseServerMessage` a refusée, et ce que le nœud en répond. */
+export interface AssignationIllisible {
+  type: 'assign_task' | 'assign_merge' | 'assign_chantier' | 'poser_outil';
+  /** La cause, bornée par `LIMITS.name` — elle ne recopie rien du message. */
+  motif: string;
+  /** Le refus que la Reine attend pour CE travail ; `null` sans identifiant sûr. */
+  reponse: TaskRejectMsg | MergeResultMsg | ChantierResultMsg | null;
+}
+
+/**
+ * Ce qu'un nœud répond à un message du hub que `parseServerMessage` a refusé —
+ * `null` si ce n'était pas une assignation.
+ *
+ * ─── LE SILENCE QUE CECI FERME ───────────────────────────────────────────────
+ *
+ * Le nœud laissait tomber tout message illisible, sans un mot. Pour une
+ * assignation, c'était un travail perdu : la tâche restait `assigned` —
+ * re-servie toutes les 15 s par le filet de la Reine, jetée à chaque fois —,
+ * le merge et le chantier attendaient le délai de la Reine, sans cause. Il a
+ * suffi que `isValidRepoUrl` refuse les caractères de contrôle (#551) pour
+ * qu'un projet ancien y tombe.
+ *
+ * ─── LA RÉPONSE EST UN REFUS QUE LA REINE SAIT DÉJÀ LIRE ─────────────────────
+ *
+ *   · une tâche : `task_reject` d'infrastructure AVANT l'agent — la Reine la
+ *     confie ailleurs sans brûler de tentative ni écarter de modèle (un nœud à
+ *     jour la lira peut-être), puis l'échoue au bout de sa borne, ce motif au
+ *     cockpit ;
+ *   · un merge, un chantier : leur résultat REFUSÉ, un échec explicite.
+ *
+ * Le motif ne recopie RIEN du message : le dépôt peut porter le jeton du
+ * projet. Un identifiant qui ne passe pas `isId` ne se renvoie pas non plus :
+ * la Reine ne saurait à quel travail le rattacher, et le nœud le dit alors dans
+ * son seul journal. Une pose d'outil n'est illisible que par ses identifiants :
+ * elle n'a jamais de réponse sûre.
+ */
+export function assignationIllisible(raw: unknown): AssignationIllisible | null {
+  if (typeof raw !== 'string' || raw.length > LIMITS.message) return null;
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return null;
+  const m = data as Record<string, unknown>;
+  // Le dépôt d'abord : refusé, il suffit à faire tomber le message, et c'est la
+  // seule cause dont le geste n'est pas d'aligner les versions.
+  const motif = (repoUrl: unknown): string =>
+    motifDepotIllisible(repoUrl) ?? ASSIGNATION_HORS_PROTOCOLE;
+  switch (m.type) {
+    case 'assign_task': {
+      // Une tâche sans dépôt (`null`) travaille dans un atelier vierge : rien à reprocher.
+      const sansDepot = m.repoUrl === undefined || m.repoUrl === null;
+      const raison = sansDepot ? ASSIGNATION_HORS_PROTOCOLE : motif(m.repoUrl);
+      const taskId =
+        typeof m.task === 'object' && m.task !== null
+          ? (m.task as Record<string, unknown>).id
+          : undefined;
+      return {
+        type: 'assign_task',
+        motif: raison,
+        reponse: isId(taskId)
+          ? { type: 'task_reject', taskId, reason: raison, infra: true, avantAgent: true }
+          : null,
+      };
+    }
+    case 'assign_merge': {
+      const raison = motif(m.repoUrl);
+      return {
+        type: 'assign_merge',
+        motif: raison,
+        reponse: isId(m.mergeId)
+          ? {
+              type: 'merge_result',
+              mergeId: m.mergeId,
+              applied: [],
+              conflicts: [],
+              mergedDiff: '',
+              testsRun: false,
+              testsPassed: null,
+              logs: `[nœud] ${raison}`,
+              refused: raison,
+            }
+          : null,
+      };
+    }
+    case 'assign_chantier': {
+      const raison = motif(m.repoUrl);
+      return {
+        type: 'assign_chantier',
+        motif: raison,
+        reponse:
+          isId(m.chantierId) && nomDeChantierValide(m.nom)
+            ? {
+                type: 'chantier_result',
+                chantierId: m.chantierId,
+                nom: m.nom,
+                code: null,
+                sortie: `[nœud] ${raison}`,
+                ok: false,
+                refused: raison,
+              }
+            : null,
+      };
+    }
+    case 'poser_outil':
+      return {
+        type: 'poser_outil',
+        motif: 'identifiant de pose ou d’outil mal formé',
+        reponse: null,
+      };
+    default:
+      return null;
+  }
+}
+
 /**
  * Taille en octets d'une trame WebSocket, sans la convertir en chaîne.
  *
@@ -1732,10 +1854,11 @@ const estCheminLocalAbsolu = (v: string): boolean => /^[A-Za-z]:[\\/]/.test(v) |
  * cette fonction décide seulement si la forme peut franchir la frontière HTTP.
  */
 export function isValidLocalRepoPath(v: unknown): v is string {
-  if (typeof v !== 'string' || v.length === 0 || v.length > 500 || v.startsWith('-')) {
-    return false;
-  }
-  if (!estCheminLocalAbsolu(v)) return false;
+  // Les règles du protocole d'abord, caractères de contrôle compris : un chemin
+  // qu'elles refusent ferait refuser par chaque nœud toutes les assignations du
+  // projet. La route d'administration les laissait passer, alors que
+  // `isValidRepoUrl` les refuse depuis #551.
+  if (!isValidRepoUrl(v) || !estCheminLocalAbsolu(v)) return false;
   return !v
     .replaceAll('\\', '/')
     .split('/')
@@ -1758,22 +1881,53 @@ export function estBrancheDeLivraison(v: unknown): v is string {
   return !v.includes('..') && !v.endsWith('.lock') && !v.endsWith('.');
 }
 
-export function isValidRepoUrl(v: unknown): v is string {
-  if (typeof v !== 'string' || v.length === 0 || v.length > 500) return false;
-  if (v.startsWith('-')) return false;
+/**
+ * Ce que le protocole reproche à une adresse de dépôt — `null` si elle passe.
+ *
+ * Uniquement des schémas de transport sûrs : bloque le transport `ext::` de git
+ * (exécution de commande arbitraire = RCE) et les URL commençant par « - »
+ * (injection d'argument dans git clone).
+ */
+function defautDeDepot(v: unknown): string | null {
+  if (typeof v !== 'string' || v.length === 0) return 'absente';
+  if (v.length > 500) return 'plus de 500 caractères';
+  if (v.startsWith('-')) return 'tiret initial';
   // Aucun caractère de contrôle : un saut de ligne faisait échouer git sur
   // une clé de configuration qu'il citait ENTIÈRE — jeton compris, et hors
   // de portée du lavage, qui s'arrête à l'espace (`laverIdentifiantsDuTexte`).
   // eslint-disable-next-line no-control-regex -- c'est précisément ce qu'on refuse
-  if (/[\u0000-\u001f\u007f]/.test(v)) return false;
+  if (/[\u0000-\u001f\u007f]/.test(v)) return 'caractère de contrôle';
   // http(s), git, ssh, ou chemin local absolu (démo/tests) — jamais ext::, file::, etc.
-  return (
+  const transportSur =
     /^https?:\/\//.test(v) ||
     /^git:\/\//.test(v) ||
     /^ssh:\/\//.test(v) ||
     /^git@[\w.-]+:/.test(v) ||
-    estCheminLocalAbsolu(v)
-  );
+    estCheminLocalAbsolu(v);
+  return transportSur ? null : 'transport non permis';
+}
+
+export function isValidRepoUrl(v: unknown): v is string {
+  return defautDeDepot(v) === null;
+}
+
+/**
+ * Pourquoi les nœuds refuseraient ce dépôt, dit à qui doit agir — `null` s'il
+ * passe.
+ *
+ * La MÊME règle que `isValidRepoUrl`, pour les deux bouts qui doivent dire
+ * pourquoi : la Reine qui refuse d'envoyer un travail sur ce dépôt, le nœud
+ * qui refuse d'en lire l'assignation (`assignationIllisible`). Deux copies
+ * diraient deux causes. Le geste est le seul possible : l'URL d'un projet ne
+ * se change pas encore (`URL_DU_PROJET_FIGEE`, git-protege.ts). Jamais
+ * l'adresse elle-même — elle peut porter le jeton du projet —, et bornée par
+ * `LIMITS.name` : c'est la raison d'un `task_reject`.
+ */
+export function motifDepotIllisible(v: unknown): string | null {
+  const defaut = defautDeDepot(v);
+  return defaut === null
+    ? null
+    : `URL de dépôt du projet illisible (${defaut}) — recréez le projet avec une URL valide`;
 }
 
 /**
