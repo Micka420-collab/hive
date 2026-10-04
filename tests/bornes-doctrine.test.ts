@@ -107,6 +107,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
   essaim: 'clé primaire `projectId` — une seule ligne par projet, par construction',
   garde_fous:
     'clé primaire `projectId` — un consentement humain (opt-in + bornes), une seule ligne par projet',
+  reseaux_projets:
+    'clé primaire `projectId` — le réseau des agents posé par le propriétaire, une ligne par projet',
   banc_ombre:
     'clé primaire `projectId` — le consentement humain du banc d’ombre (opt-in + budget), une ligne par projet',
   balance_ledger_cache:

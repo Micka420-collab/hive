@@ -73,6 +73,7 @@ function bacDe(mode: 'off' | 'auto' | 'exige', fournisseur: Fournisseur | null):
     // La VRAIE règle, pas une copie : c'est tout l'objet de `codeDuBac`.
     codeSortie: codeDuBac(decision.refuse),
     sessionsHote: sessionsHoteDuMode(mode),
+    reseau: null,
   };
 }
 

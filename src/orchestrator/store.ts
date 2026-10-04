@@ -105,6 +105,7 @@ import {
   type VerdictDelegation,
 } from './delegation.js';
 import { lireConsigneRoutage, type ConsigneRoutage } from '../shared/consigne-routage.js';
+import { NIVEAU_RESEAU_DEFAUT, estNiveauReseau, type NiveauReseau } from '../shared/reseau.js';
 import type {
   HiveEvent,
   HiveNode,
@@ -479,6 +480,28 @@ CREATE TABLE IF NOT EXISTS garde_fous (
   actif     INTEGER NOT NULL DEFAULT 0,
   borneMin  TEXT NOT NULL,
   borneMax  TEXT NOT NULL,
+  version   INTEGER NOT NULL DEFAULT 1,
+  definiPar TEXT,
+  updatedAt INTEGER NOT NULL
+);
+
+-- Le RÉSEAU des agents d'un projet (src/shared/reseau.ts) : integrations,
+-- dependances ou ouvert — ce que le proxy du nœud laisse sortir du bac.
+--
+-- UNE INTENTION HUMAINE, pas un calcul (règle 1) : posée par le propriétaire
+-- du projet (ou un administrateur), jamais par la ruche. Une ruche qui
+-- pourrait ouvrir le réseau de ses propres agents ne serait pas gouvernée.
+--
+-- Ligne ABSENTE = « dependances », le défaut : les projets d'avant ce réglage
+-- le reçoivent sans migration ni colonne (règle 2). La TABLE est latérale pour
+-- la même raison que « garde_fous ».
+--
+-- BORNE STRUCTURELLE (règle 3) : une ligne par projet. Pas d'élagueur — en
+-- effacer une rendrait au défaut un projet que son propriétaire avait fermé
+-- (integrations) ou ouvert, sans que personne le sache.
+CREATE TABLE IF NOT EXISTS reseaux_projets (
+  projectId TEXT PRIMARY KEY REFERENCES projects(id),
+  niveau    TEXT NOT NULL,
   version   INTEGER NOT NULL DEFAULT 1,
   definiPar TEXT,
   updatedAt INTEGER NOT NULL
@@ -2569,6 +2592,7 @@ const EFFACEMENT_PROJET = [
   ['project_members', 'projectId = @p'],
   ['essaim', 'projectId = @p'],
   ['garde_fous', 'projectId = @p'],
+  ['reseaux_projets', 'projectId = @p'],
   ['abonnements', 'projectId = @p'],
   ['connecteurs_projet', 'projectId = @p'],
   ['connecteurs_journal', 'projectId = @p'],
@@ -5909,6 +5933,49 @@ export class HiveStore {
            updatedAt = excluded.updatedAt`,
       )
       .run(projectId, reglage.actif ? 1 : 0, reglage.borneMin, reglage.borneMax, definiPar, now);
+  }
+
+  /**
+   * Pose le RÉSEAU des agents d'un projet — geste humain (motif `setGardeFou`),
+   * écrasé en place. Le niveau est typé À L'ÉCRITURE : seul un niveau connu entre.
+   */
+  setReseauProjet(
+    projectId: string,
+    niveau: NiveauReseau,
+    definiPar: string | null = null,
+    now = Date.now(),
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO reseaux_projets (projectId, niveau, version, definiPar, updatedAt)
+         VALUES (?, ?, 1, ?, ?)
+         ON CONFLICT(projectId) DO UPDATE SET
+           niveau = excluded.niveau,
+           definiPar = excluded.definiPar,
+           updatedAt = excluded.updatedAt`,
+      )
+      .run(projectId, niveau, definiPar, now);
+  }
+
+  /**
+   * Le réseau réglé d'un projet, ou `null` s'il n'a jamais été réglé. Un niveau
+   * illisible en base (écrit par une version future) se lit comme ABSENT, et
+   * donc comme le défaut — jamais comme `ouvert`.
+   */
+  getReseauProjet(
+    projectId: string,
+  ): { niveau: NiveauReseau; definiPar: string | null; updatedAt: number } | null {
+    const row = this.db
+      .prepare('SELECT niveau, definiPar, updatedAt FROM reseaux_projets WHERE projectId = ?')
+      .get(projectId) as
+      { niveau: string; definiPar: string | null; updatedAt: number } | undefined;
+    if (!row || !estNiveauReseau(row.niveau)) return null;
+    return { niveau: row.niveau, definiPar: row.definiPar, updatedAt: row.updatedAt };
+  }
+
+  /** Le niveau qu'une assignation porte : le réglage, sinon le défaut. */
+  niveauReseau(projectId: string): NiveauReseau {
+    return this.getReseauProjet(projectId)?.niveau ?? NIVEAU_RESEAU_DEFAUT;
   }
 
   /**

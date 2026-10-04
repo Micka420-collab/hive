@@ -14,6 +14,7 @@ import { estPlateforme } from './machine.js';
 import { estEmpreinte } from './empreinte-ruche.js';
 import { validationsBacDepuis } from './validations-bac.js';
 import { estEffort, estListeEfforts, type Effort } from './effort.js';
+import { estNiveauReseau, type NiveauReseau } from './reseau.js';
 import type { ValidationsBac } from './validations-bac.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
@@ -528,6 +529,12 @@ export interface AssignTaskMsg {
    * tâche ordinaire. Le nom est revalidé par le nœud (`estBrancheDeLivraison`).
    */
   prolonger?: true;
+  /**
+   * Le réseau que le projet permet aux agents (`shared/reseau.ts`), réglé par
+   * son propriétaire. Absent (une Reine d'avant ce réglage) : le nœud applique
+   * le défaut, `dependances` — jamais `ouvert` par omission.
+   */
+  reseau?: NiveauReseau;
 }
 
 export interface CancelTaskMsg {
@@ -1441,7 +1448,10 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       // (`--upload-pack=…`), perd tout le message.
       if (m.prolonger !== undefined && m.prolonger !== true) return null;
       if (m.prolonger === true && !estBrancheDeLivraison(m.task.branch)) return null;
+      // Un niveau inconnu n'est pas « ouvert » : tout le message tombe.
+      if (m.reseau !== undefined && !estNiveauReseau(m.reseau)) return null;
       const msg: AssignTaskMsg = { type: 'assign_task', task: m.task };
+      if (m.reseau !== undefined) msg.reseau = m.reseau;
       if (m.relecture === true) msg.relecture = true;
       if (m.prolonger === true) msg.prolonger = true;
       if (m.repoUrl !== undefined) msg.repoUrl = (m.repoUrl as string | null) ?? null;

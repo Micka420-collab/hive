@@ -73,7 +73,11 @@ import {
 } from '../shared/requisition-infra.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
-import type { BacExecution } from './isolement.js';
+import type { BacExecution, ReseauBac } from './isolement.js';
+import { bilanRefus, ouvrirReseauTache, refusExige } from './reseau-tache.js';
+import type { CapaciteReseau, ReseauTache } from './reseau-tache.js';
+import { NIVEAU_RESEAU_DEFAUT } from '../shared/reseau.js';
+import type { NiveauReseau } from '../shared/reseau.js';
 import { balayerPontsOrphelins, RendezVousPont } from './rendez-vous-pont.js';
 import type { Workspace } from './workspace.js';
 import type {
@@ -200,6 +204,13 @@ export interface NodeClientOptions {
    * suite. C'est le même motif que `adapter`.
    */
   bac?: BacExecution;
+  /**
+   * Ce que le bac sait faire du réseau, MESURÉ au démarrage (`optionReseau`,
+   * `sonderReseauFiltre`). Absent avec un bac : le réseau n'a pas été éprouvé,
+   * et chaque tâche le dit au lieu de le filtrer. Injecté pour la même raison
+   * que `bac`.
+   */
+  reseau?: CapaciteReseau;
   /**
    * Le bac à sable DÉCLARÉ au hub à l'inscription (`isolementDeclareDe`).
    * Affichage seulement ; absent, le hub dit « non déclaré ».
@@ -409,6 +420,7 @@ export class HiveNodeClient {
     effort?: Effort;
     delegationBudget?: DelegationBudget;
     relecture: boolean;
+    reseau: NiveauReseau;
     workspace: Workspace;
     started: number;
     ctrl: AbortController;
@@ -1026,6 +1038,7 @@ export class HiveNodeClient {
           msg.delegationRootTaskId,
           msg.effort,
           msg.prolonger === true,
+          msg.reseau ?? NIVEAU_RESEAU_DEFAUT,
         );
         break;
       case 'assign_merge':
@@ -1175,11 +1188,55 @@ export class HiveNodeClient {
    * celle qu'un hub aurait attribuée : un nœud tué doit retrouver ses
    * conteneurs sous le nom qu'il connaîtra au prochain lancement.
    */
-  private optionBacTache(tache?: string): { bac?: BacExecution } {
+  private optionBacTache(tache?: string, reseau?: ReseauBac): { bac?: BacExecution } {
     const bac = this.opts.bac;
     if (!bac) return {};
     const noeud = this.opts.nodeId ?? this.nodeId;
-    return { bac: { ...bac, ...(noeud ? { noeud } : {}), ...(tache ? { tache } : {}) } };
+    return {
+      bac: {
+        ...bac,
+        ...(noeud ? { noeud } : {}),
+        ...(tache ? { tache } : {}),
+        ...(reseau ? { reseau } : {}),
+      },
+    };
+  }
+
+  /**
+   * Le réseau de CETTE exécution (`reseau-tache.ts`), ouvert sur l'arbre
+   * fraîchement cloné — les registres du dépôt se lisent à la base, avant que
+   * l'agent y écrive. Chaque refus part au journal de la tâche à l'instant où
+   * le proxy le prononce.
+   */
+  private reseauTache(
+    niveau: NiveauReseau,
+    repoUrl: string | null,
+    workspace: Workspace,
+    progres: (p: AdapterProgress) => void,
+  ): Promise<ReseauTache> {
+    // Un bac sans mesure du réseau (un banc, un appelant d'avant la sonde) ne
+    // filtre pas — et le dit ; sans bac, la sandbox de processus non plus.
+    const capacite =
+      this.opts.reseau ??
+      (this.opts.bac
+        ? { filtre: false, exige: false, motif: 'réseau du bac non éprouvé au démarrage' }
+        : undefined);
+    return ouvrirReseauTache({
+      niveau,
+      ...(capacite ? { capacite } : {}),
+      agent: this.opts.agentType,
+      repoUrl,
+      cwd: workspace.cwd,
+      env: workspace.env,
+      reservation: this.rendezVous,
+      surRefus: (r) => progres({ log: `[hive] réseau refusé — ${r.motif}` }),
+    });
+  }
+
+  /** Les logs d'un résultat, précédés du bilan des refus du proxy s'il y en a eu. */
+  private static logsAvecReseau(logs: string, reseau: ReseauTache | null): string {
+    const bilan = reseau?.etat === 'filtre' ? bilanRefus(reseau.refus()) : null;
+    return bilan ? `${bilan}\n${logs}` : logs;
   }
 
   /**
@@ -1345,6 +1402,7 @@ export class HiveNodeClient {
     delegationRootTaskId?: string,
     effort?: Effort,
     prolonger = false,
+    reseau: NiveauReseau = NIVEAU_RESEAU_DEFAUT,
   ): Promise<void> {
     // Nœud arrêté : une assignation encore en vol ne démarre rien — elle
     // réserverait des ponts et lancerait un agent qu'aucun stop() n'abortera.
@@ -1397,6 +1455,16 @@ export class HiveNodeClient {
       this.log(`⏾ ${task.title} : ${offShift.reason} → refus`);
       return;
     }
+    // `HIVE_ISOLEMENT=exige` : le membre a exigé un réseau filtré, un projet
+    // `ouvert` ne tourne pas ici. Refus POLI (aucune tentative brûlée) et
+    // durable : un autre nœud peut le prendre, celui-ci ne changera pas d'avis
+    // avant qu'un humain change un des deux réglages.
+    const exige = refusExige(reseau, this.opts.reseau);
+    if (exige) {
+      this.send({ type: 'task_reject', taskId: task.id, reason: exige, retryAfterMs: 10 * 60_000 });
+      this.log(`🛡 ${task.title} : ${exige} → refus`);
+      return;
+    }
 
     const ctrl = new AbortController();
     this.active.set(task.id, ctrl);
@@ -1412,6 +1480,7 @@ export class HiveNodeClient {
 
     let workspace: Workspace | null = null;
     let conserverWorkspace = false;
+    let reseauOuvert: Exclude<ReseauTache, { etat: 'impossible' }> | null = null;
     try {
       try {
         await this.effacements.get(task.id);
@@ -1471,6 +1540,24 @@ export class HiveNodeClient {
           caviardeur,
         )({ log: noteConfigurationEcartee(workspace.configurationEcartee) });
       }
+      // Le réseau AVANT l'agent : un proxy qui ne s'ouvre pas refuse la tâche
+      // (un autre nœud peut réussir), jamais il ne la lance sans filtre.
+      const progres = this.progresVersHub(task.id, ctrl, caviardeur);
+      const reseauTache = await this.reseauTache(reseau, repoUrl, workspace, progres);
+      if (reseauTache.etat === 'impossible') {
+        this.send({
+          type: 'task_reject',
+          taskId: task.id,
+          reason: motifLave(reseauTache.motif).slice(0, LIMITS.name),
+          infra: true,
+          avantAgent: true,
+        });
+        this.log(`⇄ ${task.title} : ${reseauTache.motif} → réaffectation`);
+        return;
+      }
+      reseauOuvert = reseauTache;
+      if (reseauTache.note) progres({ log: reseauTache.note });
+      const reseauBac = reseauTache.etat === 'filtre' ? reseauTache.reseau : undefined;
       // Hive Mind : le contexte reçu du hub est préfixé au prompt pour l'agent.
       // On n'altère que la copie transmise à l'adaptateur (chemins/branche du
       // workspace restent construits sur la tâche d'origine).
@@ -1483,7 +1570,8 @@ export class HiveNodeClient {
       usageBefore = capturerExecutionUsage();
       const rawResult = await this.adapter.run(taskForAgent, {
         cwd: workspace.cwd,
-        env: workspace.env,
+        // Filtré : les identifiants de la passerelle y sont des leurres.
+        env: reseauTache.env,
         attempt: task.attempts + 1,
         signal: ctrl.signal,
         // Le modèle choisi par l'Aiguillage, s'il en a envoyé un : l'adaptateur
@@ -1491,7 +1579,7 @@ export class HiveNodeClient {
         ...(modele ? { modele } : {}),
         // L'effort, seulement si l'Aiguillage en a commandé un.
         ...(effort ? { effort } : {}),
-        ...this.optionBacTache(task.id),
+        ...this.optionBacTache(task.id, reseauBac),
         ...(relecture ? { role: 'relecture' as const } : {}),
         delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),
         waitForDelegationResult: (childTaskId) =>
@@ -1529,6 +1617,7 @@ export class HiveNodeClient {
             effort,
             delegationBudget,
             relecture,
+            reseau,
             workspace,
             started,
             ctrl,
@@ -1561,7 +1650,14 @@ export class HiveNodeClient {
       // nourrit la Balance et la chronologie, qui comparent des agents — pas
       // la vitesse des tests du projet.
       const durationMs = Date.now() - started;
-      const validations = await this.validerSiProduction(task.id, result, diff, workspace, ctrl);
+      const validations = await this.validerSiProduction(
+        task.id,
+        result,
+        diff,
+        workspace,
+        ctrl,
+        reseauBac,
+      );
       // Tronquer aux limites du protocole : un diff/log surdimensionné ferait
       // rejeter le message par le hub (fermeture de connexion) et la tâche
       // bouclerait indéfiniment sans jamais aboutir.
@@ -1571,7 +1667,9 @@ export class HiveNodeClient {
         success: result.success,
         // Caviardés AVANT d'être tronqués (voir `declarationsDuResultat`).
         diff: caviardeur.diff(diff).slice(0, LIMITS.diff),
-        logs: caviardeur.texte(result.logs).slice(0, LIMITS.log),
+        logs: caviardeur
+          .texte(HiveNodeClient.logsAvecReseau(result.logs, reseauTache))
+          .slice(0, LIMITS.log),
         durationMs,
         subAgents: HiveNodeClient.sousAgentsCaviardes(
           result.subAgents.slice(0, LIMITS.subAgents),
@@ -1603,6 +1701,9 @@ export class HiveNodeClient {
       this.log(`✘ ${task.title} : ${message}`);
     } finally {
       if (budgetTimer) clearTimeout(budgetTimer);
+      // Le proxy de la tâche se ferme avec elle, pause de réquisition
+      // comprise : la reprise en rouvre un neuf (`reprendreApresRequisition`).
+      await reseauOuvert?.fermer();
       if (!conserverWorkspace) {
         this.active.delete(task.id);
         this.clearDelegationsForParent(task.id);
@@ -1626,6 +1727,8 @@ export class HiveNodeClient {
     diff: string,
     workspace: Workspace,
     ctrl: AbortController,
+    /** Le réseau filtré de la tâche : ses validations tournent derrière le même proxy. */
+    reseau?: ReseauBac,
   ): Promise<ValidationsBac | undefined> {
     if (!result.success || result.diff !== '' || diff.trim() === '') return undefined;
     const validations = await validerProduction({
@@ -1636,7 +1739,8 @@ export class HiveNodeClient {
           : null,
       // Étiquetés comme la tâche : un nœud tué pendant ses validations laisse
       // des conteneurs que son redémarrage doit ramasser (`ramasserConteneurs`).
-      ...this.optionBacTache(taskId),
+      // Le code que l'agent a écrit y tourne : derrière le même réseau que lui.
+      ...this.optionBacTache(taskId, reseau),
       // Leurs extraits partent au hub comme les logs : caviardés au nœud (#489).
       caviarder: (texte) => this.caviardeurDuNoeud().texte(texte),
       signal: ctrl.signal,
@@ -1658,6 +1762,7 @@ export class HiveNodeClient {
       effort,
       delegationBudget,
       relecture,
+      reseau,
       workspace,
       started,
       ctrl,
@@ -1692,6 +1797,7 @@ export class HiveNodeClient {
     let budgetTimer: NodeJS.Timeout | null = null;
     let usage: ExecutionUsage | undefined;
     let usageBefore: ReturnType<typeof capturerExecutionUsage> | null = null;
+    let reseauOuvert: Exclude<ReseauTache, { etat: 'impossible' }> | null = null;
     try {
       try {
         process.loadEnvFile('.env');
@@ -1702,6 +1808,13 @@ export class HiveNodeClient {
       // Relu APRÈS le `.env` : la réquisition accordée vient peut-être d'y
       // poser la clé — c'est elle, désormais, qu'il faut taire.
       caviardeur = this.caviardeurDuNoeud();
+      // Un proxy NEUF, qui connaît la clé que la réquisition vient de poser.
+      const progres = this.progresVersHub(task.id, ctrl, caviardeur);
+      const reseauTache = await this.reseauTache(reseau, attente.repoUrl, workspace, progres);
+      if (reseauTache.etat === 'impossible') throw new Error(reseauTache.motif);
+      reseauOuvert = reseauTache;
+      if (reseauTache.note) progres({ log: reseauTache.note });
+      const reseauBac = reseauTache.etat === 'filtre' ? reseauTache.reseau : undefined;
       const taskForAgent = hiveContext
         ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }
         : task;
@@ -1711,12 +1824,12 @@ export class HiveNodeClient {
       usageBefore = capturerExecutionUsage();
       const rawResult = await this.adapter.run(taskForAgent, {
         cwd: workspace.cwd,
-        env: workspace.env,
+        env: reseauTache.env,
         attempt: task.attempts + 1,
         signal: ctrl.signal,
         ...(modele ? { modele } : {}),
         ...(effort ? { effort } : {}),
-        ...this.optionBacTache(task.id),
+        ...this.optionBacTache(task.id, reseauBac),
         ...(relecture ? { role: 'relecture' as const } : {}),
         delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),
         waitForDelegationResult: (childTaskId) =>
@@ -1768,14 +1881,23 @@ export class HiveNodeClient {
       }
       const diff = result.diff !== '' ? result.diff : await workspace.collectDiff();
       const durationMs = Date.now() - started;
-      const validations = await this.validerSiProduction(task.id, result, diff, workspace, ctrl);
+      const validations = await this.validerSiProduction(
+        task.id,
+        result,
+        diff,
+        workspace,
+        ctrl,
+        reseauBac,
+      );
       this.send({
         type: 'task_result',
         taskId: task.id,
         success: result.success,
         // Caviardés AVANT d'être tronqués (voir `declarationsDuResultat`).
         diff: caviardeur.diff(diff).slice(0, LIMITS.diff),
-        logs: caviardeur.texte(result.logs).slice(0, LIMITS.log),
+        logs: caviardeur
+          .texte(HiveNodeClient.logsAvecReseau(result.logs, reseauTache))
+          .slice(0, LIMITS.log),
         durationMs,
         subAgents: HiveNodeClient.sousAgentsCaviardes(
           result.subAgents.slice(0, LIMITS.subAgents),
@@ -1806,6 +1928,7 @@ export class HiveNodeClient {
       });
     } finally {
       if (budgetTimer) clearTimeout(budgetTimer);
+      await reseauOuvert?.fermer();
       if (!this.attenteRequisition) {
         this.active.delete(task.id);
         this.clearDelegationsForParent(task.id);

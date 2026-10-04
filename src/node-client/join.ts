@@ -18,7 +18,13 @@ import {
   refusNonConnecte,
 } from './agent-detect.js';
 import { resoudreAgentAuDemarrage } from './choisir-agent.js';
-import { isolementDeclareDe, optionBac, preparerBac, reprendreIdentite } from './bac.js';
+import {
+  isolementDeclareDe,
+  optionBac,
+  optionReseau,
+  preparerBac,
+  reprendreIdentite,
+} from './bac.js';
 import { parseModeles } from './modeles.js';
 import { CODE } from '../codes-sortie.js';
 import { libelleAgent } from '../shared/agent-libelle.js';
@@ -432,6 +438,7 @@ async function main(): Promise<void> {
     // dérive entre les deux chemins que celle du bac à sable ci-dessus.
     modeles: parseModeles(process.env.HIVE_MODELES),
     ...optionBac(bac, keepEnv),
+    ...optionReseau(bac),
     isolement: isolementDeclareDe(bac),
     ...(signalement ? { surInscription: ({ ruche }) => signalement.inscrit(ruche) } : {}),
   });

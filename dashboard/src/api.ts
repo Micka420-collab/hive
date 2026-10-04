@@ -1482,6 +1482,37 @@ export function reglerGardeFou(
   });
 }
 
+// ─── Le réseau des agents d'un projet (shared/reseau.ts) ─────────────────────
+
+/** Un niveau de réseau. Miroir de `NiveauReseau` (shared/reseau.ts). */
+export type NiveauReseauUi = 'integrations' | 'dependances' | 'ouvert';
+
+/** Ce que le GET `/reseau` rend. Miroir de la RÉPONSE du server. */
+export interface EtatReseauUi {
+  niveau: NiveauReseauUi;
+  /** Faux : personne ne l'a réglé, le niveau affiché est le défaut. */
+  regle: boolean;
+  definiPar: string | null;
+  updatedAt: number | null;
+  niveaux: NiveauReseauUi[];
+  defaut: NiveauReseauUi;
+}
+
+export function fetchReseauProjet(projectId: string): Promise<EtatReseauUi> {
+  return api<EtatReseauUi>(`/api/projects/${encodeURIComponent(projectId)}/reseau`);
+}
+
+/** Règle le réseau des agents — propriétaire ou administrateur ; prochaine assignation. */
+export function reglerReseauProjet(
+  projectId: string,
+  niveau: NiveauReseauUi,
+): Promise<{ niveau: NiveauReseauUi; regle: true }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/reseau`, {
+    method: 'PUT',
+    body: JSON.stringify({ niveau }),
+  });
+}
+
 // ─── Le banc d'ombre : comparer deux modèles sur la même petite tâche ───────
 
 /** Pourquoi une tâche tirée au sort n'a pas eu d'ombre. Miroir de `MotifRefusOmbre`. */

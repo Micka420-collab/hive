@@ -257,9 +257,16 @@ still stops everything.
 - **Never a merge without human review.**
 
 With **podman**, **docker** or **bubblewrap**, the agent only sees its own task
-directory. **The network stays open**: a coding agent must reach its model's
-API. Without a container engine, set `HIVE_ISOLEMENT=exige` — the node will
-refuse to work in the open. What CI proves, per OS and per sandbox (Linux,
+directory. **Outbound network is filtered** outside the sandbox by a node
+proxy: the agent's model API, then, depending on the project setting in
+Mission Control (`integrations`, `dependances` by default, `ouvert`), the
+registries the repository declares and its git host — never the local network
+or cloud metadata. Claude Code and Codex keys stay on the node: the sandbox
+only sees decoys, which the proxy swaps for the real key towards the API. Each
+refusal shows in the task log. Without a sandbox, or with an engine inside a
+virtual machine, the network is not filtered, and each task says so. Set
+`HIVE_ISOLEMENT=exige` — the node will refuse to work without a sandbox and a
+filtered network. What CI proves, per OS and per sandbox (Linux,
 macOS, Windows × no sandbox, bubblewrap, Podman, Docker):
 [docs/INSTALLATION.md](docs/INSTALLATION.md), “Systèmes et bacs à sable” (FR).
 

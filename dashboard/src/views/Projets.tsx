@@ -59,6 +59,7 @@ import { PleinEssaim } from '../PleinEssaim';
 import { OnboardingEssaim } from '../OnboardingEssaim';
 import { GardeFous } from '../GardeFous';
 import { BancOmbre } from '../BancOmbre';
+import { ReseauProjet } from '../ReseauProjet';
 import { RapportMission } from '../RapportMission';
 import { EchecSondage, Honeycomb, travailDesProjets, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
@@ -2248,6 +2249,9 @@ function ProjectCard({
           — une part des tâches rejouée par un second modèle, pour comparer.
           Sous le Garde-Fous, avec lui dans « ce que la ruche s'autorise ». */}
       <BancOmbre projectId={project.id} />
+      {/* Le réseau des agents : ce qui peut sortir du bac. Avec les réglages de
+          « ce que le projet s'autorise », juste sous le banc d'ombre. */}
+      <ReseauProjet projectId={project.id} />
 
       {/* L'équipe, sous l'autonomie : « qui a le droit de voir ça » se pose
           après « qu'est-ce que ça fait ». C'est aussi le seul endroit d'où un

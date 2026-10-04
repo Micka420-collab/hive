@@ -688,6 +688,11 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     'src/node-client/rendez-vous-pont.ts':
       'os.tmpdir()/hive-pont-* — le rendez-vous 0700 des ponts d’un nœud, effacé ' +
       'à son arrêt ; celui d’un nœud tué est balayé au démarrage suivant',
+    'src/node-client/proxy-egress.ts':
+      'os.tmpdir()/hive-pont-*/<session>/ — le relais r.cjs et le socket du proxy ' +
+      'réseau d’une tâche, dans le rendez-vous du nœud (inventorié, « ponts »)',
+    'src/node-client/reseau-tache.ts':
+      'efface le dossier de session réseau de la tâche (sous hive-pont-*) à sa fin',
     'src/node-client/workspace.ts': '<workdir>/<nom> et son .tmp voisin',
     'src/node-client/configuration-inerte.ts':
       '<workdir>/tasks/<id>.inerte — la configuration d’agent du dépôt écartée ' +
