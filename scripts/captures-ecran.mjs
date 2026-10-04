@@ -394,7 +394,7 @@ async function principal() {
         // le temps d'être demandé. Attendre la disparition du « Chargement de
         // la vue… » avant qu'il soit seulement apparu ne prouvait rien.
         await calme(calmeMs, plafondMs);
-        await page.locator('.mc-view-loading').waitFor({ state: 'detached', timeout: 15_000 });
+        await page.locator('.mc-avant-etat').waitFor({ state: 'detached', timeout: 15_000 });
         await page.evaluate(() => document.fonts.ready);
         // Ni survol ni anneau de focus : la case cliquée en dernier restait
         // éclairée sur la capture suivante, comme si c'était la vue ouverte.
@@ -541,7 +541,7 @@ async function principal() {
     try {
       const assistant = page.locator('[data-testid="premiere-arrivee"]');
       await naviguer('#/sante');
-      await page.locator('.mc-view-loading').waitFor({ state: 'detached', timeout: 15_000 });
+      await page.locator('.mc-avant-etat').waitFor({ state: 'detached', timeout: 15_000 });
       await page
         .getByRole('button', { name: /assistant de première arrivée|first-arrival assistant/ })
         .click();
