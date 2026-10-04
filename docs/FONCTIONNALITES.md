@@ -93,8 +93,10 @@ capot. Le Rayon ouvre le capot.
 projet (`data/rayons/<id>`), rafraîchi au plus une fois par minute. Passer par
 l'API GitHub aurait exigé le **jeton de l'hôte** — montrer le code à une abeille
 dépenserait pour elle un droit qui n'est pas le sien. **`.git` n'est jamais
-servi** : il contient `config`, donc l'URL distante, donc les identifiants du
-dépôt privé ; ni `.env`, `.npmrc`, `id_rsa` et les extensions de clés.
+servi** (configuration, objets bruts, références) — les identifiants d'un dépôt
+privé n'y sont d'ailleurs pas écrits : le miroir clone l'adresse nue, et l'accès
+ne vit que le temps de chaque appel à l'amont ; ni `.env`, `.npmrc`, `id_rsa`
+et les extensions de clés.
 Le miroir montre les **octets que le dépôt stocke** : aucun filtre ni
 conversion du `.gitattributes` (fins de ligne, `$Id$`, encodage) n'est
 appliqué, et **un fichier Git LFS apparaît comme son pointeur** (quelques

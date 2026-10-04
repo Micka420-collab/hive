@@ -85,9 +85,10 @@ an engine without being allowed to lift the hood. The Comb lifts the hood.
 **The hub keeps its own mirror**: a read-only shallow clone per project
 (`data/rayons/<id>`), refreshed at most once a minute. Going through the GitHub
 API would have required the **host's token** — showing the code to a bee would
-spend a right that is not hers. **`.git` is never served**: it holds `config`,
-hence the remote URL, hence the private repository's credentials; neither are
-`.env`, `.npmrc`, `id_rsa` or key extensions.
+spend a right that is not hers. **`.git` is never served** (configuration, raw
+objects, refs) — a private repository's credentials are not even written there:
+the mirror clones the bare address, and access only lives for each call to the
+upstream; neither are `.env`, `.npmrc`, `id_rsa` or key extensions.
 The mirror shows **the bytes the repository stores**: no filter or
 `.gitattributes` conversion (line endings, `$Id$`, encoding) is applied, and
 **a Git LFS file appears as its pointer** (a few `version … oid sha256:… size …`

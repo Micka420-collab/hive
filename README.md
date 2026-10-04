@@ -438,7 +438,12 @@ de l'agent, puis, selon le réglage du projet dans Mission Control
 (`intégrations`, `dépendances` par défaut, `ouvert`), les registres que le
 dépôt déclare et son hôte git — jamais le réseau local ni les métadonnées de
 nuage. Les clés de Claude Code et de Codex restent au nœud : le bac n'en voit
-que des leurres, que le proxy remplace vers l'API. Chaque refus apparaît au
+que des leurres, que le proxy remplace vers l'API. Le clone de la tâche ne
+porte pas non plus d'identifiants de dépôt : l'URL d'un dépôt privé
+(`https://user:jeton@…`) n'atteint git que par l'environnement des commandes
+du nœud — clone, livraison —, jamais `.git/config`, jamais l'assistant
+d'identifiants du membre ; un `git push` lancé depuis la tâche n'a rien pour
+s'authentifier. Chaque refus apparaît au
 journal de la tâche. Sans bac, ou avec un moteur dans une machine virtuelle,
 le réseau n'est pas filtré, et chaque tâche le dit. Posez
 `HIVE_ISOLEMENT=exige` — le nœud refusera de travailler sans bac ni réseau

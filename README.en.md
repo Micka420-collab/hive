@@ -262,8 +262,12 @@ proxy: the agent's model API, then, depending on the project setting in
 Mission Control (`integrations`, `dependances` by default, `ouvert`), the
 registries the repository declares and its git host — never the local network
 or cloud metadata. Claude Code and Codex keys stay on the node: the sandbox
-only sees decoys, which the proxy swaps for the real key towards the API. Each
-refusal shows in the task log. Without a sandbox, or with an engine inside a
+only sees decoys, which the proxy swaps for the real key towards the API. The
+task's clone carries no repository credentials either: a private repository's
+URL (`https://user:token@…`) reaches git only through the environment of the
+node's own commands — clone, delivery —, never `.git/config`, never the
+member's credential helper; a `git push` launched from the task has nothing to
+authenticate with. Each refusal shows in the task log. Without a sandbox, or with an engine inside a
 virtual machine, the network is not filtered, and each task says so. Set
 `HIVE_ISOLEMENT=exige` — the node will refuse to work without a sandbox and a
 filtered network. What CI proves, per OS and per sandbox (Linux,
