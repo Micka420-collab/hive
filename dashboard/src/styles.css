@@ -603,6 +603,20 @@ h3 {
   gap: 8px 12px;
 }
 
+/* Hors ligne : ambre, pas rouge — rien n'est perdu, l'écran est seulement
+   figé et se reconnecte seul. Le rouge reste aux refus qui demandent un geste
+   (jeton, session). */
+.mc-hors-ligne {
+  background: color-mix(in srgb, var(--amber) 12%, var(--panel));
+  border-bottom-color: color-mix(in srgb, var(--amber) 38%, var(--border));
+}
+
+/* La place de la vue avant le premier instantané (Liaison.tsx). */
+.mc-avant-etat {
+  max-width: 48rem;
+  padding: 24px 20px;
+}
+
 .conn {
   display: inline-flex;
   align-items: center;
@@ -1136,7 +1150,7 @@ h3 {
   outline-offset: 1px;
 }
 
-/* Inviter : halo miel (même geste que `.field input:focus` du compte). */
+/* Inviter : halo miel (même geste que `.code-input:focus`). */
 .invite-btn:focus-visible,
 .invite-os-btn:focus-visible,
 .copy-btn:focus-visible {
@@ -1638,13 +1652,11 @@ h3 {
   border-bottom: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
 }
 
-.np-modal .field {
-  margin-bottom: 16px;
-}
-
-.np-modal .field > span:first-child {
-  color: var(--muted);
-  font-style: normal;
+/* « Générer les tâches » suit le champ du brief qu'il consomme : il remonte
+   sous lui, par-dessus la marge du champ. */
+.np-modal .template-row.np-generer {
+  margin-top: -8px;
+  margin-bottom: 14px;
 }
 
 .np-modal .code-input {
@@ -1778,6 +1790,10 @@ h3 {
   margin: 0 0 12px;
 }
 
+/* `.field` (libellé enrobant à la main) : les formulaires passent par le
+   `Champ` du design system (composants/champs.tsx). Il ne reste qu'un emploi,
+   arrivé de main avec le compagnon : le formulaire « Apporter le vôtre »
+   (Compagnon.tsx). Ces règles partent quand il passera à `Input`. */
 .field {
   display: block;
   margin-bottom: 14px;
@@ -2088,21 +2104,24 @@ h3 {
 
 .invite-url-row {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
   margin-top: 8px;
-  align-items: center;
+}
+
+/* Le champ (libellé, contrôle, faute) prend la largeur ; le bouton suit. */
+.invite-url-row .ds-champ {
+  align-self: stretch;
+  margin-bottom: 6px;
 }
 
 .invite-url-row .code-input {
-  flex: 1;
-  width: auto;
-  margin: 0;
-  padding: 8px 10px;
+  font-family: var(--mono);
   font-size: var(--fs-xs);
 }
 
 .invite-url-row .btn {
-  flex: none;
   white-space: nowrap;
 }
 
@@ -2927,32 +2946,6 @@ h3 {
   }
   .btn:active {
     transform: none;
-  }
-}
-
-.mc-view-loading {
-  padding: 72px 24px;
-  text-align: center;
-  color: var(--muted);
-  font-size: var(--fs-md);
-  letter-spacing: -0.01em;
-  animation: mc-view-in 0.35s ease both;
-}
-
-.mc-view-loading::before {
-  content: '';
-  display: block;
-  width: 28px;
-  height: 32px;
-  margin: 0 auto 14px;
-  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
-  background: color-mix(in srgb, var(--miel) 70%, var(--panel-3));
-  animation: mc-throb 1.1s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .mc-view-loading::before {
-    animation: none;
   }
 }
 

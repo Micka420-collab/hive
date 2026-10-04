@@ -61,6 +61,8 @@ export function EmptyState({
  * `enCours` éteint « Réessayer » pendant la relance — en `aria-disabled`, pas
  * `disabled` : le bouton GARDE le focus, et le clavier ne tombe pas au début
  * de la page au moment où l'on relance (même choix que `EchecSondage`).
+ * Sans `onReessayer`, pas de bouton : un « Réessayer » qui échouera à coup
+ * sûr (appareil sans réseau, jeton refusé renvoyé tel quel) ment sur le remède.
  */
 export function ErrorState({
   titre,
@@ -70,7 +72,7 @@ export function ErrorState({
 }: {
   titre: ReactNode;
   detail?: ReactNode;
-  onReessayer: () => void;
+  onReessayer?: () => void;
   enCours?: boolean;
 }) {
   const t = useT();
@@ -81,16 +83,18 @@ export function ErrorState({
         {titre}
       </p>
       {detail && <p className="ds-erreur-detail">{detail}</p>}
-      <button
-        type="button"
-        className="btn"
-        aria-disabled={enCours || undefined}
-        onClick={() => {
-          if (!enCours) onReessayer();
-        }}
-      >
-        {enCours ? t('Nouvel essai…', 'Retrying…') : t('Réessayer', 'Retry')}
-      </button>
+      {onReessayer && (
+        <button
+          type="button"
+          className="btn"
+          aria-disabled={enCours || undefined}
+          onClick={() => {
+            if (!enCours) onReessayer();
+          }}
+        >
+          {enCours ? t('Nouvel essai…', 'Retrying…') : t('Réessayer', 'Retry')}
+        </button>
+      )}
     </div>
   );
 }

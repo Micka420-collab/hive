@@ -40,7 +40,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { IssuesProjet, LivraisonsProjet } from '../src/views/Projets';
+import { IssuesProjet, LivraisonsProjet } from '../src/views/projets/Depot';
 import { setLang } from '../src/i18n';
 import type { IssueVue, LivraisonVue } from '../src/api';
 import type { Project } from '../../src/shared/types';

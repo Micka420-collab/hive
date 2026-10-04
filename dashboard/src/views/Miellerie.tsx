@@ -26,6 +26,9 @@ import {
 import { t as tNow, useT } from '../i18n';
 import type { Translate } from '../i18n';
 import { activateProps, formatMs, modalOpen, StatusBadge } from '../ui';
+import { EmptyState, Skeleton } from '../composants';
+import { FiltreTravaux, useOptionsTaches } from './FiltreTravaux';
+import { FILTRE_VIDE, filtreActif, tacheCorrespond } from './filtre-travaux';
 import {
   EchecSondage,
   getReview,
@@ -41,6 +44,9 @@ import { direComptesCriteres, enteteConstat } from './critique-rendu';
 import './miellerie.css';
 
 // ─── Aides pures ─────────────────────────────────────────────────────────────
+
+/** La file de revue ne porte que ces deux statuts : le filtre n'offre qu'eux. */
+const STATUTS_REVUE = ['done', 'failed'] as const;
 
 /** Le focus est-il dans un champ de saisie ? (neutralise les raccourcis) */
 function inInput(): boolean {
@@ -711,7 +717,7 @@ function CritiqueTransmise({
       </p>
     );
   }
-  if (!critique) return <p className="muted-text">{t('Lecture…', 'Loading…')}</p>;
+  if (!critique) return <Skeleton lignes={2} />;
   const { raisonRevue, reprise } = critique;
   if (!raisonRevue && !reprise) {
     return (
@@ -810,6 +816,23 @@ export default function Miellerie({
     groups.push({ id: '?', name: t('Projet inconnu', 'Unknown project'), tasks: orphans });
   const flat = groups.flatMap((g) => g.tasks);
   const reviewedCount = flat.filter((t) => getReview(t.id) !== null).length;
+
+  // ─── LE FILTRE NE TOUCHE QU'À LA FILE ──────────────────────────────────────
+  //
+  // Il resserre ce que la file MONTRE et ce que j/k et l'auto-avance
+  // parcourent (`defile`). La tâche inspectée, elle, se résout toujours sur la
+  // file entière (`flat`) : filtrer ne doit jamais changer sous les doigts la
+  // production qu'on est en train de juger, ni faire croire à l'écran vide
+  // « aucune production à revoir » quand il y en a.
+  const [filtre, setFiltre] = useState(FILTRE_VIDE);
+  const optionsFiltre = useOptionsTaches(snapshot.nodes, STATUTS_REVUE);
+  const noeuds = new Map(snapshot.nodes.map((n) => [n.id, n]));
+  const groupesVisibles = filtreActif(filtre)
+    ? groups
+        .map((g) => ({ ...g, tasks: g.tasks.filter((x) => tacheCorrespond(x, filtre, noeuds)) }))
+        .filter((g) => g.tasks.length > 0)
+    : groups;
+  const defile = groupesVisibles.flatMap((g) => g.tasks);
 
   // Sélection : selectedId du hash si présent dans la liste, sinon la dernière
   // tâche affichée (épinglée : le re-tri à l'arrivée d'une production ne doit
@@ -964,8 +987,8 @@ export default function Miellerie({
     // encore abouti. C'est l'écho WS `task_reviewed` qui rafraîchit le volet.
     if (state === null) return;
     // Auto-avance : prochaine tâche non revue, en bouclant sur la liste.
-    const idx = flat.findIndex((t) => t.id === activeTask.id);
-    const rest = [...flat.slice(idx + 1), ...flat.slice(0, idx)];
+    const idx = defile.findIndex((t) => t.id === activeTask.id);
+    const rest = [...defile.slice(idx + 1), ...defile.slice(0, idx)];
     const next = rest.find((t) => getReview(t.id) === null);
     if (next) select(next.id);
   };
@@ -979,9 +1002,15 @@ export default function Miellerie({
     switch (e.key) {
       case 'j':
       case 'k': {
-        if (flat.length === 0) return;
-        const idx = activeId ? flat.findIndex((t) => t.id === activeId) : 0;
-        const next = flat[(idx + (e.key === 'j' ? 1 : -1) + flat.length) % flat.length];
+        if (defile.length === 0) return;
+        const idx = activeId ? defile.findIndex((t) => t.id === activeId) : -1;
+        // -1 : la production inspectée n'est pas dans la file (le filtre la
+        // cache, ou rien n'est choisi). `j` entre par le haut, `k` par le
+        // BAS — l'arithmétique modulo menait `k` à l'avant-dernière.
+        const next =
+          idx === -1
+            ? defile[e.key === 'j' ? 0 : defile.length - 1]
+            : defile[(idx + (e.key === 'j' ? 1 : -1) + defile.length) % defile.length];
         if (next) select(next.id);
         break;
       }
@@ -1156,21 +1185,16 @@ export default function Miellerie({
   if (!activeTask) {
     return (
       <div className="mc-view mi-view">
-        <div className="mi-empty">
-          <span className="mi-empty-icon marque" aria-hidden="true" />
-          <p className="mi-empty-lead">
-            {t(
-              'Le nectar arrive — aucune production à revoir.',
-              'The nectar is coming — no production to review.',
-            )}
-          </p>
-          <p className="muted-text">
-            {t(
-              'Les tâches terminées ou échouées apparaîtront ici pour la revue humaine.',
-              'Finished or failed tasks will appear here for human review.',
-            )}
-          </p>
-        </div>
+        <EmptyState
+          titre={t(
+            'Le nectar arrive — aucune production à revoir.',
+            'The nectar is coming — no production to review.',
+          )}
+          texte={t(
+            'Les tâches terminées ou échouées apparaîtront ici pour la revue humaine.',
+            'Finished or failed tasks will appear here for human review.',
+          )}
+        />
       </div>
     );
   }
@@ -1195,6 +1219,17 @@ export default function Miellerie({
 
   return (
     <div className="mc-view mi-view">
+      <FiltreTravaux
+        filtre={filtre}
+        onChange={setFiltre}
+        {...optionsFiltre}
+        compte={defile.length}
+        total={flat.length}
+        aideRecherche={t(
+          'Titre, consigne et branche des productions à revoir.',
+          'Title, prompt and branch of the productions to review.',
+        )}
+      />
       <div className={`mi-grid${showInfo ? '' : ' no-info'}`}>
         {/* ── Volet 1 : file de revue ── */}
         <aside className="card panel mi-queue-pane" aria-label={t('File de revue', 'Review queue')}>
@@ -1207,10 +1242,24 @@ export default function Miellerie({
             </span>
           </header>
           <div className="mi-comb-wrap">
-            <Honeycomb tasks={flat} showReview mini onSelect={(t) => select(t.id)} />
+            <Honeycomb tasks={defile} showReview mini onSelect={(t) => select(t.id)} />
           </div>
+          {defile.length === 0 && (
+            <EmptyState
+              titre={t('Rien ne passe ce filtre', 'Nothing passes this filter')}
+              texte={t(
+                `${flat.length} production(s) attendent, hors de ce filtre.`,
+                `${flat.length} production(s) are waiting, outside this filter.`,
+              )}
+              action={
+                <button type="button" className="btn" onClick={() => setFiltre(FILTRE_VIDE)}>
+                  {t('Effacer les filtres', 'Clear filters')}
+                </button>
+              }
+            />
+          )}
           <ul className="queue mi-queue" ref={queueRef}>
-            {groups.map((g) => [
+            {groupesVisibles.map((g) => [
               <li key={`g-${g.id}`} className="mi-group">
                 <span className="marque" aria-hidden="true" /> {g.name}{' '}
                 <span className="chip-count">{g.tasks.length}</span>
