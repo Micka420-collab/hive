@@ -143,10 +143,3 @@ export function presencesDe(events: readonly HiveEvent[], taskId: string): Prese
   }
   return [];
 }
-
-/** Les `n` dernières lignes d'un texte de console. */
-export function dernieresLignes(texte: string, n: number): string[] {
-  const lignes = texte.split('\n');
-  if (lignes[lignes.length - 1] === '') lignes.pop();
-  return lignes.slice(-n);
-}

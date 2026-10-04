@@ -33,7 +33,7 @@ import type { HiveNode, SubAgent, Task } from '../../../src/shared/types';
 import { cancelTask, fetchDiffDirect, pauseTask } from '../api';
 import type { DiffDirect } from '../api';
 import { EmptyState, useToast } from '../composants';
-import { texteDeConsole, ConsoleDeTache } from '../ConsoleDirecte';
+import { ConsoleDeTache, lignesDeConsole } from '../ConsoleDirecte';
 import type { MagasinDirects } from '../directs';
 import { useLang, useT } from '../i18n';
 import type { Translate } from '../i18n';
@@ -42,7 +42,6 @@ import type { MagasinSorties } from '../sorties-directes';
 import {
   arbreSousAgents,
   controlesAffiches,
-  dernieresLignes,
   ETAPES,
   etatsDesEtapes,
   executionsVivantes,
@@ -264,7 +263,13 @@ function Explication({
     [magasinSorties, task.id],
   );
   const sortie = useSyncExternalStore(abonner, () => magasinSorties.lire(task.id));
-  const lignes = sortie ? dernieresLignes(texteDeConsole(sortie), 8) : [];
+  // Les lignes de la console (#523 : bandeau de nœud compris, chacune avec
+  // son niveau) — leur texte seul suffit ici.
+  const lignes = sortie
+    ? lignesDeConsole(sortie)
+        .slice(-8)
+        .map((l) => l.texte)
+    : [];
   return (
     <section className="bd-bloc" data-testid="bd-explication">
       <h3>{t('Pourquoi, et où en est-elle', 'Why, and where it stands')}</h3>
