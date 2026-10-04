@@ -254,7 +254,10 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['tests/contre-expertise.test.ts', 'permissions'],
     ['tests/avis-structure.test.ts', 'permissions'],
     ['tests/relecture-anonyme.test.ts', 'permissions'],
+    ['tests/cerveau-wiring.test.ts', 'permissions'],
     ['tests/fixtures/avis-structure/claude-relecture.stream.jsonl', 'permissions'],
+    ['tests/fixtures/avis-structure/claude-deux-avis.stream.jsonl', 'permissions'],
+    ['tests/fixtures/texte-final/claude-relecture.stream.jsonl', 'permissions'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');

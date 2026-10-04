@@ -250,7 +250,7 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   {
     categorie: 'permissions',
     motif:
-      /^src\/shared\/critique-structuree\.ts$|^tests\/(contre-expertise|critique-structuree|avis-structure|relecture-anonyme)\.test\.ts$|^tests\/fixtures\/avis-structure\//,
+      /^src\/shared\/critique-structuree\.ts$|^tests\/(contre-expertise|critique-structuree|avis-structure|relecture-anonyme|cerveau-wiring)\.test\.ts$|^tests\/fixtures\/(avis-structure\/|texte-final\/claude-relecture\.stream\.jsonl$)/,
     pourquoi:
       'l’avis d’un relecteur : la grille et le schéma que la ruche impose aux CLI relecteurs (ce qu’un verdict doit porter pour compter, ce qui fait contester, ce que devient un avis hors grille), l’anonymat de la relecture, leurs bancs et les sorties de CLI enregistrées qu’ils rejouent — les assouplir ferait accepter une production qu’un relecteur contestait, ou rendrait au relecteur le nom de la famille qu’il juge',
   },
