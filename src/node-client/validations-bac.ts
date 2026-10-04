@@ -42,30 +42,45 @@
 //
 // Un test déjà rouge à la base bloquait `accepted` : le verdict se lisait sur
 // le code de sortie du script. Quand les tests échouent ET que leur sortie se
-// lit test par test (`shared/lecture-tests.ts`), chaque échec est désormais
-// comparé à la BASE, rejouée À PART (`comparerALaBaseRejouee`) : un dépôt neuf
-// à côté de la tâche (`extraireBase` — par `fetch`, jamais en lisant les
-// objets que l'agent a pu forger), une installation FRAÎCHE depuis le lockfile
-// de la base, son build s'il est déclaré, puis le même script de test, dans le
-// même bac. Rien de ce que la production a touché n'y entre — pas même son
-// `node_modules`, partagé quand le lockfile n'a pas bougé comme le suggérait
-// la carte : les tests de la production l'avaient monté en écriture, et une
-// base qui en hériterait jugerait avec des dépendances que la production a pu
-// réécrire. Le prix : une installation de plus.
+// lit test par test, complète et cohérente (`shared/lecture-tests.ts` : cette
+// sortie est en partie écrite par le code de l'agent, et le lecteur refuse au
+// moindre doute), chaque échec est comparé à la BASE, rejouée À PART
+// (`comparerALaBaseRejouee`) : un dépôt neuf à côté de la tâche
+// (`extraireBase` — par `fetch`, jamais en lisant les objets que l'agent a pu
+// forger), une installation FRAÎCHE depuis le lockfile de la base, son build
+// s'il est déclaré, puis le même script de test, dans le même bac. Rien de ce
+// que la production a touché n'y entre — pas même son `node_modules`, partagé
+// quand le lockfile n'a pas bougé comme le suggérait la carte : les tests de
+// la production l'avaient monté en écriture, et une base qui en hériterait
+// jugerait avec des dépendances que la production a pu réécrire.
 //
-// Ce que ça coûte est ANNONCÉ dans la ligne de progression, avant de lancer :
-// l'exécution est doublée — jusqu'à `DELAI_PREPARATION_MS` d'installation puis
-// le délai d'une commande pour le build et pour les tests — et, pour écarter
-// l'instabilité, une seconde exécution de chaque côté (`OBSERVATIONS`) quand
-// une régression reste possible. Rien de tout ça quand les tests passent : seule
-// une tête en échec se compare. Une base qui ne se rejoue pas (installation,
-// build, sortie illisible) rend le verdict du script, tel qu'avant.
+// Une SECONDE exécution de la production, quand une régression reste possible,
+// ne repart pas du répertoire de la tâche : la première y a tourné, et ce
+// qu'elle y a laissé (un marqueur, un cache, un fichier réécrit) ferait passer
+// la seconde — une instabilité fabriquée. Elle rejoue l'arbre LIVRÉ, figé
+// avant toute validation (`figerArbreLivre`), extrait à part comme la base
+// (`extraireLivre`), installé et construit de neuf. Dans le bac, rien d'autre
+// ne survit d'une exécution à l'autre : chaque commande a son conteneur, et
+// son `/tmp` en mémoire.
+//
+// Une exécution qui porte une panne du bac (`signatureEnvironnement` :
+// mémoire, disque, DNS…) ne compte pas : à la base, ses rouges excuseraient ;
+// à la tête, elle fausserait la comparaison. Le verdict du script reste.
+//
+// Ce que ça coûte est ANNONCÉ dans la ligne de progression, avant de lancer,
+// au pire cas réel (`surcoutMaxMs`) : chaque rejeu à part — extraction
+// (`DELAI_EXTRACTION_MS`), installation (`DELAI_PREPARATION_MS`), build et
+// tests (le délai d'une commande chacun) —, la base d'abord, puis, si une
+// régression reste possible, la production depuis son arbre livré, puis une
+// seconde exécution de la base (`OBSERVATIONS`). Rien de tout ça quand les
+// tests passent : seule une tête en échec se compare. Ce qui ne se rejoue pas,
+// ne se lit pas ou ne se compare pas rend le verdict du script, tel qu'avant.
 //
 // ─── LA MÉMOIRE DES BASES ─────────────────────────────────────────────────────
 //
-// Les échecs d'une base ne dépendent que de son commit — l'arbre, le lockfile,
-// les scripts — et du bac du nœud. `MemoireDesBases` les garde donc, par
-// `baseSha`. Où, et pourquoi là :
+// Ce qu'une base dit de ses tests ne dépend que de son commit — l'arbre, le
+// lockfile, les scripts — et du bac du nœud. `MemoireDesBases` le garde donc,
+// par `baseSha`. Où, et pourquoi là :
 //
 //   · PAR NŒUD : un test rouge à cause du bac d'un nœud (une mémoire, un outil
 //     absent) excuserait, rangé à la Reine, l'échec d'un autre nœud ;
@@ -76,9 +91,11 @@
 //     bases déjà dépassées au redémarrage ;
 //   · BORNÉE : `BASES_EN_MEMOIRE` commits au plus, `OBSERVATIONS` exécutions
 //     par commit, et une exécution de plus de `ECHECS_EN_MEMOIRE_MAX` échecs
-//     n'est pas gardée ;
-//   · REMPLIE seulement par des bases rejouées à part : aucune tâche ne peut
-//     y glisser de quoi excuser la régression d'une autre.
+//     ou de `NOMS_EN_MEMOIRE_MAX` noms n'est pas gardée ;
+//   · REMPLIE seulement par des bases rejouées à part, sans panne, et dont les
+//     exécutions s'accordent : une base qui a vacillé ne s'en porte garante
+//     pour personne, et aucune tâche ne peut y glisser de quoi excuser la
+//     régression d'une autre.
 //
 // ─── CE QUE ÇA NE PROUVE PAS, ET IL FAUT LE DIRE ─────────────────────────────
 //
@@ -96,7 +113,12 @@ import path from 'node:path';
 import { argvDe } from '../shared/chantier.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { OBSERVATIONS, comparerALaBase, lireSortieDeTest } from '../shared/lecture-tests.js';
-import type { FormatDeTest, ObservationDeTests } from '../shared/lecture-tests.js';
+import type {
+  FormatDeTest,
+  IssueDeComparaison,
+  LectureDeTests,
+  ObservationDeTests,
+} from '../shared/lecture-tests.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import {
   ORDRE_DE_LANCEMENT,
@@ -108,6 +130,7 @@ import {
   planDeValidation,
   preparationDepuisLockfile,
   scriptsDe,
+  signatureEnvironnement,
 } from '../shared/validations-bac.js';
 import type {
   Arret,
@@ -117,7 +140,8 @@ import type {
   ValidationKey,
   ValidationsBac,
 } from '../shared/validations-bac.js';
-import { extraireBase } from './git-hote.js';
+import { DELAI_EXTRACTION_MS, extraireBase, extraireLivre, figerArbreLivre } from './git-hote.js';
+import { MONTAGE } from './isolement.js';
 import type { BacExecution } from './isolement.js';
 import { runProc } from './merge-runner.js';
 import { gitHote } from '../shared/git-protege.js';
@@ -125,7 +149,8 @@ import type { DepotEpingle } from '../shared/git-protege.js';
 import {
   buildSandboxEnv,
   dossierDeBase,
-  effacerDossierDeBase,
+  dossierDeTete,
+  effacerRejeu,
   retirerFichiersIgnores,
 } from './workspace.js';
 
@@ -137,30 +162,57 @@ export const DELAI_PREPARATION_MS = 10 * 60_000;
 const DELAI_SONDE_MS = 60_000;
 /** Combien de bases un nœud garde en mémoire (voir l'en-tête). */
 export const BASES_EN_MEMOIRE = 8;
-/** Au-delà, les échecs d'une exécution de base servent une fois, sans être gardés. */
+/** Au-delà, une exécution de base sert une fois, sans être gardée. */
 const ECHECS_EN_MEMOIRE_MAX = 1_000;
+const NOMS_EN_MEMOIRE_MAX = 10_000;
 
-/** Les tests rouges de chaque exécution d'une base, gardés par `baseSha`. */
+/**
+ * Le pire cas d'un rejeu à part (voir l'en-tête) : l'extraction, l'installation,
+ * le build et les tests, chacun à son délai.
+ */
+export function rejeuMaxMs(delaiMs = DELAI_VALIDATION_MS): number {
+  return DELAI_EXTRACTION_MS + DELAI_PREPARATION_MS + 2 * delaiMs;
+}
+
+/**
+ * Le pire cas de la comparaison à la base, au-delà de la première exécution des
+ * tests : la base rejouée, la production rejouée depuis son arbre livré, et une
+ * seconde exécution de la base — 55 min aux délais par défaut. C'est ce que la
+ * ligne de progression annonce, et ce dont un parent qui attend un enfant
+ * délégué doit tenir compte (`client.ts`).
+ */
+export function surcoutMaxMs(delaiMs = DELAI_VALIDATION_MS): number {
+  return 2 * rejeuMaxMs(delaiMs) + delaiMs;
+}
+
+/** Ce que chaque exécution d'une base a dit de ses tests, gardé par `baseSha`. */
 export interface MemoireDesBases {
-  lire(baseSha: string): readonly ReadonlySet<string>[];
-  ranger(baseSha: string, executions: readonly ReadonlySet<string>[]): void;
+  /** Les exécutions gardées, si elles ont été lues dans le même format. */
+  lire(baseSha: string, format: FormatDeTest): readonly ObservationDeTests[];
+  ranger(baseSha: string, format: FormatDeTest, executions: readonly ObservationDeTests[]): void;
 }
 
 /** La mémoire des bases d'UN nœud, la moins récemment servie oubliée d'abord. */
 export function memoireDesBases(capacite = BASES_EN_MEMOIRE): MemoireDesBases {
-  const bases = new Map<string, readonly ReadonlySet<string>[]>();
+  const bases = new Map<
+    string,
+    { format: FormatDeTest; executions: readonly ObservationDeTests[] }
+  >();
   return {
-    lire(baseSha) {
-      const executions = bases.get(baseSha);
-      if (!executions) return [];
+    lire(baseSha, format) {
+      const gardee = bases.get(baseSha);
+      if (!gardee || gardee.format !== format) return [];
       bases.delete(baseSha);
-      bases.set(baseSha, executions);
-      return executions;
+      bases.set(baseSha, gardee);
+      return gardee.executions;
     },
-    ranger(baseSha, executions) {
-      if (executions.some((echecs) => echecs.size > ECHECS_EN_MEMOIRE_MAX)) return;
+    ranger(baseSha, format, executions) {
+      const tropGrande = (o: ObservationDeTests) =>
+        o.echecs.size > ECHECS_EN_MEMOIRE_MAX ||
+        o.echecs.size + o.succes.size > NOMS_EN_MEMOIRE_MAX;
+      if (executions.length === 0 || executions.some(tropGrande)) return;
       bases.delete(baseSha);
-      bases.set(baseSha, executions.slice(0, OBSERVATIONS));
+      bases.set(baseSha, { format, executions: executions.slice(0, OBSERVATIONS) });
       for (const plusAncienne of bases.keys()) {
         if (bases.size <= capacite) break;
         bases.delete(plusAncienne);
@@ -237,19 +289,23 @@ function manifeste(texte: string | null): unknown {
 }
 
 /**
- * La production a-t-elle touché `.npmrc` ? C'est GIT qui le dit, pas une
+ * L'arbre livré, figé avant que rien ne tourne (`figerArbreLivre`) — et la
+ * production a-t-elle touché `.npmrc` ? C'est GIT qui le dit, pas une
  * comparaison d'octets : sous Windows, `core.autocrlf` extrait le fichier en
  * CRLF quand le blob est en LF, et une comparaison brute accusait la
  * production de l'avoir réécrit à chaque tâche. Un `.npmrc` ignoré n'est pas
  * vu ici — il est retiré avant le lancement.
  */
-async function npmrcModifie(depot: DepotEpingle, baseSha: string): Promise<boolean> {
-  await gitHote(['add', '--all', '--intent-to-add'], depot);
+async function arbreLivre(
+  depot: DepotEpingle,
+  baseSha: string,
+): Promise<{ arbre: string; npmrcModifie: boolean }> {
+  const arbre = await figerArbreLivre(depot);
   const modifies = await gitHote(
     ['diff', '--no-ext-diff', '--no-textconv', '--name-only', baseSha, '--', '.npmrc'],
     depot,
   );
-  return modifies.trim() !== '';
+  return { arbre, npmrcModifie: modifies.trim() !== '' };
 }
 
 /**
@@ -270,10 +326,9 @@ export async function validerProduction(opts: OptionsValidation): Promise<Valida
     // `.npmrc` règle la façon dont npm lance un script (`script-shell`…) et
     // d'où il installe (`registry`). Réécrit par la production, il jugerait
     // à la place des scripts : même règle que pour eux.
-    if (depot && (await npmrcModifie(depot.depot, depot.baseSha))) {
-      return rapport(manquantes(plan, 'npmrc_reecrit'));
-    }
-    return rapport(await lancerLePlan(plan, opts, manifeste(produit)));
+    const livre = depot ? await arbreLivre(depot.depot, depot.baseSha) : null;
+    if (livre?.npmrcModifie) return rapport(manquantes(plan, 'npmrc_reecrit'));
+    return rapport(await lancerLePlan(plan, opts, manifeste(produit), livre?.arbre ?? null));
   } catch (err) {
     // Un défaut du nœud, pas du projet : dit tel quel dans l'extrait, pour
     // qu'on le trouve — et surtout pas pris pour un verdict.
@@ -314,6 +369,8 @@ async function lancerLePlan(
   plan: Record<ValidationKey, Etape>,
   opts: OptionsValidation,
   manifesteProduit: unknown,
+  /** L'arbre livré, figé (`arbreLivre`) ; `null` sans dépôt. */
+  livre: string | null,
 ): Promise<Record<ValidationKey, ControleBac>> {
   const { cwd, depot } = opts;
   // Tout ce qui doit être lancé part `annule` : une annulation en cours de route
@@ -321,9 +378,9 @@ async function lancerLePlan(
   // à lancer, ce sont les constats du plan, rendus tels quels.
   const controles = manquantes(plan, 'annule');
   const aLancer = ORDRE_DE_LANCEMENT.filter((cle) => plan[cle].genre === 'lancer');
-  // `depot` est toujours là quand quelque chose est à lancer (sans lui, tout
-  // est `sans_manifeste`) ; le tester ici le dit au typage.
-  if (aLancer.length === 0 || !depot || opts.signal?.aborted) return controles;
+  // `depot` (et l'arbre livré) sont toujours là quand quelque chose est à
+  // lancer — sans lui, tout est `sans_manifeste` ; le tester ici le dit au typage.
+  if (aLancer.length === 0 || !depot || livre === null || opts.signal?.aborted) return controles;
   // HORS BAC, RIEN NE TOURNE — voir `shared/validations-bac.ts`. Pas même la
   // préparation : `npm ci` exécute les scripts de cycle de vie du projet.
   if (!opts.bac) return manquantes(plan, 'sans_bac');
@@ -408,6 +465,7 @@ async function lancerLePlan(
       const compare = await comparerALaBaseRejouee({
         opts,
         depot,
+        livre,
         plan,
         argv,
         delaiMs,
@@ -443,146 +501,229 @@ function resumeDuControle(controle: ControleBac): string {
 const enClair = (ms: number): string =>
   ms >= 60_000 ? `${Math.round(ms / 60_000)} min` : `${Math.ceil(ms / 1000)} s`;
 
+/** Un nom de test dans une ligne de progression : une donnée du dépôt, bornée. */
+const cite = (nom: string): string => `« ${nom.length > 120 ? `${nom.slice(0, 119)}…` : nom} »`;
+
 /**
- * Ce qu'une exécution des tests dit de ses tests, ou `null` si elle ne se lit
- * pas test par test : arrêtée, coupée au milieu, d'un format inconnu, ou en
- * échec sans nommer aucun test — SWE-bench (`get_logs_eval`) : la sortie ne
- * décrit alors pas ce qui s'est passé. Une exécution qui rend 0 n'a, elle,
- * aucun test rouge, quoi qu'elle imprime.
+ * La sortie d'une exécution, lue test par test — ou pourquoi pas. Les chemins
+ * absolus du répertoire où elle a tourné sont ramenés au montage du bac : la
+ * base, la tête et son rejeu ne tournent pas au même endroit de l'hôte, et un
+ * message d'échec qui cite son fichier doit garder la même empreinte.
  */
-function observer(r: Execution): (ObservationDeTests & { format?: FormatDeTest }) | null {
-  if (r.arret || r.code === null || r.tronquee) return null;
-  const issue = lireSortieDeTest(r.output);
-  if (r.code === 0) {
-    return { echecs: new Set(), succes: issue.lisible ? issue.lecture.succes : new Set() };
+function lireExecution(
+  r: Execution,
+  racine: string,
+): { lecture: LectureDeTests } | { raison: string; verte: boolean } {
+  if (r.arret || r.code === null) return { raison: 'arrêtée', verte: false };
+  // `runProc` le dit : un échec a pu tomber dans le milieu omis.
+  if (r.tronquee) return { raison: 'sortie coupée', verte: false };
+  if (r.code === 126 || r.code === 127) return { raison: `code ${r.code}`, verte: false };
+  const panne = signatureEnvironnement(r.code, r.output);
+  if (panne) return { raison: `panne d’environnement (${panne})`, verte: false };
+  const issue = lireSortieDeTest(r.output.replaceAll(racine, MONTAGE));
+  // Illisible mais VERTE (code 0) : aucun test rouge — et aucun vu vert.
+  if (!issue.lisible) return { raison: issue.raison, verte: r.code === 0 };
+  // En échec sans nommer de test : SWE-bench (`get_logs_eval`), le journal ne
+  // décrit pas ce qui s'est passé. Vert en en nommant un rouge : non plus.
+  if ((r.code === 0) !== (issue.lecture.echecs.size === 0)) {
+    const raison = r.code === 0 ? 'code 0 et des tests rouges' : 'aucun test nommé en échec';
+    return { raison, verte: false };
   }
-  if (!issue.lisible || issue.lecture.echecs.size === 0) return null;
-  return issue.lecture;
+  return { lecture: issue.lecture };
+}
+
+/** Pourquoi la comparaison s'arrête, en une ligne de progression. */
+function direIncomparable(issue: Exclude<IssueDeComparaison, { comparable: true }>): string {
+  const t = cite(issue.test);
+  switch (issue.motif) {
+    case 'vert_disparu':
+      return `${t}, vu vert à la base, n’est pas vu à la production : elle n’a pas tout exécuté`;
+    case 'rouge_disparu':
+      return `${t}, rouge à une exécution de la production, n’est pas vu à l’autre`;
+    case 'base_incertaine':
+      return `${t}, rouge à une exécution de la base, n’est pas vu à l’autre`;
+    case 'autre_echec':
+      return `${t} est rouge à la base, mais pas du même échec`;
+  }
+}
+
+/** Les exécutions d'une base s'accordent-elles sur ses tests rouges ? */
+const sAccordent = (bases: readonly ObservationDeTests[]): boolean =>
+  bases.every((b) =>
+    bases.every(
+      (autre) =>
+        b.echecs.size === autre.echecs.size &&
+        [...b.echecs].every(([test, empreinte]) => autre.echecs.get(test) === empreinte),
+    ),
+  );
+
+/** Ce que les côtés rejoués à part partagent. */
+interface ContexteRejeu {
+  opts: OptionsValidation;
+  depot: { depot: DepotEpingle; baseSha: string };
+  /** L'arbre livré, figé avant toute validation. */
+  livre: string;
+  plan: Record<ValidationKey, Etape>;
+  argv: string[];
+  delaiMs: number;
+  executer: Executer;
 }
 
 /**
  * Les tests en échec d'une production, comparés test par test à sa base
- * rejouée à part (voir l'en-tête) — ou `null` : la sortie ne se lit pas, la
- * base ne se rejoue pas, la tâche est annulée. Le verdict reste alors celui du
- * script.
+ * rejouée à part (voir l'en-tête) — ou `null` : la sortie ne se lit pas, un
+ * côté ne se rejoue pas, les exécutions ne se comparent pas, la tâche est
+ * annulée. Le verdict reste alors celui du script, et la ligne de progression
+ * dit pourquoi.
  *
- * PARESSEUSE, parce que chaque exécution coûte jusqu'au délai d'une commande :
- * la base d'abord (ou sa mémoire) — si chaque échec y était déjà rouge, c'est
- * fini ; sinon une seconde exécution de la tête, et si une régression reste
- * encore possible, une seconde exécution de la base (`OBSERVATIONS`).
+ * PARESSEUSE, parce que chaque rejeu coûte jusqu'à `rejeuMaxMs` : la base
+ * d'abord (ou sa mémoire) — si chaque échec y était déjà rouge, du même
+ * échec, c'est fini ; sinon la production rejouée depuis son arbre livré, et
+ * si une régression reste encore possible, une seconde exécution de la base
+ * (`OBSERVATIONS`).
  */
-async function comparerALaBaseRejouee(ctx: {
-  opts: OptionsValidation;
-  depot: { depot: DepotEpingle; baseSha: string };
-  plan: Record<ValidationKey, Etape>;
-  argv: string[];
-  delaiMs: number;
-  executer: Executer;
-  premiere: Execution;
-  constat: { script: string; code: number; dureeMs: number; sortie: string };
-}): Promise<ControleBac | null> {
+async function comparerALaBaseRejouee(
+  ctx: ContexteRejeu & {
+    premiere: Execution;
+    constat: { script: string; code: number; dureeMs: number; sortie: string };
+  },
+): Promise<ControleBac | null> {
   const { opts, depot, delaiMs } = ctx;
-  const lecture = observer(ctx.premiere);
-  if (!lecture?.format || lecture.echecs.size === 0) return null;
-  const sha = depot.baseSha.slice(0, 8);
   const etape = (ligne: string) => opts.surEtape?.(`validation tests : ${ligne}`);
+  // La comparaison s'arrête, et le verdict reste celui du script — la ligne
+  // dit pourquoi, et d'abord quand c'est la tâche qu'on annule.
+  const abandon = (ligne: string): null => {
+    const annulee = 'tâche annulée pendant la comparaison à la base — verdict du script';
+    etape(opts.signal?.aborted ? annulee : ligne);
+    return null;
+  };
+  const lue = lireExecution(ctx.premiere, opts.cwd);
+  if (!('lecture' in lue)) {
+    etape(`sortie non lue test par test (${lue.raison}) — verdict du script`);
+    return null;
+  }
+  const { lecture } = lue;
+  const sha = depot.baseSha.slice(0, 8);
   const debut = Date.now();
-  const base = baseRejouee(ctx);
+  const base = rejeuAPart(ctx, 'base', lecture.format);
+  const tete = rejeuAPart(ctx, 'tete', lecture.format);
   try {
-    const enMemoire = opts.memoire?.lire(depot.baseSha) ?? [];
-    const rougesALaBase: ReadonlySet<string>[] = enMemoire.slice(0, 1);
-    if (rougesALaBase.length > 0) {
+    const enMemoire = opts.memoire?.lire(depot.baseSha, lecture.format) ?? [];
+    const bases: ObservationDeTests[] = [];
+    const tetes: ObservationDeTests[] = [lecture];
+    const premiereBase = enMemoire[0];
+    if (premiereBase) {
       etape(
         `${lecture.echecs.size} test(s) en échec — base ${sha} déjà rejouée sur ce nœud (mémoire)`,
       );
+      bases.push(premiereBase);
     } else {
       etape(
-        `${lecture.echecs.size} test(s) en échec — comparaison à la base ${sha}, rejouée à part : ` +
-          `exécution doublée, jusqu’à ${enClair(DELAI_PREPARATION_MS)} d’installation puis ` +
-          `${enClair(delaiMs)} par commande (build, tests)…`,
+        `${lecture.echecs.size} test(s) en échec — comparaison à la base ${sha}, rejouée à part ` +
+          `(extraction, installation, build, tests : jusqu’à ${enClair(rejeuMaxMs(delaiMs))}) ; ` +
+          'si une régression reste possible, la production est rejouée de même depuis son ' +
+          `arbre livré, puis la base une seconde fois — au pire ${enClair(surcoutMaxMs(delaiMs))} de plus…`,
       );
-      const premiere = await base.executer();
-      if (!premiere) {
-        etape('pas de comparaison à la base — verdict du script');
-        return null;
-      }
-      rougesALaBase.push(premiere);
+      const vue = await base.executer();
+      if (!vue) return abandon('pas de comparaison à la base — verdict du script');
+      bases.push(vue);
     }
-    const tete: ObservationDeTests[] = [lecture];
-    let comparaison = comparerALaBase(tete, rougesALaBase);
-    if (comparaison.regressions.length > 0 && !opts.signal?.aborted) {
+    let issue = comparerALaBase(tetes, bases);
+    const regressionsPossibles = () =>
+      issue.comparable && issue.comparaison.regressions.length > 0 && !opts.signal?.aborted
+        ? issue.comparaison.regressions.length
+        : 0;
+    let possibles = regressionsPossibles();
+    if (possibles > 0) {
       etape(
-        `${comparaison.regressions.length} test(s) rouge(s) à la tête et pas à la base — ` +
-          `seconde exécution, pour écarter l’instabilité (jusqu’à ${enClair(delaiMs)})…`,
+        `${possibles} test(s) rouge(s) à la tête et pas à la base — la production est rejouée à part, ` +
+          `depuis son arbre livré, pour écarter l’instabilité (jusqu’à ${enClair(rejeuMaxMs(delaiMs))})…`,
       );
-      // Illisible, la seconde exécution n'apprend rien : la première tient.
-      const seconde = observer(await ctx.executer(ctx.argv, opts.cwd, delaiMs));
-      if (seconde) tete.push(seconde);
-      comparaison = comparerALaBase(tete, rougesALaBase);
+      // Illisible ou en panne, la seconde exécution n'apprend rien : la première tient.
+      const vue = await tete.executer();
+      if (vue) {
+        tetes.push(vue);
+        issue = comparerALaBase(tetes, bases);
+      }
     }
-    if (comparaison.regressions.length > 0 && !opts.signal?.aborted) {
+    possibles = regressionsPossibles();
+    if (possibles > 0) {
       const memorisee = enMemoire[1];
       if (!memorisee) {
         etape(
-          `${comparaison.regressions.length} régression(s) possible(s) — seconde exécution de la ` +
-            `base ${sha}, pour écarter l’instabilité (jusqu’à ${enClair(delaiMs)})…`,
+          `${possibles} régression(s) possible(s) — seconde exécution de la base ${sha}, pour ` +
+            `écarter l’instabilité (jusqu’à ${enClair(base.aTourne() ? delaiMs : rejeuMaxMs(delaiMs))})…`,
         );
       }
-      const seconde = memorisee ?? (await base.executer());
-      if (seconde) rougesALaBase.push(seconde);
-      comparaison = comparerALaBase(tete, rougesALaBase);
+      const vue = memorisee ?? (await base.executer());
+      if (vue) {
+        bases.push(vue);
+        issue = comparerALaBase(tetes, bases);
+      }
     }
-    if (opts.signal?.aborted) return null;
-    if (base.aTourne()) opts.memoire?.ranger(depot.baseSha, rougesALaBase);
+    if (opts.signal?.aborted) return abandon('');
+    // Une base rejouée ici, sans panne et d'accord avec elle-même, sert aux
+    // tâches suivantes du nœud — quoi que la tête en ait fait.
+    if (base.aTourne() && sAccordent(bases)) {
+      opts.memoire?.ranger(depot.baseSha, lecture.format, bases);
+    }
+    if (!issue.comparable) {
+      return abandon(`${direIncomparable(issue)} — pas de comparaison, verdict du script`);
+    }
     return controleCompare({
       ...ctx.constat,
       format: lecture.format,
-      comparaison,
-      executions: { tete: tete.length, base: rougesALaBase.length },
+      comparaison: issue.comparaison,
+      executions: { tete: tetes.length, base: bases.length },
       memoire: enMemoire.length > 0,
       surcoutMs: Date.now() - debut,
     });
   } finally {
-    base.nettoyer();
+    await Promise.all([base.nettoyer(), tete.nettoyer()]);
   }
 }
 
 /**
- * La base de la tâche, rejouée à part — extraite, installée et construite à la
- * PREMIÈRE exécution demandée, une fois. Chaque exécution rend les tests rouges
- * de la base, ou `null` (et dit pourquoi) : la base ne se rejoue pas, ou sa
- * sortie ne se lit pas test par test.
+ * Un côté de la tâche rejoué À PART — extrait, installé et construit à la
+ * PREMIÈRE exécution demandée, une fois : sa `base` (le commit cloné), ou sa
+ * `tete` (l'arbre livré, figé avant toute validation). Chaque exécution rend
+ * ce qu'elle dit de ses tests, ou `null` (et dit pourquoi) : le côté ne se
+ * rejoue pas, ou sa sortie ne se lit pas test par test, dans le format de la
+ * première exécution.
  */
-function baseRejouee(ctx: {
-  opts: OptionsValidation;
-  depot: { depot: DepotEpingle; baseSha: string };
-  plan: Record<ValidationKey, Etape>;
-  argv: string[];
-  delaiMs: number;
-  executer: Executer;
-}): { executer(): Promise<ReadonlySet<string> | null>; aTourne(): boolean; nettoyer(): void } {
+function rejeuAPart(
+  ctx: ContexteRejeu,
+  cote: 'base' | 'tete',
+  format: FormatDeTest,
+): {
+  executer(): Promise<ObservationDeTests | null>;
+  aTourne(): boolean;
+  nettoyer(): Promise<void>;
+} {
   const { opts, depot, plan, delaiMs } = ctx;
-  const dossier = dossierDeBase(opts.cwd);
-  const sha = depot.baseSha.slice(0, 8);
+  const dossier = cote === 'base' ? dossierDeBase(opts.cwd) : dossierDeTete(opts.cwd);
+  const nom =
+    cote === 'base' ? `base ${depot.baseSha.slice(0, 8)}` : 'production (arbre livré, à part)';
   // Une ligne de progrès part au hub : ce qu'elle cite (le message d'un git en
   // échec) passe par le caviardage du nœud, comme les extraits.
   const caviarder = opts.caviarder ?? ((texte: string) => texte);
   const dire = (ligne: string) =>
-    opts.surEtape?.(`validation tests : base ${sha} — ${caviarder(ligne)}`);
+    opts.surEtape?.(`validation tests : ${nom} — ${caviarder(ligne)}`);
   let prete: Promise<string | null> | null = null;
   let executions = 0;
 
   /** Extraire, installer, construire : `null` si tout est prêt, sinon pourquoi pas. */
   const preparer = async (): Promise<string | null> => {
     try {
-      await extraireBase(depot.depot, depot.baseSha, dossier);
+      if (cote === 'base') await extraireBase(depot.depot, depot.baseSha, dossier);
+      else await extraireLivre(depot.depot, ctx.livre, dossier);
     } catch (err) {
       return `extraction impossible (${err instanceof Error ? err.message : String(err)})`;
     }
-    const manifesteDeBase = manifeste(fichierDeTravail(dossier, 'package.json'));
-    if (declareDesDependances(manifesteDeBase)) {
+    const manifesteRejoue = manifeste(fichierDeTravail(dossier, 'package.json'));
+    if (declareDesDependances(manifesteRejoue)) {
       const preparation = preparationDepuisLockfile((f) => existsSync(path.join(dossier, f)));
-      if (!preparation) return 'aucun lockfile à la base';
+      if (!preparation) return 'aucun lockfile';
       const garde = jugerPreparation(preparation);
       if (!garde.ok) return garde.motif;
       dire(`installation « ${preparation.join(' ')} »…`);
@@ -592,9 +733,8 @@ function baseRejouee(ctx: {
       }
     }
     // Des tests lisent parfois ce que le build produit (`ORDRE_DE_LANCEMENT`) :
-    // la base se construit comme la tête l'a été, et une base qui ne se
-    // construit pas ne se compare pas — ses tests échoueraient tous, et
-    // excuseraient tout.
+    // chaque côté se construit comme la tête l'a été, et un côté qui ne se
+    // construit pas ne se compare pas — ses tests échoueraient tous.
     const build = plan.build;
     if (build.genre === 'lancer') {
       const argv = argvDe(build.script);
@@ -619,15 +759,23 @@ function baseRejouee(ctx: {
         return null;
       }
       dire(`${ctx.argv.join(' ')}…`);
-      const lue = observer(await ctx.executer(ctx.argv, dossier, delaiMs));
-      if (!lue) {
-        dire('sa sortie ne se lit pas test par test');
+      const lue = lireExecution(await ctx.executer(ctx.argv, dossier, delaiMs), dossier);
+      if (!('lecture' in lue)) {
+        if (lue.verte) {
+          executions += 1;
+          return { echecs: new Map(), succes: new Set(), nommeLesVerts: false };
+        }
+        dire(`sortie non retenue (${lue.raison})`);
+        return null;
+      }
+      if (lue.lecture.format !== format) {
+        dire(`sortie non retenue (format ${lue.lecture.format}, pas ${format})`);
         return null;
       }
       executions += 1;
-      return lue.echecs;
+      return lue.lecture;
     },
     aTourne: () => executions > 0,
-    nettoyer: () => effacerDossierDeBase(opts.cwd),
+    nettoyer: () => effacerRejeu(dossier),
   };
 }

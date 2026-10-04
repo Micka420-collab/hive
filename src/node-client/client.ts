@@ -1470,9 +1470,16 @@ export class HiveNodeClient {
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
       // validations du bac comptent dans la durée d'un enfant délégué — son
       // parent ne l'attend que `durationMs` plus une grâce, et des
-      // validations hors budget (jusqu'à une demi-heure) lui feraient lire
-      // « résultat absent » pour un enfant qui a réussi. À l'échéance, le
-      // signal arrête les validations en cours (`annule`) et le résultat part.
+      // validations hors budget lui feraient lire « résultat absent » pour un
+      // enfant qui a réussi. Leur pire cas, aux délais par défaut : 31 min
+      // quand les tests passent (sonde, installation, quatre commandes — plus
+      // les git locaux qui les préparent, cinq minutes chacun au plus), et
+      // jusqu'à `surcoutMaxMs()` de plus (`validations-bac.ts`, 55 min) quand
+      // des tests en échec se comparent à la base (G11b) : la base puis la
+      // production rejouées à part, chacune extraite (fetch + checkout),
+      // installée, construite et testée, puis une seconde exécution de la
+      // base. À l'échéance, le signal arrête les validations en cours
+      // (`annule`) et le résultat part.
       const result =
         budgetExceeded && delegationBudget
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
@@ -1745,9 +1752,16 @@ export class HiveNodeClient {
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
       // validations du bac comptent dans la durée d'un enfant délégué — son
       // parent ne l'attend que `durationMs` plus une grâce, et des
-      // validations hors budget (jusqu'à une demi-heure) lui feraient lire
-      // « résultat absent » pour un enfant qui a réussi. À l'échéance, le
-      // signal arrête les validations en cours (`annule`) et le résultat part.
+      // validations hors budget lui feraient lire « résultat absent » pour un
+      // enfant qui a réussi. Leur pire cas, aux délais par défaut : 31 min
+      // quand les tests passent (sonde, installation, quatre commandes — plus
+      // les git locaux qui les préparent, cinq minutes chacun au plus), et
+      // jusqu'à `surcoutMaxMs()` de plus (`validations-bac.ts`, 55 min) quand
+      // des tests en échec se comparent à la base (G11b) : la base puis la
+      // production rejouées à part, chacune extraite (fetch + checkout),
+      // installée, construite et testée, puis une seconde exécution de la
+      // base. À l'échéance, le signal arrête les validations en cours
+      // (`annule`) et le résultat part.
       const result =
         budgetExceeded && delegationBudget
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)

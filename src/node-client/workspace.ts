@@ -24,7 +24,7 @@
 // membre. C'est le niveau `processus` de `constat()`, et c'est là — pas ici —
 // que la vérité de l'isolement s'écrit.
 
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, promises as fsp, rmSync } from 'node:fs';
 import path from 'node:path';
 import { CLONE_MS } from '../shared/butoirs-noeud.js';
 import type { Task } from '../shared/types.js';
@@ -108,29 +108,38 @@ export async function retirerFichiersIgnores(depot: DepotEpingle): Promise<void>
 }
 
 /**
- * Où la BASE d'une tâche est rejouée pour la comparer à la production (G11b,
- * `node-client/validations-bac.ts`) : À CÔTÉ de la tâche, comme son TEMP et son
- * registre — hors de ce que le bac de la tâche monte, que l'agent a eu entre
- * les mains. Effacé par les validations dès la comparaison faite, et ici avec
- * le reste si un nœud tué l'a laissé.
+ * Où un côté d'une tâche est REJOUÉ à part pour comparer ses tests (G11b,
+ * `node-client/validations-bac.ts`) — sa base, et l'arbre que la production
+ * livre : À CÔTÉ de la tâche, comme son TEMP et son registre, hors de ce que
+ * le bac de la tâche monte. Effacés par les validations dès la comparaison
+ * faite, et ici avec le reste si un nœud tué les a laissés.
  */
 export const dossierDeBase = (cwd: string): string => `${cwd}.base`;
+export const dossierDeTete = (cwd: string): string => `${cwd}.tete`;
 
 /**
- * Efface la base rejouée d'une tâche, et son TEMP (`buildSandboxEnv`). Ici,
- * parce que ce fichier possède le répertoire de tâche et ses voisins :
- * l'inventaire de ce que Hive écrit chez le membre (`empreinte.ts`) reste vrai.
- * Un fichier verrouillé (Windows) reste : le prochain `prepareWorkspace` de la
- * tâche, ou son `cleanup`, le reprendra.
+ * Efface un rejeu à part, et son TEMP (`buildSandboxEnv`). Ici, parce que ce
+ * fichier possède le répertoire de tâche et ses voisins : l'inventaire de ce
+ * que Hive écrit chez le membre (`empreinte.ts`) reste vrai.
+ *
+ * ASYNCHRONE, en UNE passe : un rejeu porte un `node_modules` complet, et
+ * l'effacer en synchrone, en pleine tâche, gelait la boucle du nœud — sans
+ * battement au-delà de `NODE_TIMEOUT_MS` (15 s), la Reine le déclare hors
+ * ligne. Pas de `maxRetries` : l'option multiplie les reprises par niveau de
+ * dossier (le piège de #538/#552). Ce qui reste (un fichier verrouillé sous
+ * Windows), le prochain `prepareWorkspace` de la tâche, ou son `cleanup`, le
+ * reprendra. Ne lève jamais : rien ne doit emporter le résultat de la tâche.
  */
-export function effacerDossierDeBase(cwd: string): void {
-  const options = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
-  try {
-    rmSync(dossierDeBase(cwd), options);
-    rmSync(`${dossierDeBase(cwd)}.tmp`, options);
-  } catch {
-    // Voir plus haut : rien ne doit emporter le résultat de la tâche.
-  }
+export async function effacerRejeu(dossier: string): Promise<void> {
+  const options = { recursive: true, force: true } as const;
+  await Promise.all([fsp.rm(dossier, options), fsp.rm(`${dossier}.tmp`, options)]).catch(
+    () => undefined,
+  );
+}
+
+/** Les deux rejeux d'une tâche — sa base, sa tête. */
+async function effacerRejeux(cwd: string): Promise<void> {
+  await Promise.all([effacerRejeu(dossierDeBase(cwd)), effacerRejeu(dossierDeTete(cwd))]);
 }
 
 export function variablesAgentSansSecrets(variables: readonly string[]): string[] {
@@ -262,7 +271,7 @@ export async function prepareWorkspace(
   rmSync(`${cwd}.tmp`, rmOpts);
   rmSync(registre, rmOpts);
   rmSync(reserveDeConfiguration(cwd), rmOpts);
-  effacerDossierDeBase(cwd);
+  await effacerRejeux(cwd);
   mkdirSync(cwd, { recursive: true });
 
   let branch: string | null = null;
@@ -325,7 +334,9 @@ export async function prepareWorkspace(
         rmSync(`${cwd}.tmp`, rmOpts);
         rmSync(registre, rmOpts);
         rmSync(reserveDeConfiguration(cwd), rmOpts);
-        effacerDossierDeBase(cwd);
+        // Les rejeux sont déjà effacés par les validations : ceci rattrape un
+        // reste, sans retenir le nœud.
+        void effacerRejeux(cwd);
       } catch {
         // Fichier verrouillé (Windows) : le prochain run de la tâche nettoiera.
       }

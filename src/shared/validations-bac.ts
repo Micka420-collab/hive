@@ -67,6 +67,7 @@
 
 import { nomDeChantierValide } from './chantier.js';
 import {
+  CARACTERES_DOUTEUX,
   FORMATS_DE_TEST,
   OBSERVATIONS,
   echecDeTestLu,
@@ -91,14 +92,17 @@ export const ETATS_PAR_RAISON = {
   /** La commande a tourné jusqu'au bout ; `code` porte le verdict. */
   termine: ['passed', 'failed'],
   /**
-   * Les tests ont échoué, et la sortie s'est lue test par test : chaque échec a
-   * été comparé à la BASE, rejouée à côté (`comparaison`, G11b). `failed` :
-   * une régression au moins ; `passed` : tous étaient déjà rouges à la base.
+   * Les tests ont échoué, et la sortie s'est lue test par test, complète et
+   * cohérente : chaque échec a été comparé à la BASE, rejouée à côté
+   * (`comparaison`, G11b). `failed` : une régression au moins ; `passed` : tous
+   * étaient déjà rouges à la base, du même échec. Les TESTS seulement
+   * (`validationsBacDepuis`).
    */
   comparee: ['passed', 'failed'],
   /**
-   * Comparés à la base, des tests ont été rouges à une exécution et pas à
-   * l'autre : ni régression ni vert, le verdict reste inconnu.
+   * Comparés à la base, des tests ont été vus rouges à une exécution et VERTS à
+   * une autre — de la production, ou de la base : ni régression ni vert, le
+   * verdict reste inconnu. Les TESTS seulement.
    */
   instable: ['missing'],
   /** Pas de dépôt, ou pas de `package.json` lisible au commit de base. */
@@ -445,7 +449,8 @@ export function extraitDe(sortie: string): { extrait?: string } {
 //
 // Adaptée de `INFRA_FAILURE_SIGNATURES` (swebench/harness/infra_failure.py,
 // v5.0.0) — MIT, Copyright (c) 2023 Carlos E Jimenez, John Yang, Alexander
-// Wettig, Shunyu Yao, Kexin Pei, Ofir Press, Karthik R Narasimhan. Seul le
+// Wettig, Shunyu Yao, Kexin Pei, Ofir Press, Karthik R Narasimhan ; la notice
+// complète, permission comprise, est au bas de `lecture-tests.ts`. Seul le
 // niveau « environment » est repris : le niveau « ambiguous » (module
 // introuvable, aucun test collecté) peut venir de la production, il reste un
 // verdict. Écarts voulus :
@@ -496,6 +501,18 @@ const SIGNATURES_ENVIRONNEMENT: readonly {
  */
 export function panneEnvironnement(code: number, sortie: string): PanneEnvironnement | null {
   if (code === 0 || echecDeTestLu(sortie)) return null;
+  return signatureEnvironnement(code, sortie);
+}
+
+/**
+ * La première signature de panne du bac que `sortie` porte — sans regarder si
+ * un échec de test s'y lit. C'est la règle de la BASE rejouée (G11b) : ses
+ * tests rouges EXCUSENT ceux de la production, et un rouge qu'une mémoire ou
+ * un disque épuisés auraient causé excuserait une régression. Une exécution
+ * qui porte une signature ne compte donc pas — ni à la base, ni à la tête,
+ * dont elle ne peut que fausser la comparaison.
+ */
+export function signatureEnvironnement(code: number, sortie: string): PanneEnvironnement | null {
   const trouvee = SIGNATURES_ENVIRONNEMENT.find(
     (s) => (s.code === undefined || s.code === code) && s.motif.test(sortie),
   );
@@ -571,15 +588,15 @@ function nommes(noms: readonly string[]): TestsNommes {
 
 /**
  * Le constat des tests comparés test par test à la base (G11b) — la première
- * exécution à la tête a échoué, sa sortie s'est lue, et la base a été rejouée
- * (`node-client/validations-bac.ts`).
+ * exécution à la tête a échoué, sa sortie s'est lue complète et cohérente, et
+ * la base a été rejouée (`node-client/validations-bac.ts`).
  *
  * Une régression, et c'est un verdict sur la production : `failed`, chaque
  * régression NOMMÉE. Sinon, des tests instables, et le verdict reste inconnu :
  * `missing` — ni correction, ni vert. Sinon, tous les échecs étaient déjà
- * rouges à la base : `passed`, et la liste part avec le constat, pour que
- * l'Evaluator et l'écran la DISENT — un vert qui tairait des tests rouges en
- * serait un faux.
+ * rouges à la base, du même échec : `passed`, et la liste part avec le
+ * constat, pour que l'Evaluator et l'écran la DISENT — un vert qui tairait des
+ * tests rouges en serait un faux.
  */
 export function controleCompare(p: {
   script: string;
@@ -636,7 +653,12 @@ function estRaison(v: unknown): v is RaisonControle {
   return typeof v === 'string' && Object.prototype.hasOwnProperty.call(ETATS_PAR_RAISON, v);
 }
 
-/** Une liste nommée reconstruite — des noms d'une ligne, bornés, pas plus que le total. */
+/**
+ * Une liste nommée reconstruite — des noms bornés, pas plus que le total, et
+ * qui s'affichent comme ils se lisent : ni saut de ligne, ni caractère de
+ * contrôle, ni contrôle bidirectionnel (`CARACTERES_DOUTEUX`). Le lecteur du
+ * nœud n'en rend pas ; un nœud qui en enverrait ment ou bogue.
+ */
 function testsNommesDepuis(v: unknown): TestsNommes | null {
   if (typeof v !== 'object' || v === null) return null;
   const { total, noms } = v as Record<string, unknown>;
@@ -645,7 +667,7 @@ function testsNommesDepuis(v: unknown): TestsNommes | null {
   const lus: string[] = [];
   for (const nom of noms) {
     if (typeof nom !== 'string' || nom.length === 0 || nom.length > NOM_DE_TEST_MAX) return null;
-    if (/[\r\n]/.test(nom)) return null;
+    if (CARACTERES_DOUTEUX.test(nom)) return null;
     lus.push(nom);
   }
   return { total, noms: lus };
@@ -758,6 +780,11 @@ export function validationsBacDepuis(v: unknown): ValidationsBac | null {
   for (const cle of VALIDATION_KEYS) {
     const controle = controleDepuis(brut[cle]);
     if (!controle) return null;
+    // Seuls les TESTS se comparent à la base : un lint, un typecheck ou un
+    // build « comparés » seraient un vert que rien n'a fondé.
+    if (cle !== 'tests' && (controle.raison === 'comparee' || controle.raison === 'instable')) {
+      return null;
+    }
     controles[cle] = controle;
   }
   return { ...(typeof m.baseSha === 'string' ? { baseSha: m.baseSha } : {}), controles };
