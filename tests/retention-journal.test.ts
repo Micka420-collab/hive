@@ -297,6 +297,8 @@ describe('les types qui prouvent', () => {
     for (const t of [
       'validation_recorded',
       'ci_validation_recorded',
+      // Ce que la porte de sécurité a vu : élagué, un constat serait oublié.
+      'security_gate_recorded',
       'contre_expertise_impossible',
       'evaluator_overridden',
       'delivery_opened',

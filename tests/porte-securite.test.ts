@@ -11,6 +11,9 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { evaluate } from '../src/orchestrator/evaluator.js';
+import type { CrossReviewEvidence, EvaluatorInput } from '../src/orchestrator/evaluator.js';
+import { HiveStore } from '../src/orchestrator/store.js';
 import { lireDiff } from '../src/shared/caviardage.js';
 import {
   ETIQUETTE_PORTE,
@@ -29,6 +32,7 @@ import {
   vulnerabilitesIntroduites,
 } from '../src/shared/porte-securite.js';
 import type { PorteSecurite, SourceLue } from '../src/shared/porte-securite.js';
+import { parseClientMessage } from '../src/shared/protocol.js';
 
 const ID_AWS = ['AKIA', 'Z7Q4XWERT2LMNOPQ'].join('');
 const SECRETE_AWS = ['wJalrXUtnFEMI', 'K7MDENG', 'bPxRfiCYzq9Lr3Tn8v'].join('/');
@@ -501,5 +505,190 @@ describe('lireDiff — les lignes AJOUTÉES, à leur numéro dans le fichier d�
       '+x',
     ].join('\n');
     expect(lireDiff(diff).fichiers.map((f) => f.apres)).toEqual(['résumé.md', 'c d.txt']);
+  });
+});
+
+// ─── L'Evaluator : où la porte se place parmi ses règles ─────────────────────
+
+/** Une contre-revue favorable d'une AUTRE famille : sans elle, rien n'est `accepted`. */
+const favorable: CrossReviewEvidence = {
+  source: 'hive_counter_review',
+  taskId: 't',
+  resultId: 1,
+  status: 'applied',
+  decision: 'appliquer',
+  reviewers: [
+    {
+      relectureTaskId: 'r-1',
+      reviewerNodeId: 'n2',
+      reviewerAgent: 'codex',
+      producerAgent: 'claude-code',
+      decision: 'appliquer',
+      reason: '',
+      recordedAt: 1,
+    },
+  ],
+  objections: [],
+  findings: [],
+  reviewerCount: 1,
+  contestingReviewers: 0,
+  approvingReviewers: 1,
+  recordedAt: 1,
+};
+
+/** La production que tout accepte : chaque cas n'en change qu'une chose. */
+const accepte: EvaluatorInput = {
+  taskId: 't',
+  taskStatus: 'done',
+  results: [
+    {
+      taskId: 't',
+      nodeId: 'n1',
+      resultId: 1,
+      diff: 'diff --git a/src/a.ts b/src/a.ts\n@@ -1 +1 @@\n-a\n+b',
+      logs: '',
+      success: true,
+      durationMs: 12,
+      subAgents: [],
+    },
+  ],
+  inspection: { verdict: 'clean', score: 0, griefs: [] },
+  validation: { tests: 'passed', typecheck: 'passed', build: 'passed', lint: 'passed' },
+  crossReview: favorable,
+};
+
+const passee: PorteSecurite = {
+  secrets: voletSans('analyse_propre', { nom: 'betterleaks', version: '1.9.0' }),
+  dependances: voletSans('aucun_lockfile'),
+};
+const avecSecret: PorteSecurite = {
+  ...passee,
+  secrets: voletAvec([{ regle: 'aws-access-token', fichier: 'src/config.ts', ligne: 2 }], {
+    nom: 'betterleaks',
+    version: '1.9.0',
+  }),
+};
+
+describe('l’Evaluator — la porte parmi ses règles', () => {
+  it('UNE PORTE PASSÉE est dite dans les motifs d’`accepted`', () => {
+    const v = evaluate({ ...accepte, securite: { porte: passee, nodeId: 'n1' } });
+    expect(v.decision).toBe('accepted');
+    expect(v.reasons).toContain(
+      'porte de sécurité passée : secrets — rien trouvé (betterleaks 1.9.0) ; ' +
+        'dépendances — aucun lockfile touché (osv-scanner)',
+    );
+  });
+
+  it('NON VÉRIFIÉE, HORS DE `strict` : rien n’est retenu — mais jamais comptée verte, et dit', () => {
+    const v = evaluate(accepte);
+    expect(v.decision).toBe('accepted');
+    expect(v.evidence.securite).toEqual(PORTE_SANS_RAPPORT);
+    const motif = v.reasons.find((r) => r.startsWith('porte de sécurité'));
+    expect(motif).toContain('porte de sécurité non vérifiée');
+    expect(motif).toContain('jamais comptée verte');
+    expect(v.reasons.join(' ')).not.toContain('porte de sécurité passée');
+  });
+
+  it('EN `strict`, UNE PORTE VÉRIFIÉE ne retient rien', () => {
+    const v = evaluate({
+      ...accepte,
+      securite: { porte: passee, nodeId: 'n1' },
+      securiteStricte: true,
+    });
+    expect(v.decision).toBe('accepted');
+  });
+
+  it('UN CONSTAT PASSE AVANT L’APPROBATION HUMAINE — une approbation ne laisse pas partir une clé', () => {
+    const v = evaluate({
+      ...accepte,
+      humanReview: 'approved',
+      securite: { porte: avecSecret, nodeId: 'n1' },
+    });
+    expect(v.decision).toBe('correction_required');
+    expect(v.canMerge).toBe(false);
+    expect(v.retryRecommended).toBe(true);
+    expect(v.reasons[1]).toBe(
+      'secrets, valeurs caviardées par le nœud et jamais transmises : aws-access-token src/config.ts:2',
+    );
+  });
+
+  it('…ET AVANT LES GARDIENNES SUSPECTES : le défaut constaté est nommé d’abord', () => {
+    const v = evaluate({
+      ...accepte,
+      inspection: { verdict: 'suspect', score: 1, griefs: [] },
+      securite: { porte: avecSecret, nodeId: 'n1' },
+    });
+    expect(v.reasons[0]).toMatch(/^la porte de sécurité a trouvé 1 secret\(s\) ajouté\(s\)/);
+  });
+
+  it('CE QUE LA BORNE DU PROTOCOLE A LAISSÉ TOMBER est compté, pas tu', () => {
+    const constats = Array.from({ length: MAX_CONSTATS_PORTE + 5 }, (_, i) => ({
+      regle: 'generic-api-key',
+      fichier: 'src/a.ts',
+      ligne: i + 1,
+    }));
+    const v = evaluate({
+      ...accepte,
+      securite: { porte: { ...passee, secrets: voletAvec(constats) }, nodeId: 'n1' },
+    });
+    expect(v.reasons[0]).toContain('25 secret(s) ajouté(s)');
+    expect(v.reasons[1]).toMatch(/ ; … et 5 autre\(s\)$/);
+  });
+});
+
+// ─── Le protocole et la base : ce qu'un nœud envoie n'est cru qu'après relecture
+
+const resultat = (porteSecurite: unknown): unknown =>
+  parseClientMessage(
+    JSON.stringify({
+      type: 'task_result',
+      taskId: 't1',
+      success: true,
+      diff: 'diff --git a/x b/x',
+      logs: '',
+      durationMs: 5,
+      subAgents: [],
+      porteSecurite,
+    }),
+  );
+
+describe('le protocole et la base — ADDITIF, validé fermé', () => {
+  it('task_result : un rapport bien formé passe ; mal formé, il est abandonné — pas la production', () => {
+    expect(resultat(avecSecret)).toMatchObject({ type: 'task_result', porteSecurite: avecSecret });
+    const casse = resultat({
+      ...avecSecret,
+      secrets: { ...avecSecret.secrets, etat: 'rien_trouve' },
+    });
+    expect(casse).toMatchObject({ type: 'task_result', taskId: 't1', success: true });
+    expect(casse).not.toHaveProperty('porteSecurite');
+    // Un nœud antérieur à la porte n'envoie rien : le message reste valide.
+    expect(resultat(undefined)).not.toHaveProperty('porteSecurite');
+  });
+
+  it('la base relit le fait par les mêmes règles — une ligne altérée redevient « sans rapport »', () => {
+    const store = new HiveStore(':memory:');
+    const fait = (porte: unknown, nodeId = 'n1') =>
+      store.appendEvent('security_gate_recorded', {
+        taskId: 't1',
+        projectId: 'p1',
+        resultId: 7,
+        nodeId,
+        porte,
+        recordedAt: 1_000,
+      });
+    fait(avecSecret);
+    expect(store.porteSecuriteDe('t1', 7)).toEqual({
+      porte: avecSecret,
+      nodeId: 'n1',
+      recordedAt: 1_000,
+    });
+    // Le fait d'un AUTRE résultat ne parle pas de celui-ci.
+    expect(store.porteSecuriteDe('t1', 8)).toBeNull();
+    // Le plus récent l'emporte — et, altéré, il ne vaut rien.
+    fait({ ...avecSecret, secrets: { ...avecSecret.secrets, etat: 'rien_trouve' } });
+    expect(store.porteSecuriteDe('t1', 7)).toBeNull();
+    fait(passee, '');
+    expect(store.porteSecuriteDe('t1', 7)).toBeNull();
+    store.close();
   });
 });

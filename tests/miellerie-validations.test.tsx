@@ -117,6 +117,41 @@ function monter(e: EvaluationResult): HTMLElement {
 const parTestId = (racine: HTMLElement, id: string): HTMLElement | null =>
   racine.querySelector(`[data-testid="${id}"]`);
 
+describe('panneau Evaluator — la porte de sécurité', () => {
+  it('NON VÉRIFIÉE SE LIT COMME TELLE — volet par volet, avec sa raison, jamais en vert', () => {
+    const vue = monter(evaluation(bac));
+    const ligne = parTestId(vue, 'mi-porte-securite')?.textContent ?? '';
+    expect(ligne).toContain('secrets non_verifie (aucun rapport du nœud');
+    expect(ligne).toContain('dépendances non_verifie');
+    expect(ligne).not.toContain('rien_trouve');
+  });
+
+  it('UN CONSTAT EST COMPTÉ, AVEC L’OUTIL QUI L’A VU', () => {
+    const e = evaluation(bac);
+    e.evidence.securite = {
+      secrets: {
+        etat: 'constat',
+        raison: 'trouve',
+        outil: { nom: 'betterleaks', version: '1.9.0' },
+        constats: [{ regle: 'aws-access-token', fichier: 'src/config.ts', ligne: 2 }],
+        total: 1,
+      },
+      dependances: { etat: 'rien_trouve', raison: 'aucun_lockfile', constats: [], total: 0 },
+    };
+    const ligne = parTestId(monter(e), 'mi-porte-securite')?.textContent ?? '';
+    expect(ligne).toContain('secrets constat ×1 (constat · betterleaks 1.9.0)');
+    expect(ligne).toContain('dépendances rien_trouve (aucun lockfile touché)');
+  });
+
+  it('UNE REINE ANTÉRIEURE À LA PORTE n’en rend pas — la ligne le dit, sans inventer un « rien »', () => {
+    const e = evaluation(bac);
+    delete (e.evidence as Partial<typeof e.evidence>).securite;
+    expect(parTestId(monter(e), 'mi-porte-securite')?.textContent).toBe(
+      'non rapportée par cette Reine',
+    );
+  });
+});
+
 describe('panneau Evaluator — la provenance des validations', () => {
   it('bac Hive : la source, le nœud, la base, et un constat par validation', () => {
     const vue = monter(evaluation(bac));
