@@ -35,7 +35,7 @@ import { poserRegistre } from '../src/node-client/git-hote.js';
 import { etiquetteImage, type Fournisseur } from '../src/node-client/isolement.js';
 import { passerLaPorte, versionPourLaPorte } from '../src/node-client/porte-securite.js';
 import { ETIQUETTE_PORTE } from '../src/shared/porte-securite.js';
-import { creerCaviardeur, formesDuSecret, SECRET_CAVIARDE } from '../src/shared/caviardage.js';
+import { creerCaviardeur, SECRET_CAVIARDE } from '../src/shared/caviardage.js';
 import { appelsDuFauxBac, fauxBac } from './fixtures/faux-bac.js';
 import { appelsDesOutils, fauxOutilsPorte, type FauxOutils } from './fixtures/faux-outils-porte.js';
 
@@ -45,6 +45,7 @@ const POSIX = process.platform !== 'win32';
 const ID_AWS = ['AKIA', 'Z7Q4XWERT2LMNOPQ'].join('');
 const SECRETE_AWS = ['wJalrXUtnFEMI', 'K7MDENG', 'bPxRfiCYzq9Lr3Tn8v'].join('/');
 const JETON_GITHUB = ['ghp', 'jOkYRBMeyyMDHqJ38aRUhR4IWrXPvhsBkDa9'].join('_');
+const STRIPE = ['sk', 'live', 'u8jzPde0IgxLd6GncfBAepfJ'].join('_');
 
 const dossiers: string[] = [];
 const PATH_AVANT = process.env.PATH;
@@ -159,7 +160,7 @@ describe.runIf(POSIX)('passerLaPorte — les secrets que la production AJOUTE', 
     // Les valeurs, relues dans le diff aux colonnes rapportées, rejoignent le
     // caviardeur de tout ce qui part — le diff d'abord.
     expect(valeurs).toEqual(expect.arrayContaining([ID_AWS, SECRETE_AWS]));
-    const sortant = creerCaviardeur(valeurs.flatMap(formesDuSecret)).diff(p.diff);
+    const sortant = creerCaviardeur(valeurs).diff(p.diff);
     expect(sortant).not.toContain(ID_AWS);
     expect(sortant).not.toContain(SECRETE_AWS);
     expect(sortant).toContain(`export const awsSecretAccessKey = '${SECRET_CAVIARDE}';`);
@@ -167,10 +168,11 @@ describe.runIf(POSIX)('passerLaPorte — les secrets que la production AJOUTE', 
     // L'outil a lu le MIROIR avec la configuration que la porte impose, la
     // valeur caviardée dans son propre rapport ; le miroir est retiré.
     const [sonde, analyse] = appelsDesOutils(outils);
-    expect(sonde).toBe('betterleaks --version');
+    expect(sonde).toMatch(/^betterleaks --version$/);
     for (const drapeau of ['--redact', '--ignore-gitleaks-allow', '--no-banner']) {
       expect(analyse).toContain(drapeau);
     }
+    expect(analyse).toContain('--confidence high');
     expect(analyse).toMatch(/^betterleaks dir \.hive-porte-[^/ ]+\/secrets /);
     expect(analyse).toMatch(/--config \.hive-porte-[^/ ]+\/regles\/betterleaks\.toml/);
     expect(analyse).toMatch(/--gitleaks-ignore-path \.hive-porte-[^/ ]+\/regles /);
@@ -185,29 +187,109 @@ describe.runIf(POSIX)('passerLaPorte — les secrets que la production AJOUTE', 
     expect(appelsDesOutils(outils).some((l) => l.startsWith('osv-scanner'))).toBe(false);
   });
 
-  it('UNE CLÉ PEM : caviardée dans le diff LIGNE PAR LIGNE — le diff se caviarde ainsi', async () => {
+  it('UNE CLÉ PEM : caviardée par ses lignes de base64 — jamais par son en-tête, qu’un code sain écrit aussi', async () => {
     const corps = Array.from({ length: 4 }, () => randomBytes(48).toString('base64'));
-    const pem = [`-----BEGIN ${'PRIVATE'} KEY-----`, ...corps, `-----END ${'PRIVATE'} KEY-----`];
+    const entete = `-----BEGIN ${'PRIVATE'} KEY-----`;
+    const pem = [entete, ...corps, `-----END ${'PRIVATE'} KEY-----`];
+    // Une ligne LÉGITIME, ajoutée par la même production, qui porte l'en-tête.
+    const sain = `export const estUneCle = (pem: string) => pem.startsWith('${entete}');`;
     const p = await produire(
       { 'README.md': '# projet\n' },
-      { 'config/cle.pem': `${pem.join('\n')}\n` },
+      { 'config/cle.pem': `${pem.join('\n')}\n`, 'src/pem.ts': `${sain}\n` },
     );
     const { rapport, valeurs } = await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
     expect(rapport.secrets.constats).toEqual([
       { regle: 'private-key', fichier: 'config/cle.pem', ligne: 1 },
     ]);
-    const sortant = creerCaviardeur(valeurs.flatMap(formesDuSecret)).diff(p.diff);
+    const sortant = creerCaviardeur(valeurs).diff(p.diff);
     for (const ligne of corps) expect(sortant).not.toContain(ligne);
+    expect(sortant).toContain(`+${sain}\n`);
+    expect(sortant).toContain(`+${entete}\n`);
   });
 
-  it('DES COLONNES QUI NE SE RELISENT PAS : les lignes ENTIÈRES sont caviardées — jamais une clé qui part', async () => {
+  it('DES COLONNES QUI NE SE RELISENT PAS : le constat reste — mais rien n’est réécrit sur sa seule foi', async () => {
+    // La porte caviardait alors les LIGNES ENTIÈRES, partout où une ligne
+    // identique partait : un caviardage qui ne visait plus un secret, mais du code.
     outils.mode('betterleaks', 'decale');
     const p = await produire({ 'src/config.ts': CONFIG_BASE }, { 'src/config.ts': CONFIG_AWS });
     const { rapport, valeurs } = await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
     expect(rapport.secrets.etat).toBe('constat');
-    const sortant = creerCaviardeur(valeurs.flatMap(formesDuSecret)).diff(p.diff);
-    expect(sortant).not.toContain(ID_AWS);
-    expect(sortant).not.toContain(SECRETE_AWS);
+    expect(rapport.secrets.total).toBe(2);
+    expect(valeurs).toEqual([]);
+  });
+
+  it('LES RÈGLES GÉNÉRIQUES NE PARLENT PAS, et seul le secret est réécrit — chaque ligne saine part intacte', async () => {
+    // Les lignes que l'outil réel lisait comme des mots de passe (confiance
+    // basse) : `dashboard/src/AccountPanel.tsx` et une fixture de banc. Leur
+    // « valeur » relue — `new-password` — devenait `[secret]` dans le diff, les
+    // logs et le texte final, et chaque production demandait une correction
+    // impossible, qu'aucune approbation ne levait.
+    const panneau =
+      "            autoComplete={mode === 'login' ? 'current-password' : 'new-password'}";
+    const fixture = "      password: 'motdepasse-assez-long-42',";
+    const p = await produire(
+      { 'src/config.ts': CONFIG_BASE },
+      {
+        'src/config.ts': CONFIG_AWS,
+        'dashboard/src/Compte.tsx': `export const C = () => (\n  <input\n${panneau}\n  />\n);\n`,
+        'tests/auth.test.ts': `const corps = {\n${fixture}\n};\n`,
+      },
+    );
+    const { rapport, valeurs } = await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
+
+    expect(rapport.secrets.constats.map((c) => c.regle)).toEqual([
+      'aws-access-token',
+      'aws-secret-access-key',
+    ]);
+    expect(valeurs.sort()).toEqual([ID_AWS, SECRETE_AWS].sort());
+    const sortant = creerCaviardeur(valeurs).diff(p.diff);
+    expect(sortant).toContain(`+${panneau}\n`);
+    expect(sortant).toContain(`+${fixture}\n`);
+    // Hors des deux valeurs, le diff qui part est OCTET POUR OCTET celui de la production.
+    expect(sortant).toBe(
+      p.diff.replaceAll(ID_AWS, SECRET_CAVIARDE).replaceAll(SECRETE_AWS, SECRET_CAVIARDE),
+    );
+  });
+
+  it('UN OUTIL QUI N’APPLIQUE PAS LA CONFIANCE DEMANDÉE : « non vérifié », et rien de son rapport n’est caviardé', async () => {
+    outils.mode('betterleaks', 'sans-confiance');
+    const p = await produire(
+      { 'src/config.ts': CONFIG_BASE },
+      {
+        'src/config.ts': CONFIG_AWS,
+        'tests/auth.test.ts': "const corps = {\n      password: 'motdepasse-assez-long-42',\n};\n",
+      },
+    );
+    const { rapport, valeurs } = await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
+    expect(rapport.secrets).toEqual({
+      etat: 'non_verifie',
+      raison: 'outil_en_echec',
+      outil: { nom: 'betterleaks', version: '1.9.0' },
+      constats: [],
+      total: 0,
+    });
+    expect(valeurs).toEqual([]);
+  });
+
+  it('UNE CLÉ DANS UN SVG, UN `*.min.js`, UN `go.sum` : lue — le préfiltre par défaut de l’outil est éteint', async () => {
+    // Mesuré sur 1.9.0 : son préfiltre écarte ces fichiers par leur NOM, et le
+    // miroir garde ce nom. Une clé Stripe — qu'aucun motif de Hive ne connaît —
+    // y partait au hub en clair, sans constat.
+    const p = await produire(
+      { 'README.md': '# projet\n' },
+      {
+        'assets/logo.svg': `<svg><!-- ${STRIPE} --></svg>\n`,
+        'vendor/jquery-3.6.0.min.js': `var k = "${STRIPE}";\n`,
+        'go.sum': `exemple.test/x v1.0.0 h1:${STRIPE}\n`,
+      },
+    );
+    const { rapport, valeurs } = await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
+    expect(rapport.secrets.constats).toEqual([
+      { regle: 'stripe-access-token', fichier: 'assets/logo.svg', ligne: 1 },
+      { regle: 'stripe-access-token', fichier: 'go.sum', ligne: 1 },
+      { regle: 'stripe-access-token', fichier: 'vendor/jquery-3.6.0.min.js', ligne: 1 },
+    ]);
+    expect(creerCaviardeur(valeurs).diff(p.diff)).not.toContain(STRIPE);
   });
 
   it('CE QUE LE NŒUD RÉÉCRIVAIT EN SILENCE devient un constat — même sans Betterleaks', async () => {

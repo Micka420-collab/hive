@@ -54,13 +54,16 @@ import {
   writeFileSync,
 } from 'node:fs';
 import path from 'node:path';
-import { lireDiff } from '../shared/caviardage.js';
+import { formesDuSecret, lireDiff } from '../shared/caviardage.js';
 import type { Caviardeur, FichierDuDiff, LigneAjoutee } from '../shared/caviardage.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import {
   BORNES_PORTE,
+  CONFIANCE_BETTERLEAKS,
+  CONFIG_BETTERLEAKS,
   LOCKFILES_SURVEILLES,
   REGLE_CAVIARDAGE_HIVE,
+  formeCaviardable,
   lireRapportBetterleaks,
   lireRapportOsv,
   nomDansLeMiroir,
@@ -113,8 +116,9 @@ export interface OptionsPorte {
 export interface PassagePorte {
   rapport: PorteSecurite;
   /**
-   * Les VALEURS des secrets trouvés, relues dans le diff : à caviarder partout
-   * où elles partiraient au hub — jamais à envoyer.
+   * Les secrets trouvés, relus dans le diff, sous les seules formes que le
+   * nœud peut caviarder partout où elles partiraient au hub sans toucher une
+   * ligne légitime (`formeCaviardable`) — jamais à envoyer.
    */
   valeurs: string[];
 }
@@ -153,8 +157,9 @@ export async function passerLaPorte(opts: OptionsPorte): Promise<PassagePorte> {
 function creerMiroir(cwd: string): string {
   const miroir = mkdtempSync(path.join(cwd, '.hive-porte-'));
   mkdirSync(path.join(miroir, 'regles'));
-  // Les règles PAR DÉFAUT de l'outil, nommées — voir l'en-tête.
-  writeFileSync(path.join(miroir, 'regles', 'betterleaks.toml'), '[extend]\nuseDefault = true\n');
+  // Les règles PAR DÉFAUT de l'outil, nommées, sans leur préfiltre — voir
+  // l'en-tête et `CONFIG_BETTERLEAKS`.
+  writeFileSync(path.join(miroir, 'regles', 'betterleaks.toml'), CONFIG_BETTERLEAKS);
   // Vide : aucun avis ignoré, quoi que dise un `osv-scanner.toml` du dépôt.
   writeFileSync(path.join(miroir, 'regles', 'osv-scanner.toml'), '');
   return miroir;
@@ -276,19 +281,18 @@ function lireDansLaTache(cwd: string, chemin: string): string | null {
 // ─── Les secrets ─────────────────────────────────────────────────────────────
 
 /**
- * Ce qu'il faut caviarder pour une correspondance : sa valeur, relue aux
- * colonnes (`valeurDuSecret`) — ou, si les colonnes ne se relisent pas, ses
- * LIGNES ENTIÈRES. Un caviardage de trop, jamais une clé qui part.
+ * Ce que le nœud caviardera d'une correspondance : les formes de sa VALEUR,
+ * relue exactement aux colonnes (`valeurDuSecret`), qu'il peut réécrire
+ * partout sans toucher une ligne légitime (`formeCaviardable`).
+ *
+ * La porte ne réécrit JAMAIS du code sur la seule foi d'un constat : une
+ * valeur qui ne se relit pas n'est plus remplacée par ses lignes entières —
+ * elles partaient en `[secret]` dans chaque ligne identique du diff, des logs
+ * et du texte final. Le constat, lui, reste, et demande la correction.
  */
-function valeursAuxColonnes(lignes: ReadonlyMap<number, string>, p: PositionSecret): string[] {
+function formesACaviarder(lignes: ReadonlyMap<number, string>, p: PositionSecret): string[] {
   const valeur = valeurDuSecret(lignes, p);
-  if (valeur !== null) return [valeur];
-  const entieres: string[] = [];
-  for (let n = p.debutLigne; n <= p.finLigne; n++) {
-    const ligne = lignes.get(n)?.trim();
-    if (ligne) entieres.push(ligne);
-  }
-  return entieres;
+  return valeur === null ? [] : formesDuSecret(valeur).filter(formeCaviardable);
 }
 
 async function voletSecrets(
@@ -354,6 +358,10 @@ async function voletSecrets(
         '--gitleaks-ignore-path',
         `${rel}/regles`,
         '--ignore-gitleaks-allow',
+        // Les règles génériques (mots de passe, URL à identifiants) lisaient
+        // du code sain comme des secrets : voir `CONFIANCE_BETTERLEAKS`.
+        '--confidence',
+        CONFIANCE_BETTERLEAKS,
         // La valeur ne sort jamais de l'outil : son rapport est écrit dans la
         // tâche. Le nœud la relit dans SA copie du diff (`valeurDuSecret`).
         '--redact',
@@ -382,6 +390,15 @@ async function voletSecrets(
       return sans('outil_en_echec', sonde);
     }
     if ((r.code === 1) !== trouvailles.length > 0) return sans('outil_en_echec', sonde);
+    // Chaque trouvaille dans un fichier que la porte a écrit, et de la seule
+    // confiance demandée — sinon l'outil n'a pas lu le miroir, ou pas avec la
+    // configuration imposée : rien de son rapport n'est cru, rien n'est caviardé.
+    const situees = trouvailles.map((t) => {
+      const k = /(?:^|[\\/])secrets[\\/](\d+)[\\/][^\\/]+$/.exec(t.fichier)?.[1];
+      const carte = k === undefined ? undefined : lignes[Number(k)];
+      return carte && t.confiance === CONFIANCE_BETTERLEAKS ? { t, k: Number(k), carte } : null;
+    });
+    if (situees.some((s) => s === null)) return sans('outil_en_echec', sonde);
 
     const constats: ConstatSecret[] = [];
     const vues = new Set<string>();
@@ -391,16 +408,13 @@ async function voletSecrets(
       vues.add(cle);
       constats.push(c);
     };
-    for (const t of trouvailles) {
-      const k = /(?:^|[\\/])secrets[\\/](\d+)[\\/][^\\/]+$/.exec(t.fichier)?.[1];
-      const carte = k === undefined ? undefined : lignes[Number(k)];
-      // Un fichier que la porte n'a pas écrit : l'outil n'a pas lu le miroir.
-      if (k === undefined || !carte) return sans('outil_en_echec', sonde);
-      const fichier = nomme(noms[Number(k)] ?? null);
+    for (const s of situees) {
+      if (!s) continue;
+      const fichier = nomme(noms[s.k] ?? null);
       // Le constat ET ses composants : la clé secrète d'une paire AWS est un
       // composant, sur sa propre ligne (voir `TrouvailleSecret`).
-      for (const p of [t, ...t.composants]) {
-        valeurs.push(...valeursAuxColonnes(carte, p));
+      for (const p of [s.t, ...s.t.composants]) {
+        valeurs.push(...formesACaviarder(s.carte, p));
         ajouter({ regle: p.regle, fichier, ligne: p.debutLigne });
       }
     }

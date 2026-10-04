@@ -20,12 +20,7 @@ import {
 } from './agent-detect.js';
 import type { AgentType } from './agent-detect.js';
 import { binaireMcpDansBac } from './bac.js';
-import {
-  creerCaviardeur,
-  formesDuSecret,
-  SECRET_CAVIARDE,
-  valeursSecretes,
-} from '../shared/caviardage.js';
+import { creerCaviardeur, SECRET_CAVIARDE, valeursSecretes } from '../shared/caviardage.js';
 import type { Caviardeur } from '../shared/caviardage.js';
 import { arbresEteints, GRACE_ARRET_MS } from '../shared/arbre-processus.js';
 import { argvDe, jugerChantier } from '../shared/chantier.js';
@@ -1246,13 +1241,10 @@ export class HiveNodeClient {
     const jetonReel = jeton !== DEFAULT_TOKEN && jeton.length >= MIN_TOKEN_LENGTH;
     // `trouvees` : les secrets que la porte a trouvés dans la production, relus
     // dans son diff (`passerLaPorte`) — une clé AWS n'a aucun motif connu de
-    // Hive, sa valeur exacte, si. Sous toutes leurs formes : une clé PEM ne se
-    // caviarde dans le diff que ligne par ligne (`formesDuSecret`).
-    return creerCaviardeur([
-      ...valeursSecretes(env),
-      ...(jetonReel ? [jeton] : []),
-      ...trouvees.flatMap(formesDuSecret),
-    ]);
+    // Hive, sa valeur exacte, si. Déjà sous leurs seules formes CAVIARDABLES
+    // (une clé PEM par ses lignes de base64, jamais par son en-tête) : rien
+    // n'y réécrit une ligne légitime.
+    return creerCaviardeur([...valeursSecretes(env), ...(jetonReel ? [jeton] : []), ...trouvees]);
   }
 
   /**

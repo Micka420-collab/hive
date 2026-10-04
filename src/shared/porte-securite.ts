@@ -304,6 +304,49 @@ export function versionDeSortie(sortie: string): string | null {
 
 // ─── Le rapport de Betterleaks ───────────────────────────────────────────────
 
+/**
+ * La configuration que la porte IMPOSE à Betterleaks (`--config`) : ses
+ * règles par défaut, nommées (`useDefault`), SANS leur préfiltre.
+ *
+ * MESURÉ sur 1.9.0 : le préfiltre par défaut écarte d'office, par leur NOM, les
+ * lockfiles (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`,
+ * `npm-shrinkwrap.json`, `Pipfile.lock`, `poetry.lock`, `gradle.lockfile`),
+ * `go.mod` et `go.sum`, les images (`*.svg`), les `*.min.js` des bibliothèques
+ * connues… Le miroir garde le nom de chaque fichier : une clé ajoutée là n'était
+ * jamais lue, et partait au hub en clair. Sur un corpus de 20 clés réparties
+ * dans ces fichiers : 12 constats avec le préfiltre, 20 sans. La porte ne lit
+ * que les lignes AJOUTÉES — aucun fichier n'y est trop gros pour être lu.
+ */
+export const CONFIG_BETTERLEAKS = "prefilter = '''false'''\n\n[extend]\nuseDefault = true\n";
+
+/**
+ * La seule confiance que la porte retient (`--confidence high`).
+ *
+ * MESURÉ sur 1.9.0, sur l'arbre de Hive lui-même : 90 constats, dont 88 des
+ * règles génériques de confiance basse ou moyenne (`generic-password`,
+ * `generic-credential-uri`, `generic-api-key`) — l'`autoComplete={… :
+ * 'new-password'}` d'un formulaire, les mots de passe de fixtures. Chacun
+ * demandait une correction que le producteur ne pouvait pas faire, en boucle,
+ * qu'aucune approbation ne levait. En confiance haute : 2 (deux jetons de
+ * fixtures à la forme réelle), et les 20 clés du corpus toutes trouvées. Les
+ * règles de confiance moyenne propres à un fournisseur (Discord, Dropbox,
+ * Sentry…) ne sont plus lues : c'est le prix, dit dans la documentation.
+ */
+export const CONFIANCE_BETTERLEAKS = 'high';
+
+/**
+ * Une forme de secret que le nœud peut réécrire PARTOUT — diff, logs, texte
+ * final — sans toucher une ligne légitime : un jeton (au moins 16 caractères,
+ * aucun blanc), jamais un mot ni une phrase. L'en-tête `-----BEGIN … KEY-----`
+ * d'une clé PEM, un `new-password` lu comme un mot de passe : réécrits, ils
+ * corrompraient chaque ligne qui les porte, et un `forcer` livrerait la
+ * corruption. Une clé PEM se caviarde par ses lignes de base64 ; une fin de
+ * moins de 16 caractères reste, et c'est le prix de cette garantie.
+ */
+export function formeCaviardable(forme: string): boolean {
+  return forme.length >= 16 && !/\s/.test(forme);
+}
+
 /** Où une correspondance se tient dans le fichier scanné, et sous quelle règle. */
 export interface PositionSecret {
   regle: string;
@@ -320,6 +363,12 @@ export interface PositionSecret {
 export interface TrouvailleSecret extends PositionSecret {
   /** Le fichier, tel que l'outil le nomme (un chemin du miroir). */
   fichier: string;
+  /**
+   * La confiance de sa règle (`Attributes.confidence` : `high`, `medium`,
+   * `low`), ou `null` si le rapport ne la dit pas. Ses composants en héritent :
+   * ils n'en portent pas (mesuré).
+   */
+  confiance: string | null;
   /**
    * Les COMPOSANTS d'une règle composite (`ComponentSets`), chacun à sa place.
    * MESURÉ sur 1.9.0 : `aws-access-token` ne signale l'identifiant `AKIA…`
@@ -369,8 +418,14 @@ export function lireRapportBetterleaks(texte: string): TrouvailleSecret[] | null
   const trouvailles: TrouvailleSecret[] = [];
   for (const b of brut as unknown[]) {
     const position = positionDepuis(b);
-    const { File: fichier, ComponentSets: ensembles } = b as Record<string, unknown>;
+    const {
+      File: fichier,
+      ComponentSets: ensembles,
+      Attributes: attributs,
+    } = b as Record<string, unknown>;
     if (!position || typeof fichier !== 'string') return null;
+    const confidence = (attributs as Record<string, unknown> | null | undefined)?.confidence;
+    const confiance = typeof confidence === 'string' ? confidence : null;
     if (ensembles !== undefined && ensembles !== null && !Array.isArray(ensembles)) return null;
     const composants: PositionSecret[] = [];
     for (const ensemble of (ensembles ?? []) as unknown[]) {
@@ -382,7 +437,7 @@ export function lireRapportBetterleaks(texte: string): TrouvailleSecret[] | null
         composants.push(composant);
       }
     }
-    trouvailles.push({ ...position, fichier, composants });
+    trouvailles.push({ ...position, fichier, confiance, composants });
   }
   return trouvailles;
 }

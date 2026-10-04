@@ -16,8 +16,11 @@ import type { CrossReviewEvidence, EvaluatorInput } from '../src/orchestrator/ev
 import { HiveStore } from '../src/orchestrator/store.js';
 import { lireDiff } from '../src/shared/caviardage.js';
 import {
+  CONFIANCE_BETTERLEAKS,
+  CONFIG_BETTERLEAKS,
   ETIQUETTE_PORTE,
   MAX_CONSTATS_PORTE,
+  formeCaviardable,
   PORTE_SANS_RAPPORT,
   PUBLICATION_OUTIL,
   VALEUR_ETIQUETTE_PORTE,
@@ -161,6 +164,45 @@ describe('Betterleaks — le rapport, lu comme 1.9.0 l’écrit', () => {
     const [t] = lireRapportBetterleaks(JSON.stringify([trouvaille({})])) ?? [];
     expect(t && valeurDuSecret(lignes('une seule ligne'), t)).toBeNull();
     expect(t && valeurDuSecret(lignes('', 'courte'), t)).toBeNull();
+  });
+
+  it('LA CONFIANCE DE LA RÈGLE se lit dans `Attributes` ; ses composants n’en portent pas', () => {
+    const [haute, basse, muette] =
+      lireRapportBetterleaks(
+        JSON.stringify([
+          trouvaille({ ComponentSets: [{ components: [COMPOSANT_AWS] }] }),
+          trouvaille({
+            RuleID: 'generic-password',
+            Attributes: { confidence: 'low', path: 'm/secrets/1/AccountPanel.tsx' },
+          }),
+          trouvaille({ Attributes: undefined }),
+        ]),
+      ) ?? [];
+    expect(haute?.confiance).toBe('high');
+    expect(basse?.confiance).toBe('low');
+    expect(muette?.confiance).toBeNull();
+  });
+
+  it('LA CONFIGURATION IMPOSÉE garde les règles par défaut et ÉTEINT leur préfiltre', () => {
+    expect(CONFIG_BETTERLEAKS).toMatch(/^prefilter = '''false'''$/m);
+    expect(CONFIG_BETTERLEAKS).toMatch(/^\[extend\]\nuseDefault = true$/m);
+    expect(CONFIANCE_BETTERLEAKS).toBe('high');
+  });
+
+  it('SEULE UNE FORME DE JETON SE CAVIARDE PARTOUT — jamais un mot, ni l’en-tête d’une clé PEM', () => {
+    for (const jeton of [ID_AWS, SECRETE_AWS, STRIPE, 'MIIEvAIBADANBgkqhkiG9w0BAQEF']) {
+      expect(formeCaviardable(jeton), jeton.slice(0, 6)).toBe(true);
+    }
+    // Ce qu'une règle générique lisait comme un mot de passe, l'en-tête d'une
+    // clé, un fragment trop court : réécrits partout, ils corrompaient du code.
+    for (const forme of [
+      'new-password',
+      `-----BEGIN ${'PRIVATE'} KEY-----`,
+      'AB12cd==',
+      'un mot de passe assez long',
+    ]) {
+      expect(formeCaviardable(forme), forme).toBe(false);
+    }
   });
 });
 

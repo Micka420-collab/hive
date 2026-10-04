@@ -117,7 +117,24 @@ const AVIS = [
   },
 ] as const;
 
-/** Le faux Betterleaks : `--version`, et `dir <chemin> …` sur les fichiers qu'on lui donne. */
+/**
+ * Le faux Betterleaks : `--version`, et `dir <chemin> …` sur les fichiers qu'on
+ * lui donne — avec ce que l'outil réel fait AVANT de chercher, et qui décide de
+ * ce qu'il voit :
+ *
+ *   · le PRÉFILTRE par défaut (mesuré sur 1.9.0) : un fichier nommé comme un
+ *     lockfile, `go.mod`/`go.sum`, une image, un `*.min.js` connu n'est pas
+ *     lu — sauf si la configuration passée (`--config`) l'éteint ;
+ *   · la CONFIANCE (`--confidence`) : sans elle, les règles génériques de
+ *     confiance basse parlent aussi — `generic-password` lit le
+ *     `'new-password'` d'un `autoComplete`, comme l'outil réel sur
+ *     `dashboard/src/AccountPanel.tsx`.
+ *
+ * Les règles rejouées, regex comprises, sont celles de la configuration par
+ * défaut de 1.9.0 : la paire AWS (composite, la clé secrète en composant), la
+ * clé privée PEM, le jeton GitHub, la clé Stripe — confiance haute — et
+ * `generic-password`, confiance basse.
+ */
 const BETTERLEAKS = String.raw`
 const fs = require('node:fs');
 const path = require('node:path');
@@ -131,6 +148,21 @@ if (args[0] !== 'dir') { process.stderr.write('Error: unknown command\n'); proce
 if (mode === 'plante') { process.stderr.write('panic: runtime error: index out of range\n'); process.exit(2); }
 const valeur = (drapeau) => { const i = args.indexOf(drapeau); return i < 0 ? undefined : args[i + 1]; };
 const caviarde = args.includes('--redact');
+// « sans-confiance » : un outil qui n'appliquerait pas la confiance demandée.
+const RANG = { low: 0, medium: 1, high: 2 };
+const plancher = mode === 'sans-confiance' ? 0 : (RANG[valeur('--confidence')] ?? 0);
+const config = valeur('--config') ? fs.readFileSync(valeur('--config'), 'utf8') : '';
+const prefiltreEteint = /^prefilter = '''false'''$/m.test(config);
+// Un extrait du préfiltre par défaut de 1.9.0, motif pour motif.
+const PREFILTRE = [
+  /(?:^|\/)(?:deno\.lock|npm-shrinkwrap\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$/,
+  /go\.(?:mod|sum|work(?:\.sum)?)$/,
+  /(?:^|\/)(?:Pipfile|poetry)\.lock$/,
+  /(?:^|\/)gradle\.lockfile$/,
+  /\.(?:bmp|gif|jpe?g|png|svg|tiff?)$/i,
+  /(?:^|\/)(?:angular|bootstrap|jquery(?:-?ui)?|plotly|swagger-?ui)[a-zA-Z0-9.-]*(?:\.min)?\.js(?:\.map)?$/,
+  /gitleaks\.toml/,
+];
 const fichiers = [];
 const parcourir = (d) => {
   for (const e of fs.readdirSync(d, { withFileTypes: true })) {
@@ -140,55 +172,75 @@ const parcourir = (d) => {
 };
 parcourir(args[1]);
 const octets = (s) => Buffer.byteLength(s, 'utf8');
-const commun = (f, regle, ligne) => ({
-  Attributes: { confidence: 'high', path: f, resource: 'fs.content' },
+const commun = (f, regle, ligne, confiance) => ({
+  Attributes: { confidence: confiance, path: f, resource: 'fs.content' },
   Tags: [],
   Fingerprint: f + ':' + regle + ':' + ligne,
   File: f, SymlinkFile: '', Commit: '', Entropy: 4.121928, Author: '', Email: '', Date: '', Message: '',
 });
+// Une correspondance d'une ligne : ses colonnes en OCTETS, le secret caviardé dans Match.
+const position = (lignes, i, m, secret) => {
+  const de = octets(lignes[i].slice(0, m.index)) + 1;
+  return {
+    StartLine: i + 1, EndLine: i + 1, StartColumn: de, EndColumn: de + octets(m[0]) - 1,
+    Match: caviarde ? m[0].replace(secret, 'REDACTED') : m[0], Secret: caviarde ? 'REDACTED' : secret,
+  };
+};
 const trouvailles = [];
+const trouver = (f, regle, confiance, description, champs) => {
+  if (RANG[confiance] < plancher) return;
+  trouvailles.push({ RuleID: regle, Description: description, ...champs, ...commun(f, regle, champs.StartLine, confiance) });
+};
+const SIMPLES = [
+  { regle: 'github-pat', regex: /ghp_[0-9a-zA-Z]{36}/g, groupe: 0,
+    description: 'Uncovered a GitHub Personal Access Token, potentially leading to unauthorized repository access and sensitive content exposure.' },
+  { regle: 'stripe-access-token', regex: /\b((?:sk|rk)_(?:test|live|prod)_[a-zA-Z0-9]{10,99})(?:\\?['"\x60]|[\s;]|\\[nr]|$)/g, groupe: 1,
+    description: 'Found a Stripe Access Token, posing a risk to payment processing services and sensitive financial data.' },
+];
+const MOT_DE_PASSE = /(?:passw(?:or)?d|psw|[_.-]pw)\b[ \t'"\\]{0,3}(?:=>|:=|=|:)[ \t]{0,5}(?:"((?:\\.|[^"\\\r\n]){5,250})"|'((?:\\.|[^'\\\r\n]){5,250})')(?:[ \t]*[,;)}\]]|[ \t]*$)/i;
 for (const f of fichiers.sort()) {
+  if (!prefiltreEteint && PREFILTRE.some((m) => m.test(f))) continue;
   const lignes = fs.readFileSync(f, 'utf8').split('\n');
   // aws-access-token : une règle COMPOSITE — l'identifiant n'est signalé
   // qu'apparié à sa clé secrète, rapportée en composant (mesuré sur 1.9.0).
-  const ID = /AKIA[0-9A-Z]{16}/;
-  const SECRETE = /SecretAccessKey\s*=\s*'([A-Za-z0-9/+=]{40})'/;
+  const ID = /\b((?:A3T[A-Z0-9]|AKIA|ASIA|ABIA|ACCA)[A-Z2-7]{16})\b/;
+  const SECRETE = /(?:secret|access|key|token)(?:[ \t\w.-]{0,20})[\s'"]{0,3}(?:=|>|:{1,3}=|\|\||:|=>|\?=|,)[\x60'"\s=]{0,5}([A-Za-z0-9/+=]{40})(?:\\?['"\x60]|[\s;]|\\[nr]|$)/i;
   const i = lignes.findIndex((l) => ID.test(l));
   const j = lignes.findIndex((l) => SECRETE.test(l));
   if (i >= 0 && j >= 0) {
     const m = ID.exec(lignes[i]);
     const s = SECRETE.exec(lignes[j]);
-    const de = octets(lignes[i].slice(0, m.index)) + 1;
-    const sde = octets(lignes[j].slice(0, s.index)) + 1;
-    trouvailles.push({
-      RuleID: 'aws-access-token',
-      Description: 'Identified an AWS access key ID paired with a secret access key, which together can provide full access to AWS services.',
-      StartLine: i + 1, EndLine: i + 1, StartColumn: de, EndColumn: de + octets(m[0]) - 1,
-      Match: caviarde ? 'REDACTED' : m[0], Secret: caviarde ? 'REDACTED' : m[0],
-      ComponentSets: [{ components: [{
-        RuleID: 'aws-secret-access-key', Optional: false,
-        StartLine: j + 1, EndLine: j + 1, StartColumn: sde, EndColumn: sde + octets(s[0]) - 1,
-        Match: caviarde ? s[0].replace(s[1], 'REDACTED') : s[0], Secret: caviarde ? 'REDACTED' : s[1],
-      }] }],
-      ...commun(f, 'aws-access-token', i + 1),
-    });
+    trouver(f, 'aws-access-token', 'high',
+      'Identified an AWS access key ID paired with a secret access key, which together can provide full access to AWS services.',
+      { ...position(lignes, i, m, m[1]),
+        ComponentSets: [{ components: [{ RuleID: 'aws-secret-access-key', Optional: false, ...position(lignes, j, s, s[1]) }] }] });
   }
   // private-key : sur plusieurs lignes, de l'en-tête au pied (mesuré : SC 1, EC = le pied).
   const debut = lignes.findIndex((l) => /^-----BEGIN [A-Z ]*PRIVATE KEY-----$/.test(l));
   const fin = lignes.findIndex((l, k) => k > debut && /^-----END [A-Z ]*PRIVATE KEY-----$/.test(l));
   if (debut >= 0 && fin > debut) {
     const bloc = lignes.slice(debut, fin + 1).join('\n');
-    trouvailles.push({
-      RuleID: 'private-key',
-      Description: 'Identified a Private Key, which may compromise cryptographic security and sensitive data encryption.',
-      StartLine: debut + 1, EndLine: fin + 1, StartColumn: 1, EndColumn: octets(lignes[fin]),
-      Match: caviarde ? 'REDACTED' : bloc, Secret: caviarde ? 'REDACTED' : bloc,
-      ...commun(f, 'private-key', debut + 1),
-    });
+    trouver(f, 'private-key', 'high',
+      'Identified a Private Key, which may compromise cryptographic security and sensitive data encryption.',
+      { StartLine: debut + 1, EndLine: fin + 1, StartColumn: 1, EndColumn: octets(lignes[fin]),
+        Match: caviarde ? 'REDACTED' : bloc, Secret: caviarde ? 'REDACTED' : bloc });
   }
+  lignes.forEach((ligne, k) => {
+    for (const r of SIMPLES) {
+      for (const m of ligne.matchAll(r.regex)) trouver(f, r.regle, 'high', r.description, position(lignes, k, m, m[r.groupe]));
+    }
+    const mdp = MOT_DE_PASSE.exec(ligne);
+    if (mdp) trouver(f, 'generic-password', 'low',
+      'Detected a potential hardcoded password literal, which may expose account credentials.',
+      position(lignes, k, mdp, mdp[1] ?? mdp[2]));
+  });
 }
 // « decale » : des colonnes qui ne se relisent plus dans le fichier.
-if (mode === 'decale') for (const t of trouvailles) { t.StartColumn += 1000; t.EndColumn += 1000; }
+if (mode === 'decale') {
+  for (const t of trouvailles) {
+    for (const p of [t, ...(t.ComponentSets ?? []).flatMap((e) => e.components)]) { p.StartColumn += 1000; p.EndColumn += 1000; }
+  }
+}
 fs.writeFileSync(valeur('--report-path'), JSON.stringify(trouvailles, null, 1));
 if (mode === 'menteur') process.exit(0);
 process.exit(trouvailles.length > 0 ? Number(valeur('--exit-code') ?? '1') : 0);
