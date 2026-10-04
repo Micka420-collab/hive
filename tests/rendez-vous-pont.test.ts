@@ -74,6 +74,22 @@ describe('rendez-vous des ponts de délégation', () => {
     );
   });
 
+  it('un nœud ARRÊTÉ n’ouvre plus de pont — une tâche annulée qui finit de se dérouler ne laisse rien ; le démarrage les rouvre', () => {
+    const dossier = tmpDuBanc();
+    const rdv = new RendezVousPont();
+    rdv.fermer();
+    expect(() => rdv.reserver()).toThrow(/nœud arrêté/);
+    expect(
+      readdirSync(dossier).filter((n) => n.startsWith(PREFIXE_PONT)),
+      'rien créé après l’arrêt : personne ne l’effacerait',
+    ).toEqual([]);
+    rdv.ouvrir();
+    const pont = rdv.reserver();
+    expect(existsSync(pont.dossier)).toBe(true);
+    rdv.fermer();
+    expect(existsSync(path.dirname(pont.dossier))).toBe(false);
+  });
+
   // Hors Windows : le dossier temporaire et le dépôt y vivent souvent sur deux
   // lecteurs (`C:` / `D:` en CI), entre lesquels aucun chemin relatif n'existe.
   it.skipIf(process.platform === 'win32')(

@@ -506,6 +506,8 @@ export class HiveNodeClient {
    * TMPDIR profond ne coûte rien, et l'en avertir serait un faux signal.
    */
   private preparerRendezVous(): void {
+    // Un nœud redémarré rouvre ses ponts : son arrêt les avait fermés.
+    this.rendezVous.ouvrir();
     for (const reste of balayerPontsOrphelins()) this.log(`pont orphelin effacé : ${reste}`);
     const agent = this.opts.agentType;
     if (!estAgentType(agent) || binaireMcpDansBac(agent) === null) return;
