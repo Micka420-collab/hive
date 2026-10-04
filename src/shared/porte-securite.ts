@@ -161,10 +161,16 @@ export const ETATS_PAR_RAISON_PORTE = {
    */
   diff_hors_arbre: ['non_verifie'],
   /**
-   * Le résultat n'a apporté AUCUN rapport — nœud antérieur à la porte,
-   * production simulée, rapport mal formé écarté. Posé par la Reine.
+   * Le résultat n'a apporté AUCUN rapport — nœud antérieur à la porte, ou
+   * production arrêtée avant elle. Posé par la Reine.
    */
   rapport_absent: ['non_verifie'],
+  /**
+   * Le volet que le nœud a envoyé est MAL FORMÉ : la Reine l'a refusé à la
+   * réception — lui seul, pas l'autre volet — et l'a journalisé
+   * (`security_gate_rejected`). Posé par la Reine.
+   */
+  rapport_rejete: ['non_verifie'],
 } as const satisfies Record<string, readonly EtatPorte[]>;
 
 export type RaisonPorte = keyof typeof ETATS_PAR_RAISON_PORTE;
@@ -202,8 +208,12 @@ export const DIRE_RAISON_PORTE: Readonly<Record<RaisonPorte, readonly [string, s
     'not examined: the diff does not come from the task tree',
   ],
   rapport_absent: [
-    'aucun rapport du nœud (nœud antérieur à la porte, ou production simulée)',
-    'no report from the node (node older than the gate, or simulated production)',
+    'aucun rapport du nœud (nœud antérieur à la porte, ou production arrêtée avant elle)',
+    'no report from the node (node older than the gate, or production stopped before it)',
+  ],
+  rapport_rejete: [
+    'rapport du nœud refusé à la réception, mal formé — voir le journal',
+    'node report refused on receipt, malformed — see the journal',
   ],
 };
 
@@ -670,14 +680,15 @@ export function vulnerabilitesIntroduites(
         connues.add(k);
         introduites.push({
           genre: 'vulnerabilite',
-          paquet: texteAffichable(p.nom, BORNES_PORTE.paquet),
-          version: texteAffichable(p.version, BORNES_PORTE.version),
+          // Jamais vides : la Reine refuserait le volet entier (`texteBorne`).
+          paquet: texteAffichable(p.nom, BORNES_PORTE.paquet) || '?',
+          version: texteAffichable(p.version, BORNES_PORTE.version) || '?',
           ecosysteme: ECOSYSTEME.test(p.ecosysteme) ? p.ecosysteme : '?',
           avis: v.id,
           alias: v.alias,
           gravite: v.gravite,
           resume: v.resume,
-          fichier: texteAffichable(fichier, BORNES_PORTE.fichier),
+          fichier: texteAffichable(fichier, BORNES_PORTE.fichier) || '(sans nom)',
         });
       }
     }
@@ -796,15 +807,32 @@ function voletDepuis<C>(
   };
 }
 
+/** Ce que la Reine relit d'un rapport : chaque volet reconstruit, ou refusé. */
+export interface PorteRelue {
+  porte: PorteSecurite;
+  /** Les volets refusés — devenus `rapport_rejete`, et à journaliser. */
+  rejetes: VoletPorte[];
+}
+
 /**
- * Le rapport d'un nœud, reconstruit champ par champ — ou `null` s'il est mal
- * formé. Mal formé, il est ABANDONNÉ, pas le résultat qui le porte : la porte
- * redevient ce qu'elle est sans rapport, `non_verifie` — jamais un vert.
+ * Le rapport d'un nœud, reconstruit champ par champ, VOLET PAR VOLET. Un volet
+ * mal formé est refusé seul — il devient `rapport_rejete`, jamais un vert — et
+ * l'autre volet tient : une dépendance mal écrite effaçait sinon le constat
+ * d'un secret, et la production passait `accepted` hors de `strict`. Le
+ * résultat qui le porte, lui, n'est jamais abandonné.
  */
-export function porteSecuriteDepuis(v: unknown): PorteSecurite | null {
+export function porteSecuriteDepuis(v: unknown): PorteRelue {
   const o = enregistrement(v);
-  if (!o) return null;
-  const secrets = voletDepuis(o.secrets, 'secrets', constatSecretDepuis);
-  const dependances = voletDepuis(o.dependances, 'dependances', constatDependanceDepuis);
-  return secrets && dependances ? { secrets, dependances } : null;
+  const secrets = o ? voletDepuis(o.secrets, 'secrets', constatSecretDepuis) : null;
+  const dependances = o ? voletDepuis(o.dependances, 'dependances', constatDependanceDepuis) : null;
+  return {
+    porte: {
+      secrets: secrets ?? voletSans('rapport_rejete'),
+      dependances: dependances ?? voletSans('rapport_rejete'),
+    },
+    rejetes: [
+      ...(secrets ? [] : ['secrets' as const]),
+      ...(dependances ? [] : ['dependances' as const]),
+    ],
+  };
 }

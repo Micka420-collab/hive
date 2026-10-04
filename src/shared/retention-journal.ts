@@ -86,8 +86,10 @@ const PREUVES_EVALUATOR = [
   'validation_recorded',
   'ci_validation_recorded',
   // Ce que la porte de sécurité du nœud a vu : élaguée, la production
-  // redeviendrait « non vérifiée » — ou, constat oublié, livrable.
+  // redeviendrait « non vérifiée » — ou, constat oublié, livrable. Et le refus
+  // d'un volet mal formé, qui dit pourquoi il n'est pas vérifié.
   'security_gate_recorded',
+  'security_gate_rejected',
   'contre_expertise',
   'contre_expertise_verdict',
   'contre_expertise_impossible',

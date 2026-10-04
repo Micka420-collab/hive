@@ -8111,8 +8111,8 @@ export class HiveStore {
    *
    * Revalidé par les règles mêmes qui l'ont admis du réseau
    * (`porteSecuriteDepuis`) : le journal est une trace, pas une zone de
-   * confiance. Illisible, il est absent — et l'Evaluator lit alors la porte
-   * « non vérifiée », jamais « rien trouvé ».
+   * confiance. Un volet altéré devient `rapport_rejete` — « non vérifié »,
+   * jamais « rien trouvé » — sans emporter l'autre.
    */
   porteSecuriteDe(
     taskId: string,
@@ -8130,11 +8130,10 @@ export class HiveStore {
     if (!row) return null;
     try {
       const payload = JSON.parse(row.payload) as Record<string, unknown>;
-      const porte = porteSecuriteDepuis(payload.porte);
       const { nodeId, recordedAt } = payload;
-      if (!porte || typeof nodeId !== 'string' || nodeId === '') return null;
+      if (payload.porte === undefined || typeof nodeId !== 'string' || nodeId === '') return null;
       if (typeof recordedAt !== 'number' || !Number.isSafeInteger(recordedAt)) return null;
-      return { porte, nodeId, recordedAt };
+      return { porte: porteSecuriteDepuis(payload.porte).porte, nodeId, recordedAt };
     } catch {
       return null;
     }

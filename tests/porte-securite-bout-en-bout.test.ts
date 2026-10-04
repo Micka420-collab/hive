@@ -282,6 +282,44 @@ describe.runIf(POSIX)('la porte de sécurité — du nœud producteur jusqu’à
   );
 
   it(
+    'UN VOLET MAL FORMÉ EST REFUSÉ SEUL : le constat du secret tient, et le refus est journalisé',
+    { timeout: 60_000 },
+    async () => {
+      // La Reine jetait le rapport ENTIER pour un seul volet mal formé : le
+      // constat d'un secret devenait « aucun rapport », donc `accepted` hors
+      // de `strict` — et rien ne disait qu'un rapport avait été refusé.
+      const { s, produire } = await demarrer();
+      const noeud = client as unknown as { send(m: Record<string, unknown>): void };
+      const envoyer = noeud.send.bind(client);
+      noeud.send = (m) => {
+        const porte = m.porteSecurite as Record<string, Record<string, unknown>> | undefined;
+        if (m.type === 'task_result' && porte) {
+          porte.dependances = { ...porte.dependances, etat: 'rien_trouve', raison: 'trouve' };
+        }
+        envoyer(m);
+      };
+      const { tacheId, evaluation } = await produire('Configurer le compte AWS');
+
+      expect(evaluation.decision).toBe('correction_required');
+      expect(evaluation.reasons[0]).toMatch(
+        /^la porte de sécurité a trouvé 2 secret\(s\) ajouté\(s\)/,
+      );
+      expect(evaluation.evidence.securite.dependances).toEqual({
+        etat: 'non_verifie',
+        raison: 'rapport_rejete',
+        constats: [],
+        total: 0,
+      });
+      const [refus] = s.store.evenementsDeTache(tacheId, ['security_gate_rejected']);
+      expect(refus?.payload).toMatchObject({
+        taskId: tacheId,
+        nodeId: 'noeud-porte',
+        volets: ['dependances'],
+      });
+    },
+  );
+
+  it(
     'OUTILS ABSENTS, POLYÉTHISME STRICT : « non vérifiée » avec sa raison, et la production attend un humain',
     { timeout: 60_000 },
     async () => {

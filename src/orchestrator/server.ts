@@ -14828,6 +14828,9 @@ async function monterReine(
               ...(msg.finalText !== undefined ? { finalText: msg.finalText } : {}),
               ...(msg.validations ? { validations: msg.validations } : {}),
               ...(msg.porteSecurite ? { porteSecurite: msg.porteSecurite } : {}),
+              ...(msg.porteSecuriteRejetee
+                ? { porteSecuriteRejetee: msg.porteSecuriteRejetee }
+                : {}),
             });
             if (!pris) {
               send(ws, {
