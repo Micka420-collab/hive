@@ -334,8 +334,15 @@ const STATUS_LABEL_EN: Record<TaskStatus, string> = {
   failed: 'failed',
 };
 
-/** Libellé de statut dans la langue demandée (FR = export historique). */
-export function statusLabel(status: TaskStatus, lang: UiLang): string {
+/**
+ * Libellé de statut dans la langue demandée (FR = export historique).
+ * `arretBudgetaire` : la tâche `failed` s'est ARRÊTÉE sur son plafond de coût
+ * (`arreteeParSonBudget` de son résumé) — dite telle, pas « échouée ».
+ */
+export function statusLabel(status: TaskStatus, lang: UiLang, arretBudgetaire = false): string {
+  if (status === 'failed' && arretBudgetaire) {
+    return lang === 'fr' ? 'arrêtée (budget)' : 'stopped (budget)';
+  }
   return lang === 'fr' ? STATUS_LABEL[status] : STATUS_LABEL_EN[status];
 }
 
@@ -348,12 +355,19 @@ export const STATUS_ICON: Record<TaskStatus, string> = {
   failed: '✘',
 };
 
-export function StatusBadge({ status }: { status: TaskStatus }) {
+export function StatusBadge({
+  status,
+  arretBudgetaire = false,
+}: {
+  status: TaskStatus;
+  arretBudgetaire?: boolean;
+}) {
   const lang = useLang();
+  const arretee = status === 'failed' && arretBudgetaire;
   return (
     <span className={`badge ${status}`}>
-      <span className="badge-icon">{STATUS_ICON[status]}</span>
-      {statusLabel(status, lang)}
+      <span className="badge-icon">{arretee ? '¤' : STATUS_ICON[status]}</span>
+      {statusLabel(status, lang, arretee)}
     </span>
   );
 }

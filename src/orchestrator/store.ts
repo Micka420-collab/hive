@@ -250,6 +250,30 @@ const TACHES_DU_BANC_SQL = `
     FROM contre_expertises ce JOIN taches_ombre o ON o.tacheOmbre = ce.productionTaskId`;
 
 /**
+ * Les productions ARRÊTÉES SUR LEUR PLAFOND, en SQL : le `resultId` de chaque
+ * `task_failed` qui porte `arretBudgetaire` (scheduler.ts) — une ligne
+ * `results` en `success = 0` qui n'est PAS un échec : l'agent s'est arrêté sur
+ * sa borne. Les lecteurs d'échecs par RÉSULTAT — leçons croisées de l'essaim,
+ * phéromones, dérive — l'écartent comme ils écartent le banc : comptée, la
+ * même ligne d'arrêt sur trois nœuds devenait une « leçon systémique », et
+ * l'essaim autonome ouvrait un correctif du code en boucle.
+ *
+ * Le fait vit au journal, avec sa tâche (une preuve, `TYPES_PREUVE`) :
+ * élagué, la production retomberait en échec ordinaire — elle aurait alors
+ * quitté la fenêtre de ces lecteurs (les derniers échecs, la demi-vie des
+ * phéromones). Même compromis que le texte final, relu au même journal
+ * (`textesFinauxPour`). `resultId IS NOT NULL` : un NULL dans un `NOT IN`
+ * écarterait toutes les lignes ; une clôture de la Reine
+ * (`reservation_depensee`) n'en nomme aucun, et sa dernière tentative reste
+ * l'échec ordinaire qu'elle était.
+ */
+const ARRETS_BUDGETAIRES_SQL = `
+  SELECT json_extract(payload, '$.resultId') FROM events
+   WHERE type = 'task_failed' AND json_valid(payload)
+     AND json_extract(payload, '$.arretBudgetaire') IS NOT NULL
+     AND json_extract(payload, '$.resultId') IS NOT NULL`;
+
+/**
  * Une mission (#512) est le travail du PROJET : le banc d'ombre (#501) — une
  * ombre, ou sa relecture — n'y entre pas. Membre, l'ombre tenait la mission
  * ouverte, entrait à son instantané comme une tâche du plan, et son rejeu
@@ -5019,11 +5043,14 @@ export class HiveStore {
   ): Array<{ taskId: string; nodeId: string; success: boolean; createdAt: number }> {
     // Une ombre n'y dépose rien, ni ses relectures (`TACHES_DU_BANC_SQL`) :
     // les phéromones départagent les nœuds, et le banc ne touche à aucun
-    // poids du routing (décision de shadow-bench.ts).
+    // poids du routing (décision de shadow-bench.ts). Un arrêt sur plafond non
+    // plus (`ARRETS_BUDGETAIRES_SQL`) : ni réussite, ni échec du nœud sur ce
+    // domaine — compté, il y déposait −6.
     const rows = this.db
       .prepare(
         `SELECT taskId, nodeId, success, createdAt FROM results
           WHERE taskId NOT IN (SELECT id FROM (${TACHES_DU_BANC_SQL}))
+            AND id NOT IN (${ARRETS_BUDGETAIRES_SQL})
           ORDER BY createdAt DESC, id DESC LIMIT ?`,
       )
       .all(Math.max(1, Math.min(limit, 2000))) as {
@@ -5272,6 +5299,10 @@ export class HiveStore {
    * lignes — jamais le contenu. `pruneResults` vide `diff` au-dela de 5 000
    * resultats : les productions anciennes comptent alors 0/0, ce qui les sort
    * de la mesure d'entropie au lieu de la fausser.
+   *
+   * Un arrêt sur plafond n'y entre pas (`ARRETS_BUDGETAIRES_SQL`) : ni
+   * production, ni échec — ses lignes, toutes de la même signature, faisaient
+   * tomber la diversité des causes d'échec, et la ruche autonome en HALTE.
    */
   listProductionsPourDerive(limit = 400): Array<{
     verdict: string;
@@ -5287,6 +5318,7 @@ export class HiveStore {
                 r.logs AS logs, r.success AS success, r.createdAt AS createdAt
            FROM results r
            LEFT JOIN gardiennes g ON g.resultId = r.id
+          WHERE r.id NOT IN (${ARRETS_BUDGETAIRES_SQL})
           ORDER BY r.id DESC LIMIT ?`,
       )
       .all(limit)
@@ -5766,7 +5798,8 @@ export class HiveStore {
 
   /**
    * Échecs récents, tous projets et tous nœuds confondus — la matière des
-   * leçons croisées.
+   * leçons croisées. Un arrêt sur plafond n'en est pas un
+   * (`ARRETS_BUDGETAIRES_SQL`).
    *
    * BORNÉ par `limit` et servi par l'index couvrant existant : c'est un
    * parcours arrière de clé primaire, pas un dépliage de `results`.
@@ -5782,6 +5815,7 @@ export class HiveStore {
       .prepare(
         `SELECT id, nodeId, taskId, logs, createdAt FROM results
          WHERE success = 0 AND taskId NOT IN (SELECT tacheOmbre FROM taches_ombre)
+           AND id NOT IN (${ARRETS_BUDGETAIRES_SQL})
          ORDER BY id DESC LIMIT ?`,
       )
       .all(limit) as Array<{

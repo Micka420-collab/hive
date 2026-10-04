@@ -170,7 +170,7 @@ function LigneTache({
           {ligne.modeles.length > 0 && ` · ${ligne.modeles.join(', ')}`}
         </span>
       </th>
-      <td>{statusLabel(ligne.statut, lang)}</td>
+      <td>{statusLabel(ligne.statut, lang, ligne.arretBudgetaire === true)}</td>
       <td
         data-testid="mission-evaluator"
         data-decision={ligne.evaluator?.decision}

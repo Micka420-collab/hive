@@ -53,10 +53,18 @@ import { createDeclarationFournisseurTracker } from '../src/adapters/fournisseur
 import { versionAuMoins } from '../src/node-client/agent-detect.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { jugerDelegation, plafondCoutTentative } from '../src/orchestrator/delegation.js';
+import { detectGhosts } from '../src/orchestrator/ghost.js';
+import { computePulse } from '../src/orchestrator/pulse.js';
 import { createServer, type HiveServer } from '../src/orchestrator/server.js';
 import { lireTemperature } from '../src/orchestrator/thermo.js';
 import { buildWaggleBoard } from '../src/orchestrator/waggle.js';
 import { ligneArretBudgetaire } from '../src/shared/arret-budgetaire.js';
+import { chronologieDepuisEvenements } from '../src/shared/chronologie-tache.js';
+import {
+  cibleDeTache,
+  contextesSimilaires,
+  projeterGrapheExperience,
+} from '../src/shared/graphe-experience.js';
 import {
   registreGenomeDepuisEvenements,
   type RegistreGenome,
@@ -155,7 +163,9 @@ describe('le plafond d’une tentative, et ce que le CLI réel en dit', () => {
     expect(illisible.tenu ? '' : illisible.motif).toContain('`claude update`');
   });
 
-  it('un arrêt budgétaire n’est un échec ni pour le Genome, ni pour la Thermo, ni pour le Waggle', () => {
+  it('UN ARRÊT BUDGÉTAIRE N’EST UN ÉCHEC POUR AUCUN LECTEUR : Genome, Thermo, Waggle, Ghost, Pulse, chronologie, graphe', () => {
+    // Quatre tâches qui nomment le même fichier, chacune arrêtée sur son
+    // plafond par le même nœud ; le témoin rend les mêmes issues SANS l'arrêt.
     const journal = (arret: boolean): HiveEvent[] => {
       const evenements: HiveEvent[] = [];
       for (let i = 0; i < 4; i += 1) {
@@ -169,6 +179,7 @@ describe('le plafond d’une tentative, et ce que le CLI réel en dit', () => {
             payload: {
               taskId,
               nodeId: 'n1',
+              resultId: 100 + i,
               attempts: 1,
               fournisseur: { source: 'claude-code', coutUsd: 0.05 },
               ...(arret ? { arretBudgetaire: 'cout' } : {}),
@@ -178,23 +189,67 @@ describe('le plafond d’une tentative, et ce que le CLI réel en dit', () => {
       }
       return evenements;
     };
-    const lire = (evenements: HiveEvent[]) => ({
-      genome: registreGenomeDepuisEvenements(evenements, () => 'autre').sansModele,
-      thermo: lireTemperature(evenements, 2_000).signaux.echecs,
-      waggle: buildWaggleBoard(evenements).nodes.find((n) => n.nodeId === 'n1')?.tasksFailed ?? 0,
-    });
+    const lire = (evenements: HiveEvent[]) => {
+      const graphe = projeterGrapheExperience(
+        {
+          evenements,
+          tacheDe: (taskId) => ({
+            projectId: 'p',
+            titre: taskId,
+            categorie: 'correction',
+            fichiers: ['src/commun.ts'],
+          }),
+          nomProjet: () => null,
+          nomOuvriere: () => null,
+          notes: [],
+        },
+        { genre: 'ruche' },
+      );
+      const pulse = computePulse(evenements);
+      return {
+        genome: registreGenomeDepuisEvenements(evenements, () => 'autre').sansModele,
+        thermo: lireTemperature(evenements, 2_000).signaux.echecs,
+        waggle: buildWaggleBoard(evenements).nodes.find((n) => n.nodeId === 'n1')?.tasksFailed ?? 0,
+        ghost: detectGhosts(evenements).ghosts.map((g) => g.kind),
+        pulse: [pulse.totalFailed, pulse.successRate],
+        chronologie: chronologieDepuisEvenements(
+          0,
+          evenements.filter((e) => e.payload.taskId === 't0'),
+        ).tentatives.map((t) => t.issue),
+        graphe: contextesSimilaires(graphe, cibleDeTache(graphe, 't0')!, 5).map(
+          (v) => v.issue.tentativesEchouees,
+        ),
+      };
+    };
     const arretes = lire(journal(true));
     expect(arretes.genome).toMatchObject({ affectations: 4, echecs: 0, interrompues: 4 });
     // La dépense reste déclarée : elle a eu lieu.
     expect(arretes.genome.coutFournisseur).toMatchObject({ declarees: 4, tentatives: 4 });
-    expect(arretes.thermo).toBe(0);
-    expect(arretes.waggle).toBe(0);
-    // Le témoin : les mêmes issues SANS l'arrêt sont bien des échecs.
+    expect(arretes).toMatchObject({
+      thermo: 0,
+      waggle: 0,
+      // Ni `flaky_node` pour le nœud, ni `looping_task` « échouée définitivement ».
+      ghost: [],
+      // Ni réussite ni échec : hors du taux de succès.
+      pulse: [0, 1],
+      chronologie: ['arret'],
+      // L'expérience voisine ne compte aucune tentative échouée.
+      graphe: [0, 0, 0],
+    });
+    // Le témoin : les mêmes issues SANS l'arrêt sont bien des échecs, partout.
     const echoues = lire(journal(false));
     expect(echoues.genome).toMatchObject({ echecs: 4, interrompues: 0 });
-    expect(echoues.thermo).toBe(4);
-    expect(echoues.waggle).toBe(4);
+    expect(echoues).toMatchObject({
+      thermo: 4,
+      waggle: 4,
+      pulse: [4, 0],
+      chronologie: ['echec'],
+      graphe: [1, 1, 1],
+    });
+    expect(echoues.ghost).toContain('flaky_node');
+    expect(echoues.ghost).toContain('looping_task');
   });
+
   it('CE QUE LIT LE PARENT, ET CE QUE LIT LE MODÈLE QUI RÉSERVE : la dépense, la suite, un ordre de grandeur', () => {
     // La ligne d'arrêt dit la borne, la dépense, le diff joint, et que le
     // même childTaskId ne ferait que rejouer l'enfant arrêté.
