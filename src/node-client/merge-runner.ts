@@ -340,9 +340,20 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
   const logs: string[] = [];
   const patchDir = mkdtempSync(path.join(os.tmpdir(), 'hive-merge-'));
   // Le dépôt de TRANSIT d'une livraison : À CÔTÉ du clone, comme son `.tmp`,
-  // parce que le bac à sable ne monte que le clone. Effacé en `finally` ; la
+  // parce que le bac à sable ne monte que le clone. Effacé avant le retour ; la
   // branche gardée, elle, vit dans le dépôt durable.
   const transit = `${opts.repoDir}.livraison.git`;
+
+  // `effacerDossier` lève quand un verrou tient au-delà de 5,5 s — son contrat
+  // laisse à l'appelant le soin de le dire. Un TEMP ou un transit tenu ne doit
+  // pas transformer un merge RÉUSSI en rejet : on le DIT dans les logs du
+  // résultat (chemin + code), le merge garde son issue.
+  const direLeReste =
+    (quoi: string, chemin: string) =>
+    (e: unknown): void => {
+      const code = (e as NodeJS.ErrnoException).code ?? String(e);
+      logs.push(`⚠ ${quoi} non effacé (${code}) : ${chemin} — à retirer à la main`);
+    };
 
   try {
     for (const { taskId, diff } of opts.diffs) {
@@ -441,7 +452,9 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
           logs.push(caviarder(output).slice(0, 4000));
         }
       } finally {
-        await effacerDossier(`${opts.repoDir}.tmp`);
+        await effacerDossier(`${opts.repoDir}.tmp`).catch(
+          direLeReste('TEMP du merge', `${opts.repoDir}.tmp`),
+        );
       }
     }
 
@@ -450,6 +463,15 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
         ? await garderSiRienNeContredit(composee, opts.livraison, { preparedOk, testsPassed })
         : undefined;
     if (livraison) logs.push(ligneDeLivraison(livraison));
+
+    // Le reste s'efface AVANT de figer le résultat, et un dossier tenu est DIT,
+    // pas jeté par-dessus un merge réussi — c'est le défaut qu'un `finally`
+    // avait. (Le transit est un dépôt git : objets en lecture seule sous
+    // Windows, où `rmSync` n'y arrive pas dans l'app — cf. `effacerDossier`.)
+    await Promise.all([
+      effacerDossier(patchDir).catch(direLeReste('dossier de patchs du merge', patchDir)),
+      effacerDossier(transit).catch(direLeReste('dépôt de transit de la livraison', transit)),
+    ]);
 
     return {
       applied,
@@ -461,11 +483,11 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
       logs: logs.join('\n'),
       ...(livraison ? { livraison } : {}),
     };
-  } finally {
-    // Le transit est un dépôt git : ses objets sont en lecture seule sous
-    // Windows, et `rmSync` ne les efface pas dans l'app (`effacerDossier`) —
-    // le merge réussi échouait alors en sortant.
-    await Promise.all([effacerDossier(patchDir), effacerDossier(transit)]);
+  } catch (err) {
+    // Le merge n'a pas abouti : on nettoie quand même, mais SANS masquer la
+    // cause — `allSettled` ne relaie aucune erreur d'effacement par-dessus elle.
+    await Promise.allSettled([effacerDossier(patchDir), effacerDossier(transit)]);
+    throw err;
   }
 }
 
