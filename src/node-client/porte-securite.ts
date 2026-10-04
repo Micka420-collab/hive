@@ -61,13 +61,11 @@ import {
   BORNES_PORTE,
   CONFIANCE_BETTERLEAKS,
   CONFIG_BETTERLEAKS,
-  LOCKFILES_SURVEILLES,
   REGLE_CAVIARDAGE_HIVE,
   formeCaviardable,
   lireRapportBetterleaks,
   lireRapportOsv,
   nomDansLeMiroir,
-  nomDeFichier,
   texteAffichable,
   valeurDuSecret,
   versionDeSortie,
@@ -75,6 +73,16 @@ import {
   voletSans,
   vulnerabilitesIntroduites,
 } from '../shared/porte-securite.js';
+import {
+  LOCKFILE_MAL_FORME,
+  aInterroger,
+  estFichierDeDependances,
+  lireExtraction,
+  nomDeFichier,
+  paquetsPublics,
+  sbomDe,
+  type PaquetExtrait,
+} from '../shared/porte-securite-dependances.js';
 import type {
   ConstatDependance,
   ConstatSecret,
@@ -85,7 +93,7 @@ import type {
   SourceLue,
   Volet,
 } from '../shared/porte-securite.js';
-import { surLePath, type BacExecution } from './isolement.js';
+import { surLePath, VARIABLES_PROXY, type BacExecution } from './isolement.js';
 import { runProc } from './merge-runner.js';
 import { fichierDeBase } from './validations-bac.js';
 import { buildSandboxEnv } from './workspace.js';
@@ -131,11 +139,15 @@ export interface PassagePorte {
   valeurs: string[];
 }
 
-/** Lance un outil de la porte avec ses arguments — résolu par `lanceur`, jamais par son appelant. */
+/**
+ * Lance un outil de la porte avec ses arguments — résolu par `lanceur`, jamais
+ * par son appelant. `reseau` : l'interrogation d'osv.dev, la seule qui sorte.
+ */
 type Lancer = (
   outil: OutilPorte,
   args: readonly string[],
   delaiMs: number,
+  reseau?: boolean,
 ) => ReturnType<typeof runProc>;
 
 /** Fait passer la porte à une production. Ne lève jamais. */
@@ -201,7 +213,14 @@ function lanceur(
 ): Lancer {
   const dansLImage = bac !== undefined && bac.fournisseur.bin !== 'bwrap';
   const chemins = new Map<OutilPorte, string | null>();
-  return (outil, args, delaiMs) => {
+  // Le proxy sortant de l'hôte, s'il en a un : à l'interrogation d'osv.dev
+  // seulement — ni à Betterleaks, ni à l'extraction, qui ne sortent pas. Dans
+  // un conteneur, par leur NOM (`--env`), comme toute variable du bac.
+  const proxy: NodeJS.ProcessEnv = {};
+  for (const nom of VARIABLES_PROXY) {
+    if (process.env[nom] !== undefined) proxy[nom] = process.env[nom];
+  }
+  return (outil, args, delaiMs, reseau = false) => {
     if (!chemins.has(outil)) chemins.set(outil, dansLImage ? outil : surLePath(outil, env.PATH));
     const bin = chemins.get(outil);
     if (!bin) {
@@ -215,10 +234,10 @@ function lanceur(
     return runProc(
       [bin, ...args],
       cwd,
-      env,
+      reseau ? { ...env, ...proxy } : env,
       delaiMs,
       signal,
-      bac ? { ...bac, variables: [] } : undefined,
+      bac ? { ...bac, variables: reseau ? Object.keys(proxy) : [] } : undefined,
     );
   };
 }
@@ -441,98 +460,231 @@ async function voletSecrets(
 
 // ─── Les dépendances ─────────────────────────────────────────────────────────
 
-const estLockfile = (chemin: string | null): chemin is string =>
-  chemin !== null && LOCKFILES_SURVEILLES.has(nomDeFichier(chemin));
+const estSurveille = (chemin: string | null): chemin is string =>
+  chemin !== null && estFichierDeDependances(chemin);
 
+/** Une paire base/tête d'un fichier de dépendances touché, lue. */
+interface Paire {
+  k: number;
+  /** Le nom du fichier d'après (d'avant s'il est supprimé), tel que le rapport le cite. */
+  fichier: string;
+  base: { chemin: string; contenu: string } | null;
+  tete: { chemin: string; contenu: string };
+}
+
+/** Ce que la passe 1 dit d'un fichier : ses paquets, ou pourquoi elle n'en dit rien. */
+type Extraction =
+  { paquets: PaquetExtrait[] } | { mal_forme: true } | { raison: Exclude<RaisonPorte, 'trouve'> };
+
+/** Le volet, avec son compte de paquets non interrogés quand il y en a. */
+function avecNonInterroges(v: Volet<ConstatDependance>, n: number): Volet<ConstatDependance> {
+  return n > 0 ? { ...v, nonInterroges: n } : v;
+}
+
+/**
+ * Le volet dépendances, en deux passes (`shared/porte-securite-dependances.ts`
+ * dit pourquoi) : chaque fichier touché, base et tête, extrait HORS LIGNE et un
+ * par un — un fichier illisible n'aveugle plus les autres ; puis UNE
+ * interrogation d'osv.dev, sur les SBOM que la porte a écrits.
+ */
 async function voletDependances(
   fichiers: readonly FichierDuDiff[],
   opts: OptionsPorte,
   dossier: () => string,
   lancer: Lancer,
 ): Promise<Volet<ConstatDependance>> {
-  const touches = fichiers.filter((f) => estLockfile(f.avant) || estLockfile(f.apres));
+  const touches = fichiers.filter((f) => estSurveille(f.avant) || estSurveille(f.apres));
   if (touches.length === 0) return voletSans('aucun_lockfile');
   try {
     const { depot } = opts;
-    if (!depot && touches.some((f) => estLockfile(f.avant))) return voletSans('sans_base');
+    if (!depot && touches.some((f) => estSurveille(f.avant))) return voletSans('sans_base');
+    // Les lockfiles que la production laisse illisibles d'abord : ce sont ses
+    // défauts, et la borne du protocole ne doit pas les faire tomber.
+    const illisibles: ConstatDependance[] = [];
+    const nonVerifiables: Exclude<RaisonPorte, 'trouve'>[] = [];
     // Tout se LIT avant de lancer quoi que ce soit : un lockfile illisible ne
     // coûte pas un conteneur.
-    const lus: { k: number; role: 'base' | 'tete'; chemin: string; contenu: string }[] = [];
+    const paires: Paire[] = [];
     for (const [k, f] of touches.entries()) {
-      if (estLockfile(f.avant) && depot) {
+      const fichier = texteAffichable(
+        opts.caviardeur.texte(f.apres ?? f.avant ?? ''),
+        BORNES_PORTE.fichier,
+      );
+      let base: Paire['base'] = null;
+      if (estSurveille(f.avant) && depot) {
         const contenu = await fichierDeBase(depot.depot, depot.baseSha, f.avant);
-        if (contenu === null) return voletSans('lockfile_illisible');
-        lus.push({ k, role: 'base', chemin: f.avant, contenu });
+        if (contenu === null) {
+          nonVerifiables.push('lockfile_illisible');
+          continue;
+        }
+        base = { chemin: f.avant, contenu };
       }
-      if (estLockfile(f.apres)) {
-        const contenu = lireDansLaTache(opts.cwd, f.apres);
-        if (contenu === null) return voletSans('lockfile_illisible');
-        lus.push({ k, role: 'tete', chemin: f.apres, contenu });
+      // Un fichier supprimé n'introduit rien : rien à extraire.
+      if (!estSurveille(f.apres)) continue;
+      const contenu = lireDansLaTache(opts.cwd, f.apres);
+      if (contenu === null) {
+        illisibles.push({ genre: 'lockfile_illisible', fichier, motif: 'pas_un_fichier' });
+        continue;
       }
+      paires.push({ k, fichier, base, tete: { chemin: f.apres, contenu } });
     }
+    const conclure = (
+      constats: readonly ConstatDependance[],
+      nonInterroges: number,
+      outil?: { nom: OutilPorte; version: string },
+      interroge = true,
+    ): Volet<ConstatDependance> => {
+      if (constats.length > 0) return avecNonInterroges(voletAvec(constats, outil), nonInterroges);
+      const raison = nonVerifiables[0];
+      if (raison) return avecNonInterroges(voletSans(raison, outil), nonInterroges);
+      if (nonInterroges > 0 && !interroge) {
+        return avecNonInterroges(voletSans('sources_non_publiques', outil), nonInterroges);
+      }
+      return avecNonInterroges(voletSans('analyse_propre', outil), nonInterroges);
+    };
+    if (paires.length === 0) return conclure(illisibles, 0);
     const sonde = await sonder('osv-scanner', lancer);
-    if ('raison' in sonde) return voletSans(sonde.raison);
+    if ('raison' in sonde) {
+      nonVerifiables.push(sonde.raison);
+      return conclure(illisibles, 0);
+    }
 
     const racine = dossier();
     const rel = path.basename(racine);
-    const lockfiles: string[] = [];
-    for (const l of lus) {
-      const ou = path.join(racine, 'dependances', l.role, String(l.k));
-      mkdirSync(ou, { recursive: true });
-      // Le NOM du lockfile, tel quel : c'est lui qui dit à osv-scanner comment le lire.
-      writeFileSync(path.join(ou, nomDeFichier(l.chemin)), l.contenu);
-      lockfiles.push('-L', `${rel}/dependances/${l.role}/${l.k}/${nomDeFichier(l.chemin)}`);
+    const ecrire = (relatif: string, contenu: string): string => {
+      const ou = path.join(racine, ...relatif.split('/'));
+      mkdirSync(path.dirname(ou), { recursive: true });
+      writeFileSync(ou, contenu);
+      return `${rel}/${relatif}`;
+    };
+    const communs = [
+      '--format',
+      'json',
+      '--config',
+      `${rel}/regles/osv-scanner.toml`,
+      // Ni résolution transitive (deps.dev, Maven Central), ni analyse
+      // d'appels (qui lancerait des scripts de build).
+      '--no-resolve',
+      '--no-call-analysis=all',
+      '--verbosity',
+      'error',
+    ];
+    // PASSE 1 — l'extraction, HORS LIGNE : sans `vulnmatch/osvdev`, l'outil
+    // n'ouvre aucune connexion (mesuré). Un fichier à la fois.
+    const extraire = async (
+      role: 'base' | 'tete',
+      p: Paire,
+      lu: { chemin: string; contenu: string },
+    ): Promise<Extraction> => {
+      // Le NOM du fichier, tel quel : c'est lui qui dit à osv-scanner comment le lire.
+      const fichier = ecrire(`dependances/${role}/${p.k}/${nomDeFichier(lu.chemin)}`, lu.contenu);
+      const sortie = `extractions/${role}-${p.k}.json`;
+      mkdirSync(path.join(racine, 'extractions'), { recursive: true });
+      const r = await lancer(
+        'osv-scanner',
+        [
+          'scan',
+          'source',
+          '-L',
+          fichier,
+          '--output-file',
+          `${rel}/${sortie}`,
+          '--experimental-disable-plugins',
+          'vulnmatch/osvdev',
+          '--all-packages',
+          '--allow-no-lockfiles',
+          ...communs,
+        ],
+        DELAI_PORTE_MS,
+      );
+      if (r.arret) return { raison: r.arret === 'lancement' ? 'outil_absent' : r.arret };
+      // MESURÉ : un fichier qu'il ne sait pas lire sort en 127, « could not extract ».
+      if (r.code === 127 && LOCKFILE_MAL_FORME.test(r.output)) return { mal_forme: true };
+      const paquets = r.code === 0 ? lireRapport(path.join(racine, sortie), lireExtraction) : null;
+      return paquets ? { paquets } : { raison: 'outil_en_echec' };
+    };
+
+    let nonInterroges = 0;
+    let interroge = false;
+    const sboms: string[] = [];
+    for (const p of paires) {
+      const tete = await extraire('tete', p, p.tete);
+      if ('mal_forme' in tete) {
+        illisibles.push({ genre: 'lockfile_illisible', fichier: p.fichier, motif: 'mal_forme' });
+        continue;
+      }
+      if ('raison' in tete) {
+        nonVerifiables.push(tete.raison);
+        continue;
+      }
+      const base: Extraction = p.base ? await extraire('base', p, p.base) : { paquets: [] };
+      if (!('paquets' in base)) {
+        // La base, elle, n'est pas l'œuvre de la production : rien à quoi comparer.
+        nonVerifiables.push('raison' in base ? base.raison : 'lockfile_illisible');
+        continue;
+      }
+      const choix = aInterroger(
+        base.paquets,
+        tete.paquets,
+        p.base ? paquetsPublics(p.base.chemin, p.base.contenu) : new Set(),
+        paquetsPublics(p.tete.chemin, p.tete.contenu),
+      );
+      nonInterroges += choix.nonInterroges;
+      if (choix.tete.length === 0) continue;
+      interroge = true;
+      sboms.push('-L', ecrire(`sboms/tete/${p.k}/bom.cdx.json`, sbomDe(choix.tete)));
+      if (choix.base.length > 0) {
+        sboms.push('-L', ecrire(`sboms/base/${p.k}/bom.cdx.json`, sbomDe(choix.base)));
+      }
     }
+    if (sboms.length === 0) return conclure(illisibles, nonInterroges, sonde, interroge);
+
+    // PASSE 2 — l'interrogation : les SEULS paquets des SBOM partent à osv.dev.
     opts.surEtape?.(
-      `porte de sécurité : osv-scanner ${sonde.version} sur ${touches.length} lockfile(s), ` +
-        'base et tête — interroge osv.dev…',
+      `porte de sécurité : osv-scanner ${sonde.version} — interroge osv.dev sur ` +
+        `${sboms.length / 2} SBOM de paquets introduits…`,
     );
     const r = await lancer(
       'osv-scanner',
-      [
-        'scan',
-        'source',
-        ...lockfiles,
-        '--format',
-        'json',
-        '--output-file',
-        `${rel}/dependances.json`,
-        '--config',
-        `${rel}/regles/osv-scanner.toml`,
-        // Ni résolution transitive (deps.dev, Maven Central), ni analyse
-        // d'appels (qui lancerait des scripts de build) : osv.dev seul.
-        '--no-resolve',
-        '--no-call-analysis=all',
-        '--allow-no-lockfiles',
-        '--verbosity',
-        'error',
-      ],
+      ['scan', 'source', ...sboms, '--output-file', `${rel}/dependances.json`, ...communs],
       DELAI_PORTE_MS,
+      true,
     );
-    if (r.arret) {
-      return r.arret === 'lancement' ? voletSans('outil_absent') : voletSans(r.arret, sonde);
+    const interrogation = ((): SourceLue[] | Exclude<RaisonPorte, 'trouve'> => {
+      if (r.arret) return r.arret === 'lancement' ? 'outil_absent' : r.arret;
+      // MESURÉ : osv.dev injoignable, l'outil sort en 127 — avec un rapport VIDE
+      // et valide, que seul le code de sortie dément — et nomme l'hôte.
+      if (r.code === 127 && /vulnmatch\/osvdev|api\.osv\.dev|querybatch/.test(r.output)) {
+        return 'osv_injoignable';
+      }
+      if (r.code !== 0 && r.code !== 1) return 'outil_en_echec';
+      const sources = lireRapport(path.join(racine, 'dependances.json'), lireRapportOsv);
+      if (sources === null) return 'outil_en_echec';
+      const vulnerable = sources.some((s) => s.paquets.some((q) => q.vulnerabilites.length > 0));
+      return (r.code === 1) === vulnerable ? sources : 'outil_en_echec';
+    })();
+    if (!Array.isArray(interrogation)) {
+      nonVerifiables.push(interrogation);
+      return conclure(illisibles, nonInterroges, sonde);
     }
-    // MESURÉ : osv.dev injoignable, l'outil sort en 127 avec un rapport VIDE
-    // et valide. Seuls 0 (rien de vulnérable) et 1 (du vulnérable) jugent.
-    if (r.code !== 0 && r.code !== 1) return voletSans('outil_en_echec', sonde);
-    const sources = lireRapport(path.join(racine, 'dependances.json'), lireRapportOsv);
-    if (sources === null) return voletSans('outil_en_echec', sonde);
-    const vulnerable = sources.some((s) => s.paquets.some((p) => p.vulnerabilites.length > 0));
-    if ((r.code === 1) !== vulnerable) return voletSans('outil_en_echec', sonde);
-
     const base: SourceLue[] = [];
     const tete: { fichier: string; source: SourceLue }[] = [];
-    for (const source of sources) {
-      const m = /[\\/]dependances[\\/](base|tete)[\\/](\d+)[\\/][^\\/]+$/.exec(source.chemin);
-      const lu = m && lus.find((l) => l.role === m[1] && l.k === Number(m[2]));
-      if (!lu) return voletSans('outil_en_echec', sonde);
-      if (lu.role === 'base') base.push(source);
-      else tete.push({ fichier: opts.caviardeur.texte(lu.chemin), source });
+    for (const source of interrogation) {
+      const m = /[\\/]sboms[\\/](base|tete)[\\/](\d+)[\\/]bom\.cdx\.json$/.exec(source.chemin);
+      const paire = m && paires.find((p) => p.k === Number(m[2]));
+      // Une source que la porte n'a pas écrite : l'outil n'a pas lu ses SBOM.
+      if (!m || !paire) {
+        nonVerifiables.push('outil_en_echec');
+        return conclure(illisibles, nonInterroges, sonde);
+      }
+      if (m[1] === 'base') base.push(source);
+      else tete.push({ fichier: paire.fichier, source });
     }
-    const introduites = vulnerabilitesIntroduites(base, tete);
-    return introduites.length > 0
-      ? voletAvec(introduites, sonde)
-      : voletSans('analyse_propre', sonde);
+    return conclure(
+      [...illisibles, ...vulnerabilitesIntroduites(base, tete)],
+      nonInterroges,
+      sonde,
+    );
   } catch {
     return voletSans('interrompue');
   }

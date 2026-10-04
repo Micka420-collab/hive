@@ -25,6 +25,7 @@ import {
   mkdtempSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
@@ -34,10 +35,16 @@ import { simpleGit } from 'simple-git';
 import { poserRegistre } from '../src/node-client/git-hote.js';
 import { etiquetteImage, type Fournisseur } from '../src/node-client/isolement.js';
 import { passerLaPorte, versionPourLaPorte } from '../src/node-client/porte-securite.js';
-import { ETIQUETTE_PORTE } from '../src/shared/porte-securite.js';
+import { ETIQUETTE_PORTE, type PorteSecurite } from '../src/shared/porte-securite.js';
 import { creerCaviardeur, SECRET_CAVIARDE } from '../src/shared/caviardage.js';
 import { appelsDuFauxBac, fauxBac } from './fixtures/faux-bac.js';
-import { appelsDesOutils, fauxOutilsPorte, type FauxOutils } from './fixtures/faux-outils-porte.js';
+import {
+  appelsDesOutils,
+  fauxOutilsPorte,
+  proxysRecus,
+  requetesEnvoyees,
+  type FauxOutils,
+} from './fixtures/faux-outils-porte.js';
 
 const POSIX = process.platform !== 'win32';
 
@@ -94,16 +101,18 @@ const verrou = (deps: Record<string, string>): string =>
  */
 async function produire(
   base: Record<string, string>,
-  production: Record<string, string | null>,
+  production: Record<string, string | null | { lien: string }>,
 ): Promise<{ cwd: string; diff: string; depot: Parameters<typeof passerLaPorte>[0]['depot'] }> {
   const parent = mkdtempSync(path.join(os.tmpdir(), 'hive-porte-noeud-'));
   dossiers.push(parent);
   const cwd = path.join(parent, 'tache');
-  const ecrire = (fichiers: Record<string, string | null>): void => {
+  const ecrire = (fichiers: Record<string, string | null | { lien: string }>): void => {
     for (const [nom, contenu] of Object.entries(fichiers)) {
       const cible = path.join(cwd, nom);
-      if (contenu === null) {
+      if (contenu === null || typeof contenu === 'object') {
         rmSync(cible, { force: true });
+        // Un LIEN à la place du fichier — comme un agent peut en poser un.
+        if (contenu) symlinkSync(contenu.lien, cible);
         continue;
       }
       mkdirSync(path.dirname(cible), { recursive: true });
@@ -309,6 +318,14 @@ describe.runIf(POSIX)('passerLaPorte — les secrets que la production AJOUTE', 
 });
 
 describe.runIf(POSIX)('passerLaPorte — les dépendances que la production INTRODUIT', () => {
+  /** Les vulnérabilités du volet, en lignes lisibles. */
+  const vulnerabilites = (rapport: PorteSecurite): string[][] =>
+    rapport.dependances.constats.flatMap((c) =>
+      c.genre === 'vulnerabilite'
+        ? [[c.paquet, c.version, c.avis, c.alias.join(','), c.gravite ?? '', c.fichier]]
+        : [],
+    );
+
   it('UN LOCKFILE QUI AJOUTE UNE VERSION VULNÉRABLE CONNUE : l’avis est cité, ceux de la base non', async () => {
     const p = await produire(
       { 'package-lock.json': verrou({ lodash: '4.17.20' }) },
@@ -317,21 +334,47 @@ describe.runIf(POSIX)('passerLaPorte — les dépendances que la production INTR
     const { rapport } = await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
     expect(rapport.dependances.etat).toBe('constat');
     expect(rapport.dependances.outil).toEqual({ nom: 'osv-scanner', version: '2.6.0' });
-    expect(
-      rapport.dependances.constats.map((c) => [c.paquet, c.version, c.avis, c.alias, c.gravite]),
-    ).toEqual([
-      ['minimist', '1.2.0', 'GHSA-vh95-rmgr-6w4m', ['CVE-2020-7598'], 'MODERATE'],
-      ['minimist', '1.2.0', 'GHSA-xvch-5gv4-984h', ['CVE-2021-44906'], 'CRITICAL'],
+    expect(vulnerabilites(rapport)).toEqual([
+      [
+        'minimist',
+        '1.2.0',
+        'GHSA-vh95-rmgr-6w4m',
+        'CVE-2020-7598',
+        'MODERATE',
+        'package-lock.json',
+      ],
+      [
+        'minimist',
+        '1.2.0',
+        'GHSA-xvch-5gv4-984h',
+        'CVE-2021-44906',
+        'CRITICAL',
+        'package-lock.json',
+      ],
     ]);
-    expect(rapport.dependances.constats.every((c) => c.fichier === 'package-lock.json')).toBe(true);
     // lodash 4.17.20 est vulnérable lui aussi — mais il l'était à la base.
     expect(JSON.stringify(rapport)).not.toContain('lodash');
-    // La base ET la tête, chacune sous son nom de lockfile ; aucune résolution.
-    const analyse = appelsDesOutils(outils).find((l) => l.startsWith('osv-scanner scan'));
-    expect(analyse).toMatch(/-L \.hive-porte-[^/ ]+\/dependances\/base\/0\/package-lock\.json/);
-    expect(analyse).toMatch(/-L \.hive-porte-[^/ ]+\/dependances\/tete\/0\/package-lock\.json/);
-    expect(analyse).toContain('--no-resolve');
-    expect(analyse).toMatch(/--config \.hive-porte-[^/ ]+\/regles\/osv-scanner\.toml/);
+    // DEUX PASSES : chaque fichier extrait HORS LIGNE, un par un, sous son nom ;
+    // puis une interrogation, sur le SBOM que la porte a écrit — rien d'autre.
+    const appels = appelsDesOutils(outils).filter((l) => l.startsWith('osv-scanner scan'));
+    expect(appels).toHaveLength(3);
+    const [tete, base, interrogation] = appels;
+    expect(tete).toMatch(/-L \.hive-porte-[^/ ]+\/dependances\/tete\/0\/package-lock\.json /);
+    expect(base).toMatch(/-L \.hive-porte-[^/ ]+\/dependances\/base\/0\/package-lock\.json /);
+    for (const extraction of [tete, base]) {
+      expect(extraction).toContain('--experimental-disable-plugins vulnmatch/osvdev');
+      expect(extraction).toContain('--all-packages');
+    }
+    expect(interrogation).toMatch(/-L \.hive-porte-[^/ ]+\/sboms\/tete\/0\/bom\.cdx\.json /);
+    expect(interrogation).not.toContain('vulnmatch/osvdev');
+    for (const a of appels) {
+      expect(a).toContain('--no-resolve');
+      expect(a).toMatch(/--config \.hive-porte-[^/ ]+\/regles\/osv-scanner\.toml/);
+    }
+    // CE QUI PART : le seul paquet introduit. Ni lodash, inchangé, ni la base.
+    expect(requetesEnvoyees(outils)).toEqual([
+      { version: '1.2.0', package: { name: 'minimist', ecosystem: 'npm' } },
+    ]);
     expect(miroirsRestants(p.cwd)).toEqual([]);
   });
 
@@ -348,9 +391,172 @@ describe.runIf(POSIX)('passerLaPorte — les dépendances que la production INTR
       constats: [],
       total: 0,
     });
+    // La tête qui change, et la base du MÊME paquet, pour comparer.
+    expect(requetesEnvoyees(outils).map((r) => JSON.stringify(r))).toEqual([
+      JSON.stringify({ version: '4.17.20', package: { name: 'lodash', ecosystem: 'npm' } }),
+      JSON.stringify({ version: '4.17.19', package: { name: 'lodash', ecosystem: 'npm' } }),
+    ]);
   });
 
-  it('OSV.DEV INJOIGNABLE : sortie 127 et rapport vide — « non vérifiée », jamais « rien trouvé »', async () => {
+  it('CE QUI PART À OSV.DEV : le seul paquet PUBLIC introduit — jamais un registre privé, un commit git, une dépendance `file:`', async () => {
+    // Mesuré par interception avec le vrai osv-scanner : tout cela partait,
+    // et tous les paquets inchangés de la base et de la tête avec.
+    const prive = {
+      version: '1.0.0',
+      resolved:
+        'https://npm.acme-internal.example/@acme-internal/secret-project/-/secret-project-1.0.0.tgz',
+    };
+    const commit = '0123456789abcdef0123456789abcdef01234567';
+    const tete = JSON.parse(verrou({ lodash: '4.17.20', minimist: '1.2.0' })) as {
+      packages: Record<string, unknown>;
+    };
+    Object.assign(tete.packages, {
+      'node_modules/@acme-internal/secret-project': prive,
+      'node_modules/local-lib': { resolved: '../local-lib', link: true },
+      '../local-lib': { name: 'local-lib', version: '0.0.1' },
+      'node_modules/gitdep': {
+        version: '1.0.0',
+        resolved: `git+ssh://git@github.com/acme-internal/gitdep.git#${commit}`,
+      },
+    });
+    const p = await produire(
+      { 'package-lock.json': verrou({ lodash: '4.17.20' }) },
+      { 'package-lock.json': `${JSON.stringify(tete, null, 2)}\n` },
+    );
+    const { rapport } = await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
+    const envoye = JSON.stringify(requetesEnvoyees(outils));
+    expect(requetesEnvoyees(outils)).toEqual([
+      { version: '1.2.0', package: { name: 'minimist', ecosystem: 'npm' } },
+    ]);
+    for (const secret of ['acme-internal', 'secret-project', commit, 'local-lib', 'gitdep']) {
+      expect(envoye).not.toContain(secret);
+    }
+    // Jamais verts : comptés, par nom — le privé, le local, le git.
+    expect(rapport.dependances).toMatchObject({ etat: 'constat', nonInterroges: 3 });
+  });
+
+  it('DES PAQUETS INTRODUITS, AUCUN D’INTERROGEABLE : « non vérifié » — et rien n’est parti', async () => {
+    const p = await produire(
+      { 'package-lock.json': verrou({ lodash: '4.17.20' }) },
+      {
+        'package-lock.json': verrou({ lodash: '4.17.20' }).replace(
+          '"license": "MIT"',
+          '"license": "MIT" }, "node_modules/@acme-internal/x": { "version": "2.0.0", "resolved": "https://npm.acme-internal.example/x.tgz"',
+        ),
+      },
+    );
+    const { rapport } = await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
+    expect(rapport.dependances).toEqual({
+      etat: 'non_verifie',
+      raison: 'sources_non_publiques',
+      outil: { nom: 'osv-scanner', version: '2.6.0' },
+      constats: [],
+      total: 0,
+      nonInterroges: 1,
+    });
+    expect(requetesEnvoyees(outils)).toEqual([]);
+  });
+
+  it('`gradle.lockfile` QUI AJOUTE log4j-core 2.14.1 : l’avis est cité — il passait pour « aucun lockfile »', async () => {
+    const base = 'org.slf4j:slf4j-api:1.7.36=compileClasspath\n';
+    const p = await produire(
+      { 'gradle.lockfile': base },
+      {
+        'gradle.lockfile': `${base}org.apache.logging.log4j:log4j-core:2.14.1=compileClasspath\n`,
+      },
+    );
+    const { rapport } = await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
+    expect(vulnerabilites(rapport)).toEqual([
+      [
+        'org.apache.logging.log4j:log4j-core',
+        '2.14.1',
+        'GHSA-jfh8-c2jp-5v3q',
+        'CVE-2021-44228',
+        'CRITICAL',
+        'gradle.lockfile',
+      ],
+    ]);
+  });
+
+  it('`requirements.txt` : une contrainte `>=` n’est pas une version — elle ne part pas, elle est comptée', async () => {
+    // osv-scanner lit `flask>=0.1` comme « flask 0.1 » : la borne basse, que
+    // pip n'installe jamais. La porte demandait de corriger un faux positif.
+    const p = await produire(
+      { 'requirements.txt': 'requests==2.31.0\n' },
+      { 'requirements.txt': 'requests==2.31.0\nflask>=0.1\n' },
+    );
+    const { rapport } = await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
+    expect(rapport.dependances).toMatchObject({
+      etat: 'non_verifie',
+      raison: 'sources_non_publiques',
+      nonInterroges: 1,
+    });
+    expect(requetesEnvoyees(outils)).toEqual([]);
+    // Épinglée, elle part — et l'avis est cité.
+    const q = await produire(
+      { 'requirements.txt': 'requests==2.31.0\n' },
+      { 'requirements.txt': 'requests==2.31.0\nflask==0.1\n' },
+    );
+    const { rapport: epingle } = await passerLaPorte({ ...q, caviardeur: creerCaviardeur([]) });
+    expect(vulnerabilites(epingle).map((v) => v[2])).toEqual(['GHSA-562c-5r94-xh97']);
+  });
+
+  it('UN LOCKFILE DE TÊTE MAL FORMÉ est un CONSTAT — et il n’aveugle plus les autres', async () => {
+    // Le vrai osv-scanner échoue sur TOUT son passage dès qu'un fichier ne se
+    // lit pas (sortie 127) : lus ensemble, un seul lockfile cassé rendait le
+    // volet « outil en échec », donc vert hors de `strict`.
+    const p = await produire(
+      {
+        'package-lock.json': verrou({ lodash: '4.17.20' }),
+        'web/package-lock.json': verrou({ lodash: '4.17.20' }),
+      },
+      {
+        'package-lock.json': '{ "lockfileVersion": 3, "packages": {',
+        'web/package-lock.json': verrou({ lodash: '4.17.20', minimist: '1.2.0' }),
+      },
+    );
+    const { rapport } = await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
+    expect(rapport.dependances.etat).toBe('constat');
+    expect(rapport.dependances.constats[0]).toEqual({
+      genre: 'lockfile_illisible',
+      fichier: 'package-lock.json',
+      motif: 'mal_forme',
+    });
+    expect(vulnerabilites(rapport).map((v) => [v[0], v[5]])).toEqual([
+      ['minimist', 'web/package-lock.json'],
+      ['minimist', 'web/package-lock.json'],
+    ]);
+  });
+
+  it('UN LOCKFILE DE TÊTE REMPLACÉ PAR UN LIEN est un constat — la porte ne le suit pas', async () => {
+    const p = await produire(
+      { 'package-lock.json': verrou({ lodash: '4.17.20' }) },
+      { 'package-lock.json': { lien: '/etc/hostname' } },
+    );
+    const { rapport } = await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
+    expect(rapport.dependances).toMatchObject({
+      etat: 'constat',
+      constats: [
+        { genre: 'lockfile_illisible', fichier: 'package-lock.json', motif: 'pas_un_fichier' },
+      ],
+    });
+    // Aucun outil pour un défaut que la porte voit seule.
+    expect(appelsDesOutils(outils).some((l) => l.startsWith('osv-scanner'))).toBe(false);
+  });
+
+  it('UN LOCKFILE DE BASE MAL FORMÉ : rien à quoi comparer pour lui — « non vérifié », pas un défaut du producteur', async () => {
+    const p = await produire(
+      { 'package-lock.json': '{ cassé' },
+      { 'package-lock.json': verrou({ minimist: '1.2.0' }) },
+    );
+    const { rapport } = await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
+    expect(rapport.dependances).toMatchObject({
+      etat: 'non_verifie',
+      raison: 'lockfile_illisible',
+    });
+  });
+
+  it('OSV.DEV INJOIGNABLE : « non vérifiée », et la raison NOMME api.osv.dev — jamais « rien trouvé »', async () => {
     outils.mode('osv-scanner', 'hors-ligne');
     const p = await produire(
       { 'package-lock.json': verrou({ lodash: '4.17.20' }) },
@@ -359,11 +565,36 @@ describe.runIf(POSIX)('passerLaPorte — les dépendances que la production INTR
     const { rapport } = await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
     expect(rapport.dependances).toEqual({
       etat: 'non_verifie',
-      raison: 'outil_en_echec',
+      raison: 'osv_injoignable',
       outil: { nom: 'osv-scanner', version: '2.6.0' },
       constats: [],
       total: 0,
     });
+  });
+
+  it('LE PROXY SORTANT de l’hôte va à l’interrogation d’osv.dev — et à elle seule', async () => {
+    const avant = process.env.HTTPS_PROXY;
+    process.env.HTTPS_PROXY = 'http://proxy.entreprise.test:3128';
+    try {
+      const p = await produire(
+        { 'src/config.ts': CONFIG_BASE, 'package-lock.json': verrou({ lodash: '4.17.20' }) },
+        {
+          'src/config.ts': `${CONFIG_BASE}export const zone = 'b';\n`,
+          'package-lock.json': verrou({ lodash: '4.17.20', minimist: '1.2.0' }),
+        },
+      );
+      await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
+    } finally {
+      if (avant === undefined) delete process.env.HTTPS_PROXY;
+      else process.env.HTTPS_PROXY = avant;
+    }
+    expect(proxysRecus(outils)).toEqual([
+      'betterleaks -',
+      'betterleaks -',
+      'extraction -',
+      'extraction -',
+      'interrogation http://proxy.entreprise.test:3128',
+    ]);
   });
 });
 

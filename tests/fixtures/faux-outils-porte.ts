@@ -9,18 +9,26 @@
 // gravités et plages de versions affectées.
 //
 // Ils LISENT ce que la porte leur donne — le miroir des lignes ajoutées, les
-// lockfiles de la base et de la tête : une trouvaille n'est rapportée que si
-// elle est dans le fichier, à la colonne où elle est, comme l'outil réel. Les
-// règles rejouées sont celles que les bancs éprouvent : la paire AWS (règle
-// composite, la clé secrète en composant) et la clé privée PEM. Chaque
-// lancement laisse sa ligne de commande (`appelsDesOutils`). Un fichier
-// `mode-<outil>` à côté d'eux en change le comportement :
+// lockfiles de la base et de la tête, les SBOM qu'elle écrit : une trouvaille
+// n'est rapportée que si elle est dans le fichier, à la colonne où elle est,
+// comme l'outil réel. Et ils font ce que l'outil réel fait AVANT de chercher,
+// qui décide de ce qu'il voit : le préfiltre et la confiance de Betterleaks,
+// l'échec global d'osv-scanner sur un seul fichier illisible. Chaque
+// lancement laisse sa ligne de commande (`appelsDesOutils`) ; ce qu'osv-scanner
+// « envoie » est consigné (`requetesEnvoyees`), et le proxy qu'il reçoit
+// (`proxysRecus`). Un fichier `mode-<outil>` à côté d'eux en change le
+// comportement :
 //
 //   · betterleaks `plante`  — sort en 2 sans rapport ;
 //   · betterleaks `menteur` — trouve, mais sort en 0 (code et rapport en désaccord) ;
 //   · betterleaks `decale`  — rapporte des colonnes qui ne se relisent pas ;
+//   · betterleaks `sans-confiance` — n'applique pas la confiance demandée ;
 //   · osv-scanner `hors-ligne` — osv.dev injoignable : rapport VIDE et valide,
 //     sortie 127, le message réel sur stderr (mesuré, `node-client/porte-securite.ts`).
+//
+// SURFACE PROTÉGÉE (`src/boucle-v3/garde.ts`) : un faux plus complaisant que
+// le vrai — qui ne préfiltrerait pas, n'ignorerait aucune confiance, lirait un
+// lockfile cassé — rendrait verts des bancs que l'outil réel ferait rougir.
 //
 // POSIX seulement : un script à shebang ne se lance pas sans shell sous
 // Windows — même limite, et même raison, que `faux-bac.ts`.
@@ -45,6 +53,7 @@ const AVIS = [
     severite: 'MODERATE',
     cvss: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L',
     score: '5.3',
+    ecosysteme: 'npm',
     paquet: 'lodash',
     plages: [['4.0.0', '4.17.21']],
   },
@@ -55,6 +64,7 @@ const AVIS = [
     severite: 'HIGH',
     cvss: 'CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H',
     score: '8.1',
+    ecosysteme: 'npm',
     paquet: 'lodash',
     plages: [['0', '4.17.21']],
   },
@@ -66,6 +76,7 @@ const AVIS = [
     severite: 'MODERATE',
     cvss: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L',
     score: '6.9',
+    ecosysteme: 'npm',
     paquet: 'lodash',
     plages: [['0', '4.18.0']],
   },
@@ -76,6 +87,7 @@ const AVIS = [
     severite: 'HIGH',
     cvss: 'CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H',
     score: '8.1',
+    ecosysteme: 'npm',
     paquet: 'lodash',
     plages: [['4.0.0', '4.18.0']],
   },
@@ -86,6 +98,7 @@ const AVIS = [
     severite: 'MODERATE',
     cvss: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:L/A:L',
     score: '6.9',
+    ecosysteme: 'npm',
     paquet: 'lodash',
     plages: [['4.0.0', '4.17.23']],
   },
@@ -96,6 +109,7 @@ const AVIS = [
     severite: 'MODERATE',
     cvss: 'CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:L/I:L/A:L',
     score: '5.6',
+    ecosysteme: 'npm',
     paquet: 'minimist',
     plages: [
       ['0', '0.2.1'],
@@ -109,11 +123,40 @@ const AVIS = [
     severite: 'CRITICAL',
     cvss: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H',
     score: '9.8',
+    ecosysteme: 'npm',
     paquet: 'minimist',
     plages: [
       ['1.0.0', '1.2.6'],
       ['0', '0.2.4'],
     ],
+  },
+  // Relus sur api.osv.dev le 4 octobre : Log4Shell, et un avis de Flask qui
+  // touche la « version » 0.1 qu'osv-scanner lit dans `flask>=0.1`.
+  {
+    id: 'GHSA-jfh8-c2jp-5v3q',
+    summary: 'Remote code injection in Log4j',
+    aliases: ['CVE-2021-44228'],
+    severite: 'CRITICAL',
+    cvss: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H/E:H',
+    score: '10.0',
+    ecosysteme: 'Maven',
+    paquet: 'org.apache.logging.log4j:log4j-core',
+    plages: [
+      ['2.13.0', '2.15.0'],
+      ['2.0', '2.3.1'],
+      ['2.4', '2.12.2'],
+    ],
+  },
+  {
+    id: 'GHSA-562c-5r94-xh97',
+    summary: 'Flask is vulnerable to Denial of Service via incorrect encoding of JSON data',
+    aliases: ['CVE-2018-1000656', 'PYSEC-2018-66'],
+    severite: 'HIGH',
+    cvss: 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H',
+    score: '7.5',
+    ecosysteme: 'PyPI',
+    paquet: 'flask',
+    plages: [['0', '0.12.3']],
   },
 ] as const;
 
@@ -141,6 +184,7 @@ const path = require('node:path');
 const ici = path.dirname(fs.realpathSync(process.argv[1]));
 const args = process.argv.slice(2);
 fs.appendFileSync(path.join(ici, 'appels'), ['betterleaks', ...args].join(' ') + '\n');
+fs.appendFileSync(path.join(ici, 'proxys'), 'betterleaks ' + (process.env.HTTPS_PROXY ?? '-') + '\n');
 let mode = '';
 try { mode = fs.readFileSync(path.join(ici, 'mode-betterleaks'), 'utf8').trim(); } catch {}
 if (args[0] === '--version') { process.stdout.write('betterleaks version 1.9.0\n'); process.exit(0); }
@@ -246,7 +290,27 @@ if (mode === 'menteur') process.exit(0);
 process.exit(trouvailles.length > 0 ? Number(valeur('--exit-code') ?? '1') : 0);
 `;
 
-/** Le faux osv-scanner : `--version`, et `scan source -L <lockfile>… --output-file <f>`. */
+/**
+ * Le faux osv-scanner : `--version`, et `scan source -L <fichier>… --output-file <f>`,
+ * comme la porte l'appelle — et comme l'outil réel se comporte (mesuré sur
+ * 2.6.0) :
+ *
+ *   · EXTRACTION (`--experimental-disable-plugins vulnmatch/osvdev`) : il lit
+ *     chaque fichier par son NOM et rend ses paquets, sans rien interroger ;
+ *   · INTERROGATION (sans ce drapeau) : il interroge pour chaque paquet lu —
+ *     ce qu'il « envoie » est consigné dans `requetes` (une ligne JSON par
+ *     paquet), de quoi prouver ce qui part, et ce qui ne part pas ;
+ *   · un fichier qu'il ne sait pas lire fait échouer TOUT le passage : sortie
+ *     127, « could not extract » — un seul lockfile mal formé aveuglait ainsi
+ *     un passage qui les lisait tous ensemble ;
+ *   · `hors-ligne` : osv.dev injoignable — rapport VIDE et valide, sortie 127,
+ *     le message réel sur stderr.
+ *
+ * Il lit `package-lock.json` (v1 et v3 : registre, git, `file:`), les
+ * `requirements*.txt` (la BORNE BASSE d'une contrainte, comme l'outil : `flask>=0.1`
+ * est lu « flask 0.1 »), `gradle.lockfile` et les SBOM CycloneDX
+ * (`bom.cdx.json`). Le proxy reçu par chaque lancement est consigné dans `proxys`.
+ */
 const OSV_SCANNER = String.raw`
 const fs = require('node:fs');
 const path = require('node:path');
@@ -259,35 +323,95 @@ if (args[0] === '--version') {
   process.stdout.write('osv-scanner version: 2.6.0\nosv-scalibr version: 0.5.2\ncommit: e840a6e8adb14b7777c78e26cfbf6e2abc1d1fc6\nbuilt at: 2026-09-14T01:44:58Z\n');
   process.exit(0);
 }
+const extraction = args.join(' ').includes('--experimental-disable-plugins vulnmatch/osvdev');
+fs.appendFileSync(path.join(ici, 'proxys'), (extraction ? 'extraction ' : 'interrogation ') + (process.env.HTTPS_PROXY ?? '-') + '\n');
 const AVIS = JSON.parse(fs.readFileSync(path.join(ici, 'avis.json'), 'utf8'));
 const valeur = (drapeau) => { const i = args.indexOf(drapeau); return i < 0 ? undefined : args[i + 1]; };
 const vide = { results: [], experimental_config: { licenses: { summary: false, allowlist: null } } };
+const fichiers = args.flatMap((a, i) => (a === '-L' ? [args[i + 1]] : []));
+const PURL = { npm: 'npm', pypi: 'PyPI', maven: 'Maven', cargo: 'crates.io', gem: 'RubyGems', composer: 'Packagist', golang: 'Go', nuget: 'NuGet' };
+// Un fichier, lu comme l'outil le lit : par son NOM.
+const lire = (f) => {
+  const nom = path.basename(f);
+  const texte = fs.readFileSync(f, 'utf8');
+  if (nom === 'package-lock.json' || nom === 'npm-shrinkwrap.json') {
+    let v;
+    try { v = JSON.parse(texte); } catch (e) { return { erreur: 'javascript/packagelockjson', motif: 'unexpected end of JSON input' }; }
+    const paquets = [];
+    const un = (nomP, p) => {
+      const git = typeof p.resolved === 'string' ? /^git\+[a-z]+:\/\/(?:git@)?([^#]+?)(?:\.git)?#([0-9a-f]{40})$/.exec(p.resolved) : null;
+      if (git) paquets.push({ name: 'https://' + git[1].replace(':', '/'), version: p.version ?? '', ecosystem: 'GIT', commit: git[2] });
+      else paquets.push({ name: nomP, version: p.link ? '' : (p.version ?? ''), ecosystem: 'npm' });
+    };
+    for (const [cle, p] of Object.entries(v.packages ?? {})) {
+      if (cle === '') continue;
+      un(p.name ?? cle.slice(cle.lastIndexOf('node_modules/') + 'node_modules/'.length), p);
+    }
+    const arbre = (deps) => { for (const [n, d] of Object.entries(deps ?? {})) { un(n, d); arbre(d.dependencies); } };
+    if (!v.packages) arbre(v.dependencies);
+    return { paquets };
+  }
+  if (/requirements.*\.txt$/.test(nom)) {
+    const paquets = [];
+    for (const l of texte.split('\n')) {
+      const m = /^([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]*\])?\s*(?:==|>=|~=|<=)\s*([0-9][^\s;,]*)/.exec(l.trim());
+      if (m) paquets.push({ name: m[1].toLowerCase(), version: m[2], ecosystem: 'PyPI' });
+    }
+    return { paquets };
+  }
+  if (nom === 'gradle.lockfile') {
+    const paquets = [];
+    for (const m of texte.matchAll(/^([^#\s:=]+):([^\s:=]+):([^\s:=]+)=/gm)) paquets.push({ name: m[1] + ':' + m[2], version: m[3], ecosystem: 'Maven' });
+    return { paquets };
+  }
+  if (nom === 'bom.cdx.json') {
+    const paquets = [];
+    for (const c of JSON.parse(texte).components ?? []) {
+      const type = /^pkg:([a-z]+)\//.exec(c.purl ?? '')?.[1];
+      if (PURL[type]) paquets.push({ name: c.name, version: c.version, ecosystem: PURL[type] });
+    }
+    return { paquets, sbom: true };
+  }
+  return { erreur: 'inconnu', motif: 'could not determine extractor' };
+};
+const lus = fichiers.map((f) => ({ f, ...lire(f) }));
+const casse = lus.find((l) => l.erreur);
+if (casse) {
+  process.stderr.write('Error during extraction: (extracting as ' + casse.erreur + ') ' + path.resolve(casse.f).slice(1) + ': could not extract: ' + casse.motif + '\nextraction failed on specified lockfile\n');
+  process.exit(127);
+}
+const source = (l) => ({ path: path.resolve(l.f), type: l.sbom ? 'sbom' : 'lockfile' });
+if (extraction) {
+  const results = lus.filter((l) => l.paquets.length > 0).map((l) => ({ source: source(l), packages: l.paquets.map((p) => ({ package: p })) }));
+  fs.writeFileSync(valeur('--output-file'), JSON.stringify({ ...vide, results }, null, 2));
+  process.exit(0);
+}
 if (mode === 'hors-ligne') {
   fs.writeFileSync(valeur('--output-file'), JSON.stringify(vide, null, 2));
   process.stderr.write('Error during extraction: (extracting as vulnmatch/osvdev) max retries exceeded: attempt 4: request failed: Post "https://api.osv.dev/v1/querybatch": dial tcp: lookup api.osv.dev: no such host\n');
   process.exit(127);
 }
-const lockfiles = args.flatMap((a, i) => (a === '-L' ? [args[i + 1]] : []));
+// Ce qui PART : une requête par paquet lu — par commit pour une source git.
+for (const l of lus) for (const p of l.paquets) {
+  fs.appendFileSync(path.join(ici, 'requetes'), JSON.stringify(p.ecosystem === 'GIT' ? { commit: p.commit } : { version: p.version, package: { name: p.name, ecosystem: p.ecosystem } }) + '\n');
+}
 const champs = (v) => v.split('.').map(Number);
 const avant = (a, b) => { const x = champs(a), y = champs(b); for (let k = 0; k < 3; k++) { if ((x[k] ?? 0) !== (y[k] ?? 0)) return (x[k] ?? 0) < (y[k] ?? 0); } return false; };
 const touche = (avis, version) => avis.plages.some(([de, a]) => !avant(version, de) && avant(version, a));
 const enregistrement = (a) => ({
   modified: '2026-09-10T03:49:04Z', published: '2021-05-06T16:05:51Z', schema_version: '1.9.0',
   id: a.id, aliases: a.aliases, summary: a.summary, details: a.summary + '.',
-  affected: a.plages.map(([de, corrige]) => ({ package: { ecosystem: 'npm', name: a.paquet, purl: 'pkg:npm/' + a.paquet },
-    ranges: [{ type: 'SEMVER', events: [{ introduced: de }, { fixed: corrige }] }] })),
+  affected: a.plages.map(([de, corrige]) => ({ package: { ecosystem: a.ecosysteme, name: a.paquet },
+    ranges: [{ type: 'ECOSYSTEM', events: [{ introduced: de }, { fixed: corrige }] }] })),
   references: [{ type: 'ADVISORY', url: 'https://github.com/advisories/' + a.id }],
   database_specific: { github_reviewed: true, severity: a.severite },
   severity: [{ type: 'CVSS_V3', score: a.cvss }],
 });
 const results = [];
-for (const fichier of lockfiles) {
-  const verrou = JSON.parse(fs.readFileSync(fichier, 'utf8'));
+for (const l of lus) {
   const packages = [];
-  for (const [cle, p] of Object.entries(verrou.packages ?? {})) {
-    if (!cle.startsWith('node_modules/') || typeof p.version !== 'string') continue;
-    const nom = cle.slice('node_modules/'.length);
-    const vulns = AVIS.filter((a) => a.paquet === nom && touche(a, p.version));
+  for (const p of l.paquets) {
+    const vulns = AVIS.filter((a) => a.ecosysteme === p.ecosystem && a.paquet === p.name && touche(a, p.version));
     if (vulns.length === 0) continue;
     // Les groupes d'alias, comme l'outil : deux avis qui se nomment l'un l'autre n'en font qu'un.
     const groupes = [];
@@ -296,9 +420,9 @@ for (const fichier of lockfiles) {
       if (g) { g.ids.push(a.id); g.aliases = [...new Set([...g.aliases, ...a.aliases, a.id])].sort(); }
       else groupes.push({ ids: [a.id], aliases: [...new Set([...a.aliases, a.id])].sort(), max_severity: a.score });
     }
-    packages.push({ package: { name: nom, version: p.version, ecosystem: 'npm' }, groups: groupes, vulnerabilities: vulns.map(enregistrement) });
+    packages.push({ package: { name: p.name, version: p.version, ecosystem: p.ecosystem }, groups: groupes, vulnerabilities: vulns.map(enregistrement) });
   }
-  if (packages.length > 0) results.push({ source: { path: path.resolve(fichier), type: 'lockfile' }, packages });
+  if (packages.length > 0) results.push({ source: source(l), packages });
 }
 fs.writeFileSync(valeur('--output-file'), JSON.stringify({ ...vide, results }, null, 2));
 process.exit(results.length > 0 ? 1 : 0);
@@ -346,4 +470,20 @@ export function appelsDesOutils(outils: FauxOutils): string[] {
 /** Oublie les appels passés — un banc qui compte ceux d'UNE production. */
 export function effacerAppels(outils: FauxOutils): void {
   writeFileSync(path.join(outils.dossier, 'appels'), '');
+}
+
+/** Ce que le faux osv-scanner a « envoyé à osv.dev » : une requête par paquet interrogé. */
+export function requetesEnvoyees(outils: FauxOutils): Record<string, unknown>[] {
+  const journal = path.join(outils.dossier, 'requetes');
+  if (!existsSync(journal)) return [];
+  return readFileSync(journal, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as Record<string, unknown>);
+}
+
+/** Le `HTTPS_PROXY` que chaque lancement d'osv-scanner a reçu (`-` : aucun), passe par passe. */
+export function proxysRecus(outils: FauxOutils): string[] {
+  const journal = path.join(outils.dossier, 'proxys');
+  return existsSync(journal) ? readFileSync(journal, 'utf8').split('\n').filter(Boolean) : [];
 }

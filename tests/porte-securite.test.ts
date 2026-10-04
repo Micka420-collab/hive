@@ -34,7 +34,7 @@ import {
   voletSans,
   vulnerabilitesIntroduites,
 } from '../src/shared/porte-securite.js';
-import type { PorteSecurite, SourceLue } from '../src/shared/porte-securite.js';
+import type { ConstatDependance, PorteSecurite, SourceLue } from '../src/shared/porte-securite.js';
 import { parseClientMessage } from '../src/shared/protocol.js';
 
 const ID_AWS = ['AKIA', 'Z7Q4XWERT2LMNOPQ'].join('');
@@ -293,6 +293,7 @@ describe('osv-scanner — le rapport, et ce que la tête INTRODUIT', () => {
     ]);
     expect(introduites).toEqual([
       {
+        genre: 'vulnerabilite',
         paquet: 'minimist',
         version: '1.2.0',
         ecosysteme: 'npm',
@@ -366,6 +367,33 @@ describe('ce qui traverse le réseau et le journal — reconstruit, validé FERM
     expect(porteSecuriteDepuis(JSON.parse(JSON.stringify(porte)))).toEqual(porte);
   });
 
+  it('LES NOUVELLES FORMES DU VOLET DÉPENDANCES passent : lockfile illisible, paquets non interrogés', () => {
+    const riche: PorteSecurite = {
+      ...porte,
+      dependances: {
+        ...voletAvec<ConstatDependance>(
+          [
+            { genre: 'lockfile_illisible', fichier: 'package-lock.json', motif: 'mal_forme' },
+            {
+              genre: 'vulnerabilite',
+              paquet: 'minimist',
+              version: '1.2.0',
+              ecosysteme: 'npm',
+              avis: 'GHSA-xvch-5gv4-984h',
+              alias: ['CVE-2021-44906'],
+              gravite: 'CRITICAL',
+              resume: 'Prototype Pollution in minimist',
+              fichier: 'web/package-lock.json',
+            },
+          ],
+          { nom: 'osv-scanner', version: '2.6.0' },
+        ),
+        nonInterroges: 3,
+      },
+    };
+    expect(porteSecuriteDepuis(JSON.parse(JSON.stringify(riche)))).toEqual(riche);
+  });
+
   it('SANS RAPPORT, la porte n’est jamais verte', () => {
     expect(PORTE_SANS_RAPPORT.secrets).toMatchObject({
       etat: 'non_verifie',
@@ -419,6 +447,26 @@ describe('ce qui traverse le réseau et le journal — reconstruit, validé FERM
       },
     ],
     ['un volet manquant', { dependances: undefined }],
+    [
+      'un constat de dépendance d’un genre inconnu',
+      {
+        dependances: {
+          ...porte.dependances,
+          etat: 'constat',
+          raison: 'trouve',
+          constats: [{ genre: 'rumeur', fichier: 'package-lock.json' }],
+          total: 1,
+        },
+      },
+    ],
+    [
+      'un compte de paquets non interrogés à zéro',
+      { dependances: { ...porte.dependances, nonInterroges: 0 } },
+    ],
+    [
+      'des paquets non interrogés sous le volet secrets',
+      { secrets: { ...porte.secrets, nonInterroges: 2 } },
+    ],
   ])('REFUSÉ EN ENTIER : %s', (_cas, patch) => {
     expect(porteSecuriteDepuis({ ...porte, ...patch })).toBeNull();
   });

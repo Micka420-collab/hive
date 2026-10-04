@@ -542,6 +542,16 @@ const VARIABLES_TELECHARGEMENT: readonly string[] = [
 ];
 
 /**
+ * Les variables de proxy standard — celles que lit `http.ProxyFromEnvironment`
+ * de Go. Le seul programme de la ruche qui les reçoit pour sortir est
+ * osv-scanner, quand il interroge osv.dev (`node-client/porte-securite.ts`) :
+ * sans elles, derrière un proxy sortant, l'interrogation échouait toujours.
+ */
+export const VARIABLES_PROXY: readonly string[] = VARIABLES_TELECHARGEMENT.filter((nom) =>
+  /^(?:https?|no)_proxy$/i.test(nom),
+);
+
+/**
  * L'environnement du client d'un moteur de conteneurs pour les ÉPREUVES du
  * démarrage (inspection, téléchargement, preflight, ramassage).
  *
