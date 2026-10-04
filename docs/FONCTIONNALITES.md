@@ -657,15 +657,23 @@ interrompue avant d'avoir rendu (ouvrière perdue, annulation), n'est jamais
 comptée pour zéro : le tiroir de la tâche dit « au moins ».
 
 La réservation d'un enfant est aussi **son plafond, tenu dans la boucle de son
-agent** : chaque tentative reçoit ce qu'il en reste — la réservation moins le
-coût déclaré de ses tentatives précédentes, jamais le reste de la racine — et
-Claude Code (≥ 2.1.217) s'arrête dessus (`--max-budget-usd`, au plus une
-réponse de dépassement, documentée). La tâche finit alors **arrêtée par son
-budget** : ni un échec de l'agent, ni une panne — pas de reprise, et le
-registre Genome la compte interrompue. Un Claude Code plus ancien ne reçoit pas
-le drapeau, et le journal de la tâche le dit ; Codex ne déclare aucun coût,
-rien ne l'arrête dans sa boucle. Ce coût déclaré est l'estimation du CLI, pas
-une facture.
+agent** : elle vaut au moins 1 µUSD (une seule réponse coûte déjà de l'ordre de
+13 000 à 25 000 µUSD sur le plus petit modèle), et chaque tentative reçoit ce
+qu'il en reste — la réservation moins le coût déclaré de ses tentatives
+précédentes, jamais le reste de la racine. Claude Code (≥ 2.1.217) s'arrête
+dessus (`--max-budget-usd`, au plus une réponse de dépassement, documentée).
+La tâche finit alors **arrêtée par son budget** : ni un échec de l'agent, ni
+une panne — pas de reprise, et aucun lecteur ne la compte en échec (registre
+Genome, Thermo, Waggle, Ghost, Pulse, phéromones, leçons de l'essaim, graphe
+d'expérience, écrans). Le parent lit en tête des logs la dépense, le diff
+partiel s'il y en a un, et qu'il faut redéléguer sous un **nouvel**
+identifiant d'enfant : le même rejoue l'enfant arrêté. Une réservation déjà
+dépensée par des tentatives précédentes n'est plus envoyée : la Reine clôt
+l'enfant et le dit au parent. Seuls les nœuds qui déclarent tenir un plafond le
+reçoivent ; pour les autres (Codex, Cursor, Cline, shell, nœud ancien), le
+journal de la tâche dit à l'envoi qu'il ne sera pas tenu — et un Claude Code
+d'avant 2.1.217 le dit aussi, avec `claude update`. Ce coût déclaré est
+l'estimation du CLI, pas une facture.
 
 Un parent qui attend ses enfants **relâche sa place à son propre arbre** sur
 son ouvrière : un arbre ne s'interbloque plus sur un poste plein, et une autre
