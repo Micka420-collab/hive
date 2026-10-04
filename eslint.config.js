@@ -4,7 +4,23 @@ import tseslint from 'typescript-eslint';
 import prettier from 'eslint-config-prettier';
 
 export default tseslint.config(
-  { ignores: ['node_modules', 'dist', 'dashboard/dist', 'data', '.hive-work', 'coverage'] },
+  {
+    ignores: [
+      'node_modules',
+      'dist',
+      'dashboard/dist',
+      'data',
+      '.hive-work',
+      'coverage',
+      // L'application de bureau : sa sortie compilée, la marque copiée, la
+      // ruche préparée et les paquets — tout se reconstruit.
+      'desktop/node_modules',
+      'desktop/dist',
+      'desktop/marque',
+      'desktop/build/hive',
+      'desktop/release',
+    ],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   prettier,
@@ -38,6 +54,45 @@ export default tseslint.config(
         URL: 'readonly',
         fetch: 'readonly',
         AbortController: 'readonly',
+      },
+    },
+  },
+  {
+    // L'application de bureau (ADR 0013) : ses outils `.mjs`/`.cjs` tournent
+    // dans Node ou dans Electron (le générateur de la marque, le banc de
+    // fumée, la configuration d'electron-builder, l'amorce des pièces). Les
+    // `.cjs` sont du CommonJS VOULU — l'amorce doit tourner sans chargeur, le
+    // préchargement sandboxé ne peut pas être un module ES —, d'où `require`.
+    files: ['desktop/**/*.mjs', 'desktop/**/*.cjs'],
+    languageOptions: {
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+        URL: 'readonly',
+        fetch: 'readonly',
+        Buffer: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+      },
+    },
+  },
+  {
+    files: ['desktop/**/*.cjs'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: { require: 'readonly', module: 'writable', __dirname: 'readonly' },
+    },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
+  {
+    // Ce qui s'exécute dans une PAGE : le préchargement et l'accueil.
+    files: ['desktop/app/preload.cjs', 'desktop/accueil/**/*.js'],
+    languageOptions: {
+      globals: {
+        window: 'readonly',
+        document: 'readonly',
+        location: 'readonly',
+        localStorage: 'readonly',
       },
     },
   },

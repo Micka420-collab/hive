@@ -135,7 +135,15 @@ describe('la sortie en direct — d’un vrai processus jusqu’à l’écran, c
       keepEnv: [NOM_CLE, NOM_PEM],
       adapter: {
         name: 'banc',
-        async run(_task, ctx) {
+        async run(task, ctx) {
+          // L'enfant délégué tourne sur ce même nœud à une place PENDANT que
+          // sa mère vole (la place d'un parent qui attend est rendue à son
+          // arbre). Il rend sans rien faire : s'il rejouait ce banc, sa
+          // délégation du même identifiant (`task_id_duplique`) écraserait
+          // l'issue qu'on vérifie, celle de la mère.
+          if (task.id === 'enfant-sortie') {
+            return { success: true, diff: '', logs: '', subAgents: [] };
+          }
           // Ce que l'agent déclare d'autre, et que le nœud relaie : un
           // sous-agent nommé d'après la clé, une délégation qui la recopie.
           const sousAgent = { id: 'sa-1', name: `lit ${CLE}`, status: 'running' as const };

@@ -6,6 +6,12 @@
 // pour y aller. Un désaccord qu'on ne voit qu'en ouvrant la bonne vue est un
 // désaccord qu'on ne tranche pas.
 //
+// Les RELECTURES IMPOSSIBLES que la War Room tient aussi en attente (#513)
+// n'entrent pas dans ce compte : ce ne sont pas des désaccords, et l'accueil
+// les montre déjà, une par une avec le geste qui les tranche, dans « Ce qui
+// arrête la ruche » (`cockpit.ts`, #504). Comptées ici aussi, un même « à
+// trancher » aurait deux sources sur le même écran.
+//
 // La lecture demande `limite: 0` : le compte seul, sans le fil — le cockpit
 // n'a pas à relire tout le débat toutes les minutes. Un échec se dit
 // « inconnu », jamais « aucun » : zéro désaccord et « je n'ai pas pu lire »
@@ -28,7 +34,9 @@ export function AccesWarRoom({
   // L'ERREUR fait foi : `useApiPoll` garde la dernière réponse quand une
   // lecture échoue, et un compte d'il y a dix minutes relu sous un jeton
   // révoqué se lirait encore « aucun » alors que l'on ne sait plus rien.
-  const n = poll.error ? null : (poll.data?.desaccords.length ?? null);
+  const n = poll.error
+    ? null
+    : (poll.data?.desaccords.filter((d) => d.genre !== 'relecture_impossible').length ?? null);
 
   const etat =
     n === null

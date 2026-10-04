@@ -66,6 +66,29 @@ const DEROGATIONS: Readonly<Record<string, string>> = {
     'pose un outil du catalogue sur la machine du membre — une installation ' +
     'globale doit atteindre l’hôte, l’envelopper la rendrait sans effet ; le ' +
     'binaire et le paquet viennent du catalogue, jamais de la requête',
+  // ─── LA PRIMITIVE, PAS UN APPELANT ─────────────────────────────────────────
+  //
+  // `lancerArbre` est le `spawn` des agents, des merges, des chantiers, des
+  // validations et des poses d'outils : il lance ce qu'on lui tend, DÉJÀ
+  // enveloppé. La garde ne perd rien à l'inscrire ici, parce qu'elle juge
+  // `lancerArbre(` comme `spawn(` chez chacun de ses appelants
+  // (`fichiersQuiLancent`) : un appelant qui oublierait l'enveloppe rougit
+  // comme avant.
+  // ─── LE SUPERVISEUR DE LA RUCHE ────────────────────────────────────────────
+  //
+  // Il lance les PIÈCES de Hive elles-mêmes — la Reine, les ouvrières, l'écran
+  // Vite —, pour `npm run ruche` comme pour l'application de bureau. C'est le
+  // code que `scripts/ruche.mjs` portait (hors de `src/`, donc hors de cette
+  // garde) ; il n'a pas changé de nature en changeant de dossier. Ce ne sont
+  // pas des agents : chaque ouvrière enveloppe elle-même TOUT ce qu'elle lance.
+  'ruche-superviseur.ts':
+    'lance les pièces de Hive (Reine, ouvrières, écran) sur la machine de ' +
+    'l’hôte, à sa demande — chaque ouvrière enveloppe elle-même les agents ' +
+    'qu’elle lance ; envelopper la Reine la couperait de sa base',
+  'shared/arbre-processus.ts':
+    'la primitive qui lance un arbre de processus : elle exécute ce que ses ' +
+    'appelants ont préparé et enveloppé — chacun d’eux est jugé ici sur son ' +
+    'propre appel à lancerArbre(), comme sur un spawn()',
 };
 
 /**
@@ -93,16 +116,28 @@ function fichiersTs(dossier = '', acc: string[] = []): string[] {
   return acc;
 }
 
-/** Les fichiers du dépôt qui appellent réellement `spawn`. */
+/**
+ * Les fichiers du dépôt qui lancent réellement un processus : par `spawn`, ou
+ * par `lancerArbre` (`shared/arbre-processus.ts`), qui est un `spawn` de plus
+ * haut niveau. Sans la seconde forme, `exec.ts` et `merge-runner.ts` — les deux
+ * lanceurs de code étranger — seraient sortis de la garde le jour où ils ont
+ * cessé d'appeler `spawn` eux-mêmes.
+ */
 function fichiersQuiLancent(): { chemin: string; source: string }[] {
   return fichiersTs()
     .map((rel) => ({ chemin: rel, source: readFileSync(RACINE + rel, 'utf8') }))
-    .filter(({ source }) => /\bspawn\s*\(/.test(sansCommentaires(source)));
+    .filter(({ source }) => /\b(?:spawn|lancerArbre)\s*\(/.test(sansCommentaires(source)));
 }
 
 describe('la couverture du bac à sable', () => {
   it('méta-test : on trouve bien des spawn à juger', () => {
     expect(fichiersQuiLancent().length).toBeGreaterThan(3);
+  });
+
+  it('les deux lanceurs de code étranger sont jugés — par `lancerArbre`', () => {
+    const juges = fichiersQuiLancent().map((f) => f.chemin);
+    expect(juges).toContain('adapters/exec.ts');
+    expect(juges).toContain('node-client/merge-runner.ts');
   });
 
   it('CHAQUE `spawn` EST SOIT ENVELOPPÉ, SOIT INSCRIT AVEC SA RAISON', () => {

@@ -83,6 +83,7 @@ import {
   savePartage,
   saveToken,
 } from '../dashboard/src/api';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 // ─── LE STOCKAGE DU NAVIGATEUR, AVANT LE PREMIER IMPORT ──────────────────────
 //
@@ -279,29 +280,22 @@ describe('le tableau de bord connecté engage SON projet, par les vraies fonctio
     }
   };
 
-  /** Une ouvrière qui s'inscrit, reçoit ce qu'on lui confie, et se tait. */
-  const inscrireNoeud = (nom: string): Promise<WebSocket> =>
-    new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
-      noeuds.push(ws);
-      ws.on('open', () =>
-        ws.send(
-          JSON.stringify({
-            type: 'register',
-            token: TOKEN,
-            nodeId: nom,
-            name: nom,
-            ownerName: 'banc',
-            agentType: 'shell',
-            maxConcurrency: 1,
-          }),
-        ),
-      );
-      ws.on('message', (d: Buffer) => {
-        if ((JSON.parse(d.toString()) as { type: string }).type === 'registered') resolve(ws);
-      });
-      ws.on('error', reject);
+  /**
+   * Une ouvrière qui s'inscrit, reçoit ce qu'on lui confie, et se tait sur son
+   * travail. Elle bat (`aide/faux-noeud`) : muette, pas morte.
+   */
+  const inscrireNoeud = async (nom: string): Promise<WebSocket> => {
+    const { ws } = await brancherFauxNoeud(server.port, {
+      token: TOKEN,
+      nodeId: nom,
+      name: nom,
+      ownerName: 'banc',
+      agentType: 'shell',
+      maxConcurrency: 1,
     });
+    noeuds.push(ws);
+    return ws;
+  };
 
   /**
    * Ce qu'une ouvrière aurait rendu : la tâche terminée, avec son diff. Le

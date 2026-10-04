@@ -9,6 +9,8 @@ import type { LigneTerminal, NiveauTerminal } from './composants';
 import { useT } from './i18n';
 import type { Translate } from './i18n';
 import { bandeText, formatDuree } from './ui';
+import { direRaisonRefus } from './views/warroom-rendu';
+import { direMotifOmbre } from './banc-ombre-rendu';
 
 interface Meta {
   icon: string;
@@ -68,45 +70,14 @@ const cout = (v: unknown): string | null =>
 /**
  * Pourquoi une correction demandée par l'Evaluator n'est pas repartie.
  *
- * Les codes sont ceux du planificateur (`retryFromEvaluator`). Sans cette
- * ligne, le journal affichait le type brut — ou rien du tout quand un rejet
- * humain restait sans suite : l'opérateur croyait une correction en route. Un
- * code inconnu reste affiché tel quel plutôt que traduit de travers.
+ * Les codes sont ceux du planificateur (`retryFromEvaluator`), dits par la
+ * table que la War Room partage (`direRaisonRefus`). Sans cette ligne, le
+ * journal affichait le type brut — ou rien du tout quand un rejet humain
+ * restait sans suite : l'opérateur croyait une correction en route. Un code
+ * inconnu reste affiché tel quel plutôt que traduit de travers.
  */
-function raisonRetrySaute(code: unknown, t: Translate): string {
-  switch (code) {
-    case 'attempts_exhausted':
-      return t('essais épuisés', 'attempts exhausted');
-    case 'delivery_exists':
-      return t('une livraison est déjà ouverte', 'a delivery is already open');
-    case 'dependent_progressed':
-      return t('une tâche dépendante a déjà avancé', 'a dependent task has already moved on');
-    // Même fait que le tiroir d'une tâche annulée avec son sous-arbre : un
-    // enfant délégué n'a qu'un destinataire, et une annulation compte comme
-    // un échec (`ancetreEchoue`).
-    case 'ancestor_failed':
-      return t(
-        'un ancêtre délégué a échoué (ou a été annulé) : plus personne n’attend cette correction',
-        'a delegated ancestor failed (or was cancelled): nobody is waiting for this correction any more',
-      );
-    case 'stale_result':
-      return t('une production plus récente existe', 'a newer production exists');
-    // Une tâche ÉCHOUÉE est terminée, mais pas `done` : c'est le retry
-    // ordinaire qui la relance, jamais la correction de l'Evaluator. Dire
-    // « pas terminée » d'une tâche en échec contredirait son propre statut.
-    case 'task_not_done':
-      return t(
-        'la tâche n’est pas « terminée avec succès » (échouée : relancez-la par le retry ordinaire)',
-        'the task is not “completed successfully” (failed: relaunch it with the ordinary retry)',
-      );
-    case 'unknown_task':
-      return t('tâche inconnue', 'unknown task');
-    case 'invalid_result_id':
-      return t('résultat invalide', 'invalid result');
-    default:
-      return typeof code === 'string' && code.length > 0 ? code : '?';
-  }
-}
+const raisonRetrySaute = (code: unknown, t: Translate): string =>
+  typeof code === 'string' && code.length > 0 ? direRaisonRefus(code, t) : '?';
 
 /**
  * Ce qu'un `task_progress` APPORTE, et non le mot « progrès ».
@@ -140,6 +111,27 @@ const EVENTS: Record<string, Meta> = {
     cls: 'info',
     text: (p, t) => t(`projet « ${String(p.name ?? '')} »`, `project “${String(p.name ?? '')}”`),
   },
+  // Le seul fait qui survit à un projet supprimé : son journal est parti avec
+  // lui. Le nom et le compte des tâches effacées, rien d'autre — le détail par
+  // table reste dans le payload, pour qui l'audite. Le bilan ne porte que les
+  // tables NON vides : `tasks` absent d'un bilan lu veut dire zéro ; un bilan
+  // illisible, lui, ne fait dire aucun chiffre.
+  project_deleted: {
+    icon: '✕',
+    cls: 'warn',
+    text: (p, t) => {
+      const nom = String(p.name ?? '');
+      if (typeof p.effaces !== 'object' || p.effaces === null) {
+        return t(`projet « ${nom} » supprimé`, `project “${nom}” deleted`);
+      }
+      const taches = (p.effaces as Record<string, unknown>).tasks;
+      const n = typeof taches === 'number' ? taches : 0;
+      return t(
+        `projet « ${nom} » supprimé (${n} tâche(s) effacée(s))`,
+        `project “${nom}” deleted (${n} task(s) erased)`,
+      );
+    },
+  },
   task_created: {
     icon: '+',
     cls: 'muted',
@@ -157,11 +149,18 @@ const EVENTS: Record<string, Meta> = {
   task_assigned: {
     icon: '◈',
     cls: 'info',
-    text: (p, t) =>
-      t(
+    // Le modèle COMMANDÉ, quand l'Aiguillage en a choisi un : c'est la
+    // décision que la ligne rapporte. Sa raison complète (le classement figé)
+    // se lit dans le tiroir de la tâche — trop longue pour une ligne.
+    text: (p, t) => {
+      const base = t(
         `${short(p.taskId)} → nœud ${short(p.nodeId)}`,
         `${short(p.taskId)} → node ${short(p.nodeId)}`,
-      ),
+      );
+      if (typeof p.modele !== 'string' || p.modele === '') return base;
+      const categorie = typeof p.categorie === 'string' ? ` (${p.categorie})` : '';
+      return `${base} · ${t('modèle', 'model')} ${p.modele}${categorie}`;
+    },
   },
   task_started: {
     icon: '▶',
@@ -218,6 +217,46 @@ const EVENTS: Record<string, Meta> = {
       // Balance dès que la tâche aboutit.
       return ms === null ? base : `${base} — ${t(`${ms} en reprise`, `${ms} of rework`)}`;
     },
+  },
+  // Le verdict HUMAIN de la Miellerie. `state: null` efface une revue : un
+  // geste aussi, dit comme tel plutôt que par le type brut.
+  task_reviewed: {
+    icon: '✍',
+    cls: 'info',
+    text: (p, t) =>
+      p.state === 'approved'
+        ? t(
+            `revue humaine : approuvée (${short(p.taskId)})`,
+            `human review: approved (${short(p.taskId)})`,
+          )
+        : p.state === 'rejected'
+          ? t(
+              `revue humaine : rejetée (${short(p.taskId)})`,
+              `human review: rejected (${short(p.taskId)})`,
+            )
+          : t(
+              `revue humaine effacée (${short(p.taskId)})`,
+              `human review cleared (${short(p.taskId)})`,
+            ),
+  },
+  // Un humain passe outre l'Evaluator pour livrer ou fusionner. La raison vit
+  // dans le payload ; la ligne dit le geste et le verdict contourné.
+  evaluator_overridden: {
+    icon: '⚑',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `verdict de l’Evaluator (${String(p.decision ?? '?')}) passé outre pour ${String(p.geste ?? '?')} (${short(p.taskId)})`,
+        `Evaluator verdict (${String(p.decision ?? '?')}) overridden to ${String(p.geste ?? '?')} (${short(p.taskId)})`,
+      ),
+  },
+  council_decided: {
+    icon: '⚔',
+    cls: 'info',
+    text: (p, t) =>
+      typeof p.titre === 'string' && p.titre !== ''
+        ? t(`Conseil tranché : « ${p.titre} »`, `Council settled: “${p.titre}”`)
+        : t('Conseil tranché : aucune piste retenue', 'Council settled: no path kept'),
   },
   evaluator_retry_skipped: {
     icon: '⊘',
@@ -311,11 +350,52 @@ const EVENTS: Record<string, Meta> = {
       );
     },
   },
+  // Le Hive Mind n'apprend qu'une production VALIDÉE : le souvenir entre à
+  // l'acceptation de l'Evaluator ou à l'approbation humaine, et sort sur un
+  // rejet. La ligne dit qui a validé — les anciens événements, émis à la
+  // simple réussite, n'ont pas de `source` et se lisent comme avant.
   memory_recorded: {
     icon: '※',
     cls: 'muted',
     text: (p, t) =>
-      t(`souvenir consigné (${short(p.taskId)})`, `memory recorded (${short(p.taskId)})`),
+      p.source === 'evaluator'
+        ? t(
+            `souvenir consigné, validé par l’Evaluator (${short(p.taskId)})`,
+            `memory recorded, validated by the Evaluator (${short(p.taskId)})`,
+          )
+        : p.source === 'revue_humaine'
+          ? t(
+              `souvenir consigné, approuvé en revue humaine (${short(p.taskId)})`,
+              `memory recorded, approved in human review (${short(p.taskId)})`,
+            )
+          : t(`souvenir consigné (${short(p.taskId)})`, `memory recorded (${short(p.taskId)})`),
+  },
+  // Retiré sur un rejet, ou quand l'approbation humaine qui SEULE le validait
+  // est effacée : plus rien ne le valide.
+  memory_forgotten: {
+    icon: '※',
+    cls: 'warn',
+    text: (p, t) =>
+      p.motif === 'approbation_retiree'
+        ? t(
+            `souvenir retiré : approbation humaine annulée (${short(p.taskId)})`,
+            `memory withdrawn: human approval undone (${short(p.taskId)})`,
+          )
+        : t(
+            `souvenir retiré : production rejetée (${short(p.taskId)})`,
+            `memory withdrawn: production rejected (${short(p.taskId)})`,
+          ),
+  },
+  // Une approbation humaine ne rachète pas une objection, une validation rouge
+  // ou un signal des Gardiennes : la ligne dit pourquoi rien n'est retenu.
+  memory_withheld: {
+    icon: '※',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `approuvée, mais pas retenue au Hive Mind : ${String(p.raison ?? '')} (${short(p.taskId)})`,
+        `approved, but not kept in the Hive Mind: ${String(p.raison ?? '')} (${short(p.taskId)})`,
+      ),
   },
   conflict_detected: {
     icon: '△',
@@ -334,6 +414,47 @@ const EVENTS: Record<string, Meta> = {
         `différée (conflit avec ${short(p.conflictsWith)})`,
         `deferred (conflicts with ${short(p.conflictsWith)})`,
       ),
+  },
+  task_consigne_deferred: {
+    icon: '⏸',
+    cls: 'warn',
+    text: (p, t) =>
+      t(
+        `en attente (${short(p.taskId)}) : aucune ouvrière en ligne ne respecte la consigne de l’opérateur`,
+        `waiting (${short(p.taskId)}): no online worker satisfies the operator’s constraint`,
+      ),
+  },
+  routage_consigne: {
+    icon: '⚑',
+    cls: 'info',
+    text: (p, t) =>
+      p.consigne === null
+        ? t(
+            `consigne de routage levée (${short(p.taskId)})`,
+            `routing constraint lifted (${short(p.taskId)})`,
+          )
+        : t(
+            `consigne de routage posée (${short(p.taskId)})`,
+            `routing constraint set (${short(p.taskId)})`,
+          ),
+  },
+  // La dépense DÉCLARÉE d'un arbre délégué vient d'atteindre son enveloppe :
+  // le nombre d'enfants annulés, et les tentatives au coût inconnu — la
+  // dépense réelle est au moins celle-ci, jamais présentée comme complète.
+  delegation_budget_exhausted: {
+    icon: '$',
+    cls: 'fail',
+    text: (p, t) => {
+      const annulees = typeof p.annulees === 'number' ? p.annulees : 0;
+      const inconnues = typeof p.sansCout === 'number' ? p.sansCout : 0;
+      const base = t(
+        `budget coût épuisé sous ${short(p.rootTaskId)} : ${String(p.depenseMicros)} / ${String(p.budgetMicros)} µUSD déclarés, ${annulees} sous-tâche(s) annulée(s)`,
+        `cost budget exhausted under ${short(p.rootTaskId)}: ${String(p.depenseMicros)} / ${String(p.budgetMicros)} µUSD declared, ${annulees} child task(s) cancelled`,
+      );
+      return inconnues > 0
+        ? `${base} — ${t(`${inconnues} tentative(s) au coût inconnu`, `${inconnues} attempt(s) of unknown cost`)}`
+        : base;
+    },
   },
   result_ignored: {
     icon: '⊘',
@@ -492,6 +613,35 @@ const EVENTS: Record<string, Meta> = {
         `critique dropped: ${short(p.taskId)} restarts (attempt ${String(p.attempt ?? '?')}) without the correction’s ${String(p.objectionsFigees ?? '?')} objection(s) — context budget exhausted`,
       ),
   },
+  // Le graphe d'expérience : les tâches voisines que l'ouvrière a lues, en
+  // faits typés (le détail est sous « Pourquoi ce Worker » dans le tiroir).
+  // Des corrélations : la ligne le dit, elle ne les présente pas comme un
+  // savoir acquis.
+  experience_context: {
+    icon: '◦',
+    cls: 'info',
+    text: (p, t) => {
+      const n = Array.isArray(p.similaires) ? p.similaires.length : 0;
+      const ruche = p.portee === 'ruche' ? t(' (toute la ruche)', ' (the whole hive)') : '';
+      return t(
+        `expérience : ${short(p.taskId)} part avec ${n} contexte(s) similaire(s)${ruche} — des corrélations, pas des règles`,
+        `experience: ${short(p.taskId)} starts with ${n} similar context(s)${ruche} — correlations, not rules`,
+      );
+    },
+  },
+  // … et celle que le budget a évincée : un `''` muet ferait croire que rien
+  // ne ressemblait à la tâche.
+  experience_refus: {
+    icon: '⚠',
+    cls: 'warn',
+    text: (p, t) => {
+      const n = Array.isArray(p.similaires) ? p.similaires.length : 0;
+      return t(
+        `expérience perdue : ${short(p.taskId)} part sans ses ${n} contexte(s) similaire(s) — budget de contexte épuisé`,
+        `experience dropped: ${short(p.taskId)} starts without its ${n} similar context(s) — context budget exhausted`,
+      );
+    },
+  },
   // La Balance, geste « borner ». Trois faits typés — `projectId`, des entiers,
   // un booléen — et AUCUNE phrase persistée : le bilingue est reconstruit ici
   // depuis les champs, exactement comme `thermo_shift`. `formatDuree` est
@@ -543,6 +693,63 @@ const EVENTS: Record<string, Meta> = {
             `Balance : plafond posé à ${ms} sur ${short(p.projectId)}${par}`,
             `Balance: cap set to ${ms} on ${short(p.projectId)}${par}`,
           );
+    },
+  },
+  // ─── Le banc d'ombre ─────────────────────────────────────────────────────
+  // Une tâche rejouée par un second modèle, jamais livrée. Chaque ligne dit
+  // QUI mesure QUOI, ou pourquoi une tâche tirée au sort n'a rien eu : un
+  // banc qui n'admet rien ne doit pas ressembler à un banc éteint.
+  shadow_bench_set: {
+    icon: '◐',
+    cls: 'info',
+    text: (p, t) => {
+      if (p.actif !== true) {
+        return t(
+          `banc d’ombre éteint sur ${short(p.projectId)}`,
+          `shadow bench off on ${short(p.projectId)}`,
+        );
+      }
+      const taux = typeof p.tauxPourMille === 'number' ? p.tauxPourMille / 10 : '?';
+      const n = String(p.executionsParJour ?? '?');
+      const usd = String(p.plafondCoutUsd ?? '?');
+      return t(
+        `banc d’ombre allumé sur ${short(p.projectId)} : ${taux} % des tâches, ${n} ombre(s) et ${usd} $ déclarés au plus par 24 h`,
+        `shadow bench on for ${short(p.projectId)}: ${taux}% of tasks, at most ${n} shadow(s) and $${usd} declared per 24 h`,
+      );
+    },
+  },
+  shadow_bench_started: {
+    icon: '◐',
+    cls: 'info',
+    text: (p, t) => {
+      const original =
+        typeof p.original === 'object' && p.original !== null
+          ? String((p.original as Record<string, unknown>).modele ?? '?')
+          : '?';
+      return t(
+        `ombre ${short(p.taskId)} : ${String(p.modeleOmbre ?? '?')} rejoue ${short(p.tacheOriginale)} (produite par ${original}) — jamais livrée`,
+        `shadow ${short(p.taskId)}: ${String(p.modeleOmbre ?? '?')} replays ${short(p.tacheOriginale)} (produced by ${original}) — never delivered`,
+      );
+    },
+  },
+  shadow_bench_skipped: {
+    icon: '◌',
+    cls: 'muted',
+    text: (p, t) =>
+      t(
+        `pas d’ombre pour ${short(p.taskId)} : ${direMotifOmbre(p.motif, t)}`,
+        `no shadow for ${short(p.taskId)}: ${direMotifOmbre(p.motif, t)}`,
+      ),
+  },
+  shadow_bench_waiting: {
+    icon: '⏳',
+    cls: 'warn',
+    text: (p, t) => {
+      const delai = cout(p.delaiMs) ?? '?';
+      return t(
+        `ombre ${short(p.taskId)} : aucune ouvrière en ligne n’offre ${String(p.modele ?? '?')} — elle échoue si personne ne revient d’ici ${delai}`,
+        `shadow ${short(p.taskId)}: no online worker offers ${String(p.modele ?? '?')} — it fails if nobody comes back within ${delai}`,
+      );
     },
   },
   // ─── La contre-expertise ─────────────────────────────────────────────────
@@ -618,6 +825,38 @@ const EVENTS: Record<string, Meta> = {
             `${String(p.relecteur ?? '?')} valide ${short(p.taskId)}`,
             `${String(p.relecteur ?? '?')} approves ${short(p.taskId)}`,
           ),
+  },
+  // La rétention du journal se raconte (`shared/retention-journal.ts`) : une
+  // ligne par passe qui retire quelque chose. Le plafond y est nommé à part,
+  // avec les preuves de tâches ENCORE OUVERTES qu'il a prises — le seul motif
+  // qui prive une décision à venir de son dossier, et que l'opérateur doit
+  // pouvoir lire sans ouvrir le payload.
+  journal_elagage: {
+    icon: '✂',
+    cls: 'muted',
+    text: (p, t) => {
+      const motifs = (p.parMotif ?? {}) as Record<string, unknown>;
+      const n = (m: string): number => (typeof motifs[m] === 'number' ? (motifs[m] as number) : 0);
+      const preuves = n('orpheline') + n('echue');
+      const plafond = n('plafond_close') + n('plafond_vivante') + n('plafond_coupe');
+      const base = t(
+        `journal élagué : ${n('trace')} trace(s), ${preuves} preuve(s) de tâches closes ou disparues`,
+        `journal pruned: ${n('trace')} trace(s), ${preuves} proof(s) of closed or deleted tasks`,
+      );
+      if (plafond === 0) return base;
+      const cap = t(
+        `${base} — plafond atteint : ${plafond} preuve(s) retirée(s), dont ${n('plafond_vivante')} de tâches encore ouvertes`,
+        `${base} — cap reached: ${plafond} proof(s) removed, ${n('plafond_vivante')} of them from still-open tasks`,
+      );
+      // La coupe (une tâche qui boucle, dossier entamé) se dit à part : c'est
+      // le seul retrait qui laisse un dossier à moitié, et l'opérateur doit le
+      // voir sans ouvrir le payload.
+      if (n('plafond_coupe') === 0) return cap;
+      return t(
+        `${cap}, ${n('plafond_coupe')} coupée(s) dans des dossiers encore actifs`,
+        `${cap}, ${n('plafond_coupe')} cut from still-active dossiers`,
+      );
+    },
   },
   boot_recovery: {
     icon: '⟲',
@@ -710,6 +949,21 @@ const EVENTS: Record<string, Meta> = {
 };
 
 /**
+ * La ligne d'un événement, telle que le Journal la dit — icône, classe et
+ * texte bilingue reconstruit depuis les champs typés du payload. Exportée
+ * pour que le fil des décisions de l'accueil parle EXACTEMENT comme le
+ * Journal : deux traductions d'un même fait finiraient par se contredire.
+ */
+export function ligneDuJournal(
+  ev: HiveEvent,
+  t: Translate,
+): { icon: string; cls: string; text: string } {
+  const meta = EVENTS[ev.type];
+  if (!meta) return { icon: '•', cls: 'muted', text: ev.type };
+  return { icon: meta.icon, cls: meta.cls, text: meta.text(ev.payload, t) };
+}
+
+/**
  * La SÉVÉRITÉ d'un événement, lue dans sa fiche (`EVENTS`) : la teinte que le
  * journal lui donne depuis toujours — un échec est `fail`, une reprise `warn`
  * — devient un niveau qu'on filtre. Un type inconnu reste un « détail » : on
@@ -743,13 +997,13 @@ const lignesParEvenement = new WeakMap<HiveEvent, { langue: string; ligne: Ligne
 function ligneDe(ev: HiveEvent, t: Translate, langue: string): LigneTerminal {
   const connue = lignesParEvenement.get(ev);
   if (connue && connue.langue === langue) return connue.ligne;
-  const meta = EVENTS[ev.type] ?? { icon: '•', cls: 'muted', text: () => ev.type };
+  const { icon, cls, text } = ligneDuJournal(ev, t);
   const ligne: LigneTerminal = {
-    texte: meta.text(ev.payload, t),
-    niveau: SEVERITE[meta.cls] ?? 'detail',
+    texte: text,
+    niveau: SEVERITE[cls] ?? 'detail',
     horodatage: ev.ts,
-    icone: meta.icon,
-    classe: meta.cls,
+    icone: icon,
+    classe: cls,
   };
   lignesParEvenement.set(ev, { langue, ligne });
   return ligne;

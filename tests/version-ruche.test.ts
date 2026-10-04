@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   commitCourt,
+  conseilBureau,
   conseilSansGit,
   direVersion,
   marcheASuivre,
@@ -100,6 +101,22 @@ describe('la pose : clone git, ou autre chose', () => {
     // Archive, image de conteneur : c'est une pose légitime, simplement sans
     // `.git`. Lui inventer un commit serait la faute.
     expect(poseDepuis(SANS)).toBe('inconnue');
+  });
+
+  it('l’application de bureau le DIT (`HIVE_POSE=bureau`) : pose « bureau », avec ou sans commit', () => {
+    // Sa ruche n'a pas de `.git` : déduite, elle se lirait « inconnue », et on
+    // lui conseillerait de relancer un installeur qu'elle n'a pas.
+    expect(poseDepuis(SANS, { HIVE_POSE: 'bureau' })).toBe('bureau');
+    expect(poseDepuis(GIT, { HIVE_POSE: 'bureau' })).toBe('bureau');
+    // Toute autre valeur ne vaut rien : la déduction reprend.
+    expect(poseDepuis(SANS, { HIVE_POSE: 'autre' })).toBe('inconnue');
+    expect(poseDepuis(GIT, {})).toBe('git');
+  });
+
+  it('pour l’app, aucune marche à coller : elle se met à jour seule, et le conseil le dit', () => {
+    expect(marcheASuivre('bureau')).toEqual([]);
+    expect(conseilBureau()).toContain('se met à jour toute seule');
+    expect(conseilBureau('en')).toContain('updates itself');
   });
 });
 

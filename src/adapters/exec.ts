@@ -1,11 +1,12 @@
 // Aides communes aux adaptateurs qui lancent de vrais processus.
 // Règle absolue (§5.1) : spawn(bin, argv, { shell: false }) — jamais shell:true.
 
-import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { argvAgent } from '../shared/agent-windows.js';
 import { envDuLanceur, envelopper, optionsEnveloppe } from '../node-client/isolement.js';
 import type { GraviteAgent } from '../shared/niveaux-sortie.js';
+import { lancerArbre } from '../shared/arbre-processus.js';
+import type { IssueArbre } from '../shared/arbre-processus.js';
 import { LIMITS } from '../shared/protocol.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { DEFAULT_TOKEN, MIN_TOKEN_LENGTH } from '../shared/types.js';
@@ -226,10 +227,30 @@ export function runCommandFlux(
 }
 
 /**
+ * La ligne qui dit, dans les logs, qu'une tâche ANNULÉE a été arrêtée — elle
+ * et sa descendance (`arbre-processus.ts`).
+ */
+export const LIGNE_ANNULATION = '[hive] tâche annulée — processus arrêté avec sa descendance';
+
+/**
  * Le seul `spawn` des adaptateurs. `runCommand` et `runCommandStreaming` en
  * étaient deux copies ; la seconde avait appris à lire ligne à ligne, pas la
  * première — et c'est la première que Cursor et Cline employaient pour un flux
  * JSON par lignes.
+ *
+ * ─── L'ARBRE ENTIER, ET UNE ANNULATION QUI N'EST PAS UNE PANNE ──────────────
+ *
+ * Le délai et l'annulation ne tuaient que l'enfant direct (`child.kill()`, le
+ * `signal` de `spawn`) : un agent arrêté laissait tourner ses sous-processus,
+ * et un seul d'entre eux qui tenait la sortie gardait la tâche pendue. C'est
+ * désormais tout l'ARBRE qui part, dans une borne (`lancerArbre`).
+ *
+ * Et l'annulation passait par l'événement `error` de `spawn` (`AbortError`),
+ * que ce fichier lit comme un lancement impossible : `infra: true`, « échec du
+ * lancement de « claude » ». Le nœud y voyait un binaire ABSENT et ouvrait une
+ * réquisition « Binaire Claude Code introuvable » dans la Chambre — pour une
+ * tâche qu'un humain venait d'annuler. Une annulation se dit comme telle
+ * (`LIGNE_ANNULATION`) et n'est jamais un échec d'infrastructure.
  */
 function executer(
   bin: string,
@@ -243,22 +264,15 @@ function executer(
     flux?: LecteurFlux;
   },
 ): Promise<AdapterResult> {
+  // Annulée avant de partir : rien n'est lancé, et rien ne se lit en panne.
+  if (ctx.signal?.aborted) {
+    return Promise.resolve({ success: false, diff: '', logs: LIGNE_ANNULATION, subAgents: [] });
+  }
   const lance = preparerCommande(bin, args, ctx, opts.pont);
   const { texteFinal, flux } = opts;
   const suivi = typeof texteFinal === 'function' ? createTexteFinalTracker(texteFinal) : undefined;
 
   return new Promise((resolve) => {
-    const child = spawn(lance.bin, lance.args, {
-      cwd: ctx.cwd,
-      env: lance.env,
-      shell: false, // jamais d'interprétation shell (contrainte §5.1)
-      windowsHide: true,
-      signal: ctx.signal,
-      // Voir `ENTREE_FERMEE` : un tube d'entrée que personne n'écrit bloquait
-      // chaque tâche Codex jusqu'au délai dur.
-      stdio: ENTREE_FERMEE,
-    });
-
     // Stdout ET stderr partent aussi en direct, bornés et cadencés
     // (sortie-directe.ts) : c'est ici, au seul `spawn` des adaptateurs, que
     // tous les agents réels l'obtiennent d'un coup. Les deux flux : un CLI en
@@ -310,7 +324,6 @@ function executer(
     // stderr sont MÊLÉS dans `output`, et plafonnés — un CLI en texte écrit sa
     // réponse tout à la fin, après des centaines de kilo-octets de stderr.
     let sortieStandard = '';
-    let tue = false;
     const parLigne =
       opts.onLine || suivi || flux
         ? (line: string): void => {
@@ -340,6 +353,75 @@ function executer(
             }
           }
         : undefined;
+
+    const finir = (issue: IssueArbre): void => {
+      viderLignes();
+      // La dernière ligne sans \n final — un lancement impossible n'a rien écrit.
+      if (issue.issue !== 'lancement' && parLigne && tampon.trim()) parLigne(tampon);
+      // Avant le `resolve` : un morceau parti après le résultat serait ignoré
+      // par le hub, et ressusciterait une console déjà vidée à l'écran. APRÈS
+      // la dernière ligne : terminée avant, la sortie la taisait à l'écran.
+      direct.terminer();
+      if (issue.issue === 'lancement') {
+        // Le binaire n'a pas pu être lancé (absent, non exécutable) : échec d'infra.
+        resolve({
+          success: false,
+          diff: '',
+          logs: `${output}\n[hive] échec du lancement de « ${bin} » : ${issue.erreur.message}`,
+          subAgents: [],
+          infra: true,
+        });
+        return;
+      }
+      const arrete = issue.issue === 'arret';
+      const code = issue.issue === 'sortie' ? issue.code : null;
+      // Un processus ARRÊTÉ n'a pas conclu : ce qu'il avait écrit n'est pas sa
+      // réponse finale, et le lire comme tel ferait juger une phrase coupée.
+      const finalText = arrete
+        ? undefined
+        : texteFinal === 'sortie-standard'
+          ? borneTexteFinal(sortieStandard)
+          : (flux ?? suivi)?.texte();
+      const bilan = flux?.bilan(code, arrete);
+      const logs = journalAvecFin(output, [
+        ...(issue.issue === 'arret' && issue.motif === 'delai'
+          ? [`[hive] timeout après ${opts.timeoutMs} ms — processus tué`]
+          : []),
+        ...(issue.issue === 'arret' && issue.motif === 'annule' ? [LIGNE_ANNULATION] : []),
+        ...(issue.issue === 'sortie' && issue.tenue
+          ? [
+              "[hive] la sortie est restée ouverte après la fin de l'agent : " +
+                'un processus qu’il a lancé la tenait',
+            ]
+          : []),
+        ...(bilan !== undefined ? [bilan] : []),
+      ]);
+      const success = code === 0 && bilan === undefined;
+      // Échec dont le TEXTE évoque un problème d'auth/quota → infra
+      // (réaffectation). Pas les logs bruts : voir `INFRA_FAILURE_RE`. Jamais
+      // une annulation : voir l'en-tête.
+      const annulee = issue.issue === 'arret' && issue.motif === 'annule';
+      const infra = !success && !annulee && INFRA_FAILURE_RE.test(texteDEchec(logs, finalText));
+      resolve({
+        success,
+        diff: '',
+        logs,
+        subAgents: [],
+        ...(infra ? { infra: true } : {}),
+        ...(finalText !== undefined ? { finalText } : {}),
+      });
+    };
+
+    const child = lancerArbre(
+      lance.bin,
+      lance.args,
+      // Voir `ENTREE_FERMEE` : un tube d'entrée que personne n'écrit bloquait
+      // chaque tâche Codex jusqu'au délai dur.
+      { cwd: ctx.cwd, env: lance.env, stdio: ENTREE_FERMEE },
+      { delaiMs: opts.timeoutMs, ...(ctx.signal ? { signal: ctx.signal } : {}) },
+      finir,
+    );
+
     // Décodage UTF-8 AU FIL DES MORCEAUX : un caractère accentué coupé entre
     // deux lectures devenait deux « � », jusque dans la ligne `result`.
     child.stdout?.setEncoding('utf8');
@@ -366,60 +448,6 @@ function executer(
     child.stderr?.on('data', (s: string) => {
       verser('stderr', s);
       direct.ecrire(s, 'stderr');
-    });
-
-    const timeout = setTimeout(() => {
-      tue = true;
-      child.kill();
-    }, opts.timeoutMs);
-    timeout.unref?.();
-
-    child.on('error', (err) => {
-      clearTimeout(timeout);
-      direct.terminer();
-      viderLignes();
-      // Le binaire n'a pas pu être lancé (absent, non exécutable) : échec d'infra.
-      resolve({
-        success: false,
-        diff: '',
-        logs: `${output}\n[hive] échec du lancement de « ${bin} » : ${err.message}`,
-        subAgents: [],
-        infra: true,
-      });
-    });
-
-    child.on('close', (code) => {
-      clearTimeout(timeout);
-      viderLignes();
-      if (parLigne && tampon.trim()) parLigne(tampon); // dernière ligne sans \n final
-      // Avant le `resolve` : un morceau parti après le résultat serait ignoré
-      // par le hub, et ressusciterait une console déjà vidée à l'écran. APRÈS
-      // la dernière ligne : terminée avant, la sortie la taisait à l'écran.
-      direct.terminer();
-      // Un processus TUÉ n'a pas conclu : ce qu'il avait écrit n'est pas sa
-      // réponse finale, et le lire comme tel ferait juger une phrase coupée.
-      const finalText = tue
-        ? undefined
-        : texteFinal === 'sortie-standard'
-          ? borneTexteFinal(sortieStandard)
-          : (flux ?? suivi)?.texte();
-      const bilan = flux?.bilan(code, tue || ctx.signal?.aborted === true);
-      const logs = journalAvecFin(output, [
-        ...(tue ? [`[hive] timeout après ${opts.timeoutMs} ms — processus tué`] : []),
-        ...(bilan !== undefined ? [bilan] : []),
-      ]);
-      const success = code === 0 && bilan === undefined;
-      // Échec dont le TEXTE évoque un problème d'auth/quota → infra
-      // (réaffectation). Pas les logs bruts : voir `INFRA_FAILURE_RE`.
-      const infra = !success && INFRA_FAILURE_RE.test(texteDEchec(logs, finalText));
-      resolve({
-        success,
-        diff: '',
-        logs,
-        subAgents: [],
-        ...(infra ? { infra: true } : {}),
-        ...(finalText !== undefined ? { finalText } : {}),
-      });
     });
   });
 }

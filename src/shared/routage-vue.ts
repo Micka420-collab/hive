@@ -14,16 +14,34 @@
 // Trois règles de lecture :
 //   · une valeur absente reste absente — pas de modèle déclaré, pas de raison ;
 //   · un modèle jamais JUGÉ n'a PAS une moyenne de 0 : il est « à explorer »
-//     (son score UCB +∞ devient `null` en JSON, et sa moyenne n'est pas une
-//     mesure) — même quand des élections en vol ont déjà éteint son infini ;
+//     (sa moyenne n'est pas une mesure ; avant la v3, son score +∞ devenait
+//     `null` en JSON) — même quand des élections en vol pèsent sur son score ;
 //   · un payload illisible est ignoré, jamais deviné.
+//
+// Deux faits disent ce qui a CONTRAINT le choix, au-delà de l'Aiguillage :
+// `consigneOperateur` — la consigne de l'opérateur, une exclusion dure, et le
+// choix se lit « forcé par l'opérateur » — et `preference` — ce qu'une tâche
+// parente préférait, avec ce que cette préférence a réellement départagé.
+// Aucun des deux ne réécrit le classement : il reste celui de l'Aiguillage.
+//
+// Un dernier fait dit ce que l'ouvrière a LU de l'expérience voisine :
+// `experience_context` (ou `experience_refus`, quand le budget l'a évincée),
+// émis juste après l'affectation — les contextes similaires du graphe
+// d'expérience (`shared/graphe-experience.ts`). Ce sont des CORRÉLATIONS :
+// elles expliquent ce que l'ouvrière savait, jamais pourquoi le modèle a été
+// choisi — l'Aiguillage ne les lit pas.
 //
 // La raison se lit selon la version du calcul qui l'a prise
 // (`versionAiguillage`, cf. `VERSION_AIGUILLAGE`). Depuis la v2, chaque ligne
 // sépare les verdicts reçus (`essais`) des élections en vol (`enVol`). Avant,
 // `essais` mêlait les deux : ces raisons-là sont relues telles quelles, sans
-// prétendre savoir combien de leurs essais étaient en vol.
+// prétendre savoir combien de leurs essais étaient en vol. Depuis la v3, une
+// ligne est un BRAS (modèle, `harness`, `effort`) avec son `intervalle` de
+// Wilson et son `cout` déclaré, le score est toujours fini, et l'affectation
+// dit où en était la décision (`decision`). Une raison d'avant la v3 n'a ni
+// harness, ni effort, ni intervalle : `null`, jamais reconstruits.
 
+import { lireConsigneRoutage, type ConsigneRoutage } from './consigne-routage.js';
 import type { HiveEvent } from './types.js';
 
 /** Les types que la projection relit : la route `/api/tasks/:id/routage` les demande tous. */
@@ -32,6 +50,8 @@ export const TYPES_ROUTAGE = [
   'pheromone_route',
   'drone_race_started',
   'drone_won',
+  'experience_context',
+  'experience_refus',
 ] as const;
 
 /** Une ligne du classement qui a décidé du modèle. */
@@ -43,21 +63,61 @@ export interface LigneRaison {
   enVol: number | null;
   /** `null` quand le modèle n'a jamais été jugé : ce n'est pas une mesure. */
   moyenne: number | null;
-  /** `null` quand le score est infini (ni jugé, ni en vol) ou illisible. */
+  /** `null` quand le score est infini (ni jugé, ni en vol, avant la v3) ou illisible. */
   score: number | null;
   /** Jamais jugé : l'Aiguillage l'explore avant de prétendre le connaître. */
   aExplorer: boolean;
+  /** Le modèle que la tâche parente a dit préférer (délégation) ; absent sinon. */
+  preferee?: true;
+  /** Harness du bras (v3+) ; `null` avant la v3 : inconnu. */
+  harness: string | null;
+  /** Effort du bras (v3+) ; `null` : aucun effort commandé, ou raison d'avant la v3. */
+  effort: string | null;
+  /** Intervalle de Wilson à 95 % (v3+) ; `null` sans verdict ou avant la v3. */
+  intervalle: { bas: number; haut: number } | null;
+  /** Coût moyen déclaré (USD) ; `null` : jamais déclaré, ou avant la v3. */
+  cout: number | null;
 }
 
-/** Ce qui a départagé le nœud, dans l'ordre où l'ordonnanceur l'applique. */
-export type CritereNoeud = 'course_de_drones' | 'porteur_du_modele' | 'pheromones' | 'moins_charge';
+/**
+ * Où en était la décision (v3+) : `decide` à `DELTA_DECISION` près, `explore`
+ * encore, ou `seul` en lice ; `coutPondere` : le coût est entré dans les scores.
+ */
+export interface DecisionVue {
+  etat: 'decide' | 'explore' | 'seul';
+  coutPondere: boolean;
+}
+
+/**
+ * Ce qui a départagé le nœud, dans l'ordre où l'ordonnanceur l'applique.
+ * `porteur_du_modele_ombre` : une ombre du banc (shadow-bench.ts) — son modèle
+ * n'a pas été ÉLU par l'Aiguillage, il a été choisi par le banc à sa création.
+ */
+export type CritereNoeud =
+  | 'course_de_drones'
+  | 'porteur_du_modele'
+  | 'porteur_du_modele_ombre'
+  | 'pheromones'
+  | 'preference_parent'
+  | 'moins_charge';
+
+/** Ce qu'une tâche parente préférait, et ce que la préférence a départagé. */
+export interface PreferenceVue {
+  agent: string | null;
+  modele: string | null;
+  /** Vide : lue, sans effet — aucune égalité à trancher, ou l'élu indisponible. */
+  departage: Array<'agent' | 'modele'>;
+}
 
 /** Un drone d'une course : son nœud, le modèle qui lui a été commandé, et pourquoi. */
 export interface DroneVue {
   nodeId: string;
   /** `null` quand son nœud ne déclare aucun modèle. */
   modele: string | null;
+  /** `null` : aucun effort commandé à ce drone. */
+  effort: string | null;
   raisonModele: LigneRaison[];
+  decision: DecisionVue | null;
 }
 
 /**
@@ -71,16 +131,49 @@ export interface CourseVue {
   vainqueur: { nodeId: string; modele: string | null } | null;
 }
 
+/** Une tâche voisine que le graphe d'expérience a rapprochée, en faits typés. */
+export interface SimilaireVue {
+  /** `null` pour une voisine d'un AUTRE projet : le fait ne la nomme pas. */
+  taskId: string | null;
+  /** Le titre que l'ouvrière a lu ; `null` si le fait ne le porte pas. */
+  titre: string | null;
+  /** `null` quand le fait ne le dit pas : jamais « ce projet » par défaut. */
+  projectId: string | null;
+  /** Du projet de la tâche ; `null` (inconnu) quand le fait ne le dit pas. */
+  memeProjet: boolean | null;
+  categorie: boolean;
+  fichiers: string[];
+  erreurs: number;
+  rendue: boolean;
+  validee: boolean;
+  contestee: boolean;
+  tentativesEchouees: number;
+  modeles: string[];
+  lecons: number;
+}
+
+/** Ce que l'ouvrière a reçu du graphe d'expérience à cette affectation. */
+export interface ExperienceVue {
+  /** `perdue` : il y avait des contextes, le budget du prompt les a évincés. */
+  etat: 'jointe' | 'perdue';
+  portee: 'projet' | 'ruche' | null;
+  similaires: SimilaireVue[];
+}
+
 export interface AffectationVue {
   eventId: number;
   ts: number;
   nodeId: string;
   /** Modèle commandé par l'Aiguillage, `null` quand aucun nœud n'en déclare. */
   modele: string | null;
+  /** Effort commandé avec le modèle ; `null` : aucun. */
+  effort: string | null;
   categorie: string | null;
   /** Version du calcul qui a pris la décision ; `null` avant son tampon (v1). */
   versionAiguillage: number | null;
   raisonModele: LigneRaison[];
+  /** `null` avant la v3, ou sans modèle en jeu. */
+  decision: DecisionVue | null;
   /** Modèles qui avaient déjà échoué sur la tâche, écartés de ce choix. */
   modelesEcartes: string[];
   /**
@@ -92,6 +185,15 @@ export interface AffectationVue {
   pheromone: { domaine: string; score: number } | null;
   /** `null` hors course de drones. */
   course: CourseVue | null;
+  /**
+   * La consigne de l'opérateur qui a restreint ce choix — « forcé par
+   * l'opérateur ». Absente quand il n'y en avait pas (ou qu'elle est illisible).
+   */
+  consigne?: ConsigneRoutage;
+  /** Absente hors délégation, ou quand la tâche parente n'a rien préféré. */
+  preference?: PreferenceVue;
+  /** Absente quand rien ne ressemblait à la tâche (ou avant ce fait). */
+  experience?: ExperienceVue;
   critereNoeud: CritereNoeud;
 }
 
@@ -115,6 +217,7 @@ function ligneDepuis(brut: unknown, version: number | null): LigneRaison | null 
   const enVol = separe ? nombre(r.enVol) : null;
   if (separe && (enVol === null || enVol < 0)) return null;
   const aExplorer = essais === 0;
+  const bras = version !== null && version >= 3;
   return {
     modele,
     essais,
@@ -122,7 +225,50 @@ function ligneDepuis(brut: unknown, version: number | null): LigneRaison | null 
     moyenne: aExplorer ? null : nombre(r.moyenne),
     score: nombre(r.score),
     aExplorer,
+    harness: bras ? texte(r.harness) : null,
+    effort: bras ? texte(r.effort) : null,
+    intervalle: bras && !aExplorer ? intervalleDepuis(r.intervalle) : null,
+    cout: bras ? nombre(r.cout) : null,
+    ...(r.preferee === true ? { preferee: true as const } : {}),
   };
+}
+
+/** La consigne d'une affectation ; illisible, elle n'est pas devinée. */
+function consigneDepuis(brut: unknown): ConsigneRoutage | null {
+  if (brut === undefined) return null;
+  const lue = lireConsigneRoutage(brut);
+  return lue.ok ? lue.consigne : null;
+}
+
+function preferenceDepuis(brut: unknown): PreferenceVue | null {
+  const p = objet(brut);
+  const agent = texte(p.agent);
+  const modele = texte(p.modele);
+  if (agent === null && modele === null) return null;
+  const departage = textes(p.departage).filter(
+    (d): d is 'agent' | 'modele' => d === 'agent' || d === 'modele',
+  );
+  return { agent, modele, departage };
+}
+
+/** Un intervalle lisible est dans [0, 1] et ordonné ; sinon il est tu. */
+function intervalleDepuis(brut: unknown): { bas: number; haut: number } | null {
+  const o = objet(brut);
+  const bas = nombre(o.bas);
+  const haut = nombre(o.haut);
+  return bas !== null && haut !== null && 0 <= bas && bas <= haut && haut <= 1
+    ? { bas, haut }
+    : null;
+}
+
+const ETATS = new Set(['decide', 'explore', 'seul']);
+
+function decisionDepuis(brut: unknown, version: number | null): DecisionVue | null {
+  if (version === null || version < 3) return null;
+  const o = objet(brut);
+  return typeof o.etat === 'string' && ETATS.has(o.etat) && typeof o.coutPondere === 'boolean'
+    ? { etat: o.etat as DecisionVue['etat'], coutPondere: o.coutPondere }
+    : null;
 }
 
 function raisonDepuis(brut: unknown, version: number | null): LigneRaison[] {
@@ -135,12 +281,59 @@ function raisonDepuis(brut: unknown, version: number | null): LigneRaison[] {
 function dronesDepuis(p: Record<string, unknown>): DroneVue[] {
   const version = nombre(p.versionAiguillage);
   const modeles = objet(p.modeles);
+  const efforts = objet(p.efforts);
   const raisons = objet(p.raisons);
+  const decisions = objet(p.decisions);
   return textes(p.drones).map((nodeId) => ({
     nodeId,
     modele: texte(modeles[nodeId]),
+    effort: texte(efforts[nodeId]),
     raisonModele: raisonDepuis(raisons[nodeId], version),
+    decision: decisionDepuis(decisions[nodeId], version),
   }));
+}
+
+const vrai = (v: unknown): boolean => v === true;
+const entierNaturel = (v: unknown): number =>
+  typeof v === 'number' && Number.isSafeInteger(v) && v >= 0 ? v : 0;
+
+/**
+ * Un contexte similaire relu. Sans `taskId` lisible, il est ignoré — sauf
+ * quand le fait dit `memeProjet: false` : une voisine d'un autre projet n'est
+ * jamais nommée sous la tâche (ses faits restent chez son projet), et elle a
+ * pourtant été lue par l'ouvrière.
+ */
+function similaireDepuis(brut: unknown): SimilaireVue | null {
+  const s = objet(brut);
+  const taskId = texte(s.taskId);
+  const memeProjet = typeof s.memeProjet === 'boolean' ? s.memeProjet : null;
+  if (taskId === null && memeProjet !== false) return null;
+  return {
+    taskId,
+    titre: texte(s.titre),
+    projectId: texte(s.projectId),
+    memeProjet,
+    categorie: vrai(s.categorie),
+    fichiers: textes(s.fichiers),
+    erreurs: entierNaturel(s.erreurs),
+    rendue: vrai(s.rendue),
+    validee: vrai(s.validee),
+    contestee: vrai(s.contestee),
+    tentativesEchouees: entierNaturel(s.tentativesEchouees),
+    modeles: textes(s.modeles),
+    lecons: entierNaturel(s.lecons),
+  };
+}
+
+function experienceDepuis(e: HiveEvent): ExperienceVue {
+  const p = e.payload;
+  return {
+    etat: e.type === 'experience_refus' ? 'perdue' : 'jointe',
+    portee: p.portee === 'projet' || p.portee === 'ruche' ? p.portee : null,
+    similaires: Array.isArray(p.similaires)
+      ? p.similaires.map(similaireDepuis).filter((x): x is SimilaireVue => x !== null)
+      : [],
+  };
 }
 
 /**
@@ -181,6 +374,14 @@ export function affectationsDepuisEvenements(evenements: readonly HiveEvent[]): 
       }
       continue;
     }
+    if (e.type === 'experience_context' || e.type === 'experience_refus') {
+      // Émis à l'envoi, juste APRÈS l'affectation qu'il éclaire. Une course
+      // l'émet une fois par drone, pour la même tâche et le même graphe : le
+      // premier suffit.
+      const derniere = affectations.at(-1);
+      if (derniere && !derniere.experience) derniere.experience = experienceDepuis(e);
+      continue;
+    }
     if (e.type !== 'task_assigned') continue;
     const nodeId = texte(p.nodeId);
     const drones = dronesEnAttente;
@@ -197,25 +398,35 @@ export function affectationsDepuisEvenements(evenements: readonly HiveEvent[]): 
     const course = drones.some((d) => d.nodeId === nodeId) ? { drones, vainqueur: null } : null;
     const modele = texte(p.modele);
     const versionAiguillage = nombre(p.versionAiguillage);
+    const preference = preferenceDepuis(p.preference);
+    const consigne = consigneDepuis(p.consigneOperateur);
     affectations.push({
       eventId: e.id,
       ts: e.ts,
       nodeId,
       modele,
+      effort: texte(p.effort),
       categorie: texte(p.categorie),
       versionAiguillage,
       raisonModele: raisonDepuis(p.raisonModele, versionAiguillage),
+      decision: decisionDepuis(p.decisionAiguillage, versionAiguillage),
       modelesEcartes: textes(p.modelesEcartes),
       modelesReadmis: textes(p.modelesReadmis),
       pheromone,
       course,
+      ...(consigne ? { consigne } : {}),
+      ...(preference ? { preference } : {}),
       critereNoeud: course
         ? 'course_de_drones'
         : pheromone
           ? 'pheromones'
-          : modele
-            ? 'porteur_du_modele'
-            : 'moins_charge',
+          : preference?.departage.includes('agent')
+            ? 'preference_parent'
+            : modele
+              ? p.ombre === true
+                ? 'porteur_du_modele_ombre'
+                : 'porteur_du_modele'
+              : 'moins_charge',
     });
   }
   return affectations;

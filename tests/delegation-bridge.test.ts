@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   codexMcpOverrides,
   createDelegationBridge,
+  definitionsOutilsDelegation,
+  envDuPont,
   HIVE_DELEGATE_TOOL,
   HIVE_WAIT_TOOL,
   writeClaudeMcpConfig,
@@ -14,6 +16,7 @@ import {
 } from '../src/adapters/delegation-bridge.js';
 import { fournisseurParNom } from '../src/node-client/isolement.js';
 import { RendezVousPont } from '../src/node-client/rendez-vous-pont.js';
+import { LIMITES_DELEGATION_DEFAUT } from '../src/shared/limites-delegation.js';
 
 function mcpResponseLine(child: ChildProcessWithoutNullStreams): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -128,6 +131,9 @@ describe('pont MCP de délégation Worker → CLI', () => {
     const listed = await mcpResponseLine(child);
     const tools = (listed.result as { tools: Array<{ name: string }> }).tools;
     expect(tools.map((tool) => tool.name)).toEqual([HIVE_DELEGATE_TOOL, HIVE_WAIT_TOOL]);
+    // Le serveur MCP autonome sert la définition canonique, octet pour octet :
+    // le texte que lit le modèle ne peut pas dériver des bornes appliquées.
+    expect(tools).toEqual(definitionsOutilsDelegation());
 
     sendMcp(child, {
       jsonrpc: '2.0',
@@ -206,7 +212,58 @@ describe('pont MCP de délégation Worker → CLI', () => {
     expect(contentValue(await mcpResponseLine(child))).toMatchObject({
       ok: false,
       code: 'arguments_invalid',
+      // Le champ fautif, nommé : « arguments invalides » ne disait pas lequel.
+      message: expect.stringContaining('durationMs'),
     });
+    // Au-delà du plafond que l'outil annonce : refusé ICI, borne nommée — au
+    // guichet du nœud, ce n'était plus qu'une « demande mal formée ».
+    sendMcp(child, {
+      jsonrpc: '2.0',
+      id: 3,
+      method: 'tools/call',
+      params: {
+        name: HIVE_DELEGATE_TOOL,
+        arguments: {
+          childTaskId: 'child',
+          reason: 'x',
+          title: 'x',
+          prompt: 'x',
+          durationMs: 0,
+          costMicros: LIMITES_DELEGATION_DEFAUT.maxCostMicros + 1,
+          resourceUnits: 1,
+        },
+      },
+    });
+    expect(contentValue(await mcpResponseLine(child))).toMatchObject({
+      ok: false,
+      code: 'arguments_invalid',
+      message: expect.stringContaining(
+        `costMicros : entier de 0 à ${LIMITES_DELEGATION_DEFAUT.maxCostMicros}`,
+      ),
+    });
+  });
+
+  it('l’outil dit ses bornes, le format de l’identifiant et ce que valent les préférences', () => {
+    const L = LIMITES_DELEGATION_DEFAUT;
+    const [delegue] = definitionsOutilsDelegation();
+    const schema = delegue!.inputSchema as {
+      properties: Record<string, { pattern?: string; maximum?: number; description: string }>;
+    };
+    for (const borne of [
+      `au plus ${L.maxDepth} niveaux`,
+      `${L.maxChildrenPerParent} enfants par parent`,
+      `${L.maxDescendantsPerRoot} descendants par racine`,
+      `durée ≤ ${L.maxDurationMs} ms`,
+      `coût ≤ ${L.maxCostMicros} micro-USD`,
+      `ressources ≤ ${L.maxResourceUnits} unités (compte abstrait`,
+      'CUMULÉS par racine',
+    ]) {
+      expect(delegue!.description).toContain(borne);
+    }
+    expect(schema.properties.childTaskId!.pattern).toBe('^[A-Za-z0-9_-]{1,64}$');
+    expect(schema.properties.durationMs!.maximum).toBe(L.maxDurationMs);
+    expect(schema.properties.costMicros!.description).toContain('micro-USD');
+    expect(schema.properties.preferredModel!.description).toContain('départage seulement');
   });
 
   it('vit dans le rendez-vous privé du nœud, et le quitte sans rien laisser', async () => {
@@ -307,4 +364,58 @@ describe('pont MCP de délégation Worker → CLI', () => {
     expect(String(value.diff).length).toBeLessThan(40_000);
     expect(String(value.logs).length).toBeLessThan(40_000);
   }, 15_000);
+});
+
+// ─── DANS L'APPLICATION DE BUREAU, LE PONT REÇOIT LE MODE NODE ───────────────
+//
+// `process.execPath` y est Electron (ADR 0013 § 2) : sans
+// `ELECTRON_RUN_AS_NODE=1` dans la configuration MCP, l'agent qui démarre le
+// pont ouvrirait une seconde fenêtre de l'app au lieu d'un serveur MCP.
+describe('le pont lancé par un binaire Electron', () => {
+  const versionsElectron = { ...process.versions, electron: '44.4.5' } as NodeJS.ProcessVersions;
+  const versionsNode = {
+    ...process.versions,
+    electron: undefined,
+  } as unknown as NodeJS.ProcessVersions;
+
+  it('Electron hors du bac : le mode Node est posé ; Node, ou le bac (son `node`) : rien', () => {
+    expect(envDuPont(versionsElectron, false)).toEqual({ ELECTRON_RUN_AS_NODE: '1' });
+    expect(envDuPont(versionsElectron, true)).toBeUndefined();
+    expect(envDuPont(versionsNode, false)).toBeUndefined();
+  });
+
+  it('la variable atteint les DEUX configurations — Claude (`env`) et Codex (clé pointée TOML)', () => {
+    const dossier = mkdtempSync(path.join(os.tmpdir(), 'hive-pont-electron-'));
+    try {
+      const pont = {
+        mcpServerName: 'hive_x',
+        childCommand: '/opt/Hive/hive',
+        childArgs: ['--eval', 'source'],
+        childEnv: { ELECTRON_RUN_AS_NODE: '1' },
+        configPath: path.join(dossier, 'mcp.json'),
+      } as unknown as DelegationBridge;
+      writeClaudeMcpConfig(pont);
+      const config = JSON.parse(readFileSync(pont.configPath, 'utf8')) as {
+        mcpServers: Record<string, { env?: Record<string, string> }>;
+      };
+      expect(config.mcpServers.hive_x?.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' });
+      // `-c` lit la valeur en TOML : une clé pointée par variable, jamais un
+      // objet JSON (qui y serait une simple chaîne). Relu tel quel par
+      // `codex mcp list --json` 0.156 : `"env": { "ELECTRON_RUN_AS_NODE": "1" }`.
+      expect(codexMcpOverrides(pont)).toEqual(
+        expect.arrayContaining(['-c', 'mcp_servers.hive_x.env.ELECTRON_RUN_AS_NODE="1"']),
+      );
+    } finally {
+      rmSync(dossier, { recursive: true, force: true });
+    }
+  });
+
+  it('hors d’Electron, les configurations restent celles d’avant : aucune clé `env`', () => {
+    const pont = {
+      mcpServerName: 'hive_y',
+      childCommand: process.execPath,
+      childArgs: [],
+    } as unknown as DelegationBridge;
+    expect(codexMcpOverrides(pont).some((a) => a.includes('.env.'))).toBe(false);
+  });
 });

@@ -248,6 +248,74 @@ describe('livrer et fusionner sous le verdict de l’Evaluator', () => {
     expect(server.store.getLivraison(tache), 'une livraison a été réservée').toBeFalsy();
   });
 
+  it('LA PRODUCTION JUGÉE, OU RIEN : un `resultId` périmé ne livre pas la suivante', async () => {
+    // Qui a jugé une production précise (la porte de la boucle V3) la désigne ;
+    // une production arrivée entre-temps ne part pas à sa place.
+    const tache = production(orphelin, 'clean');
+    const jugee = server.store.resultsForTask(tache).at(-1)?.resultId ?? 0;
+    server.store.insertResult({
+      taskId: tache,
+      nodeId: 'noeud-1',
+      success: true,
+      diff: DIFF,
+      logs: 'une tentative de plus',
+      durationMs: 10,
+      subAgents: [],
+    });
+    const avant = ouvertes.length;
+    const perimee = await poster('/api/livraison', { taskId: tache, resultId: jugee }, jeton);
+    expect(perimee.status).toBe(409);
+    expect(await perimee.json()).toMatchObject({
+      code: 'stale_result',
+      currentResultId: jugee + 1,
+    });
+    expect(ouvertes.length, 'une pull request est partie sur une production non jugée').toBe(avant);
+    expect(server.store.getLivraison(tache), 'une livraison a été réservée').toBeFalsy();
+
+    const courante = await poster('/api/livraison', { taskId: tache, resultId: jugee + 1 }, jeton);
+    expect(courante.status).toBe(201);
+  });
+
+  it('UN `resultId` PÉRIMÉ se dit AVANT l’Evaluator : `stale_result`, pas `evaluator_blocks`', async () => {
+    // L'Evaluator juge la DERNIÈRE production ; son refus porterait sur une
+    // production que l'appelant n'a pas désignée, et « forcer » la livrerait.
+    const tache = production(orphelin, 'suspect');
+    const courante = server.store.resultsForTask(tache).at(-1)?.resultId ?? 0;
+    const r = await poster('/api/livraison', { taskId: tache, resultId: courante + 1_000 }, jeton);
+    expect(r.status).toBe(409);
+    expect(await r.json()).toMatchObject({ code: 'stale_result', currentResultId: courante });
+  });
+
+  it('UN `resultId` PÉRIMÉ sur un REJEU se dit tel quel — aucune livraison simulée n’est rangée', async () => {
+    // Simuler (et ranger) la livraison d'une production que l'appelant n'a
+    // pas désignée ferait croire à la ruche autonome qu'elle est traitée.
+    const rejeu = server.store.createProject({
+      name: 'Rejeu périmé',
+      repoUrl: 'https://github.com/micka/rejeu-perime.git',
+      ownerId: null,
+    }).id;
+    server.store.inscrireRejeu({
+      projectId: rejeu,
+      missionSource: 'mission-source',
+      projetSource: orphelin,
+      surcharges: {},
+      genomeFige: null,
+      creePar: null,
+      creeA: Date.now(),
+    });
+    const tache = production(rejeu, 'clean');
+    const courante = server.store.resultsForTask(tache).at(-1)?.resultId ?? 0;
+    const r = await poster('/api/livraison', { taskId: tache, resultId: courante + 1_000 }, jeton);
+    expect(r.status).toBe(409);
+    expect(await r.json()).toMatchObject({ code: 'stale_result' });
+    expect(server.store.actionsDuRejeu(rejeu)).toEqual([]);
+    expect(
+      server.store
+        .listEvents(0, 1000)
+        .filter((e) => e.type === 'rejeu_action_simulee' && e.payload.projectId === rejeu),
+    ).toEqual([]);
+  });
+
   it('UNE PRODUCTION REJETÉE NE PART PAS NON PLUS', async () => {
     const r = await poster('/api/livraison', { taskId: production(orphelin, 'hollow') }, jeton);
     expect(r.status).toBe(409);

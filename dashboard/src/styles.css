@@ -1050,6 +1050,11 @@ h3 {
   color: var(--red);
   border-color: var(--red);
 }
+/* Arrêtée, pas ratée : même famille terminale, sans le rouge de l'échec. */
+.badge.cancelled {
+  color: var(--muted);
+  border-style: dashed;
+}
 
 @keyframes pulse {
   50% {
@@ -1283,6 +1288,38 @@ h3 {
 }
 .routage-rang tr.elu td {
   font-weight: 600;
+}
+.consigne-routage-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.8rem;
+  font-size: var(--fs-md);
+}
+.consigne-routage-form fieldset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.8rem;
+  margin: 0;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.delegation-tree-budget.epuise {
+  color: var(--red);
+}
+/* Ce que l'ouvrière a lu du graphe d'expérience (ExperienceTache.tsx). */
+.routage-experience {
+  margin-top: 0.6rem;
+  font-size: var(--fs-md);
+}
+.routage-experience p {
+  margin: 0 0 0.3rem;
+}
+.routage-similaires {
+  margin: 0;
+  padding-left: 1.1rem;
+  overflow-wrap: anywhere;
 }
 .delegation-panel {
   margin-top: 18px;
@@ -2058,6 +2095,112 @@ h3 {
   margin: 8px 0 0;
   color: var(--muted);
   font-style: normal;
+}
+
+/* ─── Sur votre réseau local (découverte) ─────────────────────────────────
+   Même grammaire que le reste de la modale d'invitation : filets fins, crème,
+   le miel en remplissage seulement. La machine en attente est une rangée ; le
+   code se saisit SUR la rangée, pour qu'on ne se trompe pas de machine. */
+.decouverte {
+  margin: 0 0 14px;
+}
+
+.decouverte h3,
+.invite-sous-titre {
+  margin: 0 0 8px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.decouverte .invite-note {
+  margin: 4px 0;
+}
+
+.decouverte-liste {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+}
+
+.decouverte-machine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 12px;
+}
+
+.decouverte-machine + .decouverte-machine {
+  border-top: 1px solid var(--border);
+}
+
+.decouverte-ident {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.decouverte-nom {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.decouverte-meta {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.decouverte-code {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 100%;
+}
+
+.decouverte-code label {
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+
+.decouverte-code-rangee {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.decouverte-code-rangee .code-input {
+  flex: 1 1 140px;
+  width: auto;
+  margin: 0;
+  padding: 8px 10px;
+  font-family: var(--mono);
+  font-size: var(--fs-md);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.decouverte-ok {
+  margin: 8px 0 0;
+  color: var(--green);
+  font-size: var(--fs-sm);
+}
+
+.decouverte-empreinte code {
+  font-family: var(--mono);
+  color: var(--gold);
+}
+
+.invite-sous-titre {
+  margin-top: 4px;
 }
 
 /* ─── Swarm View 3D ───────────────────────────────────────────────────── */
@@ -2951,6 +3094,91 @@ h3 {
   color: var(--red);
 }
 
+/* Ce qui arrête la ruche : même cadre que le pouls d'autonomie qu'il précède.
+   Une ligne par arrêt, cliquable jusqu'au geste qui le lève ; le genre se dit
+   par l'icône ET par le texte — jamais par la seule couleur. */
+.alertes-ruche {
+  margin: 8px 22px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+}
+
+.alertes-ruche:has(.alertes-ruche-item) {
+  border-color: color-mix(in srgb, var(--red) 35%, var(--border));
+}
+
+.alertes-ruche-compte {
+  margin-left: 8px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: var(--fs-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--red);
+  border: 1px solid color-mix(in srgb, var(--red) 45%, var(--border));
+}
+
+.alertes-ruche-vide {
+  margin: 4px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
+.alertes-ruche-liste {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.alertes-ruche-item {
+  appearance: none;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 20px 1fr auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.alertes-ruche-item:hover {
+  border-color: color-mix(in srgb, var(--miel) 45%, var(--border));
+}
+
+.alertes-ruche-item--blocage .alertes-ruche-icone,
+.alertes-ruche-item--budget .alertes-ruche-icone,
+.alertes-ruche-item--relecture_impossible .alertes-ruche-icone {
+  color: var(--red);
+}
+
+.alertes-ruche-item--refus .alertes-ruche-icone {
+  color: var(--orange);
+}
+
+.alertes-ruche-texte {
+  overflow-wrap: anywhere;
+}
+
+.alertes-ruche-quand {
+  font-size: var(--fs-2xs);
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.decision-titre {
+  font-weight: 600;
+}
+
 /* Ruche vide : une seule composition centrée — pas de zéros autour. */
 .mc-ruche:has(> .ruche-depart:only-child) {
   display: flex;
@@ -3296,6 +3524,18 @@ button.mc-cell:focus-visible {
   padding: 4px 10px;
 }
 
+.geste-irr-saisie {
+  font: inherit;
+  font-family: var(--mono);
+  padding: 4px 8px;
+  border: 1px solid var(--red);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--text);
+  /* Même borne que la question : un nom long ne pousse rien hors de l'écran. */
+  max-width: 24ch;
+}
+
 .btn.geste-irr-oui {
   border-color: var(--red);
   color: var(--red);
@@ -3445,8 +3685,51 @@ button.mc-cell:focus-visible {
   font-size: var(--fs-xs);
   color: var(--muted);
 }
+/* Le registre vit dans une carte sans marge intérieure : sans ce retrait, sa
+   table, son pied et le banc d'ombre touchaient le bord de la carte, à
+   l'écart de l'en-tête (16 px, `.panel-head`). */
+.genome-defile,
+.genome-pied,
+.genome-ombre {
+  padding-inline: 16px;
+}
+.genome-pied {
+  padding-bottom: 12px;
+}
+/* Dans le banc d'ombre, déjà en retrait : pas un second retrait. */
+.genome-ombre .genome-defile,
+.genome-ombre .genome-pied {
+  padding-inline: 0;
+}
 .genome-exacts {
   display: block;
   font-size: var(--fs-2xs);
   color: var(--muted);
+}
+/* Le banc d'ombre, À PART des lignes de production : un filet le sépare. */
+.genome-ombre {
+  margin-top: 0.9rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--border);
+}
+/* Ses comptes REPLIENT dans la colonne étroite de l'Essaim : sur une ligne,
+   « Tests » et « Confiance » — les colonnes qui disent le résultat —
+   sortaient du cadre et ne se lisaient qu'en faisant défiler. Le modèle et
+   chaque compte restent d'un seul tenant. */
+.genome-ombre .genome-table th,
+.genome-ombre .genome-table td {
+  white-space: normal;
+}
+.genome-ombre .genome-modele,
+.genome-ombre .genome-compte {
+  white-space: nowrap;
+}
+.genome-ombre h3 {
+  margin: 0 0 0.4rem;
+  font-size: var(--fs-md);
+}
+.genome-ombre-liste {
+  margin: 0.4rem 0 0;
+  padding-left: 1.1em;
+  font-size: var(--fs-xs);
 }

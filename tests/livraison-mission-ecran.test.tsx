@@ -162,6 +162,53 @@ describe('la livraison d’une mission, à l’écran', () => {
     );
   });
 
+  it('UN REJEU SIMULÉ SE DIT SIMULÉ — pas refusé, pas en cours — et s’offre à la validation humaine', async () => {
+    // La Reine répond 409 `rejeu_simule` : rien n'est parti. Traité comme un
+    // départ, l'écran scrutait un merge sans identifiant pendant dix minutes ;
+    // traité comme un refus sec, la validation humaine n'aurait été qu'une API.
+    const dom = await monter();
+    // Le trajet réel d'un rejeu : l'Evaluator arrête, on force, et la Reine
+    // simule la livraison forcée.
+    vi.mocked(livrerLocalement).mockRejectedValueOnce(
+      new RefusLivraison('l’Evaluator arrête 1 tâche(s)', 409, 'evaluator_blocks', [
+        { taskId: 't1', decision: 'correction_required' },
+      ]),
+    );
+    await livrer(dom);
+    vi.mocked(livrerLocalement).mockRejectedValueOnce(
+      new RefusLivraison(
+        'Projet de rejeu : cette action irréversible est simulée et rangée, pas exécutée.',
+        409,
+        'rejeu_simule',
+      ),
+    );
+    taper(champRaison(dom) as HTMLInputElement, 'relu à la main');
+    cliquer(bouton(dom, 'Passer outre et livrer'));
+    await act(async () => {});
+    expect(dom.textContent).toContain('livraison SIMULÉE et rangée');
+    expect(dom.textContent).not.toContain('Livraison refusée');
+    expect(dom.textContent).not.toContain('Livraison en cours');
+    expect(vi.mocked(fetchMergeResult), 'aucun suivi d’un merge qui n’existe pas').not.toBeCalled();
+
+    vi.mocked(livrerLocalement).mockResolvedValueOnce({
+      mergeId: 'm-valide',
+      nodeId: 'n1',
+      noeud: 'atelier',
+      order: ['t1'],
+      pousser: false,
+      forcees: [],
+    });
+    cliquer(bouton(dom, 'Valider pour de vrai'));
+    await act(async () => {});
+    // La validation renvoie la demande TELLE QUELLE, forçage compris : sans
+    // lui, elle retomberait sur l'arrêt de l'Evaluator, et le forçage suivant
+    // serait re-simulé — une boucle.
+    expect(vi.mocked(livrerLocalement)).toHaveBeenLastCalledWith(
+      'p1',
+      expect.objectContaining({ validerRejeu: true, forcer: { raison: 'relu à la main' } }),
+    );
+  });
+
   it('UNE BRANCHE NON POUSSÉE N’EST PAS UN SUCCÈS VERT', async () => {
     vi.useFakeTimers();
     const dom = await monter();

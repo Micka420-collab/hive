@@ -63,7 +63,8 @@ const TETE_GARDEE = 2_000;
  *
  * Les deux bouts, parce que les lecteurs ne cherchent pas au même endroit : le
  * Conseil veut son marqueur « en tout dernier », la relecture son verdict EN
- * TÊTE (« valide » ou « conteste », puis une objection par ligne). Ne garder
+ * TÊTE (« valide » ou « conteste », puis une objection par ligne) et son
+ * marqueur `HIVE_CRITIQUE` en tout dernier, lui aussi. Ne garder
  * que la fin — la première version de cette fonction — perdait le « conteste »
  * d'une relecture bavarde ; une « entrée valide » dans la prose restante
  * suffisait alors à l'APPROUVER. La coupe est écrite `COUPURE_TEXTE_FINAL` :

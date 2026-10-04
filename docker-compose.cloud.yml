@@ -1,9 +1,12 @@
 # Hive Cloud — la Queen sur TES serveurs, payante pour tes clients.
 #
-#     cp .env.example .env   # puis HIVE_EDITION=cloud, secrets, domaine
-#     docker compose -f docker-compose.cloud.yml up -d
+#     cp .env.example .env   # puis secrets, HIVE_WEBHOOK_SECRET, HIVE_DOMAIN
+#     docker compose -f docker-compose.cloud.yml up -d --wait
 #
 # Community reste `docker compose up` (docker-compose.yml) : 0 €, chez soi.
+#
+# Comme en Community, ce fichier démarre une Reine et AUCUNE ouvrière : les
+# machines qui travaillent rejoignent par billet (`docs/CLOUD.md`).
 
 services:
   caddy:
@@ -12,6 +15,22 @@ services:
     ports:
       - '80:80'
       - '443:443'
+    # ─── LE DOMAINE VIENT DE `.env`, PAS D'UN FICHIER SUIVI ─────────────────
+    #
+    # Le Caddyfile portait `hive.example.com`, et la doc disait de l'éditer :
+    # un fichier SUIVI par git, modifié chez chaque opérateur — donc un conflit
+    # au premier `git pull` de mise à jour, ou un domaine d'exemple servi par
+    # qui l'avait oublié. `{$HIVE_DOMAIN}` le lit dans l'environnement de
+    # Caddy, et compose le prend dans `.env` (le même fichier que la Reine).
+    #
+    # `:?` : sans domaine, compose REFUSE de démarrer et dit quoi écrire. Vide,
+    # le Caddyfile se lirait autrement — son bloc de site deviendrait un bloc
+    # d'options globales, et Caddy mourrait sur « unrecognized global option ».
+    #
+    # Seule cette variable entre : pas d'`env_file` ici. Caddy n'a besoin
+    # d'aucun secret de la ruche, et n'en voit donc aucun.
+    environment:
+      HIVE_DOMAIN: '${HIVE_DOMAIN:?posez HIVE_DOMAIN dans .env — le nom public de la Reine, ex. HIVE_DOMAIN=hive.exemple.fr}'
     volumes:
       - ./docker/Caddyfile.cloud:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
@@ -24,13 +43,20 @@ services:
     build: .
     image: hive:cloud
     restart: unless-stopped
+    # Un vrai PID 1 devant la Reine, qui ramasse les orphelins de git : même
+    # raison que dans `docker-compose.yml`.
+    init: true
     env_file:
       - .env
+    # `environment` prime sur `env_file` : la forme du conteneur (adresse,
+    # port, base, fichier de clés) ne peut pas être déplacée par un `.env`
+    # écrit pour une ruche posée sur l'hôte (cf. `docker-compose.yml`).
     environment:
       HIVE_EDITION: cloud
       HIVE_HOST: 0.0.0.0
       HIVE_PORT: 7777
       HIVE_DB: /app/data/hive.db
+      HIVE_ENV_FILE: /app/data/queen.env
       HIVE_BALANCE: strict
       # La Reine n'est joignable QUE par Caddy (`expose`, jamais `ports`) : on
       # croit donc le X-Forwarded-For venu du réseau privé de Docker. Sans ça,

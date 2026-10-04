@@ -25,6 +25,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-contre-revue-suffisamment-long';
 const DIFF = 'diff --git a/auth.ts b/auth.ts\n+if (!jeton) return;';
@@ -75,30 +76,23 @@ describe('la contre-revue reste indépendante quand une relecture change de main
 
   async function noeud(srv: HiveServer, nodeId: string, agentType: string): Promise<Noeud> {
     const recues: Assignation[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (data) => {
-      const m = JSON.parse(data.toString()) as Assignation;
-      if (m.type === 'assign_task') recues.push(m);
-    });
-    await new Promise<void>((r, j) => {
-      ws.once('open', () => r());
-      ws.once('error', j);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    const { ws } = await brancherFauxNoeud<Assignation>(
+      srv.port,
+      {
         token: TOKEN,
         name: nodeId,
         ownerName: 'test',
         agentType,
         maxConcurrency: 1,
         nodeId,
-      }),
+      },
+      (m) => {
+        if (m.type === 'assign_task') recues.push(m);
+      },
     );
-    // L'inscription est asynchrone : la tâche suivante ne doit pas partir
-    // avant que le nœud existe, sinon l'ordre d'assignation devient aléatoire.
-    await attendre(() => srv.store.getNode(nodeId)?.status === 'online', 'nœud non inscrit');
+    // Le nœud existe (`registered` attendu) avant que la tâche suivante
+    // parte : sinon l'ordre d'assignation deviendrait aléatoire.
+    sockets.push(ws);
     // L'avis voyage dans `finalText`, la réponse finale de l'agent : le hub ne
     // lit plus un verdict dans les logs bruts (`noterVerdict`).
     const rendre = (taskId: string, success: boolean, logs: string): void =>

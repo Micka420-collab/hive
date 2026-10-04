@@ -14,6 +14,22 @@ import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
 const CURSOR_TIMEOUT_MS = 15 * 60_000;
 
 /**
+ * Ce que Cursor EXÉCUTE du dépôt, sans drapeau pour l'en empêcher : en mode
+ * print, `--force` vaut confiance du dossier, et « les hooks du projet
+ * tournent dans tout espace de confiance » (cursor.com/docs/hooks). Lu dans le
+ * paquet 2026.09.02 : `.cursor/hooks.json`, et au format Claude les hooks (et
+ * `enabledPlugins`) de `.claude/settings.json` / `.claude/settings.local.json`.
+ * Les serveurs de `.cursor/mcp.json` attendent une approbation que Hive ne
+ * donne pas (`--approve-mcps` absent). Écartés par le nœud :
+ * `node-client/configuration-inerte.ts`.
+ */
+export const CONFIGURATION_EXECUTEE_CURSOR: readonly string[] = [
+  '.cursor/hooks.json',
+  '.claude/settings.json',
+  '.claude/settings.local.json',
+];
+
+/**
  * Arguments de `agent -p` : `--force` applique les edits (sans lui, print mode
  * propose seulement) ; le prompt reste DERNIER derrière `--` (cf. prompt-argv).
  */
@@ -47,6 +63,7 @@ export function createCursorAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TO
   assertRealExecutionAllowed("L'adaptateur cursor", token);
   return {
     name: 'cursor',
+    configurationExecutee: CONFIGURATION_EXECUTEE_CURSOR,
     async run(task: Task, ctx: AdapterContext): Promise<AdapterResult> {
       const bin = binaireCursor(process.env, process.platform, existsSync);
       ctx.onProgress({ log: `${bin} -p --force (stream-json) démarré` });

@@ -45,6 +45,8 @@ function fauxGithub(opts: {
   fichiers?: Record<string, string>;
   refIntrouvable?: boolean;
   echecSur?: (url: string, methode: string) => number | null;
+  /** Ce que GET /pulls/<n> rend — la PR qu'une reprise prolonge. */
+  pr?: Record<string, unknown>;
 }): Faux {
   const appels: Appel[] = [];
   const fichiers = opts.fichiers ?? {};
@@ -63,7 +65,16 @@ function fauxGithub(opts: {
 
     if (methode === 'GET' && url.includes('/git/ref/heads/')) {
       if (opts.refIntrouvable) return json({ message: 'Not Found' }, 404);
-      return json({ object: { sha: 'base-sha-000' } });
+      // La tête d'une branche de la ruche n'est pas celle de la base : une
+      // reprise qui partirait de `main` se verrait dans les parents.
+      const tete = url.includes('/git/ref/heads/hive') ? 'tete-pr-000' : 'base-sha-000';
+      return json({ object: { sha: tete } });
+    }
+    if (methode === 'GET' && /\/pulls\/\d+$/.test(url)) {
+      return opts.pr ? json(opts.pr) : json({ message: 'Not Found' }, 404);
+    }
+    if (methode === 'PATCH' && url.includes('/git/refs/heads/')) {
+      return json({ object: { sha: (corps as { sha: string }).sha } });
     }
     if (methode === 'GET' && url.includes('/contents/')) {
       const chemin = decodeURIComponent((url.split('/contents/')[1] ?? '').split('?')[0] ?? '');
@@ -382,6 +393,86 @@ describe('livraison — refus avant toute écriture', () => {
       expect(e).toBeInstanceOf(ErreurGithub);
       expect((e as ErreurGithub).conseil).toMatch(/branche existe/);
     }
+  });
+});
+
+describe('livraison — une reprise AVANCE la pull request, elle n’en ouvre pas une autre', () => {
+  const PR_OUVERTE = {
+    number: 7,
+    state: 'open',
+    merged: false,
+    html_url: 'https://github.com/moi/mon-projet/pull/7',
+    head: { ref: 'hive/tache-1', sha: 'tete-pr-000', repo: { full_name: 'moi/mon-projet' } },
+  };
+  const REPRISE = { ...LIVRAISON, suite: { pr: 7 } };
+
+  it('le commit a la tête de la PR pour UNIQUE parent, et la ref avance sans forcer', async () => {
+    const f = fauxGithub({ fichiers: { 'src/a.ts': 'const a = 1;\n' }, pr: PR_OUVERTE });
+    const r = await livrer(OPTS(f), REPRISE);
+
+    const commit = f.appels.find((a) => a.url.endsWith('/git/commits'))?.corps as {
+      parents: string[];
+    };
+    expect(commit.parents, 'le parent est la tête de la PR, pas la base').toEqual(['tete-pr-000']);
+    const arbre = f.appels.find((a) => a.url.endsWith('/git/trees'))?.corps as {
+      base_tree: string;
+    };
+    expect(arbre.base_tree).toBe('tete-pr-000');
+    // Le contenu se lit au SHA relu, pas au nom de la branche.
+    expect(f.appels.find((a) => a.url.includes('/contents/'))?.url).toContain('ref=tete-pr-000');
+
+    const avance = f.appels.find((a) => a.methode === 'PATCH');
+    expect(avance?.url).toBe('https://api.test/repos/moi/mon-projet/git/refs/heads/hive/tache-1');
+    expect(avance?.corps).toEqual({ sha: 'commit-sha', force: false });
+    expect(r).toMatchObject({ pr: 7, branche: 'hive/tache-1', urlPr: PR_OUVERTE.html_url });
+  });
+
+  it('AUCUNE seconde PR, AUCUNE branche neuve', async () => {
+    const f = fauxGithub({ fichiers: { 'src/a.ts': 'const a = 1;\n' }, pr: PR_OUVERTE });
+    await livrer(OPTS(f), REPRISE);
+    expect(f.appels.filter((a) => a.methode === 'POST' && a.url.endsWith('/pulls'))).toEqual([]);
+    expect(f.appels.filter((a) => a.url.endsWith('/git/refs'))).toEqual([]);
+    expect(f.appels.some((a) => a.url.includes('/merge'))).toBe(false);
+  });
+
+  it('une PR fermée, fusionnée ou qui ne porte plus la branche se refuse AVANT toute écriture', async () => {
+    for (const pr of [
+      { ...PR_OUVERTE, state: 'closed' },
+      { ...PR_OUVERTE, merged: true },
+      { ...PR_OUVERTE, head: { ...PR_OUVERTE.head, ref: 'hive/autre' } },
+      { ...PR_OUVERTE, head: { ...PR_OUVERTE.head, repo: { full_name: 'forkeur/mon-projet' } } },
+    ]) {
+      const f = fauxGithub({ fichiers: { 'src/a.ts': 'const a = 1;\n' }, pr });
+      await expect(livrer(OPTS(f), REPRISE)).rejects.toThrow(ErreurGithub);
+      expect(f.ecritures(), JSON.stringify(pr)).toHaveLength(0);
+    }
+  });
+
+  it('une branche qui a bougé n’est JAMAIS écrasée : le refus de GitHub se dit tel quel', async () => {
+    const f = fauxGithub({
+      fichiers: { 'src/a.ts': 'const a = 1;\n' },
+      pr: PR_OUVERTE,
+      echecSur: (u, m) => (m === 'PATCH' && u.includes('/git/refs/heads/') ? 422 : null),
+    });
+    try {
+      await livrer(OPTS(f), REPRISE);
+      expect.unreachable('l’avance devait être refusée');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ErreurGithub);
+      expect((e as ErreurGithub).message).toMatch(/a bougé/);
+      expect((e as ErreurGithub).conseil).toMatch(/n’écrase jamais/);
+    }
+    const patchs = f.appels.filter((a) => a.methode === 'PATCH');
+    expect(patchs, 'une seule tentative, jamais une seconde forcée').toHaveLength(1);
+    expect((patchs[0]?.corps as { force: boolean }).force).toBe(false);
+  });
+
+  it('une reprise ne prolonge qu’une branche de la ruche', async () => {
+    const f = fauxGithub({ fichiers: { 'src/a.ts': 'const a = 1;\n' }, pr: PR_OUVERTE });
+    await expect(livrer(OPTS(f), { ...REPRISE, branche: 'main' })).rejects.toThrow(
+      /hors de la ruche/,
+    );
+    expect(f.appels).toHaveLength(0);
   });
 });
 

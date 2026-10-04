@@ -29,7 +29,7 @@
 //    le correctif a disparu. C'est le pire mensonge qu'une interface puisse
 //    faire.
 
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   fetchApercu,
   fetchFichierRayon,
@@ -86,6 +86,15 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
   const [propose, setPropose] = useState<string | null>(null);
   const [apercu, setApercu] = useState<ApercuProjet | null>(null);
   const [apercuErreur, setApercuErreur] = useState<string | null>(null);
+  // Dans l'app de bureau, l'écran porte une CSP (`script-src 'self'`) qu'un
+  // `srcdoc` HÉRITE : les scripts du site y étaient bloqués. La coquille sert
+  // donc le même document depuis son propre schéma (`apercu://`), qui n'hérite
+  // de rien — et reste opaque : le `sandbox` ci-dessous ne change pas.
+  const srcApercu = useMemo(() => {
+    const servir = (window as { hiveBureau?: { apercu?: (html: string) => string | null } })
+      .hiveBureau?.apercu;
+    return apercu && servir ? servir(apercu.html) : null;
+  }, [apercu]);
   const [attirerSg, setAttirerSg] = useState(false);
   /** Curseurs — absents en partage ; [] = silence. */
   const [curseurs, setCurseurs] = useState<PresenceCurseur[]>([]);
@@ -409,7 +418,7 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
             className="ry-cadre"
             title={t('Aperçu du projet', 'Project preview')}
             sandbox={apercu.sandbox}
-            srcDoc={apercu.html}
+            {...(srcApercu ? { src: srcApercu } : { srcDoc: apercu.html })}
           />
         </section>
       )}
