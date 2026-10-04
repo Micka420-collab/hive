@@ -84,7 +84,7 @@ import { VALIDATION_KEYS } from '../shared/validations-bac.js';
 import type { ValidationsBac } from '../shared/validations-bac.js';
 import type { PorteSecurite } from '../shared/porte-securite.js';
 import { passerLaPorte } from './porte-securite.js';
-import { validerProduction } from './validations-bac.js';
+import { memoireDesBases, validerProduction } from './validations-bac.js';
 
 const MAX_PENDING_DELEGATIONS = 32;
 const MAX_ACCEPTED_DELEGATIONS = 128;
@@ -427,6 +427,12 @@ export class HiveNodeClient {
    * dossier d'où l'on a lancé le nœud (voir `rendez-vous-pont.ts`).
    */
   private readonly rendezVous = new RendezVousPont();
+  /**
+   * Les tests rouges des bases que CE nœud a rejouées pour comparer ses
+   * productions (G11b) : par nœud, parce qu'ils dépendent de son bac — voir
+   * `node-client/validations-bac.ts`.
+   */
+  private readonly memoireDesBases = memoireDesBases();
 
   /**
    * Arme la seule limite d'exécution que le Worker peut tenir pendant la
@@ -1649,6 +1655,7 @@ export class HiveNodeClient {
       caviarder: (texte) => caviardeur.texte(texte),
       signal: ctrl.signal,
       surEtape,
+      memoire: this.memoireDesBases,
     });
     const etats = VALIDATION_KEYS.map((cle) => `${cle} ${validations.controles[cle].etat}`);
     this.log(`validations du bac : ${etats.join(' · ')}`);

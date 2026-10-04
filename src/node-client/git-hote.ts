@@ -75,7 +75,7 @@
 // partout sous l'utilisateur du membre, registre compris : il n'y a alors pas
 // de bac dont sortir, et `constat()` le dit déjà (isolement.ts).
 
-import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { EchecGitHote, gitHote, type DepotEpingle } from '../shared/git-protege.js';
 
@@ -220,6 +220,52 @@ export async function diffContreBase(depot: DepotEpingle, base: string | null): 
     ],
     depot,
   );
+}
+
+/**
+ * La BASE d'une tâche, extraite dans `dossier` — un dépôt NEUF, détaché sur
+ * `base` —, pour y rejouer les tests que le projet déclare (G11b).
+ *
+ * ─── PAR UN `fetch` DEPUIS LE REGISTRE, JAMAIS EN LISANT SES OBJETS ─────────
+ *
+ * Le registre emprunte les objets de la tâche (`alternates`), et l'agent a pu
+ * les réécrire. Or git ne vérifie pas l'empreinte d'un objet qu'il LIT —
+ * mesuré (git 2.53) : un objet libre forgé sous le nom d'un blob de la base
+ * est rendu tel quel par `cat-file` comme par `checkout`. Une base extraite
+ * ainsi pourrait faire échouer à la base un test que la production a cassé :
+ * « déjà rouge à la base », excusé — exactement ce que la comparaison doit
+ * rendre impossible, et sans une ligne dans le diff.
+ *
+ * Un `fetch`, lui, RENOMME chaque objet reçu d'après son contenu
+ * (`index-pack`, `unpack-objects`), puis vérifie que le commit reçu est
+ * complet. Un objet forgé n'arrive donc jamais sous le nom qu'il usurpe :
+ * mesuré, quand seule la copie forgée existe, le `fetch` échoue (« remote did
+ * not send all necessary objects ») — et la comparaison avec lui, sans rien
+ * excuser.
+ *
+ * Le dépôt reçu a SES objets et son `.git` dans `dossier` : les tests de la
+ * base voient un dépôt git, comme ceux de la tête, et le bac ne monte que
+ * `dossier`. Rien de la tâche n'y entre, rien de ce qu'il contient ne gouverne
+ * un git de l'hôte après coup — on n'y relance plus rien, on l'efface.
+ */
+export async function extraireBase(
+  depot: DepotEpingle,
+  base: string,
+  dossier: string,
+): Promise<void> {
+  rmSync(dossier, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  mkdirSync(dossier, { recursive: true });
+  // `--template=` vide : aucun crochet — pas même ceux d'un `init.templateDir`
+  // du membre. Un commit de 64 caractères vient d'un dépôt SHA-256.
+  const format = base.length === 64 ? ['--object-format=sha256'] : [];
+  await gitHote(['init', '-q', '--template=', ...format, dossier], path.dirname(dossier));
+  const recu = { gitDir: path.join(dossier, '.git'), workTree: dossier };
+  // HEAD du registre est épinglée sur la base (`poserRegistre`) — hors du bac,
+  // l'agent ne l'a pas déplacée ; le commit reçu est revérifié quand même.
+  await gitHote(['fetch', '-q', '--no-tags', '--depth=1', '--', depot.gitDir, 'HEAD'], recu);
+  const tete = (await gitHote(['rev-parse', '--verify', '-q', 'FETCH_HEAD^{commit}'], recu)).trim();
+  if (tete !== base) throw new Error(`base reçue ${tete}, attendue ${base}`);
+  await gitHote(['checkout', '-q', '--detach', base], recu);
 }
 
 /**

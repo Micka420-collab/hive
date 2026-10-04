@@ -107,6 +107,15 @@ export async function retirerFichiersIgnores(depot: DepotEpingle): Promise<void>
   await gitHote(['clean', '-ffdX'], depot);
 }
 
+/**
+ * Où la BASE d'une tâche est rejouée pour la comparer à la production (G11b,
+ * `node-client/validations-bac.ts`) : À CÔTÉ de la tâche, comme son TEMP et son
+ * registre — hors de ce que le bac de la tâche monte, que l'agent a eu entre
+ * les mains. Effacé par les validations dès la comparaison faite, et ici avec
+ * le reste si un nœud tué l'a laissé.
+ */
+export const dossierDeBase = (cwd: string): string => `${cwd}.base`;
+
 export function variablesAgentSansSecrets(variables: readonly string[]): string[] {
   return variables.filter((name) => !SECRETS_INTERDITS_AGENT.has(name));
 }
@@ -236,6 +245,8 @@ export async function prepareWorkspace(
   rmSync(`${cwd}.tmp`, rmOpts);
   rmSync(registre, rmOpts);
   rmSync(reserveDeConfiguration(cwd), rmOpts);
+  rmSync(dossierDeBase(cwd), rmOpts);
+  rmSync(`${dossierDeBase(cwd)}.tmp`, rmOpts);
   mkdirSync(cwd, { recursive: true });
 
   let branch: string | null = null;
@@ -298,6 +309,8 @@ export async function prepareWorkspace(
         rmSync(`${cwd}.tmp`, rmOpts);
         rmSync(registre, rmOpts);
         rmSync(reserveDeConfiguration(cwd), rmOpts);
+        rmSync(dossierDeBase(cwd), rmOpts);
+        rmSync(`${dossierDeBase(cwd)}.tmp`, rmOpts);
       } catch {
         // Fichier verrouillé (Windows) : le prochain run de la tâche nettoiera.
       }

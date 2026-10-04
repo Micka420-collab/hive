@@ -1,0 +1,47 @@
+FAIL tests/a.test.js
+  ✓ hors suite
+  suite A
+    ✓ passe (2 ms)
+    ✕ echoue (2 ms)
+    ○ skipped saute
+    ✎ todo plus tard
+    imbriquee
+      ✓ profond passe (1 ms)
+
+  ● suite A › echoue
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 2
+    Received: 1
+
+    [0m [90m 1 |[39m describe([32m'suite A'[39m[33m,[39m () [33m=>[39m {
+     [90m 2 |[39m   test([32m'passe'[39m[33m,[39m () [33m=>[39m { expect([35m1[39m)[33m.[39mtoBe([35m1[39m)[33m;[39m })[33m;[39m
+    [31m[1m>[22m[39m[90m 3 |[39m   test([32m'echoue'[39m[33m,[39m () [33m=>[39m { expect([35m1[39m)[33m.[39mtoBe([35m2[39m)[33m;[39m })[33m;[39m
+     [90m   |[39m                                    [31m[1m^[22m[39m
+     [90m 4 |[39m   test[33m.[39mskip([32m'saute'[39m[33m,[39m () [33m=>[39m {})[33m;[39m
+     [90m 5 |[39m   test[33m.[39mtodo([32m'plus tard'[39m)[33m;[39m
+     [90m 6 |[39m   describe([32m'imbriquee'[39m[33m,[39m () [33m=>[39m {[0m
+
+      at Object.toBe (tests/a.test.js:3:36)
+
+FAIL tests/b.test.js
+  ✓ b passe
+  ✕ b echoue
+
+  ● b echoue
+
+    boum
+
+    [0m [90m 1 |[39m test([32m'b passe'[39m[33m,[39m () [33m=>[39m {})[33m;[39m
+    [31m[1m>[22m[39m[90m 2 |[39m test([32m'b echoue'[39m[33m,[39m () [33m=>[39m { [36mthrow[39m [36mnew[39m [33mError[39m([32m'boum'[39m)[33m;[39m })[33m;[39m
+     [90m   |[39m                                [31m[1m^[22m[39m
+     [90m 3 |[39m[0m
+
+      at Object.<anonymous> (tests/b.test.js:2:32)
+
+Test Suites: 2 failed, 2 total
+Tests:       2 failed, 1 skipped, 1 todo, 4 passed, 8 total
+Snapshots:   0 total
+Time:        0.267 s, estimated 1 s
+Ran all test suites.
