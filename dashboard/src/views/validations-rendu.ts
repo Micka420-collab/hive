@@ -97,16 +97,16 @@ function texteComparaison(c: ComparaisonBase, t: Traduire): string {
   if (c.instables.total > 0) {
     morceaux.push(
       t(
-        `instable : ${noms(c.instables, t)} — rouge puis vert d’une exécution à l’autre : ni régression ni vert, verdict inconnu`,
-        `flaky: ${noms(c.instables, t)} — red then green from one run to the next: neither a regression nor green, verdict unknown`,
+        `instable : ${noms(c.instables, t)} — vu rouge à une exécution et vert à une autre, de la production ou de la base : ni régression ni vert, verdict inconnu`,
+        `flaky: ${noms(c.instables, t)} — seen red on one run and green on another, of the production or of the base: neither a regression nor green, verdict unknown`,
       ),
     );
   }
   if (c.dejaRouges.total > 0) {
     morceaux.push(
       t(
-        `déjà rouge à la base, non bloquant : ${noms(c.dejaRouges, t)}`,
-        `already red at the base, not blocking: ${noms(c.dejaRouges, t)}`,
+        `déjà rouge à la base, du même échec, non bloquant : ${noms(c.dejaRouges, t)}`,
+        `already red at the base, with the same failure, not blocking: ${noms(c.dejaRouges, t)}`,
       ),
     );
   }

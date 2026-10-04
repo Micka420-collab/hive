@@ -341,10 +341,13 @@ describe('Evaluator — les tests comparés à la base (G11b)', () => {
       dejaRouges: { total: 1, noms: ['un test déjà rouge à la base'] },
     });
     expect(verdict.decision).toBe('accepted');
+    // « du même échec », pas « que la production n'a pas cassé » : c'est
+    // l'empreinte de l'échec que le nœud a comparée (I3), rien de plus.
     expect(verdict.reasons).toContain(
-      'tests comparés à la base aaaaaaaa : aucune régression — 1 test(s) déjà rouge(s) à la base, ' +
-        'que la production n’a pas cassé(s), non bloquant(s) : un test déjà rouge à la base',
+      'tests comparés à la base aaaaaaaa : aucune régression — déjà rouge(s) à la base, du même ' +
+        'échec à la base et à la production, non bloquant(s), 1 test(s) : un test déjà rouge à la base',
     );
+    expect(verdict.reasons.join(' · ')).not.toContain('n’a pas cassé');
   });
 
   it('les cibles passées sont dites aussi : rouges à la base, vertes à la production', () => {
@@ -353,7 +356,7 @@ describe('Evaluator — les tests comparés à la base (G11b)', () => {
       ciblesPassees: { total: 1, noms: ['repare'] },
     });
     expect(verdict.reasons).toContain(
-      'cibles passées : repare — rouge(s) à la base, vert(s) à la production',
+      'cibles passées, 1 test(s) : repare — rouge(s) à la base, vert(s) à la production',
     );
   });
 
@@ -368,16 +371,26 @@ describe('Evaluator — les tests comparés à la base (G11b)', () => {
     // les suivants sont ce que la critique figée transmet à l'ouvrière.
     expect(verdict.reasons).toEqual([
       'validation tests en échec (bac Hive du nœud n1)',
-      'régression comparée à la base aaaaaaaa : additionne — rouge(s) à chacune des 2 exécution(s) ' +
-        'de la production, à aucune des 2 de la base',
-      'déjà rouge(s) à la base, non bloquant(s) : un test déjà rouge à la base',
+      'régression comparée à la base aaaaaaaa, 1 test(s) : additionne — rouge(s) à chacune des 2 ' +
+        'exécution(s) de la production, à aucune des 2 de la base',
+      'déjà rouge(s) à la base, du même échec, non bloquant(s), 1 test(s) : un test déjà rouge à la base',
     ]);
   });
 
-  it('beaucoup de régressions : cinq noms, le reste compté — la critique a une borne', () => {
+  it('beaucoup de régressions : le TOTAL d’abord, cinq noms, le reste compté — la critique a une borne', () => {
     const noms = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
     const verdict = compare('failed', { regressions: { total: 12, noms } });
-    expect(verdict.reasons[1]).toContain('a ; b ; c ; d ; e ; … et 7 autre(s)');
+    expect(verdict.reasons[1]).toContain('12 test(s) : a ; b ; c ; d ; e ; … et 7 autre(s)');
+  });
+
+  it('des noms longs sont coupés : le total et chaque nom tiennent dans la borne d’une raison (400)', () => {
+    const noms = ['α', 'β', 'γ', 'δ', 'ε'].map((l) => `${l}${'x'.repeat(299)}`);
+    const verdict = compare('failed', { regressions: { total: 9, noms } });
+    const raison = verdict.reasons[1] ?? '';
+    expect(raison).toMatch(/^régression comparée à la base aaaaaaaa, 9 test\(s\) : αx+… ; βx+… ; /);
+    // Le total, chaque début de nom et le reste compté tiennent dans les 400.
+    expect(raison.slice(0, 400)).toContain('εxxx');
+    expect(raison.slice(0, 400)).toContain('… et 4 autre(s)');
   });
 
   it('UN TEST INSTABLE : preuve manquante — ni correction, ni vert', () => {
@@ -389,9 +402,9 @@ describe('Evaluator — les tests comparés à la base (G11b)', () => {
     expect(verdict.retryRecommended).toBe(false);
     expect(verdict.reasons).toEqual([
       'preuves manquantes : tests (bac Hive du nœud n1)',
-      'tests instables sur le bac du nœud n1 : vacille une fois — rouges à une exécution de la ' +
-        'production, verts à l’autre, jamais rouges à la base aaaaaaaa : ni régression ni vert, ' +
-        'verdict inconnu — stabilisez-les, ou apportez la CI GitHub',
+      'tests instables sur le bac du nœud n1, 1 test(s) : vacille une fois — vus rouges à une ' +
+        'exécution et verts à une autre, de la production ou de la base aaaaaaaa : ni régression ' +
+        'ni vert, verdict inconnu — stabilisez-les, ou apportez la CI GitHub',
     ]);
   });
 });

@@ -35,9 +35,9 @@
 // Les tests du bac en échec se comparent à la base, test par test (G11b,
 // `shared/lecture-tests.ts`) : une RÉGRESSION demande une correction qui la
 // NOMME — c'est ce que l'ouvrière lira (`BORNES_CRITIQUE`) ; des tests DÉJÀ
-// ROUGES à la base ne bloquent plus, et `accepted` les DIT — un vert qui les
-// tairait serait un faux ; des tests INSTABLES ne sont ni l'un ni l'autre :
-// preuve manquante.
+// ROUGES à la base, du même échec, ne bloquent plus, et `accepted` les DIT —
+// un vert qui les tairait serait un faux ; des tests INSTABLES ne sont ni l'un
+// ni l'autre : preuve manquante.
 //
 // ─── LA PORTE DE SÉCURITÉ ────────────────────────────────────────────────────
 //
@@ -347,12 +347,25 @@ function motifsDeLaPorte(porte: PorteSecurite, nodeId: string | undefined): stri
   return motifs;
 }
 
+/** Un nom de test dans un motif : cinq tiennent, avec leur contexte, dans une raison. */
+const NOM_DANS_UN_MOTIF = 44;
+
 /**
- * Des tests nommés en une ligne : les cinq premiers, le reste compté. Cinq,
- * parce qu'un motif tient dans la borne d'une raison de la critique figée
- * (`BORNES_CRITIQUE.raison`, 400 caractères) — c'est elle que lit l'ouvrière.
+ * Des tests nommés en une ligne : le TOTAL d'abord, puis au plus cinq noms,
+ * chacun coupé à `NOM_DANS_UN_MOTIF` caractères. Une raison de la critique
+ * figée est bornée (`BORNES_CRITIQUE.raison`, 400 caractères) — c'est elle que
+ * lit l'ouvrière — et la borne coupe la FIN : un nom long ne doit emporter ni
+ * le compte, ni les noms qui le suivent.
  */
-const direTests = (tests: TestsNommes): string => enLigne(tests.noms.slice(0, 5), tests.total);
+function direTests(tests: TestsNommes): string {
+  const noms = tests.noms
+    .slice(0, 5)
+    .map((nom) =>
+      nom.length > NOM_DANS_UN_MOTIF ? `${nom.slice(0, NOM_DANS_UN_MOTIF - 1)}…` : nom,
+    );
+  const reste = tests.total - noms.length;
+  return `${tests.total} test(s) : ${noms.join(' ; ')}${reste > 0 ? ` ; … et ${reste} autre(s)` : ''}`;
+}
 
 /** La comparaison à la base des tests du bac, quand il y en a une. */
 function comparaisonDesTests(
@@ -541,11 +554,13 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     if (failedValidation === 'tests' && tests && tests.comparaison.regressions.total > 0) {
       const { regressions, dejaRouges, executions } = tests.comparaison;
       reasons.push(
-        `régression comparée à ${tests.base} : ${direTests(regressions)} — rouge(s) à chacune des ` +
+        `régression comparée à ${tests.base}, ${direTests(regressions)} — rouge(s) à chacune des ` +
           `${executions.tete} exécution(s) de la production, à aucune des ${executions.base} de la base`,
       );
       if (dejaRouges.total > 0) {
-        reasons.push(`déjà rouge(s) à la base, non bloquant(s) : ${direTests(dejaRouges)}`);
+        reasons.push(
+          `déjà rouge(s) à la base, du même échec, non bloquant(s), ${direTests(dejaRouges)}`,
+        );
       }
     }
     return result(input.taskId, 'correction_required', false, true, reasons, evidence);
@@ -600,8 +615,8 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     // production n'est peut-être pour rien dans le hasard) ni un vert.
     if (validation.tests === 'missing' && tests && tests.comparaison.instables.total > 0) {
       preuvesAbsentes.push(
-        `tests instables sur le bac du nœud ${tests.nodeId} : ${direTests(tests.comparaison.instables)} ` +
-          `— rouges à une exécution de la production, verts à l’autre, jamais rouges à ${tests.base} : ` +
+        `tests instables sur le bac du nœud ${tests.nodeId}, ${direTests(tests.comparaison.instables)} ` +
+          `— vus rouges à une exécution et verts à une autre, de la production ou de ${tests.base} : ` +
           'ni régression ni vert, verdict inconnu — stabilisez-les, ou apportez la CI GitHub',
       );
     }
@@ -702,13 +717,17 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
   // le DIT — l'humain qui approuve lit ce qui reste rouge, et pourquoi.
   if (validation.tests === 'passed' && tests && tests.comparaison.dejaRouges.total > 0) {
     const { dejaRouges, ciblesPassees } = tests.comparaison;
+    // « Du même échec », et pas « que la production n'a pas cassé » : le nœud
+    // compare l'EMPREINTE de chaque échec — le message que le runner imprime,
+    // valeurs attendue et reçue comprises, et son fichier —, pas tout ce que
+    // le test aurait pu vérifier après l'assertion qui a lâché la première.
     acceptedReasons.push(
-      `tests comparés à ${tests.base} : aucune régression — ${dejaRouges.total} test(s) déjà ` +
-        `rouge(s) à la base, que la production n’a pas cassé(s), non bloquant(s) : ${direTests(dejaRouges)}`,
+      `tests comparés à ${tests.base} : aucune régression — déjà rouge(s) à la base, du même ` +
+        `échec à la base et à la production, non bloquant(s), ${direTests(dejaRouges)}`,
     );
     if (ciblesPassees.total > 0) {
       acceptedReasons.push(
-        `cibles passées : ${direTests(ciblesPassees)} — rouge(s) à la base, vert(s) à la production`,
+        `cibles passées, ${direTests(ciblesPassees)} — rouge(s) à la base, vert(s) à la production`,
       );
     }
   }

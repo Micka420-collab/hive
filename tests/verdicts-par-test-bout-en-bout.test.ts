@@ -232,8 +232,8 @@ describe.runIf(process.platform !== 'win32')(
       const acceptee = await h.evaluer(sansRapport.tacheId);
       expect(acceptee.decision, acceptee.reasons.join(' · ')).toBe('accepted');
       expect(acceptee.reasons.join(' · ')).toContain(
-        'aucune régression — 1 test(s) déjà rouge(s) à la base, que la production n’a pas cassé(s), ' +
-          'non bloquant(s) : un test déjà rouge à la base',
+        'aucune régression — déjà rouge(s) à la base, du même échec à la base et à la production, ' +
+          'non bloquant(s), 1 test(s) : un test déjà rouge à la base',
       );
 
       // ─── UNE RÉGRESSION ─────────────────────────────────────────────────────
@@ -256,10 +256,10 @@ describe.runIf(process.platform !== 'win32')(
         'validation tests en échec (bac Hive du nœud ouvriere-g11b)',
       );
       expect(corrigee.reasons[1]).toMatch(
-        /^régression comparée à la base [0-9a-f]{8} : additionne — /,
+        /^régression comparée à la base [0-9a-f]{8}, 1 test\(s\) : additionne — /,
       );
       expect(corrigee.reasons[2]).toBe(
-        'déjà rouge(s) à la base, non bloquant(s) : un test déjà rouge à la base',
+        'déjà rouge(s) à la base, du même échec, non bloquant(s), 1 test(s) : un test déjà rouge à la base',
       );
     }, 150_000);
 
@@ -318,7 +318,7 @@ describe.runIf(process.platform !== 'win32')(
       expect(manquante.decision).toBe('additional_test_required');
       expect(manquante.retryRecommended).toBe(false);
       expect(manquante.reasons.join(' · ')).toContain(
-        'tests instables sur le bac du nœud ouvriere-g11b : vacille une fois',
+        'tests instables sur le bac du nœud ouvriere-g11b, 1 test(s) : vacille une fois',
       );
     }, 150_000);
   },

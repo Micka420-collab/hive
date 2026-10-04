@@ -291,9 +291,13 @@ describe('panneau Evaluator — les tests comparés à la base (G11b)', () => {
     const fr = texteControle(detail, (f) => f);
     const en = texteControle(detail, (_f, e) => e);
     expect(fr).toContain('npm run test → 1 · comparé test par test à la base');
-    expect(fr).toContain('déjà rouge à la base, non bloquant : ancien ; vieux ; … et 1 autre(s)');
+    expect(fr).toContain(
+      'déjà rouge à la base, du même échec, non bloquant : ancien ; vieux ; … et 1 autre(s)',
+    );
     expect(fr).toContain('base rejouée à part, 12 s de plus');
-    expect(en).toContain('already red at the base, not blocking: ancien ; vieux ; … and 1 more');
+    expect(en).toContain(
+      'already red at the base, with the same failure, not blocking: ancien ; vieux ; … and 1 more',
+    );
   });
 
   it('la régression d’abord, nommée — et le panneau la montre sur la ligne des tests', () => {
@@ -321,7 +325,7 @@ describe('panneau Evaluator — les tests comparés à la base (G11b)', () => {
     expect(ligne?.getAttribute('data-etat')).toBe('failed');
     expect(ligne?.textContent).toContain(
       'régression : additionne — rouge à chaque exécution, jamais à la base · ' +
-        'déjà rouge à la base, non bloquant : ancien',
+        'déjà rouge à la base, du même échec, non bloquant : ancien',
     );
   });
 
@@ -337,7 +341,9 @@ describe('panneau Evaluator — les tests comparés à la base (G11b)', () => {
       },
     } as const;
     const fr = texteControle(detail, (f) => f);
-    expect(fr).toContain('instable : vacille une fois — rouge puis vert d’une exécution à l’autre');
+    expect(fr).toContain(
+      'instable : vacille une fois — vu rouge à une exécution et vert à une autre, de la production ou de la base',
+    );
     expect(fr).toContain('ni régression ni vert, verdict inconnu');
     expect(fr).toContain('base déjà rejouée sur ce nœud');
   });
