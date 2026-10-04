@@ -372,8 +372,9 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   {
     categorie: 'auto-execution',
     motif:
-      /^src\/node-client\/(workspace|merge-runner|pose-runner)\.ts$|^src\/(shared\/lanceur|lanceur-reel)\.ts$|^src\/orchestrator\/fabrique\.ts$/,
-    pourquoi: 'ateliers, fusions, poses d’outils et lanceurs côté machine',
+      /^src\/node-client\/(workspace|merge-runner|pose-runner)\.ts$|^src\/(shared\/lanceur|lanceur-reel)\.ts$|^src\/orchestrator\/fabrique\.ts$|^src\/shared\/effacement\.ts$/,
+    pourquoi:
+      'ateliers, fusions, poses d’outils et lanceurs côté machine, et l’effacement de ce que git y a rempli (tâches, fusions, miroir de la Reine) : ses reprises bornées au sommet sont ce qui empêche un fichier tenu de figer une tâche ou une suppression de projet',
   },
   {
     categorie: 'auto-execution',

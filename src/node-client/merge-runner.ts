@@ -45,7 +45,8 @@ import { marqueOmission } from '../shared/caviardage.js';
 import { gitHote } from '../shared/git-protege.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import { commitDeDepart, diffContreBase, epinglerClone } from './git-hote.js';
-import { buildSandboxEnv, effacerDossier } from './workspace.js';
+import { effacerDossier } from '../shared/effacement.js';
+import { buildSandboxEnv } from './workspace.js';
 
 export interface MergeDiff {
   taskId: string;

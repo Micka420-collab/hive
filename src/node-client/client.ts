@@ -66,9 +66,9 @@ import {
   DossierDeTacheIneffacable,
   buildSandboxEnv,
   cloneRepo,
-  effacerDossier,
   prepareWorkspace,
 } from './workspace.js';
+import { effacerDossier } from '../shared/effacement.js';
 import { racineDeTravailParDefaut } from './identite-noeud.js';
 import { segmentSur } from '../shared/noms-windows.js';
 import { ConfigurationNonNeutralisable, noteConfigurationEcartee } from './configuration-inerte.js';

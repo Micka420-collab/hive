@@ -30,7 +30,6 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -68,6 +67,11 @@ function lectureSeule(dossier) {
 const { prepareWorkspace } = await import(
   pathToFileURL(path.join(RACINE, 'dist', 'node-client', 'workspace.js')).href
 );
+// Le banc s'efface par la porte de la ruche : ses dépôts git ont des objets en
+// lecture seule, et les `maxRetries` de `fs.rm` se multiplient par niveau.
+const { effacerDossier } = await import(
+  pathToFileURL(path.join(RACINE, 'dist', 'shared', 'effacement.js')).href
+);
 const banc = mkdtempSync(path.join(tmpdir(), 'hive-effacement-'));
 let code = 0;
 try {
@@ -104,6 +108,6 @@ try {
   console.error(`✘ ${e instanceof Error ? e.message : String(e)}`);
   code = 1;
 } finally {
-  await rm(banc, { recursive: true, force: true, maxRetries: 5 });
+  await effacerDossier(banc);
 }
 process.exit(code);

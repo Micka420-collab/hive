@@ -191,6 +191,10 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     // La suite de G12 : le clone d'une tâche ne porte aucun identifiant de
     // push — son banc, et la porte git qui l'assure (déjà nommée plus haut).
     ['tests/clone-sans-identifiants.test.ts', 'securite'],
+    // L'effacement de ce que git a rempli, sorti de workspace.ts pour servir
+    // aussi le miroir de la Reine : il garde la catégorie de l'atelier.
+    ['src/node-client/workspace.ts', 'auto-execution'],
+    ['src/shared/effacement.ts', 'auto-execution'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');

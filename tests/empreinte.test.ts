@@ -701,6 +701,10 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
       '<workdir>/tasks/<id>.git — le git dir de la ruche, voisin de la tâche et ' +
       'effacé avec elle ; et `info/attributes` dans le git dir d’un clone de fusion',
     'src/orchestrator/miroir.ts': '<données>/rayons — les miroirs git',
+    'src/shared/effacement.ts':
+      'n’écrit rien, il EFFACE — et seulement ce que ses appelants lui désignent ' +
+      '(l’espace d’une tâche et ses voisins, les clones et le transit d’une fusion, ' +
+      'les miroirs de la Reine), chacun déclaré ici sous sa racine',
     'src/service-reel.ts':
       'le fichier de service — unité systemd, LaunchAgent ou tâche planifiée. ' +
       'Décidé ici plutôt que subi : c’est le seul écrit de Hive dans le dossier ' +

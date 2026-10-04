@@ -32,6 +32,7 @@
 import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { CLONE_MS, DELAI_RESEAU_MS } from '../shared/butoirs-noeud.js';
+import { effacerDossier } from '../shared/effacement.js';
 import {
   EchecGitHote,
   commandeSshDuMembre,
@@ -198,8 +199,12 @@ export class Miroir {
    * du Rayon vérifient le projet puis appellent `rafraichir` sans rien
    * attendre entre les deux, et le projet n'existe déjà plus en base.
    *
-   * `maxRetries` : sous Windows, un antivirus ou un `git` qui se termine tient
-   * parfois un fichier du pack une fraction de seconde (motif `workspace.ts`).
+   * Par `effacerDossier`, comme tout effacement du miroir : sous Windows, un
+   * antivirus ou un `git` qui se termine tient parfois un fichier du pack une
+   * fraction de seconde, et ses reprises l'absorbent — 5,5 s au plus, puis
+   * l'échec remonte. Les `maxRetries` de `fs.rm` posés ici se multipliaient par
+   * la profondeur : un fichier tenu sous `.git/objects/pack/` faisait attendre
+   * la route de suppression près de 25 heures, sans un mot.
    */
   async effacer(projectId: string): Promise<'efface' | 'absent'> {
     await this.enVol.get(projectId)?.catch(() => undefined);
@@ -208,9 +213,9 @@ export class Miroir {
     // Le reclone voisin (`recloner`) d'une Reine arrêtée en plein clone : seul
     // le rafraîchissement suivant le retirait, et un projet supprimé n'en a
     // plus — il restait pour toujours.
-    await fs.rm(voisinDeReclone(dir), { recursive: true, force: true, maxRetries: 10 });
+    await effacerDossier(voisinDeReclone(dir));
     if (!existsSync(dir)) return 'absent';
-    await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await effacerDossier(dir);
     return 'efface';
   }
 
@@ -298,7 +303,7 @@ export class Miroir {
     // rafraîchissements d'un projet ne se chevauchent pas (`enVol`), il est
     // donc à nous. Retiré à CHAQUE rafraîchissement, pas seulement avant un
     // reclone : celui d'une version d'avant garde le jeton dans sa config.
-    await fs.rm(voisinDeReclone(dir), { recursive: true, force: true });
+    await effacerDossier(voisinDeReclone(dir));
     if (this.existe(projectId)) await this.oterLesIdentifiants(projectId, depot, distant.nue);
     // La racine d'abord : `commandeSshDuMembre` y lance git, et un cwd absent
     // la ferait retomber sur `ssh` au premier clone.
@@ -362,7 +367,7 @@ export class Miroir {
       );
       return;
     }
-    await fs.rm(depot.workTree, { recursive: true, force: true, maxRetries: 10 });
+    await effacerDossier(depot.workTree);
     this.journal(
       projectId,
       'miroir effacé : sa configuration gardait des identifiants qu’on n’a pas pu retirer',
@@ -433,10 +438,10 @@ export class Miroir {
         await gitHote(['reset', '--hard', `origin/${tete}`], depotNeuf);
       }
     } catch (e) {
-      await fs.rm(neuf, { recursive: true, force: true }).catch(() => undefined);
+      await effacerDossier(neuf).catch(() => undefined);
       throw e;
     }
-    await fs.rm(dir, { recursive: true, force: true });
+    await effacerDossier(dir);
     await fs.rename(neuf, dir);
   }
 
