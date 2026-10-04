@@ -24,7 +24,12 @@
 //   2. `garderMission`, APRÈS, et seulement si la préparation et les tests
 //      n'ont rien contredit : la branche naît dans le dépôt durable depuis le
 //      transit, et la poussée part du dépôt durable vers le `repoUrl` que le
-//      hub a envoyé. Deux dépôts dont seul le nœud écrit la configuration.
+//      hub a envoyé. Deux dépôts dont seul le nœud écrit la configuration —
+//      sous bac à sable, où le code du dépôt ne voit que le clone. Au niveau
+//      `processus`, il tourne sous le compte du nœud et atteint le disque
+//      entier, ces deux dépôts compris (`constat`, isolement.ts) : la frontière
+//      ci-dessus tient contre un `.git` que le code a réécrit, pas contre un
+//      code qui viserait le nœud lui-même.
 //
 // ─── CE QUI EST COMMITÉ, EXACTEMENT ──────────────────────────────────────────
 //
@@ -56,9 +61,11 @@
 //     le prétendre, le nœud relit le sien ;
 //   · un identifiant dans un message : tout ce qui remonte au hub est lavé
 //     (`laverIdentifiantsDuTexte`) ;
-//   · un identifiant sur le disque : le dépôt durable ne garde que l'adresse
-//     nue du dépôt du projet, et l'accès ne passe ni par l'argv de git ni par
-//     l'assistant d'identifiants du membre (`depotDistant`).
+//   · un identifiant sur le disque ou dans l'argv : le dépôt durable ne garde
+//     que l'adresse nue du dépôt du projet, et le compte du projet ne passe
+//     que par l'environnement du git qui parle au dépôt — ni par son argv, ni
+//     par celui de son assistant de transport, ni par l'assistant
+//     d'identifiants du membre (`depotDistant`).
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -152,9 +159,12 @@ const messageDe = (err: unknown): string => (err instanceof Error ? err.message 
  * pour que git n'y lise que la configuration écrite par le nœud. Par
  * `gitHote`, comme le clone : mêmes identifiants, même `ssh` du membre en mode
  * lot — une poussée SSH qui attendrait une phrase de passe figerait le merge.
- * L'adresse part NUE, l'accès dans l'environnement de ce git (`depotDistant`) :
- * ni l'argv, ni l'assistant d'identifiants du membre ne voient le jeton.
- * Le plafond atteint devient une phrase qui dit quoi faire, pas un signal.
+ * L'adresse part NUE, le compte du projet dans l'environnement de ce git
+ * (`depotDistant`) : ni l'argv — celui de git, celui de son assistant de
+ * transport —, ni l'assistant d'identifiants du membre ne voient le jeton. Un
+ * jeton refusé se dit par `gitHote` (« le dépôt refuse le jeton de l'URL du
+ * projet ») ; le plafond atteint devient une phrase qui dit quoi faire, pas
+ * un signal.
  */
 async function auDepotDistant(
   baseDir: string,
@@ -172,9 +182,13 @@ async function auDepotDistant(
     });
   } catch (err) {
     if (!(err instanceof EchecGitHote && err.delaiDepasse)) throw err;
+    // Pas « des identifiants attendus ? » : git n'attend plus d'invite
+    // (`envGitHote`), et le compte d'une URL de projet ne passe plus par
+    // l'assistant du membre. Un dépôt qui se tait est injoignable, ou muet.
     throw new Error(
       `le dépôt du projet n’a pas répondu en ${DELAI_RESEAU_MS / 1000} s (git ${commande[0]}) — ` +
-        'des identifiants attendus sur ce nœud ? Enregistrez-les dans son assistant git, puis relancez',
+        `injoignable ou muet depuis ce nœud : vérifiez qu’il y répond (\`git ls-remote ${nue}\`), ` +
+        'puis relancez',
       { cause: err },
     );
   }

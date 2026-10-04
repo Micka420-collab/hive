@@ -44,6 +44,12 @@ export class ServeurGit {
    */
   compte = { utilisateur: 'marie', motDePasse: `jeton-${randomBytes(12).toString('hex')}` };
   lectureSeule = false;
+  /**
+   * Appelé à l'ARRIVÉE de chaque requête, avant toute réponse : le client git
+   * — et son assistant de transport — attend encore, vivant. C'est le moment
+   * où un banc peut regarder la table des processus (`/proc/<pid>/cmdline`).
+   */
+  pendantRequete: ((req: IncomingMessage) => void) | null = null;
   private port = 0;
   private readonly http = createHttpServer((req, res) => this.repondre(req, res));
 
@@ -58,9 +64,15 @@ export class ServeurGit {
     return `http://127.0.0.1:${this.port}/${nom}.git`;
   }
 
-  /** L'adresse avec le compte écrit DEDANS — la forme qu'un dépôt privé a dans la ruche. */
+  /**
+   * L'adresse avec le compte écrit DEDANS — la forme qu'un dépôt privé a dans
+   * la ruche. Un mot de passe vide donne la forme de GitHub, le jeton à la
+   * place du nom (`http://<jeton>@…`).
+   */
   urlAvecCompte(nom: string, motDePasse = this.compte.motDePasse): string {
-    return this.url(nom).replace('http://', `http://${this.compte.utilisateur}:${motDePasse}@`);
+    const userinfo =
+      motDePasse === '' ? this.compte.utilisateur : `${this.compte.utilisateur}:${motDePasse}`;
+    return this.url(nom).replace('http://', `http://${userinfo}@`);
   }
 
   async fermer(): Promise<void> {
@@ -70,6 +82,7 @@ export class ServeurGit {
 
   private repondre(req: IncomingMessage, res: ServerResponse): void {
     this.requetes += 1;
+    this.pendantRequete?.(req);
     if (this.mode === 'identifiants') {
       if (req.headers.authorization) this.authentifications += 1;
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="depot prive"' });

@@ -1761,6 +1761,11 @@ export function estBrancheDeLivraison(v: unknown): v is string {
 export function isValidRepoUrl(v: unknown): v is string {
   if (typeof v !== 'string' || v.length === 0 || v.length > 500) return false;
   if (v.startsWith('-')) return false;
+  // Aucun caractère de contrôle : un saut de ligne faisait échouer git sur
+  // une clé de configuration qu'il citait ENTIÈRE — jeton compris, et hors
+  // de portée du lavage, qui s'arrête à l'espace (`laverIdentifiantsDuTexte`).
+  // eslint-disable-next-line no-control-regex -- c'est précisément ce qu'on refuse
+  if (/[\u0000-\u001f\u007f]/.test(v)) return false;
   // http(s), git, ssh, ou chemin local absolu (démo/tests) — jamais ext::, file::, etc.
   return (
     /^https?:\/\//.test(v) ||

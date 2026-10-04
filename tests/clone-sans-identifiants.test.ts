@@ -12,7 +12,10 @@
 //   · git CONFIAIT le jeton à l'assistant d'identifiants du membre : avec
 //     `credential.helper=store`, il dormait en clair dans `~/.git-credentials`
 //     (sous Windows, dans le gestionnaire où Git for Windows inscrit GCM), et
-//     un `git push` lancé depuis l'espace de travail le retrouvait là.
+//     un `git push` lancé depuis l'espace de travail le retrouvait là ;
+//   · l'argv de l'assistant de transport (`git-remote-http origin
+//     http://marie:…@…`) se lisait de toute la machine, `/proc/<pid>/cmdline`
+//     — même quand une règle `insteadOf` cachait l'URL au git lancé.
 //
 // La politique d'actions de G12 juge la FORME des commandes ; elle ne contient
 // pas un agent hostile. L'enceinte doit être structurelle — c'est ce que ces
@@ -22,14 +25,20 @@
 //   1. après préparation — tâche neuve, reprise d'une PR, clone de merge ou de
 //      chantier —, ni `.git/config`, ni aucun fichier du clone ou du registre,
 //      ni l'environnement de l'agent, ni l'assistant du membre ne contiennent
-//      le jeton ;
-//   2. un `git push` lancé depuis l'espace de travail, comme le ferait
-//      l'agent, échoue faute d'identifiants — même avec le HOME du membre ;
+//      le jeton ; et pendant le clone comme la poussée, aucun argv ;
+//   2. un `git push` lancé depuis l'espace de travail ne trouve rien de ce que
+//      la ruche a reçu — même avec le HOME du membre, tant qu'aucune version
+//      précédente n'y a rien déposé (`hive doctor` le cherche) ;
 //   3. la livraison locale pousse quand même, avec le compte du projet ;
-//   4. aucun message d'échec ne cite le jeton, et la porte git refuse une
-//      adresse avec identifiants en argument ;
+//   4. aucun message d'échec ne cite le jeton — pas même renvoyé nu par le
+//      serveur —, un jeton refusé dit quoi changer, et la porte git refuse
+//      des identifiants en argument, ou un git trop ancien pour les porter ;
 //   5. le miroir de la Reine passe par la même porte, et s'en trouve mieux :
-//      un jeton renouvelé y sert au rafraîchissement suivant.
+//      un jeton renouvelé y sert au rafraîchissement suivant, et celui qu'une
+//      version précédente avait écrit quitte le disque sans attendre l'amont.
+//
+// Les assistants du MEMBRE journalisent chacun de leurs appels : tout banc qui
+// passe par l'accès d'un projet exige qu'il n'y en ait eu AUCUN (`confieAuMembre`).
 
 import { execFile, execFileSync } from 'node:child_process';
 import {
@@ -50,7 +59,12 @@ import { ServeurGit } from './aide/serveur-git.js';
 import { runMerge } from '../src/node-client/merge-runner.js';
 import { cloneRepo, prepareWorkspace } from '../src/node-client/workspace.js';
 import { FENETRE_RAFRAICHISSEMENT_MS, Miroir } from '../src/orchestrator/miroir.js';
-import { EchecGitHote, depotDistant, gitHote } from '../src/shared/git-protege.js';
+import {
+  EchecGitHote,
+  depotDistant,
+  gitHote,
+  porteDesIdentifiants,
+} from '../src/shared/git-protege.js';
 import type { Task } from '../src/shared/types.js';
 
 /** Identité et réglages des commits FABRIQUÉS par le banc — rien de la personne. */
@@ -73,7 +87,7 @@ let racine: string;
 let projets: string;
 /** Le `workRoot` du nœud. */
 let travail: string;
-/** Le HOME du MEMBRE : un assistant `store`, qui écrit en clair ce que git lui confie. */
+/** Le HOME du MEMBRE : un assistant `store`, et un assistant qui journalise ses appels. */
 let membre: string;
 let serveur: ServeurGit;
 
@@ -84,6 +98,9 @@ const git = (cwd: string, ...args: string[]): string =>
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
+/** Où l'assistant journaliste du membre écrit chacun de ses appels. */
+const appelsDuMembre = (): string => path.join(membre, 'appels.log');
+
 beforeAll(async () => {
   racine = mkdtempSync(path.join(os.tmpdir(), 'hive-clone-sans-identifiants-'));
   projets = path.join(racine, 'projets');
@@ -91,7 +108,16 @@ beforeAll(async () => {
   membre = path.join(racine, 'membre');
   mkdirSync(projets, { recursive: true });
   mkdirSync(membre, { recursive: true });
-  writeFileSync(path.join(membre, '.gitconfig'), '[credential]\n\thelper = store\n');
+  // Deux assistants, comme un poste réel en a parfois : `store`, qui écrit en
+  // clair ce que git lui confie, et un journaliste — chaque `get`, `store` ou
+  // `erase` qu'il reçoit laisse une ligne. Le chemin en barres obliques et
+  // entre apostrophes : c'est `sh` qui l'ouvre, Git for Windows compris. La
+  // valeur entre guillemets : `;` ouvrirait un commentaire de gitconfig.
+  const journal = appelsDuMembre().replaceAll('\\', '/');
+  writeFileSync(
+    path.join(membre, '.gitconfig'),
+    `[credential]\n\thelper = store\n\thelper = "!f() { echo appel-$1 >> '${journal}'; }; f"\n`,
+  );
   // Le dépôt PRIVÉ : `main`, et la branche de la pull request qu'une reprise
   // prolonge (G05a).
   const depot = path.join(projets, 'prive.git');
@@ -119,8 +145,8 @@ afterAll(async () => {
 });
 
 // Le git du NŒUD lit le HOME du processus (`envGitHote`) : c'est celui du
-// membre, assistant `store` compris. Effacé après chaque banc — un banc rouge
-// ne doit pas en faire rougir un autre.
+// membre, assistants compris. Effacé après chaque banc — un banc rouge ne
+// doit pas en faire rougir un autre.
 beforeEach(() => {
   vi.stubEnv('HOME', membre);
   vi.stubEnv('USERPROFILE', membre);
@@ -128,6 +154,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
   rmSync(path.join(membre, '.git-credentials'), { force: true });
+  rmSync(appelsDuMembre(), { force: true });
+  serveur.pendantRequete = null;
 });
 
 // ─── LES OUTILS DU BANC ──────────────────────────────────────────────────────
@@ -135,10 +163,13 @@ afterEach(() => {
 const tache = (id: string, branch: string | null = null): Task =>
   ({ id, title: id, prompt: 'x', branch }) as Task;
 
-/** Ce que l'assistant `store` du membre a reçu — vide s'il n'a rien reçu. */
+/**
+ * Ce que les assistants du membre ont reçu : ce que `store` a écrit, et
+ * chaque appel du journaliste — vide s'ils n'ont rien reçu.
+ */
 function confieAuMembre(): string {
-  const fichier = path.join(membre, '.git-credentials');
-  return existsSync(fichier) ? readFileSync(fichier, 'utf8') : '';
+  const lire = (f: string): string => (existsSync(f) ? readFileSync(f, 'utf8') : '');
+  return lire(path.join(membre, '.git-credentials')) + lire(appelsDuMembre());
 }
 
 /** Les fichiers sous `dossier` — `.git` compris — dont les octets contiennent `secret`. */
@@ -167,6 +198,17 @@ const echecDe = (promesse: Promise<unknown>): Promise<unknown> =>
     (e: unknown) => e,
   );
 
+/** Le compte du serveur le temps d'un banc — un jeton révoqué ou renouvelé. */
+async function avecLeCompte<T>(compte: ServeurGit['compte'], corps: () => Promise<T>): Promise<T> {
+  const avant = serveur.compte;
+  serveur.compte = compte;
+  try {
+    return await corps();
+  } finally {
+    serveur.compte = avant;
+  }
+}
+
 // ─── 0. CE QUI EST UN IDENTIFIANT, ET CE QUI N'EN EST PAS ────────────────────
 
 describe('depotDistant — l’adresse nue, et ce qui l’ouvre', () => {
@@ -179,28 +221,62 @@ describe('depotDistant — l’adresse nue, et ce qui l’ouvre', () => {
       ]),
     );
 
-  // `motDePasse` : `oui` — le projet ouvre le dépôt, les assistants du membre
-  // sont écartés ; `nom` — un nom seul choisit le compte que l'assistant du
-  // membre fournira, il reste lu ; `rien` — rien à cacher, rien ne change.
+  // TOUT `userinfo` d'une adresse HTTP(S) est le compte du PROJET — son URL
+  // est la même pour chaque membre. Un nom seul est un jeton au mot de passe
+  // vide (la forme de GitHub) : les assistants du membre sont écartés aussi.
   it.each([
-    ['https://marie:jeton@github.com/o/r.git', 'https://github.com/o/r.git', 'oui'],
-    ['https://u:p@ss@hote/d.git', 'https://hote/d.git', 'oui'],
-    ['https://ghp_nom@github.com/o/r.git', 'https://github.com/o/r.git', 'nom'],
-    ['ssh://git@github.com/o/r.git', 'ssh://git@github.com/o/r.git', 'rien'],
-    ['git@github.com:o/r.git', 'git@github.com:o/r.git', 'rien'],
-    ['https://hote/chemin@v2/d.git', 'https://hote/chemin@v2/d.git', 'rien'],
-  ] as const)('%s → %s (mot de passe : %s)', (url, nue, motDePasse) => {
-    const distant = depotDistant(url);
-    expect(distant.nue).toBe(nue);
-    if (motDePasse === 'rien') {
-      expect(distant.acces).toEqual({});
-      return;
-    }
-    expect(reglages(distant.acces)).toEqual({
-      [`url.${url}.insteadOf`]: nue,
-      [`url.${url}.pushInsteadOf`]: nue,
-      ...(motDePasse === 'oui' ? { 'credential.helper': '' } : {}),
+    ['https://marie:jeton@github.com/o/r.git', 'https://github.com/o/r.git', 'marie', 'jeton'],
+    ['https://u:p@ss@hote/d.git', 'https://hote/d.git', 'u', 'p@ss'],
+    ['https://u:p%40ss%3A@hote/d.git', 'https://hote/d.git', 'u', 'p@ss:'],
+    ['https://ghp_nom@github.com/o/r.git', 'https://github.com/o/r.git', 'ghp_nom', ''],
+    ['HTTP://x:y@Hote:8080/d.git', 'HTTP://Hote:8080/d.git', 'x', 'y'],
+  ] as const)('%s → %s, compte du projet %s / %s', (url, nue, nom, secret) => {
+    const { nue: vue, acces } = depotDistant(url);
+    expect(vue).toBe(nue);
+    const hote = /^https?:\/\/[^/]*/i.exec(nue)?.[0] ?? '';
+    expect(reglages(acces)).toEqual({
+      [`url.${nue}.insteadOf`]: nue,
+      [`url.${nue}.pushInsteadOf`]: nue,
+      'credential.helper': '',
+      [`credential.${hote}.helper`]: expect.stringMatching(
+        /^!f\(\) \{ test "\$1" != get \|\| printf/,
+      ),
     });
+    expect(acces.HIVE_DEPOT_NOM).toBe(nom);
+    expect(acces.HIVE_DEPOT_SECRET).toBe(secret);
+    // Ni l'adresse authentifiée, ni le secret, dans une CLÉ ou une valeur de
+    // configuration : une clé fautive, git la cite entière dans son erreur.
+    const configuration = JSON.stringify(reglages(acces));
+    expect(configuration).not.toContain(url.slice(0, url.lastIndexOf('@') + 1));
+    if (secret !== '') expect(configuration).not.toContain(secret);
+  });
+
+  it.each([
+    'ssh://git@github.com/o/r.git',
+    'git@github.com:o/r.git',
+    'https://hote/chemin@v2/d.git',
+    'https://github.com/o/r.git',
+  ])('%s : rien à cacher, rien ne change', (url) => {
+    expect(depotDistant(url)).toEqual({ nue: url, acces: {} });
+  });
+
+  it.each([
+    ['un saut de ligne encodé dans le mot de passe', 'https://u:a%0Ab@hote/d.git', 'a%0Ab'],
+    [
+      'un mot de passe sans nom (git n’envoie pas de compte au nom vide)',
+      'https://:secret-sans-nom@hote/d.git',
+      'secret-sans-nom',
+    ],
+  ])('refuse %s — sans citer l’adresse', (_cas, url, secret) => {
+    let echec: unknown = null;
+    try {
+      depotDistant(url);
+    } catch (e) {
+      echec = e;
+    }
+    expect(echec).toBeInstanceOf(Error);
+    expect((echec as Error).message).toMatch(/recréez le projet/);
+    expect((echec as Error).message).not.toContain(secret);
   });
 });
 
@@ -259,20 +335,126 @@ describe('le clone ne porte aucun identifiant — à aucune porte', () => {
       expect(confieAuMembre()).toBe('');
     },
   );
+
+  it(
+    'le jeton À LA PLACE DU NOM (`http://<jeton>@…`) est le compte du projet : il ouvre, et aucun assistant du membre n’est appelé',
+    PLAFOND,
+    () =>
+      // Le serveur n'accepte que « <jeton>: » — un jeton au mot de passe vide.
+      avecLeCompte(
+        { utilisateur: 'ghp_jetonAlaPlaceDuNom0123456789', motDePasse: '' },
+        async () => {
+          const clone = path.join(racine, 'clones', 'nom-seul');
+          await cloneRepo(clone, serveur.urlAvecCompte('prive', ''));
+          expect(origineDe(path.join(clone, '.git'))).toBe(serveur.url('prive'));
+          expect(fichiersAvec(clone, serveur.compte.utilisateur)).toEqual([]);
+          expect(confieAuMembre()).toBe('');
+        },
+      ),
+  );
+
+  it(
+    'le même jeton-nom REFUSÉ : l’échec le dit, et toujours aucun appel aux assistants du membre',
+    PLAFOND,
+    async () => {
+      // Mesuré avant le correctif : traité comme un nom, le jeton partait en
+      // `username=` à chaque assistant du membre dès que le dépôt le refusait.
+      const jetonNom = 'ghp_jetonRevoqueAlaPlaceDuNom0123456';
+      const url = serveur.url('prive').replace('http://', `http://${jetonNom}@`);
+      const echec = await echecDe(cloneRepo(path.join(racine, 'clones', 'nom-refuse'), url));
+      expect(echec).toBeInstanceOf(EchecGitHote);
+      expect((echec as Error).message).toMatch(/le dépôt refuse le jeton de l’URL du projet/);
+      expect((echec as Error).message).not.toContain(jetonNom);
+      expect(confieAuMembre(), 'les assistants du membre n’ont rien reçu').toBe('');
+    },
+  );
 });
 
-// ─── 2. LE PUSH DE L'AGENT N'A RIEN POUR S'AUTHENTIFIER ──────────────────────
+// ─── 1 bis. NI DANS L'ARGV, PENDANT LE TRANSPORT ─────────────────────────────
+
+describe('pendant le clone et la poussée, aucun argv de la machine ne porte le jeton', () => {
+  /**
+   * Toute la table des processus, telle que n'importe quel compte de la
+   * machine la lit : `/proc/<pid>/cmdline` est en mode 444.
+   */
+  function argvDeLaMachine(): string[] {
+    return readdirSync('/proc')
+      .filter((p) => /^\d+$/.test(p))
+      .flatMap((p) => {
+        try {
+          return [readFileSync(`/proc/${p}/cmdline`, 'utf8').replaceAll('\0', ' ')];
+        } catch {
+          return []; // sorti entre la liste et la lecture
+        }
+      });
+  }
+
+  it.skipIf(process.platform !== 'linux')(
+    'lue À L’ARRIVÉE de chaque requête — clone, `ls-remote` et poussée de la livraison',
+    PLAFOND,
+    async () => {
+      const secret = serveur.compte.motDePasse;
+      // Chaque requête : le service demandé, l'argv du transport qui l'envoie,
+      // et ceux qui portent le secret. Le serveur ne répond qu'APRÈS : le git
+      // qui attend sa réponse, et son assistant de transport, sont vivants.
+      const vues: { service: string; transport: boolean; fuites: string[] }[] = [];
+      serveur.pendantRequete = (req) => {
+        const argv = argvDeLaMachine();
+        vues.push({
+          service: /git-(upload|receive)-pack/.exec(req.url ?? '')?.[0] ?? '?',
+          transport: argv.some(
+            (a) => a.includes('remote-http') && a.includes(serveur.url('prive')),
+          ),
+          fuites: argv.filter((a) => a.includes(secret)),
+        });
+      };
+      const repoDir = path.join(racine, 'merges', 'argv');
+      await cloneRepo(repoDir, serveur.urlAvecCompte('prive'));
+      const res = await runMerge({
+        repoDir,
+        diffs: [
+          {
+            taskId: 'ta',
+            diff:
+              'diff --git a/argv.md b/argv.md\nnew file mode 100644\n--- /dev/null\n+++ b/argv.md\n' +
+              '@@ -0,0 +1 @@\n+livré\n',
+          },
+        ],
+        livraison: {
+          demande: {
+            projectId: 'argv',
+            pousser: true,
+            provenance: [{ taskId: 'ta', resultId: 1, decision: 'accepted' }],
+          },
+          depotProjet: serveur.urlAvecCompte('prive'),
+          depotLocal: path.join(racine, 'livraisons', 'argv.git'),
+          pousseeConsentie: true,
+        },
+      });
+      expect(res.livraison, res.logs).toMatchObject({ etat: 'commitee', poussee: 'poussee' });
+      // La sonde a VU le transport, en lecture comme en poussée : elle ne
+      // passe pas pour vide parce qu'elle aurait regardé trop tôt.
+      expect(vues.some((v) => v.service === 'git-upload-pack' && v.transport)).toBe(true);
+      expect(vues.some((v) => v.service === 'git-receive-pack' && v.transport)).toBe(true);
+      expect(vues.flatMap((v) => v.fuites)).toEqual([]);
+    },
+  );
+});
+
+// ─── 2. LE PUSH DE L'AGENT NE TROUVE RIEN DE CE QUE LA RUCHE A REÇU ──────────
 
 describe('un `git push` de l’agent échoue faute d’identifiants', () => {
   it(
-    'lancé depuis l’espace de travail, avec l’environnement de l’agent ET le HOME du membre : refusé, rien n’arrive',
+    'lancé depuis l’espace de travail, avec l’environnement de l’agent ET le HOME du membre (rien n’y a été déposé) : refusé, rien n’arrive',
     PLAFOND,
     async () => {
       const ws = await prepareWorkspace(travail, tache('agent'), serveur.urlAvecCompte('prive'));
       const envAgent = {
         ...ws.env,
         // Au niveau `processus`, l'agent atteint le HOME du membre : on le lui
-        // donne, assistant `store` compris.
+        // donne, assistants compris. Ce banc tient pour un HOME où aucune
+        // version précédente de Hive n'a déposé le jeton — sinon `store` le
+        // rendrait, et c'est `hive doctor` qui le signale.
         HOME: membre,
         USERPROFILE: membre,
         // Sans terminal git échouerait déjà ; ces deux lignes l'empêchent
@@ -300,6 +482,11 @@ describe('un `git push` de l’agent échoue faute d’identifiants', () => {
         /terminal prompts disabled|could not read Username|Authentication failed/,
       );
       expect(referencesDuServeur()).not.toContain('refs/heads/vol');
+      // Le témoin des « aucun appel » de ce fichier : SON git, à elle, a bien
+      // interrogé les assistants du membre — qui n'avaient rien à lui donner.
+      // Sans cette ligne, un journaliste muet sur une plateforme ferait passer
+      // tous les autres bancs pour de bonnes raisons qui n'en sont pas.
+      expect(confieAuMembre()).toMatch(/appel-get/);
     },
   );
 });
@@ -334,7 +521,7 @@ describe('la livraison locale pousse avec le compte du projet — et ne le dépo
   }
 
   it(
-    'la branche de mission arrive sur le dépôt ; ni le dépôt durable ni l’assistant du membre ne gardent le jeton',
+    'la branche de mission arrive sur le dépôt ; ni le dépôt durable ni les assistants du membre ne gardent le jeton',
     PLAFOND,
     async () => {
       const { res, depotLocal } = await livrer('pousse', serveur.urlAvecCompte('prive'));
@@ -351,7 +538,7 @@ describe('la livraison locale pousse avec le compte du projet — et ne le dépo
   );
 
   it(
-    'un jeton de LECTURE : la poussée échoue et le motif le dit — sans le jeton',
+    'un jeton de LECTURE : la poussée échoue, le motif dit quoi changer — sans le jeton',
     PLAFOND,
     async () => {
       serveur.lectureSeule = true;
@@ -360,7 +547,9 @@ describe('la livraison locale pousse avec le compte du projet — et ne le dépo
         expect(res.livraison, res.logs).toMatchObject({ etat: 'commitee', poussee: 'echec' });
         if (res.livraison?.etat !== 'commitee') throw new Error(res.logs);
         expect(res.livraison.motif).toMatch(/403/);
+        expect(res.livraison.motif).toMatch(/le dépôt refuse le jeton de l’URL du projet/);
         expect(JSON.stringify(res)).not.toContain(serveur.compte.motDePasse);
+        expect(confieAuMembre()).toBe('');
       } finally {
         serveur.lectureSeule = false;
       }
@@ -368,24 +557,28 @@ describe('la livraison locale pousse avec le compte du projet — et ne le dépo
   );
 
   it(
-    'un jeton RÉVOQUÉ après le clone : rien n’est commité, et le motif ne cite pas le jeton',
+    'un jeton RÉVOQUÉ après le clone : rien n’est commité, le motif dit quoi changer — sans le jeton',
     PLAFOND,
     async () => {
       const ancien = serveur.urlAvecCompte('prive');
       const clone = path.join(racine, 'merges', 'revoque');
       await cloneRepo(clone, ancien);
       const motDePasse = serveur.compte.motDePasse;
-      serveur.compte = { ...serveur.compte, motDePasse: `${motDePasse}-renouvele` };
-      try {
-        const { res } = await livrer('revoque', ancien, clone);
-        expect(res.livraison).toMatchObject({
-          etat: 'non_commitee',
-          motif: expect.stringMatching(/Authentication failed/),
-        });
-        expect(JSON.stringify(res)).not.toContain(motDePasse);
-      } finally {
-        serveur.compte = { ...serveur.compte, motDePasse };
-      }
+      const { res } = await avecLeCompte(
+        { ...serveur.compte, motDePasse: `${motDePasse}-renouvele` },
+        () => livrer('revoque', ancien, clone),
+      );
+      expect(res.livraison).toMatchObject({
+        etat: 'non_commitee',
+        motif: expect.stringMatching(
+          /le dépôt refuse le jeton de l’URL du projet.*recréez le projet/,
+        ),
+      });
+      expect(JSON.stringify(res)).not.toContain(motDePasse);
+      expect(
+        confieAuMembre(),
+        'un refus n’efface rien chez le membre, ni ne lui demande rien',
+      ).toBe('');
     },
   );
 });
@@ -393,13 +586,52 @@ describe('la livraison locale pousse avec le compte du projet — et ne le dépo
 // ─── 4. LA PORTE GIT ─────────────────────────────────────────────────────────
 
 describe('la porte git — aucun identifiant n’entre, aucun ne ressort', () => {
-  it('refuse une adresse avec identifiants en argument, avant de lancer git, sans la citer', async () => {
+  it.each([
+    ['une URL HTTP(S) avec compte', (s: ServeurGit) => ['ls-remote', s.urlAvecCompte('prive')]],
+    [
+      'une URL HTTP(S) au jeton-nom',
+      (s: ServeurGit) => ['ls-remote', s.urlAvecCompte('prive', '')],
+    ],
+    [
+      'une URL SSH avec mot de passe',
+      () => ['ls-remote', 'ssh://moi:jeton-ssh@hote.invalid/d.git'],
+    ],
+    [
+      'un en-tête `http.extraHeader` en `-c`',
+      () => ['-c', 'http.extraHeader=Authorization: Basic am9objpqZXRvbg==', 'ls-remote', 'x'],
+    ],
+    [
+      'un en-tête `http.<url>.extraheader` en `git config`',
+      () => ['config', 'http.https://hote.invalid/.extraheader', 'Authorization: Bearer jeton-xh'],
+    ],
+  ])('refuse %s en argument, avant de lancer git, sans le citer', async (_cas, args) => {
     const avant = serveur.requetes;
-    const echec = await echecDe(gitHote(['ls-remote', serveur.urlAvecCompte('prive')], racine));
+    const argv = args(serveur);
+    const echec = await echecDe(gitHote(argv, racine));
     expect(echec).toBeInstanceOf(EchecGitHote);
-    expect((echec as Error).message).toMatch(/refusé — une adresse avec identifiants/);
-    expect((echec as Error).message).not.toContain(serveur.compte.motDePasse);
+    expect((echec as Error).message).toMatch(/refusé — des identifiants en argument/);
+    for (const secret of [serveur.compte.motDePasse, 'jeton-ssh', 'am9objpqZXRvbg', 'jeton-xh']) {
+      expect((echec as Error).message).not.toContain(secret);
+    }
     expect(serveur.requetes).toBe(avant);
+  });
+
+  it('ne refuse que ce qui OUVRE un dépôt : un compte SSH, une adresse nue, une référence passent', () => {
+    // `ssh://git@…` et `git@hôte:` nomment un compte : c'est la clé du membre
+    // qui ouvre. Un `@` dans le CHEMIN n'est pas un `userinfo`.
+    for (const arg of [
+      'ssh://git@hote:22/d.git',
+      'git@github.com:o/r.git',
+      'https://hote/chemin@v2/d.git',
+      'https://hote:8443/d.git',
+      'file:///tmp/depot',
+      'HEAD:refs/heads/vol',
+      '+refs/hive/livraison:refs/hive/livraison',
+      '--branch=hive/mission-x-1',
+      'http.lowSpeedTime=120',
+    ]) {
+      expect(porteDesIdentifiants(arg), arg).toBe(false);
+    }
   });
 
   it(
@@ -427,15 +659,66 @@ describe('la porte git — aucun identifiant n’entre, aucun ne ressort', () =>
       expect((echec as Error).message).not.toContain('jeton-du-serveur');
     },
   );
+
+  it(
+    'masque le jeton NU qu’un serveur renvoie — mot pour mot, hors de toute adresse',
+    PLAFOND,
+    async () => {
+      // Un crochet du dépôt servi qui recopie le compte qu'il a reçu : le
+      // lavage des adresses ne le voit pas, il n'est dans aucune URL.
+      const bavard = path.join(projets, 'bavard.git');
+      git(racine, 'clone', '--bare', '-q', path.join(projets, 'prive.git'), bavard);
+      const crochet = path.join(bavard, 'hooks', 'pre-receive');
+      writeFileSync(
+        crochet,
+        `#!/bin/sh\necho "refusé pour le compte ${serveur.compte.motDePasse}" >&2\nexit 1\n`,
+      );
+      chmodSync(crochet, 0o755);
+      const clone = path.join(racine, 'clones', 'bavard');
+      const { nue, acces } = depotDistant(serveur.urlAvecCompte('bavard'));
+      await cloneRepo(clone, serveur.urlAvecCompte('bavard'));
+      const depot = { gitDir: path.join(clone, '.git'), workTree: clone };
+      const echec = await echecDe(gitHote(['push', nue, 'HEAD:refs/heads/x'], depot, { acces }));
+      expect(echec).toBeInstanceOf(EchecGitHote);
+      expect((echec as Error).message).toContain('refusé pour le compte ***');
+      expect((echec as Error).message).not.toContain(serveur.compte.motDePasse);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'un git antérieur à 2.31 IGNORERAIT l’accès : refusé, en le disant, avant toute requête',
+    PLAFOND,
+    async () => {
+      // Sous 2.31, `GIT_CONFIG_COUNT` n'est pas lu : git clonerait l'adresse
+      // nue avec les assistants du membre, sous SON identité, sans un mot. Un
+      // faux git en tête du PATH le joue — s'il était lancé, son « clone »
+      // réussirait sans rien faire, et ce banc rougirait.
+      const vieux = path.join(racine, 'vieux-git');
+      mkdirSync(vieux, { recursive: true });
+      writeFileSync(path.join(vieux, 'git'), '#!/bin/sh\necho "git version 2.30.9"\n');
+      chmodSync(path.join(vieux, 'git'), 0o755);
+      vi.stubEnv('PATH', `${vieux}${path.delimiter}${process.env.PATH ?? ''}`);
+      const avant = serveur.requetes;
+      const echec = await echecDe(
+        cloneRepo(path.join(racine, 'clones', 'vieux-git'), serveur.urlAvecCompte('prive')),
+      );
+      expect(echec).toBeInstanceOf(EchecGitHote);
+      expect((echec as Error).message).toMatch(/git 2\.30\.9 ignore l’accès/);
+      expect((echec as Error).message).toMatch(/mettez git à jour/);
+      expect((echec as Error).message).not.toContain(serveur.compte.motDePasse);
+      expect(serveur.requetes).toBe(avant);
+    },
+  );
 });
 
 // ─── 5. LE MIROIR DE LA REINE ────────────────────────────────────────────────
 
 describe('le miroir de la Reine — la même porte, le même invariant', () => {
-  const miroirNeuf = (): Miroir => new Miroir(mkdtempSync(path.join(racine, 'rayons-')));
+  const miroirNeuf = (journal?: (projet: string, message: string) => void): Miroir =>
+    new Miroir(mkdtempSync(path.join(racine, 'rayons-')), journal);
 
   it(
-    'clone l’adresse nue : ni sa configuration ni l’assistant de l’hôte ne gardent le jeton',
+    'clone l’adresse nue : ni sa configuration ni les assistants de l’hôte ne gardent le jeton',
     PLAFOND,
     async () => {
       const miroir = miroirNeuf();
@@ -459,35 +742,47 @@ describe('le miroir de la Reine — la même porte, le même invariant', () => {
       git(copie, 'add', '--all');
       git(copie, 'commit', '-q', '-m', 'nouveau');
       git(copie, 'push', '-q', path.join(projets, 'prive.git'), 'main');
-      const motDePasse = serveur.compte.motDePasse;
-      serveur.compte = { ...serveur.compte, motDePasse: `${motDePasse}-neuf` };
-      try {
-        await miroir.rafraichir(
-          'p',
-          serveur.urlAvecCompte('prive'),
-          t0 + 10 * FENETRE_RAFRAICHISSEMENT_MS,
-        );
-        expect((await miroir.lire('p', 'NOUVEAU.md')).contenu).toBe('après le renouvellement\n');
-      } finally {
-        serveur.compte = { ...serveur.compte, motDePasse };
-      }
+      await avecLeCompte(
+        { ...serveur.compte, motDePasse: `${serveur.compte.motDePasse}-neuf` },
+        async () => {
+          await miroir.rafraichir(
+            'p',
+            serveur.urlAvecCompte('prive'),
+            t0 + 10 * FENETRE_RAFRAICHISSEMENT_MS,
+          );
+          expect((await miroir.lire('p', 'NOUVEAU.md')).contenu).toBe('après le renouvellement\n');
+        },
+      );
     },
   );
 
   it(
-    'un miroir d’avant, dont la configuration porte le jeton, est refait — et le jeton quitte le disque',
+    'un miroir d’avant, dont la configuration porte le jeton, est réparé SUR PLACE — même quand l’amont le refuse — et c’est journalisé',
     PLAFOND,
     async () => {
-      const miroir = miroirNeuf();
+      const journal: string[] = [];
+      const miroir = miroirNeuf((projet, message) => journal.push(`${projet} : ${message}`));
       const t0 = Date.now();
       const url = serveur.urlAvecCompte('prive');
+      const motDePasse = serveur.compte.motDePasse;
       await miroir.rafraichir('p', url, t0);
       // Ce qu'écrivait la version d'avant : l'URL authentifiée en `origin`.
       const config = path.join(miroir.dossier('p'), '.git', 'config');
       execFileSync('git', ['config', '--file', config, 'remote.origin.url', url]);
-      await miroir.rafraichir('p', url, t0 + 10 * FENETRE_RAFRAICHISSEMENT_MS);
-      expect(fichiersAvec(miroir.dossier('p'), serveur.compte.motDePasse)).toEqual([]);
+      expect(fichiersAvec(miroir.dossier('p'), motDePasse)).toEqual([path.join('.git', 'config')]);
+      // L'amont ne l'accepte plus (jeton révoqué) : un reclone échouerait, et
+      // laissait le jeton sur le disque à chaque essai. La réparation, elle,
+      // ne lui demande rien.
+      await avecLeCompte({ ...serveur.compte, motDePasse: `${motDePasse}-revoque` }, async () => {
+        await expect(
+          miroir.rafraichir('p', url, t0 + 10 * FENETRE_RAFRAICHISSEMENT_MS),
+        ).rejects.toThrow(/le dépôt refuse le jeton/);
+      });
+      expect(fichiersAvec(miroir.dossier('p'), motDePasse)).toEqual([]);
+      expect(origineDe(path.join(miroir.dossier('p'), '.git'))).toBe(serveur.url('prive'));
+      // La copie d'hier est toujours là pour le Rayon : réparée, pas refaite.
       expect((await miroir.lire('p', 'LISEZMOI.md')).contenu).toBe('# Privé\n');
+      expect(journal).toEqual([expect.stringMatching(/^p : identifiants retirés/)]);
     },
   );
 });

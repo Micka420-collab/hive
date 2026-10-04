@@ -228,12 +228,16 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
  * ─── LE CLONE NE PORTE AUCUN IDENTIFIANT ─────────────────────────────────────
  *
  * C'est la seule porte de clone du nœud — tâche, reprise d'une pull request,
- * merge, chantier. Git y clone l'adresse NUE ; les identifiants qu'écrivait
- * l'URL du hub voyagent dans l'environnement de CE git (`depotDistant`). Le
+ * merge, chantier. Git y clone l'adresse NUE ; le compte qu'écrivait l'URL du
+ * hub voyage dans l'environnement de CE git (`depotDistant`). Le
  * `.git/config` de la tâche — que l'agent lit, et que le registre recopie —
- * n'a donc plus de jeton à donner, et un `git push` lancé depuis l'espace de
- * travail n'a rien pour s'authentifier : l'enceinte est structurelle, pas
- * une affaire de forme de commande (`politique-actions.ts`).
+ * n'a donc plus de jeton à donner, et la ruche n'en dépose plus chez le
+ * membre : un `git push` lancé depuis l'espace de travail ne trouve rien de
+ * ce que la ruche a reçu. L'enceinte est structurelle, pas une affaire de
+ * forme de commande (`politique-actions.ts`) — avec sa limite, dite : au
+ * niveau `processus`, l'agent atteint le HOME du membre, donc ses propres
+ * identifiants git, et tout jeton qu'une version précédente de Hive y avait
+ * déposé (`hive doctor` le cherche ; il faut le faire tourner).
  *
  * ─── BORNÉ, PARCE QUE LE HUB COMPTE DESSUS ─────────────────────────────────
  *

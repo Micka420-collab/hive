@@ -383,22 +383,36 @@ describe('LE MIROIR NE PEUT PAS ATTENDRE INDÉFINIMENT DES IDENTIFIANTS', () => 
     expect(envGitHote().GCM_INTERACTIVE).toBe('Never');
   });
 
-  it('AUCUN assistant d’identifiants n’est CONFIGURÉ — on coupe la source, on ne la remplace pas', () => {
+  it('AUCUN assistant d’identifiants pour faire taire l’invite — seulement celui du compte d’un projet, fermé', () => {
     // Un assistant peut désigner n'importe quel binaire : le jour où
     // quelqu'un en configurerait un pour faire taire l'invite, ce test le dirait.
     //
-    // UNE mention est permise, et elle ne désigne rien : la liste VIDÉE
-    // (`credential.helper` = ''), quand une adresse apporte le mot de passe
-    // du projet — il ne doit pas finir chez l'assistant du membre
-    // (`depotDistant`, tests/clone-sans-identifiants.test.ts). Toute autre
-    // forme, et toute autre valeur, rougit ici.
-    expect(porteNue.replaceAll(`['credential.helper', '']`, '')).not.toMatch(/credential\.helper/);
-    expect(miroirNu).not.toMatch(/credential\.helper/);
-    const { acces } = depotDistant('https://moi:jeton@hote.exemple/depot.git');
-    const assistants = Object.keys(acces)
-      .filter((cle) => /^GIT_CONFIG_KEY_\d+$/.test(cle) && acces[cle] === 'credential.helper')
-      .map((cle) => acces[cle.replace('KEY', 'VALUE')]);
-    expect(assistants).toEqual(['']);
+    // DEUX mentions sont permises, et seulement quand l'URL d'un projet porte
+    // son compte (`depotDistant`, tests/clone-sans-identifiants.test.ts) : la
+    // liste VIDÉE — le jeton ne doit ni finir chez l'assistant du membre, ni
+    // lui faire poser de question —, puis l'assistant de la ruche, limité à
+    // l'hôte du projet. Celui-là ne désigne aucun binaire et ne peut pas
+    // attendre : deux commandes internes du shell (`test`, `printf`) qui
+    // rendent deux variables de l'environnement. Toute autre forme, et toute
+    // autre valeur, rougit ici.
+    expect(
+      porteNue
+        .replaceAll(`['credential.helper', '']`, '')
+        .replaceAll('[`credential.${hote}.helper`, ASSISTANT_DU_DEPOT]', ''),
+    ).not.toMatch(/credential\./);
+    expect(miroirNu).not.toMatch(/credential\./);
+    const assistants = (acces: Readonly<Record<string, string>>): [string, string][] =>
+      Object.keys(acces)
+        .filter((cle) => /^GIT_CONFIG_KEY_\d+$/.test(cle) && /^credential\./.test(acces[cle] ?? ''))
+        .map((cle) => [acces[cle] ?? '', acces[cle.replace('KEY', 'VALUE')] ?? '']);
+    expect(assistants(depotDistant('https://hote.exemple/depot.git').acces)).toEqual([]);
+    expect(assistants(depotDistant('https://moi:jeton@hote.exemple/depot.git').acces)).toEqual([
+      ['credential.helper', ''],
+      [
+        'credential.https://hote.exemple.helper',
+        `!f() { test "$1" != get || printf 'username=%s\\npassword=%s\\n' "$HIVE_DEPOT_NOM" "$HIVE_DEPOT_SECRET"; }; f`,
+      ],
+    ]);
   });
 });
 
