@@ -88,7 +88,7 @@ const CALCUL = {
  */
 async function depot(fichiers: Record<string, string>, preparer?: (dir: string) => void) {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-g11b-'));
-  dossiers.push(dir, `${dir}.base`, `${dir}.base.tmp`, `${dir}.tmp`);
+  dossiers.push(dir, ...['.tmp', '.base', '.base.tmp', '.tete', '.tete.tmp'].map((s) => dir + s));
   for (const [nom, contenu] of Object.entries(fichiers)) {
     mkdirSync(path.dirname(path.join(dir, nom)), { recursive: true });
     writeFileSync(path.join(dir, nom), contenu);
