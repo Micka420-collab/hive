@@ -493,7 +493,7 @@ async function comparerALaBaseRejouee(ctx: {
     } else {
       etape(
         `${lecture.echecs.size} test(s) en échec — comparaison à la base ${sha}, rejouée à part : ` +
-          `exécution doublée, jusqu'à ${enClair(DELAI_PREPARATION_MS)} d'installation puis ` +
+          `exécution doublée, jusqu’à ${enClair(DELAI_PREPARATION_MS)} d’installation puis ` +
           `${enClair(delaiMs)} par commande (build, tests)…`,
       );
       const premiere = await base.executer();
@@ -505,7 +505,7 @@ async function comparerALaBaseRejouee(ctx: {
     if (comparaison.regressions.length > 0 && !opts.signal?.aborted) {
       etape(
         `${comparaison.regressions.length} test(s) rouge(s) à la tête et pas à la base — ` +
-          `seconde exécution, pour écarter l'instabilité (jusqu'à ${enClair(delaiMs)})…`,
+          `seconde exécution, pour écarter l’instabilité (jusqu’à ${enClair(delaiMs)})…`,
       );
       // Illisible, la seconde exécution n'apprend rien : la première tient.
       const seconde = observer(await ctx.executer(ctx.argv, opts.cwd, delaiMs));
@@ -517,7 +517,7 @@ async function comparerALaBaseRejouee(ctx: {
       if (!memorisee) {
         etape(
           `${comparaison.regressions.length} régression(s) possible(s) — seconde exécution de la ` +
-            `base ${sha}, pour écarter l'instabilité (jusqu'à ${enClair(delaiMs)})…`,
+            `base ${sha}, pour écarter l’instabilité (jusqu’à ${enClair(delaiMs)})…`,
         );
       }
       const seconde = memorisee ?? (await base.executer());
