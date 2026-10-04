@@ -1910,6 +1910,13 @@ export class HiveNodeClient {
         workspace.depot && workspace.baseSha
           ? { depot: workspace.depot, baseSha: workspace.baseSha }
           : null,
+        // Lues par la porte VÉRIFIÉE de la base (#556) : une base qu'elle refuse
+        // ne pré-autorise rien (fermé), et la raison part au journal de la tâche.
+        (motif) => {
+          const ligne = `politique d'actions : aucune règle compilée — ${motif}`;
+          progres({ log: ligne });
+          this.log(`🛡 ${task.title} : ${ligne}`);
+        },
       );
       if (permissionsAllow.length > 0) {
         this.send({

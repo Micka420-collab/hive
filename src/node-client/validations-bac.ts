@@ -298,32 +298,47 @@ function manifeste(texte: string | null): unknown {
 /**
  * Les règles d'autorisation compilées depuis le commit de BASE du clone —
  * `reglesAutorisationDepot` (pur) alimenté par les trois mêmes gestes impurs
- * que `validerProduction` : le `package.json` de la base (`cat-file blob`,
- * jamais l'arbre que l'agent réécrit), et la présence d'un lockfile À LA BASE
- * (même raison : un lockfile posé par l'agent n'autorise pas son installation).
+ * que `validerProduction` : le `package.json` de la base, lu par la porte
+ * VÉRIFIÉE (`fichierDeBase` → `base-verifiee.ts`, jamais l'arbre que l'agent
+ * réécrit), et la présence d'un lockfile À LA BASE (même raison : un lockfile
+ * posé par l'agent n'autorise pas son installation).
  *
  * Calculées AVANT l'agent (G12) : elles entrent dans le `--settings` imposé de
  * Claude Code pour que le `npm test` déclaré tourne sans rien demander. Ne
- * lève jamais — sans dépôt ou sans manifeste lisible, aucune règle.
+ * lève jamais — sans dépôt ou sans manifeste lisible, aucune règle. Une base
+ * que la porte vérifiée refuse (un objet forgé, `BaseFalsifiee` ; ou git en
+ * panne pendant la vérification) n'en compile AUCUNE non plus — fermé : rien
+ * n'est pré-autorisé, chaque action passe par la décision — et `surRefus` le
+ * dit, une fois.
  */
 export async function reglesAutorisationDeBase(
   depot: { depot: DepotEpingle; baseSha: string } | null,
+  surRefus?: (motif: string) => void,
 ): Promise<string[]> {
   if (!depot) return [];
-  const base = manifeste(await fichierDeBase(depot.depot, depot.baseSha, 'package.json'));
-  if (base === null) return [];
-  const lockfiles = new Set<string>();
-  // Les lockfiles ne servent qu'à la règle d'installation : sans dépendances
-  // déclarées, aucune sonde git n'est payée.
-  if (declareDesDependances(base)) {
-    for (const { fichier } of PREPARATIONS_PAR_LOCKFILE) {
-      if ((await fichierDeBase(depot.depot, depot.baseSha, fichier)) !== null) {
-        lockfiles.add(fichier);
-        break;
+  try {
+    const base = manifeste(await fichierDeBase(depot.depot, depot.baseSha, 'package.json'));
+    if (base === null) return [];
+    const lockfiles = new Set<string>();
+    // Les lockfiles ne servent qu'à la règle d'installation : sans dépendances
+    // déclarées, aucune sonde git n'est payée.
+    if (declareDesDependances(base)) {
+      for (const { fichier } of PREPARATIONS_PAR_LOCKFILE) {
+        if ((await fichierDeBase(depot.depot, depot.baseSha, fichier)) !== null) {
+          lockfiles.add(fichier);
+          break;
+        }
       }
     }
+    return reglesAutorisationDepot(base, (fichier) => lockfiles.has(fichier));
+  } catch (err) {
+    surRefus?.(
+      err instanceof BaseFalsifiee
+        ? err.message
+        : `base illisible (${err instanceof Error ? err.message : String(err)})`,
+    );
+    return [];
   }
-  return reglesAutorisationDepot(base, (fichier) => lockfiles.has(fichier));
 }
 
 /**
