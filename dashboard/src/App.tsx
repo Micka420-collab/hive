@@ -1120,8 +1120,20 @@ export function App() {
               }
             >
               {/* Avant le premier instantané, AUCUNE vue : chacune dirait son
-                  état vide sur un instantané qui n'est pas encore arrivé. */}
-              {liaison.affichage !== 'vue' && (
+                  état vide sur un instantané qui n'est pas encore arrivé.
+                  Sauf Paramètres : il répare ce qui empêche cet instantané
+                  d'arriver (le jeton — sur téléphone, son SEUL champ). Derrière
+                  la porte, « Saisir le jeton dans Paramètres » menait à la
+                  panne « jeton refusé » elle-même. */}
+              {route.view === 'parametres' && (
+                <Parametres
+                  {...viewProps}
+                  jeton={jeton}
+                  onCompte={changerDeCompte}
+                  instantaneRecu={instantaneRecu}
+                />
+              )}
+              {liaison.affichage !== 'vue' && route.view !== 'parametres' && (
                 <AvantPremierEtat liaison={liaison} onReessayer={reconnecter} />
               )}
               {liaison.affichage === 'vue' && (
@@ -1141,9 +1153,6 @@ export function App() {
                   {route.view === 'chantiers' && <Chantiers {...viewProps} />}
                   {route.view === 'chambre' && <Chambre {...viewProps} />}
                   {route.view === 'warroom' && <WarRoom {...viewProps} />}
-                  {route.view === 'parametres' && (
-                    <Parametres {...viewProps} jeton={jeton} onCompte={changerDeCompte} />
-                  )}
                 </>
               )}
             </Suspense>

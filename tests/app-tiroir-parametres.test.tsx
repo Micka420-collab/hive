@@ -82,6 +82,14 @@ async function monter(): Promise<HTMLElement> {
   return conteneur;
 }
 
+/**
+ * Le premier instantané, vide, comme le vrai flux le livre à la connexion.
+ * Sans lui, la coquille ne rend aucune vue — sauf Paramètres (Liaison.tsx).
+ */
+async function premierEtat(): Promise<void> {
+  await act(async () => poignees?.onState({ projects: [], nodes: [], tasks: [], tasksTotal: 0 }));
+}
+
 async function aller(hash: string): Promise<void> {
   await act(async () => {
     location.hash = hash;
@@ -310,11 +318,16 @@ describe('l’écran Paramètres — les réglages de la personne, distincts de 
   });
 
   it('UN JETON REFUSÉ SE DIT SUR LE CHAMP — et le bandeau mène aux Paramètres', async () => {
+    // Refusé AVANT tout instantané — le cas ordinaire : un jeton refusé n'en
+    // reçoit jamais. La panne qui tient la place des vues le renvoie aussi
+    // aux Paramètres, seul champ du jeton sur téléphone.
     const dom = await monter();
     await act(async () => poignees?.onStatus(false, { authError: true }));
+    expect(dom.querySelector('.mc-avant-etat')?.textContent).toContain('Paramètres');
     await cliquer(boutonTexte(dom, 'Saisir le jeton dans Paramètres'));
     await aller(location.hash);
     expect(ecran()).toBe('parametres');
+    expect(dom.querySelector('.mc-avant-etat'), 'la panne ne couvre pas Paramètres').toBeNull();
     const champ = dom.querySelector('.pa-view input[type="password"]') as HTMLInputElement;
     expect(champ.getAttribute('aria-invalid')).toBe('true');
     const erreur = document.getElementById(`${champ.id}-erreur`);
@@ -379,8 +392,26 @@ describe('l’écran Paramètres — les réglages de la personne, distincts de 
     await cliquer(dom.querySelector('input[name="pa-theme"][value="systeme"]'));
   });
 
+  it('AVANT LE PREMIER ÉTAT, PARAMÈTRES S’OUVRE — et « Premiers pas » n’invente pas « aucun projet »', async () => {
+    // Une Reine qui ne répond pas encore (ou qui refuse le jeton) : les vues
+    // attendent leur premier instantané, Paramètres non — on y répare le
+    // jeton, la langue, le compte. Mais rien n'y dit « aucun projet ».
+    const dom = await monter();
+    await aller('#/parametres');
+    expect(dom.querySelector('.pa-view input[type="password"]')).toBeTruthy();
+    expect(dom.querySelector('.mc-avant-etat')).toBeNull();
+    const premiersPas = dom.querySelector('[aria-labelledby="pa-premiers-pas"]')?.textContent;
+    expect(premiersPas).toContain('aucun état');
+    expect(premiersPas).not.toContain('Aucun projet');
+    expect(boutonTexte(dom, 'Démarrer un projet')).toBeUndefined();
+    // Le premier instantané arrive : la carte dit enfin ce qu'elle sait.
+    await premierEtat();
+    expect(boutonTexte(dom, 'Démarrer un projet')).toBeTruthy();
+  });
+
   it('SANS PROJET, « Premiers pas » propose d’en démarrer un — le seul départ qui existe', async () => {
     const dom = await monter();
+    await premierEtat();
     await aller('#/parametres');
     expect(boutonTexte(dom, 'Réafficher le guide du premier cycle')).toBeUndefined();
     await cliquer(boutonTexte(dom, 'Démarrer un projet'));
@@ -406,6 +437,7 @@ describe('l’écran Paramètres — les réglages de la personne, distincts de 
 
   it('LE CONNECTEUR GITHUB MÈNE AUX PROJETS — où le connecteur est rendu', async () => {
     const dom = await monter();
+    await premierEtat();
     await aller('#/parametres');
     await cliquer(boutonTexte(dom, 'Ouvrir le connecteur GitHub'));
     await aller(location.hash);

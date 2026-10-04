@@ -158,8 +158,8 @@ export function AvantPremierEtat({
       ? {
           titre: t('La ruche refuse ce jeton.', 'The hive rejects this token.'),
           detail: t(
-            'Rien n’est affiché tant qu’elle ne l’accepte pas : collez HIVE_TOKEN dans le champ « Jeton » en haut à droite.',
-            'Nothing is shown until it accepts it: paste HIVE_TOKEN into the Token field at the top right.',
+            'Rien n’est affiché tant qu’elle ne l’accepte pas : collez HIVE_TOKEN dans le champ « Jeton » (barre du haut, ou Paramètres).',
+            'Nothing is shown until it accepts it: paste HIVE_TOKEN into the Token field (top bar, or Settings).',
           ),
         }
       : liaison.cause === 'reseau'

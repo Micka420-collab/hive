@@ -57,6 +57,12 @@ export interface ProprietesParametres extends ViewProps {
   jeton: JetonCoquille;
   /** Rapporte une déconnexion à la coquille (la barre cesse d'afficher le nom). */
   onCompte: (user: AuthUser | null) => void;
+  /**
+   * Un premier instantané est arrivé. Paramètres s'affiche AVANT lui (c'est
+   * là qu'on répare un jeton refusé) : jusque-là, « aucun projet » serait une
+   * absence inventée (Liaison.tsx).
+   */
+  instantaneRecu: boolean;
 }
 
 function dateLisible(ms: number, lang: UiLang): string {
@@ -73,6 +79,7 @@ export default function Parametres({
   onNewProject,
   jeton,
   onCompte,
+  instantaneRecu,
 }: ProprietesParametres) {
   const t = useT();
   const lang = useLang();
@@ -254,7 +261,14 @@ export default function Parametres({
 
       <section className="card pa-carte" aria-labelledby="pa-premiers-pas">
         <h2 id="pa-premiers-pas">{t('Premiers pas', 'Getting started')}</h2>
-        {snapshot.projects.length > 0 ? (
+        {!instantaneRecu ? (
+          <p className="pa-note">
+            {t(
+              'La ruche n’a encore envoyé aucun état : ses projets se liront ici dès qu’elle répond.',
+              'The hive has not sent any state yet: its projects show here as soon as it answers.',
+            )}
+          </p>
+        ) : snapshot.projects.length > 0 ? (
           <>
             <p className="pa-note">
               {t(
