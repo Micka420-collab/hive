@@ -246,6 +246,30 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['tests/assignation-illisible.test.ts', 'securite'],
     ['tests/porte-securite-faux-outils.test.ts', 'securite'],
     ['tests/porte-securite-reseau.test.ts', 'securite'],
+    // Train 8 — la série Mission Control. Le pilote de Sandbox Live (#526) et
+    // l'arbre de processus d'un agent : le délai dur et le budget délégué
+    // (des horloges qu'une pause suspend), l'arrêt qui réveille un agent en
+    // pause, les gestes lancés hors du bac sur l'hôte. L'état en direct,
+    // validé et borné comme un message. La fiche Worker (#525), qui caviarde
+    // des journaux d'échec avant de les couper. Qui écrit les réglages de la
+    // ruche et lit le bilan de sa machine (#525). Et les bancs qui tiennent
+    // ces gardes — la sortie en direct caviardée bloc par bloc (#523), la
+    // couverture du bac où se nomme chaque lancement hors bac.
+    ['src/node-client/pilote-execution.ts', 'permissions'],
+    ['src/node-client/mesure-processus.ts', 'permissions'],
+    ['src/shared/minuteur-suspendable.ts', 'permissions'],
+    ['src/shared/arbre-processus.ts', 'permissions'],
+    ['src/shared/bac-direct.ts', 'securite'],
+    ['src/orchestrator/fiche-worker.ts', 'securite'],
+    ['src/shared/configuration-initiale.ts', 'permissions'],
+    ['tests/pilote-execution.test.ts', 'securite'],
+    ['tests/arbre-processus.test.ts', 'securite'],
+    ['tests/bac-direct.test.ts', 'securite'],
+    ['tests/bac-direct-ruche.test.ts', 'securite'],
+    ['tests/fiche-worker.test.ts', 'securite'],
+    ['tests/configuration-initiale.test.ts', 'securite'],
+    ['tests/sortie-directe-ruche.test.ts', 'securite'],
+    ['tests/isolement-couverture.test.ts', 'securite'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');

@@ -181,8 +181,22 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   },
   {
     categorie: 'securite',
-    motif: /^src\/shared\/protocol\.ts$/,
-    pourquoi: 'la validation des messages WebSocket entre la Reine et les nœuds',
+    motif: /^src\/shared\/(protocol|bac-direct)\.ts$/,
+    pourquoi:
+      'la validation des messages WebSocket entre la Reine et les nœuds — l’état en direct d’une exécution (Sandbox Live) compris, validé champ par champ et borné, de la commande caviardée au diff demandé',
+  },
+  {
+    categorie: 'securite',
+    motif: /^src\/orchestrator\/fiche-worker\.ts$/,
+    pourquoi:
+      'la fiche d’un Worker : les leçons qu’elle tire des journaux d’échec, caviardées AVANT d’être coupées — l’ordre inverse laisserait sortir le préfixe d’un secret vers chaque écran qui tient le jeton',
+  },
+  {
+    categorie: 'securite',
+    motif:
+      /^tests\/(pilote-execution|arbre-processus|bac-direct|bac-direct-ruche|fiche-worker|configuration-initiale|sortie-directe-ruche|isolement-couverture)\.test\.tsx?$/,
+    pourquoi:
+      'les bancs des gardes de la série Mission Control (train 8) : la pause qui suspend le délai dur et le budget, l’arrêt qui réveille un agent en pause, l’arbre de l’agent tué en entier, l’état en direct caviardé et jamais journalisé, la fiche Worker sans le jeton ni un secret, les réglages de la ruche réservés, la sortie en direct caviardée bloc par bloc, et chaque lancement hors bac nommé avec sa raison — les affaiblir retire le garde-fou',
   },
   {
     categorie: 'securite',
@@ -312,6 +326,19 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
     motif: /^src\/orchestrator\/delegation\.ts$|^src\/shared\/limites-delegation\.ts$/,
     pourquoi:
       'les bornes de la délégation : profondeur, enfants par parent et par racine, réservations cumulées de durée et de coût, et le plafond que chaque enfant reçoit dans la boucle de son agent — les relâcher laisse la ruche se démultiplier et dépenser au-delà de ce qu’un humain a réservé',
+  },
+  {
+    categorie: 'permissions',
+    motif:
+      /^src\/node-client\/(pilote-execution|mesure-processus)\.ts$|^src\/shared\/(minuteur-suspendable|arbre-processus)\.ts$/,
+    pourquoi:
+      'le pilote d’une exécution (Sandbox Live) et l’arbre de processus d’un agent : le délai dur et le budget d’un enfant délégué — des horloges qu’une pause suspend et que seule la reprise relance —, l’arrêt qui réveille toujours un agent en pause, et les signaux et gestes du moteur (`ps`, `stats`, `pause`), lancés hors du bac et bornés à l’arbre de l’agent — l’affaiblir laisserait un agent survivre à son délai, à son budget ou à son annulation, ou viserait d’autres processus de l’hôte',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/shared\/configuration-initiale\.ts$/,
+    pourquoi:
+      'qui écrit les réglages de la ruche et lit le bilan de santé de la machine de la Reine (`porteConfiguration`) : un administrateur, ou le jeton tant qu’aucun compte n’existe — l’assouplir ouvrirait à chaque membre le relevé du docteur (chemins, hôtes des identifiants git déposés)',
   },
   {
     categorie: 'permissions',
