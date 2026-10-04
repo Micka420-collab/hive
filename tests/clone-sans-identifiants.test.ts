@@ -538,6 +538,31 @@ describe('la livraison locale pousse avec le compte du projet — et ne le dépo
   );
 
   it(
+    'les réécritures du MEMBRE vers son SSH (`insteadOf`, `pushInsteadOf` sur l’hôte) ne détournent ni le clone ni la poussée',
+    PLAFOND,
+    async () => {
+      // Un réglage courant (`url.git@github.com:.insteadOf https://github.com/`).
+      // Sans les règles IDENTITÉ de `depotDistant`, plus longues, le clone
+      // partait vers ce SSH-là, sous l'identité du membre — ici, un port fermé.
+      const config = path.join(membre, '.gitconfig');
+      const avant = readFileSync(config, 'utf8');
+      const hote = serveur.url('prive').replace(/prive\.git$/, '');
+      writeFileSync(
+        config,
+        `${avant}[url "ssh://git@127.0.0.1:1/"]\n\tinsteadOf = ${hote}\n\tpushInsteadOf = ${hote}\n`,
+      );
+      try {
+        const { res } = await livrer('reecrit', serveur.urlAvecCompte('prive'));
+        expect(res.livraison, res.logs).toMatchObject({ etat: 'commitee', poussee: 'poussee' });
+        expect(referencesDuServeur()).toContain('refs/heads/hive/mission-reecrit-1');
+        expect(confieAuMembre()).toBe('');
+      } finally {
+        writeFileSync(config, avant);
+      }
+    },
+  );
+
+  it(
     'un jeton de LECTURE : la poussée échoue, le motif dit quoi changer — sans le jeton',
     PLAFOND,
     async () => {
