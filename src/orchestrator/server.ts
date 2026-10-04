@@ -16650,7 +16650,7 @@ async function monterReine(
               logs: msg.logs,
               durationMs: msg.durationMs,
               subAgents: msg.subAgents,
-              ...(msg.usage ? { usage: msg.usage } : {}),
+              ...(msg.ressources ? { ressources: msg.ressources } : {}),
               ...(msg.fournisseur ? { fournisseur: msg.fournisseur } : {}),
               ...(msg.finalText !== undefined ? { finalText: msg.finalText } : {}),
               ...(msg.validations ? { validations: msg.validations } : {}),
@@ -16694,7 +16694,7 @@ async function monterReine(
                   nodeId,
                   success: result?.success ?? msg.success,
                   ...(result ? { durationMs: result.durationMs } : {}),
-                  ...(result?.usage ? { usage: result.usage } : {}),
+                  ...(result?.ressources ? { ressources: result.ressources } : {}),
                   ...(result?.resultId !== undefined ? { resultId: result.resultId } : {}),
                 });
 
@@ -16728,7 +16728,7 @@ async function monterReine(
                     diff: result.diff,
                     logs: result.logs,
                     durationMs: result.durationMs,
-                    ...(result.usage ? { usage: result.usage } : {}),
+                    ...(result.ressources ? { ressources: result.ressources } : {}),
                     ...(result.resultId !== undefined ? { resultId: result.resultId } : {}),
                   });
                 }
@@ -16981,7 +16981,7 @@ async function monterReine(
                   diff: result.diff,
                   logs: result.logs,
                   durationMs: result.durationMs,
-                  ...(result.usage ? { usage: result.usage } : {}),
+                  ...(result.ressources ? { ressources: result.ressources } : {}),
                   ...(result.resultId !== undefined ? { resultId: result.resultId } : {}),
                 });
               }

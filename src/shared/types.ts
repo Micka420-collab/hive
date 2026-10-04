@@ -104,8 +104,8 @@ export interface TaskResultSummary {
   success: boolean;
   nodeId: string;
   durationMs: number;
-  /** Mesure locale du processus Worker, absente sur les anciens résultats. */
-  usage?: ExecutionUsage;
+  /** Les ressources de l'agent pour cette tentative (voir `RessourcesExecution`). */
+  ressources?: RessourcesExecution;
   /**
    * Cette tentative — la dernière — s'est arrêtée dans la boucle de son agent,
    * sur le plafond que la Reine lui avait passé : la tâche a fini sur sa borne,
@@ -115,18 +115,50 @@ export interface TaskResultSummary {
 }
 
 /**
- * Ressources réellement observées par le Worker pendant une tentative.
+ * Pourquoi les ressources d'une exécution ne sont PAS mesurées :
  *
- * Ces compteurs décrivent le processus Node local. Ils ne sont pas une facture
- * fournisseur et ne doivent jamais être présentés comme un coût monétaire.
+ *   · `plateforme` : Windows hors conteneur — aucune table des processus
+ *     lisible sans outil tiers ;
+ *   · `aucun_processus` : l'adaptateur n'a lancé aucun processus (simulé) ;
+ *   · `aucun_releve` : l'agent a fini avant qu'un relevé ne le trouve ;
+ *   · `noeud_ancien` : un nœud d'avant cette mesure — ce qu'il envoyait
+ *     (`usage`) décrivait SON processus Node, pas l'agent.
  */
-export interface ExecutionUsage {
-  userCpuMicros: number;
-  systemCpuMicros: number;
-  maxRssBytes: number;
-  rssBytes: number;
-  heapUsedBytes: number;
-}
+export const RAISONS_SANS_MESURE = [
+  'plateforme',
+  'aucun_processus',
+  'aucun_releve',
+  'noeud_ancien',
+] as const;
+export type RaisonSansMesure = (typeof RAISONS_SANS_MESURE)[number];
+
+/**
+ * Les ressources de l'AGENT pendant une tentative — l'arbre de ses processus,
+ * ou son conteneur ; JAMAIS le processus du nœud qui le lance. Le bilan des
+ * relevés du pilote Sandbox Live (`node-client/pilote-execution.ts`), la même
+ * mesure que le direct.
+ *
+ * Ce n'est pas un coût : le coût fournisseur est ce que le CLI déclare
+ * (`UsageFournisseur`), à part.
+ */
+export type RessourcesExecution =
+  | {
+      /** L'arbre de processus de l'agent sur l'hôte, ou son conteneur. */
+      portee: 'arbre' | 'conteneur';
+      /** Relevés qui ont rendu au moins un nombre (`INTERVALLE_METRIQUES_MS`). */
+      releves: number;
+      /**
+       * CPU (utilisateur + système) consommé jusqu'au DERNIER relevé, en ms :
+       * un plancher — ce qui a suivi ce relevé n'y est pas. Absent : la source
+       * n'a pas de cumul (le `stats` d'un moteur, sans cgroup lisible).
+       */
+      cpuMs?: number;
+      /** Le plus haut de la mémoire : somme des RSS de l'arbre, ou mémoire du conteneur. */
+      picOctets?: number;
+      /** Le pic est celui que tient le NOYAU (`memory.peak` du cgroup), pas un relevé. */
+      picNoyau?: true;
+    }
+  | { portee: 'aucune'; raison: RaisonSansMesure };
 
 /**
  * Ce que le CLI de l'agent DÉCLARE pour une exécution — coût, temps passé dans
@@ -187,8 +219,8 @@ export interface TaskResult {
   success: boolean;
   durationMs: number;
   subAgents: SubAgent[];
-  /** Ressources locales observées, quand le nœud les a mesurées. */
-  usage?: ExecutionUsage;
+  /** Les ressources de l'agent, ou pourquoi elles ne sont pas mesurées. */
+  ressources?: RessourcesExecution;
   /** Déclaration du CLI de l'agent, quand il en fait une. */
   fournisseur?: UsageFournisseur;
   /**

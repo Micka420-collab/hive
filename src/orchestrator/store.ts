@@ -6,7 +6,7 @@ import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { PlateformeNoeud } from '../shared/machine.js';
-import { LIMITS } from '../shared/protocol.js';
+import { LIMITS, ressourcesLues } from '../shared/protocol.js';
 import type { OutilConstate } from '../shared/protocol.js';
 import { LIMITE_TACHES_INSTANTANE, NIVEAUX_ISOLEMENT } from '../shared/types.js';
 import type { Partage } from '../shared/partage.js';
@@ -121,6 +121,7 @@ import type {
   IsolementDeclare,
   NodeStatus,
   Project,
+  RessourcesExecution,
   StateSnapshot,
   SubAgent,
   Task,
@@ -2386,8 +2387,22 @@ function rowToTask(row: TaskRow): Task {
   return {
     ...row,
     dependsOn: JSON.parse(row.dependsOn) as string[],
-    result: row.result ? (JSON.parse(row.result) as TaskResultSummary) : null,
+    result: row.result ? resumeDeResultat(row.result) : null,
   };
+}
+
+/**
+ * Le résumé de résultat rangé sur la tâche. Un résumé d'avant la mesure de
+ * l'agent porte `usage` — les compteurs du processus du NŒUD : il est relu
+ * `noeud_ancien` (`ressourcesLues`), jamais rendu comme les ressources de
+ * l'agent.
+ */
+function resumeDeResultat(brut: string): TaskResultSummary {
+  const { usage, ressources, ...resume } = JSON.parse(brut) as TaskResultSummary & {
+    usage?: unknown;
+  };
+  const lues = ressourcesLues(ressources, usage);
+  return { ...resume, ...(lues ? { ressources: lues } : {}) };
 }
 
 function rowToDelegation(row: DelegationRow): DelegationRangee {
@@ -5223,17 +5238,17 @@ export class HiveStore {
     const resultId = Number(info.lastInsertRowid);
     this.rangerDepenseDelegation(resultId, res, now);
     // Les colonnes historiques de `results` restent inchangées : la mesure
-    // locale est un fait d'exécution borné, rangé dans le journal et relié au
-    // résultat exact. Cela évite une migration SQLite tout en permettant sa
+    // de l'agent est un fait d'exécution borné, rangé dans le journal et relié
+    // au résultat exact. Cela évite une migration SQLite tout en permettant sa
     // relecture tant que le résultat reste dans la fenêtre de preuve.
-    if (res.usage) {
+    if (res.ressources) {
       this.appendEvent(
         'worker_usage',
         {
           resultId,
           taskId: res.taskId,
           nodeId: res.nodeId,
-          ...res.usage,
+          ...res.ressources,
         },
         now,
       );
@@ -5412,7 +5427,7 @@ export class HiveStore {
     const rows = this.db
       .prepare('SELECT * FROM results WHERE taskId = ? ORDER BY id')
       .all(taskId) as ResultRow[];
-    const usages = this.usagesForResults(
+    const ressources = this.ressourcesDesResultats(
       taskId,
       rows.map((r) => r.id),
     );
@@ -5425,7 +5440,7 @@ export class HiveStore {
       logs: r.logs,
       durationMs: r.durationMs,
       subAgents: JSON.parse(r.subAgents) as SubAgent[],
-      ...(usages.get(r.id) ? { usage: usages.get(r.id) } : {}),
+      ...(ressources.get(r.id) ? { ressources: ressources.get(r.id) } : {}),
     }));
   }
 
@@ -5469,72 +5484,34 @@ export class HiveStore {
    * Mesures reliées aux résultats exacts d'UNE tâche, relues dans le journal —
    * où la rétention les garde avec elle. La tâche nommée sert l'index
    * `idx_events_tache` : sans elle, chaque lecture parcourait les mesures de
-   * toute la ruche retenue.
+   * toute la ruche retenue. Une mesure d'avant celle de l'agent (les compteurs
+   * du nœud) est relue `noeud_ancien` (`ressourcesLues`).
    */
-  private usagesForResults(
+  private ressourcesDesResultats(
     taskId: string,
     resultIds: readonly number[],
-  ): Map<number, TaskResult['usage']> {
+  ): Map<number, RessourcesExecution> {
     const ids = [...new Set(resultIds.filter((id) => Number.isSafeInteger(id) && id > 0))];
     if (ids.length === 0) return new Map();
     const placeholders = ids.map(() => '?').join(', ');
     const rows = this.db
       .prepare(
-        `SELECT json_extract(payload, '$.resultId') AS resultId,
-                json_extract(payload, '$.userCpuMicros') AS userCpuMicros,
-                json_extract(payload, '$.systemCpuMicros') AS systemCpuMicros,
-                json_extract(payload, '$.maxRssBytes') AS maxRssBytes,
-                json_extract(payload, '$.rssBytes') AS rssBytes,
-                json_extract(payload, '$.heapUsedBytes') AS heapUsedBytes
+        `SELECT json_extract(payload, '$.resultId') AS resultId, payload
            FROM events
           WHERE type = 'worker_usage'
             AND ${TACHE_DE_L_EVENEMENT} = ?
             AND json_extract(payload, '$.resultId') IN (${placeholders})
           ORDER BY id`,
       )
-      .all(taskId, ...ids) as Array<{
-      resultId: number | null;
-      userCpuMicros: number | null;
-      systemCpuMicros: number | null;
-      maxRssBytes: number | null;
-      rssBytes: number | null;
-      heapUsedBytes: number | null;
-    }>;
-    const out = new Map<number, TaskResult['usage']>();
+      .all(taskId, ...ids) as Array<{ resultId: number | null; payload: string }>;
+    const out = new Map<number, RessourcesExecution>();
     for (const row of rows) {
-      const resultId = row.resultId;
-      const userCpuMicros = row.userCpuMicros;
-      const systemCpuMicros = row.systemCpuMicros;
-      const maxRssBytes = row.maxRssBytes;
-      const rssBytes = row.rssBytes;
-      const heapUsedBytes = row.heapUsedBytes;
-      if (
-        typeof resultId !== 'number' ||
-        !Number.isSafeInteger(resultId) ||
-        typeof userCpuMicros !== 'number' ||
-        typeof systemCpuMicros !== 'number' ||
-        typeof maxRssBytes !== 'number' ||
-        typeof rssBytes !== 'number' ||
-        typeof heapUsedBytes !== 'number' ||
-        !Number.isSafeInteger(userCpuMicros) ||
-        !Number.isSafeInteger(systemCpuMicros) ||
-        !Number.isSafeInteger(maxRssBytes) ||
-        !Number.isSafeInteger(rssBytes) ||
-        !Number.isSafeInteger(heapUsedBytes) ||
-        userCpuMicros < 0 ||
-        systemCpuMicros < 0 ||
-        maxRssBytes < 0 ||
-        rssBytes < 0 ||
-        heapUsedBytes < 0
-      )
-        continue;
-      out.set(resultId, {
-        userCpuMicros,
-        systemCpuMicros,
-        maxRssBytes,
-        rssBytes,
-        heapUsedBytes,
-      });
+      if (typeof row.resultId !== 'number' || !Number.isSafeInteger(row.resultId)) continue;
+      const payload = JSON.parse(row.payload) as unknown;
+      // Le payload est À PLAT (`resultId`, `taskId`… puis la mesure) : la
+      // même lecture y reconnaît la forme d'aujourd'hui comme celle d'hier.
+      const lues = ressourcesLues(payload, payload);
+      if (lues) out.set(row.resultId, lues);
     }
     return out;
   }

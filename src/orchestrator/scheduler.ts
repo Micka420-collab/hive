@@ -1376,7 +1376,7 @@ export class Scheduler {
             success: true,
             nodeId,
             durationMs: result.durationMs,
-            ...(result.usage ? { usage: result.usage } : {}),
+            ...(result.ressources ? { ressources: result.ressources } : {}),
           },
         });
         this.emit('task_done', {
@@ -1387,7 +1387,7 @@ export class Scheduler {
           // aucune issue du journal (graphe d'expérience, `supersedes`).
           resultId,
           durationMs: result.durationMs,
-          ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.ressources ? { ressources: result.ressources } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
         // Hive Mind : une production réussie PROPOSE un souvenir, retenu une fois
@@ -1430,7 +1430,7 @@ export class Scheduler {
               success: false,
               nodeId,
               durationMs: result.durationMs,
-              ...(result.usage ? { usage: result.usage } : {}),
+              ...(result.ressources ? { ressources: result.ressources } : {}),
               // Le fait porté sur la TÂCHE : les écrans la disent arrêtée sur
               // sa borne, pas échouée.
               ...(arret ? { arretBudgetaire: arret } : {}),
@@ -1448,7 +1448,7 @@ export class Scheduler {
             resultId,
             attempts,
             durationMs,
-            ...(result.usage ? { usage: result.usage } : {}),
+            ...(result.ressources ? { ressources: result.ressources } : {}),
             ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
             ...(arret ? { arretBudgetaire: arret } : {}),
           });
@@ -1465,7 +1465,7 @@ export class Scheduler {
             attempt: attempts,
             maxAttempts: this.maxAttempts,
             durationMs,
-            ...(result.usage ? { usage: result.usage } : {}),
+            ...(result.ressources ? { ressources: result.ressources } : {}),
             ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
           });
         }
@@ -2240,7 +2240,7 @@ export class Scheduler {
               success: true,
               nodeId,
               durationMs: result.durationMs,
-              ...(result.usage ? { usage: result.usage } : {}),
+              ...(result.ressources ? { ressources: result.ressources } : {}),
             },
           },
           now,
@@ -2257,7 +2257,7 @@ export class Scheduler {
           nodeId,
           resultId,
           durationMs: result.durationMs,
-          ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.ressources ? { ressources: result.ressources } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
         // Le modèle du VAINQUEUR, fait consigné là où il se décide : le tiroir
@@ -2311,7 +2311,7 @@ export class Scheduler {
             success: false,
             nodeId,
             durationMs: result.durationMs,
-            ...(result.usage ? { usage: result.usage } : {}),
+            ...(result.ressources ? { ressources: result.ressources } : {}),
           },
         });
         this.emit('task_failed', {
@@ -2320,7 +2320,7 @@ export class Scheduler {
           resultId,
           attempts,
           durationMs,
-          ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.ressources ? { ressources: result.ressources } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
         this.fermerSousArbre(task.id, 'ancestor_failed', now);
@@ -2333,7 +2333,7 @@ export class Scheduler {
           attempt: attempts,
           maxAttempts: this.maxAttempts,
           durationMs,
-          ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.ressources ? { ressources: result.ressources } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
       }

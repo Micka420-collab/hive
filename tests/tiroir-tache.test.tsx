@@ -19,7 +19,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { HiveNode, Task } from '../src/shared/types';
+import type { HiveNode, RessourcesExecution, Task } from '../src/shared/types';
 import type { DroneRace } from '../src/orchestrator/drone-wars';
 import { setLang } from '../dashboard/src/i18n';
 
@@ -208,25 +208,45 @@ describe('le tiroir — les métadonnées et le geste qui coupe', () => {
     expect(dom.textContent).toContain('construire le rayon');
   });
 
-  it('affiche les ressources réellement observées par le Worker', async () => {
-    const task = {
-      ...tache('done'),
-      result: {
-        success: true,
-        nodeId: 'noeud-1',
-        durationMs: 1_250,
-        usage: {
-          userCpuMicros: 8_000,
-          systemCpuMicros: 2_000,
-          maxRssBytes: 2 * 1024 * 1024,
-          rssBytes: 1 * 1024 * 1024,
-          heapUsedBytes: 512 * 1024,
-        },
-      },
+  it('les ressources observées sont celles de l’AGENT — ou la raison de leur absence', async () => {
+    const ligne = async (ressources: RessourcesExecution) => {
+      act(() => racine?.unmount());
+      const task: Task = {
+        ...tache('done'),
+        result: { success: true, nodeId: 'noeud-1', durationMs: 1_250, ressources },
+      };
+      const dom = await monter(<TaskDrawer task={task} nodes={NOEUDS} onClose={() => {}} />);
+      return dom.querySelector('[data-testid="task-observed-resources"]')?.textContent;
     };
-    const dom = await monter(<TaskDrawer task={task} nodes={NOEUDS} onClose={() => {}} />);
-    expect(dom.querySelector('[data-testid="task-observed-resources"]')?.textContent).toContain(
-      'processus Worker : 10 ms CPU · 2.0 MiB RSS · coût fournisseur à part (« Où est passé le temps »)',
+    expect(
+      await ligne({ portee: 'arbre', releves: 12, cpuMs: 1_200, picOctets: 412 * 1024 * 1024 }),
+    ).toBe(
+      'Arbre de processus de l’agent : au moins 1.2 s CPU · pic RSS échantillonné 412 Mio · ' +
+        '12 relevés toutes les 5 s · coût fournisseur à part (« Où est passé le temps »)',
+    );
+    expect(
+      await ligne({
+        portee: 'conteneur',
+        releves: 1,
+        cpuMs: 80,
+        picOctets: 300 * 1024 * 1024,
+        picNoyau: true,
+      }),
+    ).toContain(
+      'Conteneur de l’agent : au moins 80 ms CPU · pic mémoire 300 Mio (noyau) · 1 relevé',
+    );
+    expect(await ligne({ portee: 'conteneur', releves: 2, picOctets: 1024 * 1024 })).toContain(
+      'CPU non mesuré (le moteur n’en tient pas le cumul) · pic mémoire échantillonné 1.0 Mio',
+    );
+    // Ce qu'un nœud d'avant mesurait était LUI-MÊME : jamais affiché pour l'agent.
+    const ancien = await ligne({ portee: 'aucune', raison: 'noeud_ancien' });
+    expect(ancien).toBe(
+      'Ressources de l’agent non mesurées — nœud d’une version antérieure, qui ne mesurait que ' +
+        'lui-même · coût fournisseur à part (« Où est passé le temps »)',
+    );
+    expect(ancien).not.toMatch(/Worker|CPU|RSS/);
+    expect(await ligne({ portee: 'aucune', raison: 'plateforme' })).toContain(
+      'non mesurées — Windows hors conteneur, sans table des processus lisible',
     );
   });
 
@@ -348,9 +368,12 @@ describe('le tiroir — le graphe de délégation réel', () => {
     expect(dom.textContent).toContain('parent : tache-du-tiroir');
     expect(dom.textContent).toContain('isoler les tests de sécurité');
     expect(dom.textContent).toContain('Budget réservé : 60.0 s · coût 42 µUSD · ressources 1');
+    // Ce journal vient d'un nœud d'avant : `usage` était le processus du NŒUD.
     expect(dom.textContent).toContain(
-      'Dernière exécution mesurée : 1.3 s · processus Worker : 15 ms CPU · 4.0 MiB RSS',
+      'Dernière exécution mesurée : 1.3 s · ressources de l’agent non mesurées — nœud d’une ' +
+        'version antérieure, qui ne mesurait que lui-même',
     );
+    expect(dom.textContent).not.toContain('processus Worker');
     expect(dom.textContent).toContain('terminée');
   });
 

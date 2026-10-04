@@ -7,7 +7,7 @@ import type { BlocSortie } from '../shared/niveaux-sortie.js';
 import type { Effort } from '../shared/effort.js';
 import type { ActionProposee, DecisionAction } from '../shared/politique-actions.js';
 import type { ArretBudgetaire } from '../shared/arret-budgetaire.js';
-import type { ExecutionUsage, SubAgent, Task, UsageFournisseur } from '../shared/types.js';
+import type { RessourcesExecution, SubAgent, Task, UsageFournisseur } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
 import { createClineAdapter } from './cline.js';
 import { createCodexAdapter } from './codex.js';
@@ -60,7 +60,8 @@ export type WorkerDelegationResult =
       diff: string;
       logs: string;
       durationMs: number;
-      usage?: ExecutionUsage;
+      /** Les ressources de l'agent de l'enfant (`RessourcesExecution`). */
+      ressources?: RessourcesExecution;
       resultId?: number;
     }
   | { ok: false; code: string; message: string };

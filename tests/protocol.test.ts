@@ -197,28 +197,8 @@ describe('parseClientMessage', () => {
     expect(msg?.type).toBe('task_result');
   });
 
-  it('accepte et borne la mesure de ressources d’un Worker', () => {
-    const usage = {
-      userCpuMicros: 12_000,
-      systemCpuMicros: 3_000,
-      maxRssBytes: 8 * 1024 * 1024,
-      rssBytes: 6 * 1024 * 1024,
-      heapUsedBytes: 3 * 1024 * 1024,
-    };
-    const msg = parseClientMessage(
-      JSON.stringify({
-        type: 'task_result',
-        taskId: 't-usage',
-        success: true,
-        diff: '',
-        logs: '',
-        durationMs: 12,
-        subAgents: [],
-        usage,
-      }),
-    );
-    expect(msg).toMatchObject({ type: 'task_result', usage });
-    expect(
+  it('les ressources de l’AGENT : les deux formes, et une mesure fausse tombe seule', () => {
+    const resultat = (mesure: Record<string, unknown>) =>
       parseClientMessage(
         JSON.stringify({
           type: 'task_result',
@@ -228,10 +208,87 @@ describe('parseClientMessage', () => {
           logs: '',
           durationMs: 12,
           subAgents: [],
-          usage: { ...usage, rssBytes: -1 },
+          ...mesure,
         }),
-      ),
-    ).toBeNull();
+      );
+    for (const ressources of [
+      { portee: 'arbre', releves: 7, cpuMs: 1_234, picOctets: 512 * 1024 * 1024 },
+      { portee: 'conteneur', releves: 2, cpuMs: 80, picOctets: 9_000, picNoyau: true },
+      { portee: 'conteneur', releves: 1, picOctets: 9_000 },
+      { portee: 'aucune', raison: 'plateforme' },
+    ]) {
+      expect(resultat({ ressources }), JSON.stringify(ressources)).toMatchObject({
+        type: 'task_result',
+        ressources,
+      });
+    }
+
+    // Un nœud d'avant envoyait `usage` : les compteurs de SON processus Node.
+    // Accepté — le résultat ne se perd pas —, mais jamais pris pour l'agent.
+    const usage = {
+      userCpuMicros: 12_000,
+      systemCpuMicros: 3_000,
+      maxRssBytes: 8 * 1024 * 1024,
+      rssBytes: 6 * 1024 * 1024,
+      heapUsedBytes: 3 * 1024 * 1024,
+    };
+    const ancien = resultat({ usage });
+    expect(ancien).toMatchObject({
+      type: 'task_result',
+      ressources: { portee: 'aucune', raison: 'noeud_ancien' },
+    });
+    expect(ancien && 'usage' in ancien).toBe(false);
+
+    // Hors contrat : la mesure tombe, le résultat reste (une tâche pendue
+    // pour une mesure serait pire que la mesure absente).
+    for (const mesure of [
+      { usage: { ...usage, rssBytes: -1 } },
+      { ressources: { portee: 'arbre', releves: 0, cpuMs: 1 } },
+      { ressources: { portee: 'arbre', releves: 1 } },
+      { ressources: { portee: 'arbre', releves: 1, cpuMs: -5 } },
+      { ressources: { portee: 'arbre', releves: 1, cpuMs: 5, picNoyau: true } },
+      { ressources: { portee: 'noeud', releves: 1, cpuMs: 5 } },
+      { ressources: { portee: 'aucune', raison: 'flemme' } },
+      { ressources: { portee: 'arbre', releves: 1, picOctets: 2 ** 51 } },
+    ]) {
+      const msg = resultat(mesure);
+      expect(msg?.type, JSON.stringify(mesure)).toBe('task_result');
+      expect(msg && 'ressources' in msg, JSON.stringify(mesure)).toBe(false);
+    }
+  });
+
+  it('delegation_result : la mesure de l’enfant, sous les deux formes', () => {
+    const resultat = (mesure: Record<string, unknown>) =>
+      parseServerMessage(
+        JSON.stringify({
+          type: 'delegation_result',
+          parentTaskId: 'parent-1',
+          childTaskId: 'enfant-1',
+          success: true,
+          diff: '',
+          logs: '',
+          durationMs: 10,
+          ...mesure,
+        }),
+      );
+    const ressources = { portee: 'arbre', releves: 2, cpuMs: 300, picOctets: 1_000 };
+    expect(resultat({ ressources })).toMatchObject({ ressources });
+    expect(
+      resultat({
+        usage: {
+          userCpuMicros: 1,
+          systemCpuMicros: 1,
+          maxRssBytes: 1,
+          rssBytes: 1,
+          heapUsedBytes: 1,
+        },
+      }),
+    ).toMatchObject({ ressources: { portee: 'aucune', raison: 'noeud_ancien' } });
+    const faux = resultat({ ressources: { portee: 'arbre', releves: -1, cpuMs: 1 } });
+    expect(faux?.type, 'un parent qui perdrait son enfant attendrait jusqu’à l’échéance').toBe(
+      'delegation_result',
+    );
+    expect(faux && 'ressources' in faux).toBe(false);
   });
 
   it('garde la déclaration fournisseur valide, et abandonne un champ faux sans perdre le résultat', () => {

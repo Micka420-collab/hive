@@ -45,15 +45,17 @@ const TEXT_FIELDS = new Set([
   // suffisent au journal ; le détail reste dans la table requisitions.
   'genre',
   'libelle',
+  // `worker_usage` : ce qui a été mesuré de l'agent (`RessourcesExecution`).
+  'portee',
 ]);
 
 const NUMBER_FIELDS = new Set([
   'durationMs',
-  'userCpuMicros',
-  'systemCpuMicros',
-  'maxRssBytes',
-  'rssBytes',
-  'heapUsedBytes',
+  // Les ressources de l'AGENT. Les compteurs d'avant (`userCpuMicros`…)
+  // décrivaient le processus du nœud : ils ne sont plus projetés.
+  'cpuMs',
+  'picOctets',
+  'releves',
   'attempt',
   'maxAttempts',
   'attempts',

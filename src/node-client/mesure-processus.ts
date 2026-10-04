@@ -27,6 +27,27 @@
 // ou mort entre les deux n'a pas de différence mesurable (son temps partirait
 // en négatif, ou compterait toute sa vie en cinq secondes).
 //
+// ─── LE BILAN DE FIN D'EXÉCUTION : LA MÊME MESURE, CUMULÉE ───────────────────
+//
+// Ce que le résultat porte (`RessourcesExecution`) sort de CES relevés, jamais
+// du processus du nœud — dont le CPU ignorait tout de l'agent, son enfant, et
+// dont le pic de mémoire était celui du nœud depuis son démarrage.
+//
+//   · CPU de l'arbre : sous Linux, chaque processus compte son CPU propre ET
+//     celui des descendants qu'il a moissonnés (`cutime`/`cstime`, cumulés de
+//     proche en proche — à travers l'init de bubblewrap aussi). Un `git` de
+//     dix millisecondes né et mort entre deux relevés est donc compté, par son
+//     parent. Ailleurs (`ps`), le CPU propre de chaque processus au dernier
+//     relevé où on l'a vu. Échappent : ce qui suit le DERNIER relevé, un
+//     orphelin après qu'il a quitté l'arbre (reparenté), les enfants d'un
+//     parent qui ignore SIGCHLD. Le bilan est donc un PLANCHER, dit tel quel ;
+//   · le pic de mémoire est le plus haut des relevés (somme des RSS) : un pic
+//     ÉCHANTILLONNÉ, que rien n'oblige à tomber sur un relevé ;
+//   · un conteneur : son cgroup v2, quand l'hôte le voit (Linux, moteur local)
+//     — `usage_usec` compte TOUT ce qui y a tourné, `memory.peak` est le pic
+//     tenu par le noyau. Lus à chaque relevé : le cgroup disparaît avec le
+//     conteneur (`--rm`), le dernier relevé est le dernier mot.
+//
 // Module sans état global — sauf la taille de page de la machine, lue une
 // fois (`taillePageMachine`) ; la table et le lanceur sont injectables.
 
@@ -41,8 +62,23 @@ export interface ProcessusVu {
   ppid: number;
   /** Temps CPU cumulé (utilisateur + système), en millisecondes. */
   cpuMs: number;
+  /**
+   * Linux seulement : le CPU des descendants que ce processus a MOISSONNÉS
+   * (`cutime` + `cstime`), en millisecondes. Absent sous `ps`.
+   */
+  cpuEnfantsMs?: number;
   /** Mémoire résidente, en octets ; absente quand on ne sait pas la convertir. */
   rssOctets?: number;
+}
+
+/** Ce que des relevés ont vu d'une exécution, cumulé (voir l'en-tête). */
+export interface BilanReleves {
+  /** Relevés qui ont rendu au moins un nombre. */
+  releves: number;
+  cpuMs?: number;
+  picOctets?: number;
+  /** Le pic vient du noyau (`memory.peak`), pas d'un relevé. */
+  picNoyau?: boolean;
 }
 
 /**
@@ -105,7 +141,8 @@ export function lireStatProc(
 ): ProcessusVu | null {
   const fin = texte.lastIndexOf(')');
   if (fin < 0) return null;
-  // Après « ) » : état (champ 3), ppid (4)… utime (14), stime (15)… rss (24).
+  // Après « ) » : état (champ 3), ppid (4)… utime (14), stime (15), cutime
+  // (16), cstime (17)… rss (24).
   const champs = texte
     .slice(fin + 1)
     .trim()
@@ -113,12 +150,15 @@ export function lireStatProc(
   const ppid = Number(champs[1]);
   const utime = Number(champs[11]);
   const stime = Number(champs[12]);
+  const cutime = Number(champs[13]);
+  const cstime = Number(champs[14]);
   const rss = Number(champs[21]);
-  if (![ppid, utime, stime, rss].every(Number.isFinite)) return null;
+  if (![ppid, utime, stime, cutime, cstime, rss].every(Number.isFinite)) return null;
   return {
     pid,
     ppid,
     cpuMs: ((utime + stime) * 1000) / TICS_PAR_SECONDE,
+    cpuEnfantsMs: (Math.max(0, cutime + cstime) * 1000) / TICS_PAR_SECONDE,
     ...(taillePageOctets !== null ? { rssOctets: Math.max(0, rss) * taillePageOctets } : {}),
   };
 }
@@ -228,6 +268,32 @@ async function tableProc(): Promise<ProcessusVu[]> {
 }
 
 /**
+ * Linux : relit les processus d'un arbre UN PAR UN, dans l'ordre donné — les
+ * parents avant leurs enfants (`descendance`). Un processus sorti est sauté.
+ *
+ * L'ordre est ce qui rend le cumul (`cpuMs` + `cpuEnfantsMs`) juste : quand un
+ * parent moissonne un enfant, le CPU de l'enfant PASSE dans le `cutime` du
+ * parent. Lus pêle-mêle, l'enfant lu avant de mourir puis le parent lu après
+ * l'avoir moissonné le comptaient deux fois. Parent d'abord, il ne peut plus
+ * qu'être compté une fois — ou pas du tout dans ce relevé, si le parent l'a
+ * moissonné entre les deux lectures : un plancher reste un plancher.
+ */
+export async function relireArbreProc(arbre: readonly ProcessusVu[]): Promise<ProcessusVu[]> {
+  const page = await taillePageMachine();
+  const relus: ProcessusVu[] = [];
+  for (const { pid } of arbre) {
+    try {
+      // Séquentiel À DESSEIN : c'est l'ordre des lectures qui compte.
+      const p = lireStatProc(pid, await readFile(`/proc/${pid}/stat`, 'utf8'), page);
+      if (p) relus.push(p);
+    } catch {
+      /* sorti depuis la table */
+    }
+  }
+  return relus;
+}
+
+/**
  * La table des processus de CETTE machine, ou `null` quand on ne sait pas la
  * lire ici (Windows) — l'appelant dit alors « inconnu ».
  */
@@ -255,13 +321,43 @@ export async function tableDesProcessus(
  */
 export class MesureArbre {
   private precedent: { a: number; cpu: Map<number, number> } | null = null;
+  private releves = 0;
+  /** Le plus grand total relevé : CPU propre + enfants moissonnés, de tout l'arbre. */
+  private cumulMax = 0;
+  /** Le plus haut CPU PROPRE vu de chaque processus : il ne passe jamais à un autre. */
+  private readonly propres = new Map<number, number>();
+  private picOctets: number | undefined;
 
   constructor(private readonly racine: number) {}
+
+  /**
+   * Ce que les relevés ont vu de l'arbre (voir l'en-tête du module). Le CPU
+   * est le plus haut de deux planchers : le total relevé (enfants moissonnés
+   * compris, Linux), et la somme des CPU propres de tout processus vu — qui
+   * garde un orphelin sorti de l'arbre, et tout le CPU sous `ps`.
+   */
+  bilan(): BilanReleves {
+    if (this.releves === 0) return { releves: 0 };
+    let propres = 0;
+    for (const ms of this.propres.values()) propres += ms;
+    return {
+      releves: this.releves,
+      cpuMs: Math.round(Math.max(this.cumulMax, propres)),
+      ...(this.picOctets !== undefined ? { picOctets: this.picOctets } : {}),
+    };
+  }
 
   /** `null` : la racine n'est plus dans la table (sortie, ou pas encore visible). */
   relever(table: readonly ProcessusVu[], maintenant: number): MetriquesDirect | null {
     const arbre = descendance(table, this.racine);
     if (arbre.length === 0) return null;
+    this.releves += 1;
+    let total = 0;
+    for (const p of arbre) {
+      total += p.cpuMs + (p.cpuEnfantsMs ?? 0);
+      this.propres.set(p.pid, Math.max(this.propres.get(p.pid) ?? 0, p.cpuMs));
+    }
+    this.cumulMax = Math.max(this.cumulMax, total);
     const cpu = new Map(arbre.map((p) => [p.pid, p.cpuMs]));
     let cpuPct: number | undefined;
     if (this.precedent && maintenant > this.precedent.a) {
@@ -278,6 +374,7 @@ export class MesureArbre {
     const rss = arbre.every((p) => p.rssOctets !== undefined)
       ? arbre.reduce((s, p) => s + (p.rssOctets ?? 0), 0)
       : undefined;
+    if (rss !== undefined) this.picOctets = Math.max(this.picOctets ?? 0, rss);
     return {
       source: 'arbre',
       ...(cpuPct !== undefined ? { cpuPct } : {}),
@@ -333,4 +430,43 @@ export function lireStatsMoteur(ligne: string): MetriquesDirect | null {
     ...(rssOctets !== undefined ? { rssOctets } : {}),
     ...(processus !== undefined ? { processus } : {}),
   };
+}
+
+/**
+ * Le gabarit d'`inspect` que Podman et Docker comprennent tous deux :
+ * l'identifiant complet du conteneur, et le pid de son init VU DE L'HÔTE.
+ */
+export const FORMAT_INSPECT_CGROUP = '{{.Id}} {{.State.Pid}}';
+
+/** La sortie d'`inspect` ; `null` si illisible, ou pas encore lancé (pid 0). */
+export function lireInspect(sortie: string): { id: string; pid: number } | null {
+  const [id = '', pid = ''] = sortie.trim().split(/\s+/);
+  return /^[0-9a-f]{64}$/.test(id) && /^[1-9]\d{0,9}$/.test(pid) ? { id, pid: Number(pid) } : null;
+}
+
+/**
+ * Le dossier cgroup v2 d'un conteneur sur l'hôte, d'après le `/proc/<pid>/cgroup`
+ * de son init — ou `null`.
+ *
+ * Le chemin DOIT porter l'identifiant du conteneur (`docker-<id>.scope`,
+ * `docker/<id>`, `libpod-<id>.scope`) : le pid d'un moteur qui vit ailleurs
+ * (la VM de Docker Desktop, un démon rootless dans son propre espace de pid)
+ * nomme sur l'hôte un INCONNU, dont le cgroup passerait pour celui de l'agent.
+ */
+export function dossierCgroup(id: string, cgroupDuPid: string): string | null {
+  const chemin = /^0::(\/\S*)$/m.exec(cgroupDuPid)?.[1];
+  if (!chemin || !chemin.includes(id) || chemin.split('/').includes('..')) return null;
+  return `/sys/fs/cgroup${chemin}`;
+}
+
+/** `cpu.stat` d'un cgroup : `usage_usec` — TOUT ce qui y a tourné —, en ms ; `null` sinon. */
+export function cpuDuCgroup(cpuStat: string): number | null {
+  const m = /^usage_usec (\d+)$/m.exec(cpuStat);
+  return m ? Math.floor(Number(m[1]) / 1000) : null;
+}
+
+/** `memory.peak` d'un cgroup : un entier d'octets ; `null` sinon. */
+export function picDuCgroup(memoirePeak: string): number | null {
+  const texte = memoirePeak.trim();
+  return /^\d{1,16}$/.test(texte) ? Number(texte) : null;
 }
