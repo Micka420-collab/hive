@@ -1,0 +1,52 @@
+{
+  "format": {
+    "type": "json_schema",
+    "strict": true,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": ["valide", "conteste"]
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "severite": {
+                "type": "string",
+                "enum": ["bloquant", "majeur", "mineur", "info"]
+              },
+              "critere": {
+                "type": "string",
+                "enum": [
+                  "correction",
+                  "securite",
+                  "tests",
+                  "performance",
+                  "lisibilite",
+                  "conformite"
+                ]
+              },
+              "fichier": {
+                "type": "string"
+              },
+              "preuve": {
+                "type": "string"
+              },
+              "proposition": {
+                "type": "string"
+              }
+            },
+            "required": ["severite", "critere", "fichier", "preuve", "proposition"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["verdict", "findings"],
+      "additionalProperties": false
+    },
+    "name": "codex_output_schema"
+  }
+}
