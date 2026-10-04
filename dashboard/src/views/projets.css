@@ -9,36 +9,15 @@
   gap: 16px;
 }
 
-.pj-depart {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-  max-width: 28rem;
-  margin: 12px auto 0;
-  padding: 32px 32px 28px;
-  border-radius: var(--r-xl);
-}
-
-.pj-depart .marque {
-  width: 14px;
-  height: 16px;
-  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
-  background: var(--miel);
-}
-
-.pj-depart h2 {
-  font-size: var(--fs-3xl);
-  font-weight: 650;
-  letter-spacing: -0.035em;
-  color: var(--text);
-}
-
-.pj-depart p {
-  margin: 0;
+/* « Tâches trouvées » : la liste à plat qu'ouvre un filtre actif. */
+.pj-trouvee-meta {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
   color: var(--muted);
-  font-size: var(--fs-lg);
-  line-height: 1.5;
 }
 
 /* ─── Atelier Queen Bee ────────────────────────────────────────────────── */
@@ -515,6 +494,20 @@
   border-color: var(--amber);
 }
 
+/* Admettre un membre : le champ (libellé, aide, faute) prend la largeur, le
+   bouton suit dessous — côte à côte, la faute sous le champ décalait le
+   bouton à chaque refus. */
+.pj-admettre {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.pj-admettre .ds-champ {
+  align-self: stretch;
+}
+
 /* Les deux commandes occupent leur propre ligne : côte à côte avec le bouton
    « Lancer le merge », chacune se réduisait à une fente de 180 px où l'on ne
    lit plus ce qu'on tape. */
@@ -632,8 +625,7 @@
   font-size: var(--fs-lg);
 }
 .essaim-intro,
-.essaim-desc,
-.essaim-vide {
+.essaim-desc {
   margin: 0 0 12px;
   font-size: var(--fs-sm);
   color: var(--muted);

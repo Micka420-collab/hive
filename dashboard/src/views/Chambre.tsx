@@ -62,6 +62,7 @@ import type { ViewProps } from './shared';
 import type { HiveEvent, Task, TaskStatus } from '../../../src/shared/types';
 import { useDialog, Voile } from '../ui';
 import type { RequisitionPoste } from '../api';
+import { Skeleton } from '../composants';
 
 type OngletId = 'fiche' | 'travail' | 'integrations' | 'suivi';
 
@@ -897,7 +898,7 @@ export default function Chambre({
                       </p>
                     ) : null}
                     {fournisseursCle === null ? (
-                      <p className="ch-silence">{t('Chargement…', 'Loading…')}</p>
+                      <Skeleton lignes={2} />
                     ) : (
                       <ul className="ch-cles-list">
                         {fournisseursCle.map((f) => {
@@ -1149,7 +1150,7 @@ export default function Chambre({
                         {errMotifs ? ` · ${errMotifs}` : ''}
                       </p>
                     ) : motifs === null ? (
-                      <p className="ch-silence">{t('Chargement…', 'Loading…')}</p>
+                      <Skeleton lignes={2} />
                     ) : motifs.length === 0 ? (
                       <p className="ch-silence">{t('Catalogue vide.', 'Empty catalogue.')}</p>
                     ) : (
@@ -1431,7 +1432,7 @@ export default function Chambre({
               </div>
             </>
           ) : (
-            <p className="ch-silence">{t('Chargement…', 'Loading…')}</p>
+            <Skeleton lignes={2} />
           )}
         </aside>
 

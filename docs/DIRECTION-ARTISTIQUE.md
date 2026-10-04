@@ -181,7 +181,7 @@ Dans `dashboard/src/composants/`, stylées par les seuls jetons, testées dans
 | `ToastProvider`, `useToast`               | deux files vivantes (`status` poli, `alert` pour l'erreur), toasts sans rôle propre — jamais lus deux fois ; une information s'efface en 5 s, une **erreur reste** jusqu'à fermeture                                                                                                                                                                                                                 |
 | `Skeleton`                                | réserve la place ; annoncé une fois (« Chargement… »), lignes muettes                                                                                                                                                                                                                                                                                                                                |
 | `EmptyState`                              | nomme l'absence, propose le geste qui la comble                                                                                                                                                                                                                                                                                                                                                      |
-| `ErrorState`                              | `role="alert"`, toujours un bouton **Réessayer** (qui garde le focus pendant la relance)                                                                                                                                                                                                                                                                                                             |
+| `ErrorState`                              | `role="alert"` ; **Réessayer** seulement s'il peut réussir (sans `onReessayer`, pas de bouton) ; il garde le focus pendant la relance                                                                                                                                                                                                                                                                |
 | `Terminal`                                | des lignes lues comme un terminal (console en direct, Journal) : recherche surlignée (k/N, Entrée / Maj+Entrée, `/` `n` `N`), filtre par **niveau présent** — donné par l'appelant, d'un vrai signal —, suivi du bas détachable (« ↓ N nouvelles lignes »), copie de la sélection ou des lignes affichées, repli, heures, plein écran (Échap) ; **virtualisé** (seule la fenêtre visible est rendue) |
 
 ### La console et le Journal
@@ -203,6 +203,26 @@ dans le texte (`src/shared/niveaux-sortie.ts`). Le Journal range chaque
   <img src="images/console/recherche.bureau.png" width="520" alt="La console : stdout et stderr masqués, seules les lignes d'avertissement et d'erreur de l'agent restent ; recherche « erreur » surlignée, occurrence 2 sur 4.">
   <img src="images/console/tiroir.mobile.sombre.png" width="200" alt="Le tiroir sur mobile : barre de la console repliée sur plusieurs rangs, filtres par niveau, lignes longues repliées.">
   <img src="images/console/journal.mobile.png" width="200" alt="Le Journal sur mobile : filtres par sévérité, heures, lignes abrégées.">
+</p>
+
+### Les états de la liaison, photographiés
+
+Relevés sur une ruche de laboratoire (voir `docs/CAPTURES.md`) : la table des
+ouvrières, l'appareil sans réseau pendant que le flux tombe, et la ruche qui ne
+répond plus. Un appareil sans réseau dont le flux reste vivant — une ruche en
+`localhost` — n'a **aucun** bandeau : seul le flux tombé fige l'écran.
+
+<p align="center">
+  <img src="images/etats/essaim-table.bureau.png" width="840" alt="L'Essaim en vue Table : nom, statut, agent, bac à sable, modèles, charge, dernier signe.">
+</p>
+<p align="center">
+  <img src="images/etats/essaim-table.bureau.sombre.png" width="840" alt="La même table en thème sombre.">
+</p>
+<p align="center">
+  <img src="images/etats/hors-ligne-reseau.bureau.png" width="840" alt="Bandeau « Hors ligne » : cet appareil n'a plus de réseau, l'écran montre l'état de ce moment-là.">
+</p>
+<p align="center">
+  <img src="images/etats/hors-ligne-ruche.bureau.sombre.png" width="840" alt="Bandeau « Hors ligne » en thème sombre : la ruche ne répond plus, avec « Réessayer maintenant » et l'heure du dernier essai.">
 </p>
 
 ## À faire / à ne pas faire

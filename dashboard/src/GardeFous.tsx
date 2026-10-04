@@ -15,6 +15,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { fetchGardeFou, reglerGardeFou } from './api';
 import type { EchelonUi, EtatGardeFouUi } from './api';
 import { useT } from './i18n';
+import { Skeleton } from './composants';
 
 /** Rafraîchissement : le classement bouge quand le vécu de la ruche bouge. */
 const PERIODE_MS = 5_000;
@@ -106,8 +107,8 @@ export function GardeFous({ projectId }: { projectId: string }) {
 
   if (!etat) {
     return (
-      <section className="garde-fou-panneau" aria-busy="true">
-        {t('Chargement du Garde-Fous…', 'Loading the Guardrails…')}
+      <section className="garde-fou-panneau">
+        <Skeleton lignes={3} libelle={t('Chargement du Garde-Fous…', 'Loading the Guardrails…')} />
       </section>
     );
   }

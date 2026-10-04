@@ -17,6 +17,7 @@
 import { direJetons, direUsd, formatMs, NOTE_COUT_DECLARE } from './ui';
 import { useLang, useT } from './i18n';
 import type { Translate } from './i18n';
+import { EmptyState, Skeleton } from './composants';
 import { direConfianceOmbre, direIssueCote, direVerdictOmbre } from './banc-ombre-rendu';
 import type { SommeDeclaree } from '../../src/shared/declaration-fournisseur';
 import type { BancOmbreGenome, RegistreGenome as Registre } from '../../src/shared/registre-genome';
@@ -54,14 +55,19 @@ export function RegistreGenome({ registre, erreur }: Props) {
         )}
       </header>
       {erreur && <p className="panel-error">{erreur}</p>}
-      {!registre && !erreur && <p className="empty pad">{t('Lecture…', 'Reading…')}</p>}
+      {!registre && !erreur && (
+        <Skeleton lignes={3} libelle={t('Lecture du registre…', 'Reading the register…')} />
+      )}
       {registre && registre.lignes.length === 0 && (
-        <p className="empty pad" data-testid="genome-vide">
-          {t(
-            'Aucun fait encore — le registre se remplit dès qu’une tâche part vers un modèle déclaré.',
-            'No facts yet — the register fills as soon as a task goes to a declared model.',
-          )}
-        </p>
+        <div data-testid="genome-vide">
+          <EmptyState
+            titre={t('Aucun fait encore', 'No facts yet')}
+            texte={t(
+              'Le registre se remplit dès qu’une tâche part vers un modèle déclaré.',
+              'The register fills as soon as a task goes to a declared model.',
+            )}
+          />
+        </div>
       )}
       {registre && registre.lignes.length > 0 && (
         <div className="genome-defile">

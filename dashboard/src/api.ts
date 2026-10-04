@@ -3044,6 +3044,14 @@ export interface FeedHandlers {
 
 export interface HiveFeed {
   close(): void;
+  /**
+   * Rappelle la ruche TOUT DE SUITE, au lieu d'attendre la fin du recul (qui
+   * monte à quinze secondes). Sans effet si une connexion est ouverte ou en
+   * cours : on ne double pas une socket, et on ne coupe pas celle qui sert.
+   * Le recul, lui, n'est pas remis à zéro — un clic ne rouvre pas la boucle
+   * à 1 Hz que `onclose` évite.
+   */
+  reconnecter(): void;
 }
 
 /**
@@ -3163,6 +3171,9 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
 
   const open = (): void => {
     if (closed) return;
+    // Plus de recul en attente : c'est ce qui dit à `reconnecter` qu'une
+    // socket existe déjà (ouverte ou en train de s'ouvrir).
+    timer = undefined;
     authentifie = false;
     sain = false;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -3238,6 +3249,11 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
       closed = true;
       if (timer !== undefined) window.clearTimeout(timer);
       ws?.close();
+    },
+    reconnecter(): void {
+      if (closed || timer === undefined) return;
+      window.clearTimeout(timer);
+      open();
     },
   };
 }

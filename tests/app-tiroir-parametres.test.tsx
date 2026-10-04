@@ -27,7 +27,7 @@ import { getLang, setLang } from '../dashboard/src/i18n';
 
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  connectFeed: vi.fn(() => ({ close: () => {} })),
+  connectFeed: vi.fn(() => ({ close: () => {}, reconnecter: () => {} })),
   fetchPulse: vi.fn(() => Promise.resolve(null)),
   fetchReviews: vi.fn(() => Promise.resolve({ reviews: {} })),
   authMe: vi.fn(() => Promise.reject(new Error('pas de compte simulé'))),
@@ -59,7 +59,7 @@ beforeEach(() => {
   poignees = null;
   vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
     poignees = h;
-    return { close: () => {} };
+    return { close: () => {}, reconnecter: () => {} };
   });
   vi.mocked(authMe).mockImplementation(() => Promise.reject(new Error('pas de compte simulé')));
 });

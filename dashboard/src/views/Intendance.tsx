@@ -40,6 +40,7 @@ import type {
   ServeurAdmin,
 } from '../api';
 import { useT } from '../i18n';
+import { EmptyState } from '../composants';
 import type { Translate } from '../i18n';
 import { GesteIrreversible } from '../ui';
 import { EchecSondage, timeShort, useApiPoll } from './shared';
@@ -525,12 +526,13 @@ export function SectionCles({ refreshTick }: { refreshTick: number }) {
             )}
           </p>
           {cles.data.noeuds.length === 0 ? (
-            <p className="empty pad">
-              {t(
-                'Aucune clé par machine : les nœuds connectés utilisent encore le jeton de ruche partagé.',
-                'No per-machine key: connected nodes still use the shared hive token.',
+            <EmptyState
+              titre={t('Aucune clé par machine', 'No per-machine key')}
+              texte={t(
+                'Les nœuds connectés utilisent encore le jeton de ruche partagé.',
+                'Connected nodes still use the shared hive token.',
               )}
-            </p>
+            />
           ) : (
             <ul className="in-cles">
               {cles.data.noeuds.map((n) => {
@@ -577,7 +579,7 @@ export function SectionCles({ refreshTick }: { refreshTick: number }) {
             )}
           </p>
           {cles.data.billets.length === 0 ? (
-            <p className="empty pad">{t('Aucun billet émis.', 'No ticket issued.')}</p>
+            <EmptyState titre={t('Aucun billet émis.', 'No ticket issued.')} />
           ) : (
             <ul className="in-cles">
               {cles.data.billets.map((b) => (

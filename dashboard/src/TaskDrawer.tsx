@@ -13,6 +13,7 @@ import type {
 } from './api';
 import type { ExecutionUsage, HiveNode, Task, TaskResult } from '../../src/shared/types';
 import { useLang, useT } from './i18n';
+import { Skeleton } from './composants';
 import { formatMs, NOTE_COUT_DECLARE, StatusBadge, useDialog } from './ui';
 import { direAnnonce, direDuree } from '../../src/shared/horloge-chantier';
 import { arreteeParSonBudget } from '../../src/shared/arret-budgetaire';
@@ -427,9 +428,10 @@ export function TaskDrawer({
             )}
           </div>
           {delegationLoading && (
-            <p className="muted-text" role="status">
-              {t('Lecture du graphe réel…', 'Reading the live graph…')}
-            </p>
+            <Skeleton
+              lignes={2}
+              libelle={t('Lecture du graphe réel…', 'Reading the live graph…')}
+            />
           )}
           {delegationError && (
             <p className="modal-error" role="status">

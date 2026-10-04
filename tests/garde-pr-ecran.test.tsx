@@ -24,7 +24,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
 
 import { fetchLivraisons } from '../dashboard/src/api';
 import type { LivraisonVue } from '../dashboard/src/api';
-import { LivraisonsProjet } from '../dashboard/src/views/Projets';
+import { LivraisonsProjet } from '../dashboard/src/views/projets/Depot';
 import { couperLeReseau } from './aide/sans-reseau';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
