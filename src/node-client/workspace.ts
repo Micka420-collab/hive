@@ -3,9 +3,10 @@
 // Ce que CE fichier fournit : un cwd dédié par tâche, un environnement épuré
 // (pas de HOME/USERPROFILE ni variables du membre), TEMP redirigé dans la
 // tâche, une branche git `hive/<taskId>` quand le projet a un dépôt (ou, pour
-// une reprise, la branche de la pull request qu'elle prolonge) — et le
-// diff de revue, calculé par le git dir de la RUCHE, jamais par le `.git` que
-// l'agent a eu entre les mains (`git-hote.ts`).
+// une reprise, la branche de la pull request qu'elle prolonge), un clone qui
+// ne porte aucun identifiant du dépôt (`cloneRepo`) — et le diff de revue,
+// calculé par le git dir de la RUCHE, jamais par le `.git` que l'agent a eu
+// entre les mains (`git-hote.ts`).
 //
 // ─── CE N'EST PAS TOUT L'ISOLEMENT, ET CE COMMENTAIRE L'A CRU LONGTEMPS ──────
 //
@@ -24,12 +25,13 @@
 // membre. C'est le niveau `processus` de `constat()`, et c'est là — pas ici —
 // que la vérité de l'isolement s'écrit.
 
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { CLONE_MS } from '../shared/butoirs-noeud.js';
+import { effacerDossier } from '../shared/effacement.js';
 import type { Task } from '../shared/types.js';
 import { segmentSur } from '../shared/noms-windows.js';
-import { EchecGitHote, commandeSshDuMembre, gitHote } from '../shared/git-protege.js';
+import { EchecGitHote, commandeSshDuMembre, depotDistant, gitHote } from '../shared/git-protege.js';
 import { estBrancheDeLivraison } from '../shared/protocol.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import { commitDeDepart, diffContreBase, poserRegistre } from './git-hote.js';
@@ -70,8 +72,33 @@ export interface Workspace {
    * suppression, et les validations qui suivent voient l'arbre entier.
    */
   collectDiff(): Promise<string>;
-  /** Supprime le répertoire de la tâche. */
-  cleanup(): void;
+  /** Supprime le répertoire de la tâche (et ce qui vit à côté : TEMP, registre, réserve). */
+  cleanup(): Promise<void>;
+}
+
+/**
+ * Le dossier d'une tâche n'a pas pu être vidé avant la tentative : un processus
+ * le tient encore (agent orphelin, éditeur, antivirus). La raison du refus DIT
+ * cela, avec le fichier en cause — « clone impossible » enverrait l'opérateur
+ * chercher une panne de dépôt ou d'identifiants qui n'existe pas.
+ */
+export class DossierDeTacheIneffacable extends Error {
+  constructor(cwd: string, cause: unknown) {
+    const e = cause as NodeJS.ErrnoException;
+    // Relatif au dossier de la tâche : une raison tient en 120 caractères, et
+    // l'id de la tâche en mangerait la moitié. Un voisin (`.tmp`, registre,
+    // réserve) se dit depuis `tasks/`.
+    const brut = typeof e.path === 'string' ? e.path : null;
+    const dedans = brut === null ? '' : path.relative(cwd, brut);
+    const fichier =
+      brut !== null && dedans.startsWith('..') ? path.relative(path.dirname(cwd), brut) : dedans;
+    super(
+      'dossier de la tâche impossible à vider — un processus le tient-il encore ? ' +
+        `(${e.code ?? String(cause)}${fichier ? ` : ${fichier}` : ''})`,
+      { cause },
+    );
+    this.name = 'DossierDeTacheIneffacable';
+  }
 }
 
 /** Secrets de la ruche qui ne doivent jamais devenir des variables d'agent. */
@@ -105,6 +132,41 @@ const SECRETS_INTERDITS_AGENT = new Set([
 export async function retirerFichiersIgnores(depot: DepotEpingle): Promise<void> {
   // `-ff` : aussi les dépôts imbriqués ignorés ; `-d` : les dossiers entiers.
   await gitHote(['clean', '-ffdX'], depot);
+}
+
+/**
+ * Où un côté d'une tâche est REJOUÉ à part pour comparer ses tests (G11b,
+ * `node-client/validations-bac.ts`) — sa base, et l'arbre que la production
+ * livre : À CÔTÉ de la tâche, comme son TEMP et son registre, hors de ce que
+ * le bac de la tâche monte. Effacés par les validations dès la comparaison
+ * faite, et ici avec le reste si un nœud tué les a laissés.
+ */
+export const dossierDeBase = (cwd: string): string => `${cwd}.base`;
+export const dossierDeTete = (cwd: string): string => `${cwd}.tete`;
+
+/**
+ * Efface un rejeu à part, et son TEMP (`buildSandboxEnv`). Ici, parce que ce
+ * fichier possède le répertoire de tâche et ses voisins : l'inventaire de ce
+ * que Hive écrit chez le membre (`empreinte.ts`) reste vrai.
+ *
+ * ASYNCHRONE : un rejeu porte un `node_modules` complet, et l'effacer en
+ * synchrone, en pleine tâche, gelait la boucle du nœud — sans battement
+ * au-delà de `NODE_TIMEOUT_MS` (15 s), la Reine le déclare hors ligne. Par la
+ * porte unique (`effacerDossier`) : ses reprises au sommet seulement, 5,5 s au
+ * plus — jamais les `maxRetries` de `fs.rm`, qui se multiplient par niveau de
+ * dossier (le piège de #538/#552). Ce qui reste (un fichier verrouillé sous
+ * Windows), le prochain `prepareWorkspace` de la tâche, ou son `cleanup`, le
+ * reprendra. Ne lève jamais : rien ne doit emporter le résultat de la tâche.
+ */
+export async function effacerRejeu(dossier: string): Promise<void> {
+  await Promise.all([effacerDossier(dossier), effacerDossier(`${dossier}.tmp`)]).catch(
+    () => undefined,
+  );
+}
+
+/** Les deux rejeux d'une tâche — sa base, sa tête. */
+async function effacerRejeux(cwd: string): Promise<void> {
+  await Promise.all([effacerRejeu(dossierDeBase(cwd)), effacerRejeu(dossierDeTete(cwd))]);
 }
 
 export function variablesAgentSansSecrets(variables: readonly string[]): string[] {
@@ -147,6 +209,20 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
  * l'environnement de la livraison locale, qui POUSSE avec exactement les
  * identifiants qui ont servi au clone (`livraison-locale.ts`).
  *
+ * ─── LE CLONE NE PORTE AUCUN IDENTIFIANT ─────────────────────────────────────
+ *
+ * C'est la seule porte de clone du nœud — tâche, reprise d'une pull request,
+ * merge, chantier. Git y clone l'adresse NUE ; le compte qu'écrivait l'URL du
+ * hub voyage dans l'environnement de CE git (`depotDistant`). Le
+ * `.git/config` de la tâche — que l'agent lit, et que le registre recopie —
+ * n'a donc plus de jeton à donner, et la ruche n'en dépose plus chez le
+ * membre : un `git push` lancé depuis l'espace de travail ne trouve rien de
+ * ce que la ruche a reçu. L'enceinte est structurelle, pas une affaire de
+ * forme de commande (`politique-actions.ts`) — avec sa limite, dite : au
+ * niveau `processus`, l'agent atteint le HOME du membre, donc ses propres
+ * identifiants git, et tout jeton qu'une version précédente de Hive y avait
+ * déposé (`hive doctor` le cherche ; il faut le faire tourner).
+ *
  * ─── BORNÉ, PARCE QUE LE HUB COMPTE DESSUS ─────────────────────────────────
  *
  * Ce clone ouvre chaque merge, chaque chantier et chaque tâche, et il n'avait
@@ -175,14 +251,15 @@ export async function cloneRepo(
   // (`gitHote`) : absent, le clone mourait en « spawn git ENOENT ».
   mkdirSync(parent, { recursive: true });
   const ssh = await commandeSshDuMembre(parent);
+  const { nue, acces } = depotDistant(repoUrl);
   try {
     // `--` : une URL qui commencerait par un tiret ne devient pas une option.
     // `--branch=` d'un seul tenant, pour la même raison : la valeur ne peut
     // pas être relue comme une option (`estBrancheDeLivraison` l'interdit déjà).
     await gitHote(
-      ['clone', '--depth', '1', ...(branche ? [`--branch=${branche}`] : []), '--', repoUrl, dir],
+      ['clone', '--depth', '1', ...(branche ? [`--branch=${branche}`] : []), '--', nue, dir],
       parent,
-      { ssh, delaiMs },
+      { ssh, delaiMs, acces },
     );
   } catch (err) {
     if (!(err instanceof EchecGitHote && err.delaiDepasse)) throw err;
@@ -219,23 +296,23 @@ export async function prepareWorkspace(
   const cwd = path.resolve(tasksRoot, dirName);
   // Confinement strict : le cwd DOIT rester sous <workRoot>/tasks. Défense en
   // profondeur contre un task.id malveillant (« ../… » ou chemin absolu) qui
-  // ferait pointer rmSync/clone hors du répertoire de travail. La validation
-  // de task.id (ID_PATTERN) côté client et protocole est la première barrière ;
-  // ceci en est la seconde, au plus près du sink destructeur.
+  // ferait pointer l'effacement ou le clone hors du répertoire de travail. La
+  // validation de task.id (ID_PATTERN) côté client et protocole est la
+  // première barrière ; ceci en est la seconde, au plus près du sink destructeur.
   if (cwd !== tasksRoot && !cwd.startsWith(tasksRoot + path.sep)) {
     throw new Error(`chemin de tâche hors du répertoire de travail : ${task.id}`);
   }
   // Le REGISTRE de la ruche (`git-hote.ts`) : le git dir que l'hôte lit, À
   // CÔTÉ de la tâche comme son TEMP — hors de ce que le bac monte.
   const registre = `${cwd}.git`;
-  // Repartir d'un répertoire vierge à chaque tentative. maxRetries absorbe les
-  // verrous transitoires de fichiers sous Windows (antivirus, handle git résiduel)
-  // qui, sinon, feraient échouer la tâche à durée nulle et brûleraient un essai.
-  const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
-  rmSync(cwd, rmOpts);
-  rmSync(`${cwd}.tmp`, rmOpts);
-  rmSync(registre, rmOpts);
-  rmSync(reserveDeConfiguration(cwd), rmOpts);
+  // Repartir d'un répertoire vierge à chaque tentative : la précédente a pu
+  // être tuée (ruche redémarrée) avant son `cleanup`, clone compris.
+  const restes = [cwd, `${cwd}.tmp`, registre, reserveDeConfiguration(cwd)];
+  const effacerRestes = (): Promise<unknown> => Promise.all(restes.map(effacerDossier));
+  await effacerRestes().catch((err: unknown) => {
+    throw new DossierDeTacheIneffacable(cwd, err);
+  });
+  await effacerRejeux(cwd);
   mkdirSync(cwd, { recursive: true });
 
   let branch: string | null = null;
@@ -292,15 +369,13 @@ export async function prepareWorkspace(
       // revue, la livraison et le merge.
       return depot ? diffContreBase(depot, baseSha) : '';
     },
-    cleanup(): void {
-      try {
-        rmSync(cwd, rmOpts);
-        rmSync(`${cwd}.tmp`, rmOpts);
-        rmSync(registre, rmOpts);
-        rmSync(reserveDeConfiguration(cwd), rmOpts);
-      } catch {
-        // Fichier verrouillé (Windows) : le prochain run de la tâche nettoiera.
-      }
+    async cleanup(): Promise<void> {
+      // Les rejeux sont déjà effacés par les validations : ceci rattrape un
+      // reste, sans retenir le nœud.
+      void effacerRejeux(cwd);
+      // Fichier encore tenu : la prochaine tentative de la tâche réessaiera,
+      // et DIRA pourquoi si le dossier résiste (`DossierDeTacheIneffacable`).
+      await effacerRestes().catch(() => undefined);
     },
   };
 }

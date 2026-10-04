@@ -31,6 +31,7 @@
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { lireIssue, pourChoisir as pourChoisirIssues } from '../shared/issue.js';
 import type { IssueGithub } from '../shared/issue.js';
+import { isValidRemoteRepoUrl, motifDepotIllisible } from '../shared/protocol.js';
 import {
   estIdWorkflow,
   estRefPlausible,
@@ -91,7 +92,12 @@ export function lireDepot(brut: unknown): DepotGithub | null {
   const d = brut as Record<string, unknown>;
   const fullName = texte(d.full_name, MAX_NOM);
   const cloneUrl = typeof d.clone_url === 'string' ? d.clone_url : '';
-  if (!fullName.includes('/') || !estUrlHttps(cloneUrl)) return null;
+  // Le contrat de toute source entrée par une route (`isValidRemoteRepoUrl`) :
+  // `new URL` retire en silence tabulations et sauts de ligne, l'adresse rangée
+  // les garderait — et chaque nœud refuserait les assignations du projet.
+  if (!fullName.includes('/') || !estUrlHttps(cloneUrl) || !isValidRemoteRepoUrl(cloneUrl)) {
+    return null;
+  }
 
   const pousse = typeof d.pushed_at === 'string' ? Date.parse(d.pushed_at) : Number.NaN;
   return {
@@ -424,10 +430,19 @@ export async function lireUnDepot(opts: OptionsGithub, fullName: string): Promis
   const base = (opts.api ?? API_DEFAUT).replace(/\/+$/, '');
   const rep = await f(`${base}/repos/${fullName}`, { headers: entetes(opts.jeton) });
   if (!rep.ok) throw expliquerStatut(rep.status, rep.headers.get('x-ratelimit-remaining'));
-  const d = lireDepot(await rep.json());
-  if (!d)
-    throw new ErreurGithub('réponse illisible', 502, 'GitHub a répondu quelque chose d’inattendu.');
-  return d;
+  const brut: unknown = await rep.json();
+  const d = lireDepot(brut);
+  if (d) return d;
+  // Une adresse de clonage que le protocole refuse dit sa cause : « inattendu »
+  // laissait chercher pourquoi l'import échouait.
+  const cloneUrl =
+    typeof brut === 'object' && brut !== null ? (brut as Record<string, unknown>).clone_url : null;
+  const motif = typeof cloneUrl === 'string' ? motifDepotIllisible(cloneUrl) : null;
+  throw new ErreurGithub(
+    'réponse illisible',
+    502,
+    motif ?? 'GitHub a répondu quelque chose d’inattendu.',
+  );
 }
 
 // ─── LES WORKFLOWS ───────────────────────────────────────────────────────────

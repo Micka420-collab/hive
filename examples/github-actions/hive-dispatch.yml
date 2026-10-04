@@ -1,0 +1,54 @@
+# hive-dispatch — confier à la ruche chaque issue qui reçoit l'étiquette « hive ».
+#
+# À COPIER dans le dépôt surveillé, sous .github/workflows/hive-dispatch.yml.
+# Il n'appelle PAS l'API d'administration de la ruche et ne porte PAS le jeton
+# de ruche (HIVE_TOKEN) : il signe un appel au webhook d'UNE routine, avec la
+# clé propre à cette routine — révocable d'un clic dans Mission Control, sans
+# toucher au reste. Voir docs/ROUTINES.md.
+#
+# Deux secrets du dépôt (Settings → Secrets and variables → Actions) :
+#   HIVE_ROUTINE_URL  l'URL complète du webhook, telle que Mission Control la
+#                     montre à la création : https://<ruche>/api/projects/<projet>/routines/<routine>/webhook
+#   HIVE_ROUTINE_KEY  la clé « rtn_… » remise à la création de la routine
+#
+# La Reine doit être joignable depuis GitHub (mode Cloud, tunnel ou proxy) :
+# une ruche strictement locale ne reçoit pas d'appel entrant — utilisez alors
+# le déclencheur « cron » ou « CI rouge », qui sondent depuis la ruche.
+
+name: hive-dispatch
+
+on:
+  issues:
+    types: [labeled]
+
+permissions: {}
+
+jobs:
+  dispatch:
+    if: github.event.label.name == 'hive'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confier l'issue à la routine Hive
+        env:
+          HIVE_ROUTINE_URL: ${{ secrets.HIVE_ROUTINE_URL }}
+          HIVE_ROUTINE_KEY: ${{ secrets.HIVE_ROUTINE_KEY }}
+          # Passés par l'environnement, JAMAIS interpolés dans le script : un
+          # titre d'issue est écrit par n'importe qui et deviendrait du shell.
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          # Un identifiant par livraison : relancé, ce job ne double pas la
+          # mission (la ruche répond « doublon »).
+          DELIVERY: ${{ github.run_id }}-${{ github.run_attempt }}-${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          body=$(jq -cn --arg n "#$ISSUE_NUMBER" --arg t "$ISSUE_TITLE" --arg u "$ISSUE_URL" \
+            '{contexte: {issue: $n, titre: $t, url: $u}}')
+          t=$(date +%s)
+          sig=$(printf '%s.%s' "$t" "$body" \
+            | openssl dgst -sha256 -hmac "$HIVE_ROUTINE_KEY" -hex | sed 's/^.* //')
+          curl --fail-with-body -sS -X POST "$HIVE_ROUTINE_URL" \
+            -H 'content-type: application/json' \
+            -H "x-hive-signature: t=$t,v1=$sig" \
+            -H "x-hive-delivery: $DELIVERY" \
+            --data "$body"

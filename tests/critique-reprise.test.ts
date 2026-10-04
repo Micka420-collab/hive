@@ -106,7 +106,11 @@ describe('blocCritique — ce que lit la tentative suivante', () => {
     );
     expect(hostile.bloc.match(/HIVE_DATA>>>/g)).toHaveLength(1);
     expect(hostile.objections).toBe(1);
-    expect(blocCritique(critique, suivante, 50)).toEqual({ bloc: '', objections: 0 });
+    expect(blocCritique(critique, suivante, 50)).toEqual({
+      bloc: '',
+      objections: 0,
+      commentaires: 0,
+    });
   });
 
   it('nomme la tentative visée quand un échec s’est glissé entre la critique et la reprise', () => {

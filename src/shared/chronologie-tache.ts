@@ -15,13 +15,15 @@
 //     jamais déduits de la durée du Worker, qui mesure le processus local et
 //     non le modèle distant, ni le coût des jetons.
 
+import { arreteeParSonBudget } from './arret-budgetaire.js';
 import { declarationDe, sommeDeclaree } from './declaration-fournisseur.js';
 import type { SommeDeclaree } from './declaration-fournisseur.js';
 import type { HiveEvent } from './types.js';
 
 export type { SommeDeclaree } from './declaration-fournisseur.js';
 
-export type IssueTentative = 'reussie' | 'reprise' | 'echec';
+/** `arret` : arrêtée dans la boucle de l'agent, sur son plafond de coût — pas un échec. */
+export type IssueTentative = 'reussie' | 'reprise' | 'echec' | 'arret';
 
 export interface TentativeVue {
   issue: IssueTentative;
@@ -152,8 +154,14 @@ export function chronologieDepuisEvenements(
         break;
       case 'task_failed':
         // Un refus d'infrastructure (aucun agent qui fonctionne) n'a pas de
-        // durée : la tentative compte, sa durée reste inconnue.
-        tentatives.push(tentative('echec', e.payload));
+        // durée : la tentative compte, sa durée reste inconnue. Un arrêt sur
+        // plafond n'est pas un échec ; clos par la Reine avant tout envoi
+        // (aucun nœud nommé : sa réservation était dépensée), aucune tentative
+        // n'a tourné, rien à compter.
+        if (!arreteeParSonBudget(e.payload)) tentatives.push(tentative('echec', e.payload));
+        else if (typeof e.payload.nodeId === 'string') {
+          tentatives.push(tentative('arret', e.payload));
+        }
         terminaleA = e.ts;
         break;
       case 'task_cancelled':

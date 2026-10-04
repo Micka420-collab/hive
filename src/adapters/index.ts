@@ -4,6 +4,8 @@
 
 import type { PresenceFichier } from '../shared/presence.js';
 import type { Effort } from '../shared/effort.js';
+import type { ActionProposee, DecisionAction } from '../shared/politique-actions.js';
+import type { ArretBudgetaire } from '../shared/arret-budgetaire.js';
 import type { ExecutionUsage, SubAgent, Task, UsageFournisseur } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
 import { createClineAdapter } from './cline.js';
@@ -111,13 +113,46 @@ export interface AdapterContext {
    */
   bac?: BacExecution;
   /**
+   * Les règles `permissions.allow` compilées depuis les déclarations du dépôt
+   * de BASE (`reglesAutorisationDepot`, G12) : les scripts de validation
+   * déclarés et l'installation du lockfile. L'adaptateur les injecte dans ses
+   * réglages imposés (Claude Code : `--settings`). Absent ou vide : rien
+   * d'ajouté — l'agent garde le seul mode de permission de sa famille.
+   */
+  permissionsAllow?: readonly string[];
+  /**
+   * Décision d'approbation d'une action proposée par le CLI (G12,
+   * `--permission-prompt-tool` via le pont MCP). Le nœud classe l'action
+   * (politique-actions.ts) selon le niveau d'autonomie du projet ; une classe
+   * irréversible ouvre une réquisition dans la Chambre et ATTEND la décision
+   * humaine (ou son expiration). Comme `delegate` : une capacité bornée,
+   * jamais le socket ni SQLite. Absente : le pont répond deny (fermé).
+   * `echeanceRun` (ms epoch) : l'instant où le délai dur de l'adaptateur
+   * tuera le CLI — l'attente d'une décision s'y borne, et le hub en déduit
+   * une échéance de Chambre qui précède la mort du processus.
+   */
+  decideAction?: (action: ActionProposee, echeanceRun?: number) => Promise<DecisionAction>;
+  /**
    * `'relecture'` : la tâche est une contre-expertise — l'agent LIT une
    * production, il n'a rien à écrire. Un adaptateur peut alors réduire ses
    * droits (Codex : `--sandbox read-only`). Absent : une production. Dit par
    * le hub (`AssignTaskMsg.relecture`), jamais deviné du prompt.
    */
   role?: 'relecture';
+  /**
+   * Ce que cette tentative peut encore dépenser, en micro-USD (≥ 1), dit par
+   * la Reine (`AssignTaskMsg.plafondCoutMicros`) — posé par le nœud seulement
+   * quand `plafondCout` l'a dit TENU par le CLI qui tournera. L'adaptateur le
+   * passe à son agent (Claude Code : `--max-budget-usd`). Absent : aucun.
+   */
+  plafondCoutMicros?: number;
 }
+
+/**
+ * Le CLI qui tournera tient-il un plafond de coût dans sa boucle ? Sinon,
+ * pourquoi — et quoi faire : le motif part tel quel au journal de la tâche.
+ */
+export type VerdictPlafond = { tenu: true } | { tenu: false; motif: string };
 
 export interface AdapterResult {
   success: boolean;
@@ -145,6 +180,11 @@ export interface AdapterResult {
    * Voir `texte-final.ts`.
    */
   finalText?: string;
+  /**
+   * Le CLI s'est arrêté sur le plafond de coût qu'il avait reçu — ce qu'IL a
+   * déclaré (le `subtype` de son résultat), jamais déduit des logs.
+   */
+  arretBudgetaire?: ArretBudgetaire;
 }
 
 export interface AgentAdapter {
@@ -163,6 +203,14 @@ export interface AgentAdapter {
    * aucun, ou des drapeaux le lui interdisent (Claude Code, `claude-code.ts`).
    */
   configurationExecutee?: readonly string[];
+  /**
+   * Un plafond de coût tenu DANS LA BOUCLE de l'agent. Présente, le nœud
+   * déclare la capacité à son inscription (`RegisterMsg.plafondCout`) et
+   * l'interroge avant chaque tentative plafonnée — HORS du budget de durée de
+   * l'enfant : la version du CLI qui tournera dit s'il le tient. Absente :
+   * l'adaptateur n'en tient aucun, et la Reine le dit à l'envoi.
+   */
+  plafondCout?: (ctx: AdapterContext) => Promise<VerdictPlafond>;
   run(task: Task, ctx: AdapterContext): Promise<AdapterResult>;
 }
 

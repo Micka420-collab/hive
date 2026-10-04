@@ -11,6 +11,7 @@
     "README.md",
     "README.en.md",
     "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
     ".env.example"
   ],
   "type": "module",

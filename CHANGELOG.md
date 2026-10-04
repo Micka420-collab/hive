@@ -7,6 +7,36 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Pour monter
+
+- **Faites tourner le jeton de chaque projet privé dont l'URL en porte un**
+  (`https://user:jeton@…`). Jusqu'ici, le clone de chaque tâche l'écrivait
+  dans son `.git/config` — lisible par chaque agent —, et git le confiait à
+  l'assistant d'identifiants du membre qui clonait ou poussait : en clair dans
+  `~/.git-credentials` avec `store`, dans le gestionnaire de Windows — à la
+  place de l'entrée du membre pour cet hôte —, dans le trousseau de macOS.
+  Révoquez-le chez l'hébergeur ; l'URL d'un projet ne se change pas encore :
+  recréez le projet avec le nouveau. Sur chaque machine, `hive doctor`
+  (`identifiants_git`) nomme les fichiers de `store` et les hôtes du
+  gestionnaire de Windows qui gardent un identifiant git — jamais sa valeur.
+  Le trousseau de macOS se vérifie dans « Trousseaux d'accès » ; chaque entrée
+  se retire à la main (#551).
+- **git ≥ 2.31** sur les ouvrières et la Reine pour un projet dont l'URL porte
+  un jeton : en dessous, git ignorerait l'accès que la ruche lui passe par
+  l'environnement — le clone est refusé, en le disant (`hive doctor` : `git`).
+  Une URL au mot de passe sans nom (`https://:jeton@…`) est refusée aussi : git
+  n'envoie pas de compte au nom vide ; `https://<jeton>@…` convient (#551).
+- **Un projet dont l'URL de dépôt porte un caractère de contrôle** (rangée
+  avant #551, ou chemin local d'administrateur) ne part plus vers les
+  ouvrières : ses tâches échouent avant tout envoi, la cause au Journal
+  (« URL de dépôt du projet illisible (caractère de contrôle) — recréez le
+  projet avec une URL valide »), et ses merges, chantiers et courses sont
+  refusés de même. Jusqu'ici, chaque ouvrière jetait l'assignation sans un mot
+  et la tâche restait assignée pour toujours. Recréez le projet. Une ouvrière
+  à jour refuse aussi, en le disant, toute assignation qu'elle ne sait pas
+  lire (des versions différentes, ou un champ hors des bornes du protocole) :
+  gardez la Reine et ses ouvrières à la même version (#554).
+
 ## [0.5.0] — 2026-09-28
 
 Hive s'installe désormais **comme une application** : la Reine, une ouvrière

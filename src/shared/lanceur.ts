@@ -81,6 +81,13 @@ const VRAIS_BINAIRES_WIN32: ReadonlySet<string> = new Set([
   'git',
   'docker',
   'podman',
+  // Les deux outils de la porte de sécurité (`node-client/porte-securite.ts`) :
+  // des binaires Go, publiés pour Windows en `.exe` (`betterleaks_<v>_windows_x64.zip`,
+  // `osv-scanner_windows_amd64.exe`). Refusés ici, la porte d'un nœud Windows
+  // sans bac était « outil absent » à chaque production — pendant que
+  // `hive doctor`, qui les lançait par un autre chemin, les disait présents.
+  'betterleaks',
+  'osv-scanner',
 ]);
 
 /** Le nom du lanceur, sans chemin ni extension, en minuscules. */

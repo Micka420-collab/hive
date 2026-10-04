@@ -56,6 +56,13 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+/**
+ * Un diff de CRÉATION de fichier, dans la forme exacte de `git diff` (en-tête
+ * `diff --git` compris) : c'est celle que rendent les vraies ouvrières
+ * (`diffContreBase`), et celle que la Miellerie découpe par fichier et laisse
+ * commenter ligne par ligne. Sans l'en-tête, la simulation montrait un diff
+ * brut qu'on ne pouvait pas commenter.
+ */
 function fakeDiff(task: Task): string {
   const slug = task.title
     .toLowerCase()
@@ -63,6 +70,8 @@ function fakeDiff(task: Task): string {
     .replace(/^-|-$/g, '')
     .slice(0, 40);
   return [
+    `diff --git a/src/${slug}.ts b/src/${slug}.ts`,
+    'new file mode 100644',
     `--- /dev/null`,
     `+++ b/src/${slug}.ts`,
     `@@ -0,0 +1,4 @@`,

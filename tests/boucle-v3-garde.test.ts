@@ -164,6 +164,88 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['tests/join-porte.test.ts', 'securite'],
     ['tests/retention-journal.test.ts', 'securite'],
     ['tests/livraison-locale.test.ts', 'securite'],
+    // Les gardes de la vague 7 (train 6) : réseau sortant (#545), politique
+    // d'actions (#548), garde de PR (#546), revue en ligne (#547), routines
+    // (#544) — et le budget dans la boucle (#550) : son prédicat d'arrêt, que
+    // lisent les leçons de l'essaim, et les bornes de la délégation qu'il tient.
+    ['src/node-client/proxy-egress.ts', 'securite'],
+    ['src/node-client/politique-reseau.ts', 'securite'],
+    ['src/node-client/reseau-tache.ts', 'securite'],
+    ['src/shared/reseau.ts', 'securite'],
+    ['src/shared/politique-actions.ts', 'permissions'],
+    ['src/orchestrator/garde-pr.ts', 'permissions'],
+    ['src/shared/commentaire-revue.ts', 'permissions'],
+    ['src/orchestrator/routines.ts', 'auto-execution'],
+    ['src/orchestrator/cron.ts', 'auto-execution'],
+    ['src/shared/arret-budgetaire.ts', 'permissions'],
+    ['src/orchestrator/delegation.ts', 'permissions'],
+    ['src/shared/limites-delegation.ts', 'permissions'],
+    ['tests/proxy-egress.test.ts', 'securite'],
+    ['tests/requisition-action.test.ts', 'securite'],
+    ['tests/garde-pr-boucle.test.ts', 'securite'],
+    ['tests/routines-api.test.ts', 'securite'],
+    ['tests/revue-ligne.test.ts', 'securite'],
+    ['tests/reseau-projet.test.ts', 'securite'],
+    ['tests/budget-boucle.test.ts', 'securite'],
+    ['tests/budget-essaim.test.ts', 'securite'],
+    // La suite de G12 : le clone d'une tâche ne porte aucun identifiant de
+    // push — son banc, et la porte git qui l'assure (déjà nommée plus haut).
+    ['tests/clone-sans-identifiants.test.ts', 'securite'],
+    // L'effacement de ce que git a rempli, sorti de workspace.ts pour servir
+    // aussi le miroir de la Reine : il garde la catégorie de l'atelier.
+    ['src/node-client/workspace.ts', 'auto-execution'],
+    ['src/shared/effacement.ts', 'auto-execution'],
+    // La porte de sécurité (G10) et ses bancs : l'affaiblir laisserait partir
+    // une clé, ou compterait verte une porte qu'aucun outil n'a passée.
+    ['src/shared/porte-securite.ts', 'securite'],
+    ['src/node-client/porte-securite.ts', 'securite'],
+    ['src/shared/porte-securite-dependances.ts', 'securite'],
+    ['tests/porte-securite.test.ts', 'securite'],
+    ['tests/porte-securite-noeud.test.ts', 'securite'],
+    ['tests/porte-securite-bout-en-bout.test.ts', 'securite'],
+    ['tests/porte-securite-dependances.test.ts', 'securite'],
+    // Les faux outils et les lockfiles mesurés : un faux complaisant ferait
+    // passer les bancs ci-dessus pour de mauvaises raisons.
+    ['tests/fixtures/faux-outils-porte.ts', 'securite'],
+    ['tests/fixtures/verrous-porte.ts', 'securite'],
+    // La lecture vérifiée de la base (la faille des objets git non vérifiés) et
+    // ses bancs : l'affaiblir rouvrirait la forgerie que la porte ferme.
+    ['src/node-client/base-verifiee.ts', 'securite'],
+    ['tests/base-verifiee.test.ts', 'securite'],
+    ['tests/base-forgee-bout-en-bout.test.ts', 'securite'],
+    // Les verdicts test par test (G11b) : le lecteur qui excuse un échec déjà
+    // rouge à la base, ses bancs et les sorties réelles qu'ils rejouent.
+    ['src/shared/lecture-tests.ts', 'permissions'],
+    ['tests/lecture-tests.test.ts', 'permissions'],
+    ['tests/verdicts-par-test-noeud.test.ts', 'permissions'],
+    ['tests/verdicts-par-test-bout-en-bout.test.ts', 'permissions'],
+    ['tests/fixtures/sorties-de-tests/vitest-defaut.txt', 'permissions'],
+    // Train 7 — l'union des deux lignées, banc par banc : chaque banc qui
+    // verrouille une garde de la vague 7 est NOMMÉ, pas seulement couvert par
+    // un motif (retiré du motif, il passerait sinon). Le réseau sortant (#545),
+    // la politique d'actions (#548), la garde de PR (#546) et les routines
+    // (#544) ; l'effacement borné et le butoir du miroir (#552) ; l'assignation
+    // illisible (#554) ; les faux outils de la porte (G10) ; et le réseau de la
+    // porte, propre à ce train.
+    ['tests/politique-reseau.test.ts', 'securite'],
+    ['tests/reseau-tache.test.ts', 'securite'],
+    ['tests/enveloppe-reseau.test.ts', 'securite'],
+    ['tests/bac-reseau.test.ts', 'securite'],
+    ['tests/reseau-bac.integration.test.ts', 'securite'],
+    ['tests/politique-actions.test.ts', 'securite'],
+    ['tests/pont-approve.test.ts', 'securite'],
+    ['tests/regles-autorisation-depot.test.ts', 'securite'],
+    ['tests/garde-pr.test.ts', 'securite'],
+    ['tests/garde-pr-ecran.test.tsx', 'securite'],
+    ['tests/routines.test.ts', 'securite'],
+    ['tests/routines-cron.test.ts', 'securite'],
+    ['tests/routines-ecran.test.tsx', 'securite'],
+    ['tests/miroir-tenu.test.ts', 'securite'],
+    ['tests/dossier-tache-tenu.test.ts', 'securite'],
+    ['tests/miroir-amont-muet.test.ts', 'securite'],
+    ['tests/assignation-illisible.test.ts', 'securite'],
+    ['tests/porte-securite-faux-outils.test.ts', 'securite'],
+    ['tests/porte-securite-reseau.test.ts', 'securite'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');

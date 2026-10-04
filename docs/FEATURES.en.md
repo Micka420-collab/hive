@@ -85,9 +85,10 @@ an engine without being allowed to lift the hood. The Comb lifts the hood.
 **The hub keeps its own mirror**: a read-only shallow clone per project
 (`data/rayons/<id>`), refreshed at most once a minute. Going through the GitHub
 API would have required the **host's token** — showing the code to a bee would
-spend a right that is not hers. **`.git` is never served**: it holds `config`,
-hence the remote URL, hence the private repository's credentials; neither are
-`.env`, `.npmrc`, `id_rsa` or key extensions.
+spend a right that is not hers. **`.git` is never served** (configuration, raw
+objects, refs) — a private repository's credentials are not even written there:
+the mirror clones the bare address, and access only lives for each call to the
+upstream; neither are `.env`, `.npmrc`, `id_rsa` or key extensions.
 The mirror shows **the bytes the repository stores**: no filter or
 `.gitattributes` conversion (line endings, `$Id$`, encoding) is applied, and
 **a Git LFS file appears as its pointer** (a few `version … oid sha256:… size …`
@@ -226,9 +227,11 @@ npm run cli -- livrer-local <projectId> --prolonger=1         # fix: advance hiv
   `origin` is the project repository, credentials stripped): `git fetch` from
   that path, or `git -C … push origin hive/mission-…` on the worker.
 - **With `--pousser`**, the worker pushes to the project address the hive sent
-  it, with **its own** git credentials — the ones used to clone —, never
-  forced, never another branch. A repository that does not answer within two
-  minutes (credentials awaited?) fails the push, and the report says so. It only does so if its operator started it with
+  it, with the credentials used to clone — the account the project URL
+  carries, otherwise the worker's own —, never forced, never another branch. A
+  repository that does not answer within two minutes (unreachable or mute)
+  fails the push, and the report says so; so does a refused token, with what to
+  change. It only does so if its operator started it with
   `HIVE_LIVRAISON_POUSSER=1`: the repository and the diff come from the hub, and
   the hive token sits on every member machine. And only the host asks for it
   (hive token or administrator account): the operator consented for the hive,
@@ -504,10 +507,29 @@ admitted, no correction restarts, and the ones in flight are cancelled — each
 with its reason, which a waiting parent receives at once — as does a parent
 whose child failed without returning anything. An attempt with no declared
 cost, or interrupted before returning (lost worker, cancellation), never counts
-as zero: the task drawer says "at least". A parent waiting on its children
-**releases its slot to its own tree** on its worker: a tree no longer deadlocks
-on a full worker, and another root does not slip into that slot —
-`maxConcurrency` still bounds new work.
+as zero: the task drawer says "at least".
+
+A child's reservation is also **its own cap, held inside its agent's loop**:
+it is at least 1 µUSD (a single response already costs around 13,000 to
+25,000 µUSD on the smallest model), and each attempt receives what is left of
+it — the reservation minus the declared cost of its previous attempts, never
+what is left of the root. Claude Code (≥ 2.1.217) stops on it
+(`--max-budget-usd`, at most one response over, as documented). The task then
+ends **stopped by its budget**: neither an agent failure nor an outage — no
+retry, and no reader counts it as a failure (Genome register, Thermo, Waggle,
+Ghost, Pulse, pheromones, swarm lessons, experience graph, screens). The parent
+reads at the head of the logs the spend, the partial diff if there is one, and
+that it must re-delegate under a **new** child id: the same one replays the
+stopped child. A reservation already spent by previous attempts is not sent
+again: the Queen closes the child and tells the parent. Only workers that
+declare they hold a cap receive it; for the others (Codex, Cursor, Cline,
+shell, an older worker) the task journal says at dispatch that it will not be
+held — and a Claude Code older than 2.1.217 says so too, with `claude update`.
+That declared cost is the CLI's estimate, not a bill.
+
+A parent waiting on its children **releases its slot to its own tree** on its
+worker: a tree no longer deadlocks on a full worker, and another root does not
+slip into that slot — `maxConcurrency` still bounds new work.
 
 `preferredAgent` / `preferredModel` only **break ties** — the router keeps the
 last word, and the recorded reason says whether the preference mattered. The
@@ -543,6 +565,32 @@ curl -X POST http://localhost:7777/api/projects/<project>/banc-ombre \
 
 Admission rules, budget, confidence and limits (FR):
 **[BANC-OMBRE.md](BANC-OMBRE.md)**.
+
+## ⟳ Routines — scheduled or triggered work
+
+A **routine** starts a project mission without a click: at a time (5-field
+cron, read in a **time zone** — `0 9 * * 1-5` in `Europe/Paris` runs at 9 am
+in Paris, summer and winter), on a **signed webhook** (HMAC, a key of its own,
+replayed deliveries deduplicated), or when a **branch's CI** turns red (one red
+commit, one mission). Business hours can bound it.
+
+Creating a routine **authorizes the spending in advance** (ADR 0014): it is a
+setting for the owner or an administrator. The routine runs with its
+account's authority, re-checked on every trigger. Each trigger starts an
+ordinary task (cap, Evaluator, cross-review, never a merge) or says why it
+started nothing. A trigger while the work is still running **joins** it, and a
+Queen switched off for two days catches up **one** slot.
+
+```bash
+# or the “Routines” subsection of a project in ⬡ Projects
+curl -X POST http://localhost:7777/api/projects/<project>/routines \
+  -H "x-hive-token: $HIVE_TOKEN" -H 'content-type: application/json' \
+  -d '{"nom": "Nightly debt", "consigne": "…", "declencheur": "cron",
+       "expression": "0 9 * * 1-5", "fuseau": "Europe/Paris"}'
+```
+
+Triggers, policies, the webhook and the `hive-dispatch` Action (FR):
+**[ROUTINES.md](ROUTINES.md)**.
 
 ## 🕸️ Experience graph — linking what the hive went through
 

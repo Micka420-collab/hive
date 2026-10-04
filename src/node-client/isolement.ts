@@ -19,14 +19,21 @@
 // toutes les capacités sont abandonnées, l'élévation de privilège est bloquée,
 // et le processus tourne sous un utilisateur non privilégié.
 //
-// IL NE FERME PAS LE RÉSEAU, et c'est structurel : un agent de codage doit
-// joindre l'API de son modèle. Un `--network none` rendrait Hive inutilisable.
-// Écrire « isolé » sans cette phrase serait un mensonge par omission — la
-// donnée que le conteneur ne protège pas est justement celle qui sort.
+// LE RÉSEAU : FILTRÉ, PAS FERMÉ. Un agent de codage doit joindre l'API de son
+// modèle — un réseau coupé rendrait Hive inutilisable —, mais c'est tout ce
+// qu'il doit joindre. Quand le projet ne dit pas `ouvert` (`shared/reseau.ts`),
+// le bac n'a QUE sa boucle locale (`--unshare-net`, `--network=none`) : tout ce
+// qui sort passe par le proxy de la tâche, ouvert par le nœud HORS du bac
+// (`proxy-egress.ts`), qui ne laisse passer que la liste blanche du projet
+// (`politique-reseau.ts`) et garde les vrais identifiants dehors — le bac n'en
+// voit que des leurres.
 //
-// Conséquence à assumer et à afficher : l'isolement empêche un agent hostile
-// de LIRE votre machine, il ne l'empêche pas d'ENVOYER ce qu'il a produit.
-//
+// Ce qui reste à assumer et à afficher (`constat`) : un hôte PERMIS reçoit ce
+// que l'agent lui envoie. L'isolement empêche un agent hostile de LIRE votre
+// machine et de joindre n'importe quoi ; il ne l'empêche pas d'envoyer ce qu'il
+// a lu du dépôt vers l'API de son propre modèle ou un registre déclaré. Et un
+// projet réglé `ouvert` retrouve le réseau entier, comme avant.
+
 // ─── AUCUNE DÉPENDANCE EMBARQUÉE ─────────────────────────────────────────────
 //
 // Même doctrine que `tunnel.ts` : Hive n'installe aucun moteur de conteneurs.
@@ -55,6 +62,15 @@ import {
 import path, { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { envSonde } from './agent-detect.js';
+import {
+  ENTETE_REFUS,
+  NOM_RELAIS,
+  PORT_RELAIS,
+  ecrireRelais,
+  ouvrirSessionReseau,
+} from './proxy-egress.js';
+import { RendezVousPont } from './rendez-vous-pont.js';
+import { PREFIXE_PREFLIGHT_AGENT } from '../shared/empreinte.js';
 
 /** Les trois positions de l'interrupteur. */
 export const MODES = ['off', 'auto', 'exige'] as const;
@@ -83,6 +99,12 @@ export const MONTAGE = '/hive/tache';
  * tâche, dont la profondeur dépassait la limite d'un chemin de socket Unix.
  */
 export const MONTAGE_PONT = '/hive/pont';
+/**
+ * Point de montage, dans le bac, du dossier RÉSEAU de la tâche : le socket de
+ * son proxy et le relais (`proxy-egress.ts`), en LECTURE SEULE — comme le pont,
+ * se connecter à un socket n'écrit rien.
+ */
+export const MONTAGE_RESEAU = '/hive/reseau';
 /** HOME éphémère du CLI dans un conteneur ; jamais le chemin de l'hôte. */
 export const HOME_CONTENEUR = '/tmp/hive-home';
 
@@ -224,13 +246,33 @@ export interface Constat {
  * un risque à quelqu'un qui croit ne pas en prendre — et c'est exactement ce
  * qu'on reproche aux produits qui vendent de la sécurité.
  */
-export function constat(niveau: NiveauIsolement, fournisseur: Fournisseur | null): Constat {
+export function constat(
+  niveau: NiveauIsolement,
+  fournisseur: Fournisseur | null,
+  /** Le bac sait-il filtrer le réseau (`sonderReseauFiltre`) ? */
+  reseauFiltre = false,
+): Constat {
+  if (niveau === 'conteneur' && fournisseur && reseauFiltre) {
+    return {
+      niveau,
+      protege: [
+        ...fournisseur.garanties,
+        'réseau sortant filtré hors du bac : l’API du modèle, et selon le projet ses registres et son hôte git',
+        'le réseau local, la machine hôte et les métadonnées de nuage restent injoignables',
+        'les clés du modèle (Claude Code, Codex) restent au nœud : le bac n’en voit que des leurres',
+      ],
+      laissePasser: [
+        'ce que l’agent envoie aux hôtes permis : il peut y écrire ce qu’il a lu du dépôt',
+        'le réseau entier pour un projet réglé « ouvert » par son propriétaire',
+      ],
+    };
+  }
   if (niveau === 'conteneur' && fournisseur) {
     return {
       niveau,
       protege: fournisseur.garanties,
       laissePasser: [
-        'le réseau — un agent de codage doit joindre l’API de son modèle',
+        'le réseau — ce bac ne sait pas le filtrer ici : un agent peut joindre n’importe quel hôte',
         'ce que l’agent produit : il peut envoyer ailleurs ce qu’il a lu du dépôt',
       ],
     };
@@ -297,6 +339,60 @@ export interface OptionsEnveloppe {
    * n'a pas de pont, rien n'est monté.
    */
   pont?: string;
+  /** Le réseau FILTRÉ de la tâche (voir `ReseauBac`). Absent : le réseau de l'hôte. */
+  reseau?: ReseauBac;
+  /**
+   * Le réseau COUPÉ, sans relais ni proxy : la boucle locale seule, où rien
+   * n'écoute — pour un outil qui n'a rien à joindre (les passes hors ligne de
+   * la porte de sécurité). Sans effet quand `reseau` est là : filtré, le bac
+   * est déjà coupé, et son relais seul en sort.
+   */
+  reseauCoupe?: boolean;
+}
+
+/**
+ * Le réseau filtré d'UNE tâche, tel que l'enveloppe le câble : réseau coupé,
+ * dossier de la session monté en lecture seule, relais devant l'agent.
+ *
+ * ─── RIEN DE SECRET ICI ──────────────────────────────────────────────────────
+ *
+ * `variables` passent en ARGUMENTS (`--setenv`, `--env=NOM=valeur`), donc dans
+ * la table des processus : ce sont l'adresse du proxy et des passerelles, pas
+ * des identifiants. Les leurres voyagent comme les vraies clés avant eux, par
+ * l'environnement hérité (`OptionsEnveloppe.variables`) — et la vraie valeur
+ * ne quitte jamais le nœud (`masquerIdentifiants`).
+ */
+export interface ReseauBac {
+  /** Dossier HÔTE de la session (0700) : le socket et `NOM_RELAIS`. */
+  dossier: string;
+  /** Le socket du proxy, DANS `dossier`. */
+  socket: string;
+  /**
+   * L'interpréteur du relais sous bubblewrap : le `node` de l'hôte, monté seul
+   * en lecture seule. Un conteneur prend le `node` de son image.
+   */
+  interprete: string;
+  /** Variables NON secrètes posées dans le bac : proxy et bases d'API. */
+  variables: Readonly<Record<string, string>>;
+}
+
+/** La commande que le bac lance : l'agent, derrière le relais quand le réseau est filtré. */
+function commandeDansBac(
+  bin: string,
+  argsAgent: readonly string[],
+  reseau: ReseauBac | undefined,
+  interprete: string,
+): string[] {
+  if (!reseau) return [bin, ...argsAgent];
+  return [
+    interprete,
+    `${MONTAGE_RESEAU}/${NOM_RELAIS}`,
+    String(PORT_RELAIS),
+    `${MONTAGE_RESEAU}/${path.basename(reseau.socket)}`,
+    '--',
+    bin,
+    ...argsAgent,
+  ];
 }
 
 /**
@@ -344,6 +440,10 @@ export interface BacExecution {
   noeud?: string;
   /** La tâche en cours (étiquette `ETIQUETTE_TACHE`). */
   tache?: string;
+  /** Le réseau filtré de la tâche, ouvert par le nœud pour elle seule. */
+  reseau?: ReseauBac;
+  /** Le réseau coupé, sans relais (voir `OptionsEnveloppe.reseauCoupe`). */
+  reseauCoupe?: boolean;
 }
 
 /** Les options d'enveloppe d'une exécution dans le bac, sur le répertoire `cwdHote`. */
@@ -355,6 +455,8 @@ export function optionsEnveloppe(bac: BacExecution, cwdHote: string): OptionsEnv
     image: bac.image,
     ...(bac.noeud ? { noeud: bac.noeud } : {}),
     ...(bac.tache ? { tache: bac.tache } : {}),
+    ...(bac.reseau ? { reseau: bac.reseau } : {}),
+    ...(bac.reseauCoupe ? { reseauCoupe: true } : {}),
   };
 }
 
@@ -427,6 +529,18 @@ function enveloppeConteneur(
     // un (jamais sous Windows : `raisonPontMcpDansBac` y écarte le bac).
     `--volume=${volumeSource}:${MONTAGE}:rw`,
     ...(opts.pont ? [`--volume=${opts.pont}:${MONTAGE_PONT}:ro`] : []),
+    // ─── RÉSEAU FILTRÉ : AUCUNE INTERFACE, SAUF LA BOUCLE ─────────────────
+    //
+    // `--network=none` : le conteneur n'a que `lo`. Tout ce qui sort passe par
+    // le relais, vers le socket du proxy de la tâche monté en lecture seule
+    // (conception Linux de srt). Coupé (`reseauCoupe`) : la boucle seule,
+    // sans relais. Sans l'un ni l'autre, le réseau du moteur, comme avant — le
+    // niveau `ouvert` d'un projet.
+    ...(opts.reseau
+      ? ['--network=none', `--volume=${opts.reseau.dossier}:${MONTAGE_RESEAU}:ro`]
+      : opts.reseauCoupe
+        ? ['--network=none']
+        : []),
     `--workdir=${MONTAGE}`,
     // Racine en lecture seule : un agent ne réécrit pas son propre système.
     '--read-only',
@@ -462,12 +576,18 @@ function enveloppeConteneur(
   // éphémère dans le tmpfs ; seules les clés explicitement autorisées traversent
   // la frontière. Les variables de configuration hôte ne sont jamais montées.
   args.push(`--env=HOME=${HOME_CONTENEUR}`);
+  // Les variables du réseau (proxy, bases d'API) ne sont PAS des secrets :
+  // elles passent par valeur, et priment sur un nom homonyme de l'hôte — un
+  // `ANTHROPIC_BASE_URL` du membre viserait l'API en direct, que le bac ne
+  // joint plus (la passerelle, elle, relaie vers cette base).
+  const reseau = opts.reseau?.variables ?? {};
   // Les secrets passent par leur NOM seul : jamais dans la ligne de commande.
   for (const nom of opts.variables) {
-    if (!VARIABLES_CHEMIN_HOTE.includes(nom)) args.push(`--env=${nom}`);
+    if (!VARIABLES_CHEMIN_HOTE.includes(nom) && !(nom in reseau)) args.push(`--env=${nom}`);
   }
+  for (const [nom, valeur] of Object.entries(reseau)) args.push(`--env=${nom}=${valeur}`);
 
-  args.push(opts.image ?? IMAGE_DEFAUT, bin, ...argsAgent);
+  args.push(opts.image ?? IMAGE_DEFAUT, ...commandeDansBac(bin, argsAgent, opts.reseau, 'node'));
   return { bin: opts.fournisseur.bin, args };
 }
 
@@ -540,6 +660,16 @@ const VARIABLES_TELECHARGEMENT: readonly string[] = [
   'SSL_CERT_FILE',
   'SSL_CERT_DIR',
 ];
+
+/**
+ * Les variables de proxy standard — celles que lit `http.ProxyFromEnvironment`
+ * de Go. Le seul programme de la ruche qui les reçoit pour sortir est
+ * osv-scanner, quand il interroge osv.dev (`node-client/porte-securite.ts`) :
+ * sans elles, derrière un proxy sortant, l'interrogation échouait toujours.
+ */
+export const VARIABLES_PROXY: readonly string[] = VARIABLES_TELECHARGEMENT.filter((nom) =>
+  /^(?:https?|no)_proxy$/i.test(nom),
+);
 
 /**
  * L'environnement du client d'un moteur de conteneurs pour les ÉPREUVES du
@@ -655,6 +785,13 @@ function enveloppeBwrap(
     // racine montée ne doit l'englober.
     interdits: [...hote.interdits, opts.cwdHote],
   });
+  // Le relais du réseau filtré tourne sous le `node` de l'hôte — celui qui fait
+  // tourner Hive —, monté SEUL en lecture seule quand il n'est pas déjà visible
+  // (sous `/usr`, ou dans une installation montée) : jamais son dossier.
+  const relais = opts.reseau ? (reel(opts.reseau.interprete) ?? opts.reseau.interprete) : null;
+  const visibles = [...SYSTEME_MONTE, ...installation.racines];
+  const montageRelais =
+    relais && !visibles.some((v) => sousOuEgal(relais, v)) ? ['--ro-bind', relais, relais] : [];
   const args = [
     // Le système de l'hôte, en LECTURE SEULE.
     '--ro-bind',
@@ -689,6 +826,7 @@ function enveloppeBwrap(
     // claude` → la version installée) : le nom logique se résout dans le bac
     // comme sur l'hôte, sans monter le reste de `~/.local/bin`.
     ...installation.liens.flatMap(({ lien, cible }) => ['--symlink', cible, lien]),
+    ...montageRelais,
 
     // LE SEUL chemin inscriptible.
     '--bind',
@@ -696,6 +834,8 @@ function enveloppeBwrap(
     MONTAGE,
     // Le pont de la tâche, en LECTURE SEULE (voir `OptionsEnveloppe.pont`).
     ...(opts.pont ? ['--ro-bind', opts.pont, MONTAGE_PONT] : []),
+    // Le dossier réseau de la tâche, en LECTURE SEULE (voir `ReseauBac`).
+    ...(opts.reseau ? ['--ro-bind', opts.reseau.dossier, MONTAGE_RESEAU] : []),
     '--chdir',
     MONTAGE,
 
@@ -721,17 +861,28 @@ function enveloppeBwrap(
       '--unsetenv',
       v,
     ]),
+    // Le proxy et les bases d'API du réseau filtré : des adresses, pas des
+    // secrets (voir `ReseauBac`).
+    ...Object.entries(opts.reseau?.variables ?? {}).flatMap(([nom, valeur]) => [
+      '--setenv',
+      nom,
+      valeur,
+    ]),
 
     // Pas d'élévation, pas de session partagée, et le processus meurt avec Hive.
     '--unshare-all',
-    // …sauf le réseau : l'agent doit joindre son modèle. C'est la même
-    // concession que pour les conteneurs, et elle est dite au même endroit.
-    '--share-net',
+    // ─── LE RÉSEAU : LA BOUCLE SEULE, OU CELUI DE L'HÔTE ───────────────────
+    //
+    // `--unshare-all` coupe aussi le réseau : le bac n'a que `lo`, que
+    // bubblewrap monte, et le relais y écoute — ou rien, réseau coupé
+    // (`reseauCoupe`). Seul un projet `ouvert` (ni l'un ni l'autre) rend le
+    // réseau de l'hôte, par `--share-net` — la concession d'avant, désormais
+    // choisie par le propriétaire du projet.
+    ...(opts.reseau || opts.reseauCoupe ? [] : ['--share-net']),
     '--new-session',
     '--die-with-parent',
     '--',
-    bin,
-    ...argsAgent,
+    ...commandeDansBac(bin, argsAgent, opts.reseau, relais ?? 'node'),
   ];
   return { bin: opts.fournisseur.bin, args };
 }
@@ -780,15 +931,18 @@ function reel(chemin: string): string | null {
  * Le chemin où `execvp` trouverait `bin` — sans rien lancer.
  *
  * Une entrée RELATIVE du PATH (`.`, ou vide) est ignorée : elle se résoudrait
- * contre le cwd de Hive, pas contre un répertoire d'installation. Un `bin` qui
- * contient `/` n'est pas cherché ; relatif, il vise le répertoire de la tâche,
- * qui est déjà monté.
+ * contre le cwd du lanceur — celui de Hive, ou le répertoire d'une TÂCHE, où
+ * l'agent écrit ce qu'il veut. Un `bin` qui contient un séparateur n'est pas
+ * cherché ; relatif, il vise le répertoire de la tâche, qui est déjà monté.
+ * Sous Windows, seul `<bin>.exe` compte : un `.cmd` ne se lance pas sans
+ * interpréteur de commandes (`shared/lanceur.ts`).
  */
-function surLePath(bin: string, chemin: string | undefined): string | null {
-  if (bin.includes('/')) return path.isAbsolute(bin) ? bin : null;
+export function surLePath(bin: string, chemin: string | undefined): string | null {
+  if (bin.includes('/') || bin.includes(path.sep)) return path.isAbsolute(bin) ? bin : null;
+  const nom = process.platform === 'win32' && !/\.exe$/i.test(bin) ? `${bin}.exe` : bin;
   for (const dossier of (chemin ?? '').split(path.delimiter)) {
     if (!path.isAbsolute(dossier)) continue;
-    const candidat = path.join(dossier, bin);
+    const candidat = path.join(dossier, nom);
     try {
       accessSync(candidat, constants.X_OK);
       if (statSync(candidat).isFile()) return candidat;
@@ -1260,6 +1414,108 @@ export async function sonderAgentDansBac(
   }
 }
 
+/** Le délai de la sonde du réseau : un bac, un relais, une requête locale. */
+export const SONDE_RESEAU_MS = 30_000;
+
+/**
+ * Ce que la sonde exécute DANS le bac, derrière le relais : aucune interface
+ * hors de la boucle (sinon le bac joindrait le réseau sans le proxy), puis une
+ * requête au proxy par le relais, qui doit répondre par SON refus — la preuve
+ * que le socket a traversé jusqu'au bac. Aucun paquet ne sort de la machine.
+ */
+const SONDE_RESEAU_JS =
+  "const os=require('node:os'),http=require('node:http');" +
+  "const autres=Object.keys(os.networkInterfaces()).filter((n)=>n!=='lo');" +
+  "if(autres.length>0){process.stderr.write('interfaces '+autres.join(',')+'\\n');process.exit(3);}" +
+  'const t=setTimeout(()=>process.exit(6),10000);' +
+  `http.get({host:'127.0.0.1',port:${PORT_RELAIS},path:'http://sonde.hive.invalid/',headers:{host:'sonde.hive.invalid'}},` +
+  `(r)=>{clearTimeout(t);r.resume();process.exit(r.headers['${ENTETE_REFUS}']==='refus'?0:4);})` +
+  ".on('error',(e)=>{process.stderr.write(e.message+'\\n');process.exit(5);});";
+
+/** Ce que la sonde du réseau a établi. */
+export interface ResultatSondeReseau {
+  filtre: boolean;
+  motif: string;
+}
+
+/**
+ * Le bac de CE moteur sait-il filtrer le réseau ? Éprouvé une fois au
+ * démarrage, avec le vrai relais, le vrai proxy et la vraie enveloppe — pas
+ * déduit du nom du moteur.
+ *
+ * ─── POURQUOI UNE SONDE ET NON UNE RÈGLE ────────────────────────────────────
+ *
+ * Un moteur dans une machine virtuelle (Docker Desktop, `podman machine`, un
+ * `DOCKER_HOST` distant) monte le dossier, mais un socket Unix ne traverse pas
+ * la VM — le même mur que le pont MCP. Le deviner d'après la plateforme
+ * ferait mentir l'annonce dans un sens ou dans l'autre ; le mesurer, non. Et
+ * un bubblewrap que le noyau prive d'espaces de noms échoue ici comme au
+ * preflight de l'agent, avec les mots du moteur.
+ */
+export async function sonderReseauFiltre(
+  fournisseur: Fournisseur,
+  image = IMAGE_DEFAUT,
+  timeoutMs = SONDE_RESEAU_MS,
+): Promise<ResultatSondeReseau> {
+  const rendezVous = new RendezVousPont();
+  const tropLong = rendezVous.alerte();
+  if (tropLong) return { filtre: false, motif: tropLong };
+  // Un preflight comme les autres : même préfixe, donc dans l'inventaire (`empreinte.ts`).
+  const vide = mkdtempSync(join(tmpdir(), PREFIXE_PREFLIGHT_AGENT));
+  let fermer: (() => Promise<void>) | null = null;
+  try {
+    const { dossier, extremite } = rendezVous.reserver();
+    ecrireRelais(dossier);
+    const session = await ouvrirSessionReseau({
+      socket: extremite,
+      politique: { niveau: 'integrations', hotes: [], passerelles: [] },
+    });
+    fermer = session.fermer;
+    const conteneur = fournisseur.bin !== 'bwrap';
+    const node = reel(process.execPath) ?? process.execPath;
+    const lance = envelopper(conteneur ? 'node' : node, ['-e', SONDE_RESEAU_JS], {
+      fournisseur,
+      cwdHote: vide,
+      variables: [],
+      image,
+      reseau: { dossier, socket: extremite, interprete: node, variables: {} },
+    });
+    const r = await eprouver(lance, {
+      cwd: vide,
+      timeoutMs,
+      garderErreurs: true,
+      ...(conteneur ? { env: envMoteur(fournisseur) } : {}),
+    });
+    if (r.issue === 'sortie' && r.code === 0) {
+      return { filtre: true, motif: `réseau filtré par le proxy du nœud via ${fournisseur.nom}` };
+    }
+    if (r.issue !== 'sortie') {
+      return { filtre: false, motif: `sonde du réseau filtré ${r.issue} via ${fournisseur.nom}` };
+    }
+    const cause =
+      r.code === 3
+        ? 'le bac garde des interfaces réseau hors de la boucle'
+        : r.code === 5 || r.code === 125
+          ? 'le socket du proxy ne traverse pas jusqu’au bac (moteur dans une machine virtuelle ?)'
+          : r.code === 4
+            ? 'le proxy n’a pas répondu par son refus'
+            : `la sonde est sortie en ${r.code}`;
+    return {
+      filtre: false,
+      motif: `réseau NON filtrable via ${fournisseur.nom} : ${cause}${citation(r.erreurs)}`,
+    };
+  } catch (err) {
+    return {
+      filtre: false,
+      motif: `proxy du nœud impossible à ouvrir (${err instanceof Error ? err.message : String(err)})`,
+    };
+  } finally {
+    await fermer?.();
+    rendezVous.fermer();
+    rmSync(vide, { recursive: true, force: true });
+  }
+}
+
 /** Le délai d'un `image inspect` : une lecture locale, que seul un moteur injoignable fait durer. */
 export const INSPECTION_MAX_MS = 15_000;
 /** Le délai d'un téléchargement d'image : quelques centaines de Mo, sur une ligne ordinaire. */
@@ -1316,6 +1572,28 @@ export async function inspecterImage(
     return { etat: 'injoignable', motif: `${fournisseur.nom} injoignable${citation(r.erreurs)}` };
   }
   return { etat: 'absente' };
+}
+
+/**
+ * Une étiquette de l'image (`hive doctor` y lit `hive.porte-securite`) : `''`
+ * si l'image ne la porte pas, `null` si le moteur n'a rien dit. La question
+ * d'`inspecterImage`, par le même lanceur : rien ne se lance dans l'image, et
+ * le client du moteur ne reçoit que `envMoteur` — construit à partir de rien.
+ */
+export async function etiquetteImage(
+  fournisseur: Fournisseur,
+  image: string,
+  etiquette: string,
+  timeoutMs = INSPECTION_MAX_MS,
+): Promise<string | null> {
+  const format = `{{index .Config.Labels "${etiquette}"}}`;
+  const r = await eprouver(
+    { bin: fournisseur.bin, args: ['image', 'inspect', '--format', format, image] },
+    { cwd: tmpdir(), timeoutMs, garderSortie: true, env: envMoteur(fournisseur) },
+  );
+  if (r.issue !== 'sortie' || r.code !== 0) return null;
+  // Une clé absente s'imprime vide — ou `<no value>` selon le client.
+  return r.sortie.trim().replace(/^<no value>$/, '');
 }
 
 /**

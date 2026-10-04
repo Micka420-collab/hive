@@ -31,14 +31,56 @@
 // — des commandes que la BASE du dépôt déclarait, lancées par le code du nœud
 // après l'agent, jamais déclarées par l'agent lui-même. Elles comptent autant
 // l'une que l'autre ; chaque motif qui s'appuie sur elles nomme sa source.
+//
+// Les tests du bac en échec se comparent à la base, test par test (G11b,
+// `shared/lecture-tests.ts`) : une RÉGRESSION demande une correction qui la
+// NOMME — c'est ce que l'ouvrière lira (`BORNES_CRITIQUE`) ; des tests DÉJÀ
+// ROUGES à la base, du même échec, ne bloquent plus, et `accepted` les DIT —
+// un vert qui les tairait serait un faux ; des tests INSTABLES ne sont ni l'un
+// ni l'autre : preuve manquante.
+//
+// ─── LA PORTE DE SÉCURITÉ ────────────────────────────────────────────────────
+//
+// À côté des validations, jamais parmi elles (`shared/porte-securite.ts` dit
+// pourquoi) : ce que la production AJOUTE — un secret, une dépendance
+// vulnérable que la base n'avait pas. Un constat demande une correction, et
+// passe AVANT toute règle qui appelle un humain : `human_review_required` ne
+// bloque pas la livraison (`VERDICTS_BLOQUANTS`, server.ts), et une
+// approbation ne doit pas laisser partir une clé.
+//
+// Non vérifiée — outil absent, en échec, nœud sans rapport —, elle n'est
+// JAMAIS comptée verte : `accepted` le dit dans ses motifs. Elle ne retient
+// la production qu'en polyéthisme `strict`, le mode qui a gouverné CETTE
+// production (`polyethismeDe`, server.ts) : c'est le mode où la ruche
+// promet de ne rien laisser passer qu'elle n'a pas pu juger (polyethisme.ts,
+// règle 5, « fermé par défaut »). Ce qu'elle fait alors est ce que fait une
+// contre-visite manquante : la production ATTEND un humain
+// (`human_review_required`) — pas une correction, que le producteur ne
+// saurait pas faire (il n'installe pas l'outil du nœud), et qui brûlerait ses
+// essais jusqu'à `MAX_ATTEMPTS`. Hors de `strict` (le défaut `consignes`), la
+// ruche guide sans retenir : faire mordre la porte partout changerait toutes
+// les ruches installées, sur une décision que personne n'a prise.
 
 import type { Inspection } from './gardiennes.js';
 import { signatureOf, type Verdict as ParliamentVerdict } from './parliament.js';
 import { relecteurIndependant } from '../shared/contre-expertise.js';
 import { type Constat, constatBloquant } from '../shared/critique-structuree.js';
+import {
+  DIRE_RAISON_PORTE,
+  OUTIL_DU_VOLET,
+  PORTE_SANS_RAPPORT,
+  VOLETS_PORTE,
+} from '../shared/porte-securite.js';
+import type { PorteSecurite, VoletPorte } from '../shared/porte-securite.js';
 import type { TaskResult } from '../shared/types.js';
 import { DIRE_PANNE, VALIDATION_KEYS } from '../shared/validations-bac.js';
-import type { DetailControle, ValidationKey, ValidationState } from '../shared/validations-bac.js';
+import type {
+  ComparaisonBase,
+  DetailControle,
+  TestsNommes,
+  ValidationKey,
+  ValidationState,
+} from '../shared/validations-bac.js';
 
 export type { ValidationState } from '../shared/validations-bac.js';
 
@@ -190,6 +232,14 @@ export interface EvaluatorInput {
    * n'a été constaté.
    */
   crossReviewImpossible?: string;
+  /**
+   * Ce que la porte de sécurité du nœud a vu dans CE résultat
+   * (`security_gate_recorded`). Absente : la porte est « non vérifiée » —
+   * jamais un vert.
+   */
+  securite?: { porte: PorteSecurite; nodeId: string };
+  /** Le polyéthisme qui a gouverné cette production est `strict` (voir l'en-tête). */
+  securiteStricte?: boolean;
 }
 
 export interface EvaluationEvidence {
@@ -209,6 +259,10 @@ export interface EvaluationEvidence {
   /** Cause d'une contre-revue impossible (voir `EvaluatorInput`), si constatée. */
   crossReviewImpossible?: string;
   humanReview: 'approved' | 'rejected' | 'missing';
+  /** La porte de sécurité — « rapport absent » sur ses deux volets quand le nœud n'a rien rendu. */
+  securite: PorteSecurite;
+  /** Le nœud dont la porte a parlé ; absent sans rapport. */
+  securiteNodeId?: string;
 }
 
 export interface EvaluationResult {
@@ -224,6 +278,144 @@ export interface EvaluationResult {
 
 function stateOf(value: ValidationState | undefined): ValidationState {
   return value === 'passed' || value === 'failed' || value === 'not_applicable' ? value : 'missing';
+}
+
+const NOM_DU_VOLET: Readonly<Record<VoletPorte, string>> = {
+  secrets: 'secrets',
+  dependances: 'dépendances',
+};
+
+/** Des éléments en une ligne, et ce que la borne du protocole a laissé tomber. */
+function enLigne(elements: readonly string[], total: number): string {
+  const reste = total - elements.length;
+  return elements.join(' ; ') + (reste > 0 ? ` ; … et ${reste} autre(s)` : '');
+}
+
+/**
+ * Les motifs d'une porte qui a TROUVÉ, ou `[]`. Trois lignes au plus — le
+ * titre et son remède, les secrets, les dépendances : la critique figée pour
+ * la correction n'en garde que trois (`BORNES_CRITIQUE.raisons`), et c'est
+ * elle qui dit à l'ouvrière quoi reprendre. Aucune valeur : le rapport n'en
+ * porte jamais (`--redact`, puis le caviardage du nœud).
+ */
+function motifsDeLaPorte(porte: PorteSecurite, nodeId: string | undefined): string[] {
+  const { secrets, dependances } = porte;
+  const s = secrets.etat === 'constat' ? secrets.total : 0;
+  const d = dependances.etat === 'constat' ? dependances.total : 0;
+  if (s + d === 0) return [];
+  // Les lockfiles illisibles viennent en tête des constats (le nœud les y
+  // range) : la borne du protocole ne les fait pas tomber, et leur compte est exact.
+  const lockfiles =
+    d > 0 ? dependances.constats.filter((c) => c.genre === 'lockfile_illisible') : [];
+  // La base falsifiée est à part : ce n'est pas un défaut de forme de la tête,
+  // c'est l'espace de travail du nœud altéré — un autre remède, un autre ton.
+  const falsifiees = lockfiles.filter(
+    (c) => c.genre === 'lockfile_illisible' && c.motif === 'base_falsifiee',
+  );
+  const illisibles = lockfiles.filter(
+    (c) => c.genre === 'lockfile_illisible' && c.motif !== 'base_falsifiee',
+  );
+  const v = d - lockfiles.length;
+  const comptes = [
+    ...(s > 0 ? [`${s} secret(s) ajouté(s)`] : []),
+    ...(v > 0 ? [`${v} vulnérabilité(s) introduite(s)`] : []),
+    ...(illisibles.length > 0 ? [`${illisibles.length} lockfile(s) laissé(s) illisible(s)`] : []),
+    ...(falsifiees.length > 0 ? [`${falsifiees.length} base(s) falsifiée(s)`] : []),
+  ].join(', ');
+  const remedes = [
+    ...(s > 0 ? ['retirez chaque secret du code et lisez-le de l’environnement'] : []),
+    ...(v > 0 ? ['passez chaque dépendance à une version corrigée'] : []),
+    ...(illisibles.length > 0
+      ? [
+          'régénérez chaque lockfile avec son gestionnaire de paquets — un fichier ordinaire, lisible',
+        ]
+      : []),
+    ...(falsifiees.length > 0
+      ? [
+          'l’objet git du lockfile de base relu ne correspond pas à son empreinte — l’espace de travail du nœud a été altéré, repartez d’un clone sain',
+        ]
+      : []),
+  ].join(' ; ');
+  const motifs = [
+    `la porte de sécurité a trouvé ${comptes}${nodeId ? ` (nœud ${nodeId})` : ''} — ${remedes}`,
+  ];
+  if (s > 0) {
+    const lus = secrets.constats.map((c) => `${c.regle} ${c.fichier}:${c.ligne}`);
+    motifs.push(
+      `secrets, valeurs caviardées par le nœud et jamais transmises : ${enLigne(lus, s)}`,
+    );
+  }
+  if (d > 0) {
+    const lus = dependances.constats.map((c) => {
+      if (c.genre === 'lockfile_illisible') {
+        const comment =
+          c.motif === 'mal_forme'
+            ? 'mal formé'
+            : c.motif === 'base_falsifiee'
+              ? 'base falsifiée dans l’espace de travail — objet git ne correspondant pas à son empreinte'
+              : 'remplacé par autre chose qu’un fichier';
+        return `${c.fichier} illisible (${comment})`;
+      }
+      const precisions = [...c.alias, ...(c.gravite ? [c.gravite] : [])];
+      const entre = precisions.length > 0 ? ` (${precisions.join(', ')})` : '';
+      return `${c.paquet}@${c.version} (${c.ecosysteme}) ${c.avis}${entre} dans ${c.fichier}`;
+    });
+    motifs.push(`dépendances introduites : ${enLigne(lus, d)}`);
+  }
+  return motifs;
+}
+
+/** Un nom de test dans un motif : cinq tiennent, avec leur contexte, dans une raison. */
+const NOM_DANS_UN_MOTIF = 44;
+
+/**
+ * Des tests nommés en une ligne : le TOTAL d'abord, puis au plus cinq noms,
+ * chacun coupé à `NOM_DANS_UN_MOTIF` caractères. Une raison de la critique
+ * figée est bornée (`BORNES_CRITIQUE.raison`, 400 caractères) — c'est elle que
+ * lit l'ouvrière — et la borne coupe la FIN : un nom long ne doit emporter ni
+ * le compte, ni les noms qui le suivent.
+ */
+function direTests(tests: TestsNommes): string {
+  const noms = tests.noms
+    .slice(0, 5)
+    .map((nom) =>
+      nom.length > NOM_DANS_UN_MOTIF ? `${nom.slice(0, NOM_DANS_UN_MOTIF - 1)}…` : nom,
+    );
+  const reste = tests.total - noms.length;
+  return `${tests.total} test(s) : ${noms.join(' ; ')}${reste > 0 ? ` ; … et ${reste} autre(s)` : ''}`;
+}
+
+/** La comparaison à la base des tests du bac, quand il y en a une. */
+function comparaisonDesTests(
+  provenance: ValidationProvenance | undefined,
+): { comparaison: ComparaisonBase; base: string; nodeId: string } | null {
+  if (provenance?.source !== 'hive_sandbox') return null;
+  const comparaison = provenance.details.tests.comparaison;
+  if (!comparaison) return null;
+  const base = provenance.baseSha ? `la base ${provenance.baseSha.slice(0, 8)}` : 'la base';
+  return { comparaison, base, nodeId: provenance.nodeId };
+}
+
+/**
+ * Chaque volet en quelques mots : « secrets — outil absent (betterleaks) »,
+ * « dépendances — rien trouvé (osv-scanner 2.6.0), 3 paquet(s) introduit(s)
+ * non vérifié(s) — source non publique, ou version non épinglée ».
+ */
+function direVolets(porte: PorteSecurite, volets: readonly VoletPorte[]): string {
+  return volets
+    .map((v) => {
+      const { raison, outil, nonInterroges } = porte[v];
+      const par = outil
+        ? ` (${outil.nom} ${outil.version})`
+        : raison === 'rapport_absent'
+          ? ''
+          : ` (${OUTIL_DU_VOLET[v]})`;
+      const exclus = nonInterroges
+        ? `, ${nonInterroges} paquet(s) introduit(s) non vérifié(s) — source non publique, ou version non épinglée`
+        : '';
+      return `${NOM_DU_VOLET[v]} — ${DIRE_RAISON_PORTE[raison][0]}${par}${exclus}`;
+    })
+    .join(' ; ');
 }
 
 /**
@@ -250,6 +442,7 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
         : 'mismatch'
       : 'unknown';
   const crossReviewPending = input.crossReviewPending ?? 0;
+  const securite = input.securite?.porte ?? PORTE_SANS_RAPPORT;
   const evidence: EvaluationEvidence = {
     result: latest ? (latest.success ? 'passed' : 'failed') : 'missing',
     resultAlignment,
@@ -264,6 +457,8 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     crossReview,
     crossReviewPending,
     ...(input.crossReviewImpossible ? { crossReviewImpossible: input.crossReviewImpossible } : {}),
+    securite,
+    ...(input.securite ? { securiteNodeId: input.securite.nodeId } : {}),
   };
 
   const reasons: string[] = [];
@@ -281,12 +476,15 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     return result(input.taskId, 'correction_required', false, true, [motif], evidence);
   }
   if (!latest.success) {
+    // La porte lit aussi le diff d'un échec (son volet secrets n'exécute
+    // rien) : une clé que l'agent a écrite avant d'échouer est nommée ici, et
+    // la critique de la correction le dira.
     return result(
       input.taskId,
       'rejected',
       false,
       true,
-      ['le dernier résultat a échoué'],
+      ['le dernier résultat a échoué', ...motifsDeLaPorte(securite, input.securite?.nodeId)],
       evidence,
     );
   }
@@ -299,6 +497,13 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
       ['les Gardiennes ont rejeté une production creuse'],
       evidence,
     );
+  }
+  // Avant les Gardiennes suspectes, le rejet humain et toute règle qui appelle
+  // un humain : un secret ou une vulnérabilité introduite est un défaut
+  // CONSTATÉ, et seul un verdict bloquant arrête la livraison (voir l'en-tête).
+  const enEchec = motifsDeLaPorte(securite, input.securite?.nodeId);
+  if (enEchec.length > 0) {
+    return result(input.taskId, 'correction_required', false, true, enEchec, evidence);
   }
   if (input.inspection?.verdict === 'suspect') {
     return result(
@@ -358,8 +563,24 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
       evidence,
     );
   }
+  const tests = comparaisonDesTests(input.validationProvenance);
   if (failedValidation) {
     reasons.push(`validation ${failedValidation} en échec${suffixeSource}`);
+    // La correction NOMME ce que la production a cassé, et dit ce qui était
+    // déjà rouge : sans ça, l'ouvrière « réparerait » aussi ce qu'elle n'a pas
+    // touché — ou ne saurait pas lequel de ses tests rouges est le sien.
+    if (failedValidation === 'tests' && tests && tests.comparaison.regressions.total > 0) {
+      const { regressions, dejaRouges, executions } = tests.comparaison;
+      reasons.push(
+        `régression comparée à ${tests.base}, ${direTests(regressions)} — rouge(s) à chacune des ` +
+          `${executions.tete} exécution(s) de la production, à aucune des ${executions.base} de la base`,
+      );
+      if (dejaRouges.total > 0) {
+        reasons.push(
+          `déjà rouge(s) à la base, du même échec, non bloquant(s), ${direTests(dejaRouges)}`,
+        );
+      }
+    }
     return result(input.taskId, 'correction_required', false, true, reasons, evidence);
   }
   // ─── MANQUANTE ET NON APPLICABLE NE SONT PAS LA MÊME ABSENCE ──────────────
@@ -392,6 +613,16 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
           'les trouve au démarrage du nœud), ou apportez la CI GitHub',
       );
     }
+    // Base falsifiée : l'agent a forgé l'objet git du `package.json` de base
+    // (`base-verifiee.ts`). Aucune validation n'est fiable, et le motif le dit —
+    // jamais un vert sur un manifeste que la production a maquillé.
+    if (bac && missingValidation.some((key) => bac.details[key].raison === 'base_falsifiee')) {
+      preuvesAbsentes.push(
+        `la base relue dans l’espace de travail du nœud ${bac.nodeId} est falsifiée : l’objet ` +
+          'git du package.json de base ne correspond pas à son empreinte — les scripts déclarés ' +
+          'ne sont pas fiables, aucune validation n’a tourné ; repartez d’un clone sain',
+      );
+    }
     // Une panne du bac en cours de route n'est pas un verdict sur la
     // production (`panneEnvironnement`) : le motif la nomme, et dit ce qui la
     // lève — sur le nœud (mémoire, disque, DNS) ou nulle part dans le bac
@@ -406,6 +637,15 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
       preuvesAbsentes.push(
         `le bac du nœud ${bac.nodeId} est tombé en panne pendant ${key} (${nom[0]}), ` +
           `verdict inconnu : ${remede[0]}`,
+      );
+    }
+    // Un test instable n'est ni une régression (pas de correction : la
+    // production n'est peut-être pour rien dans le hasard) ni un vert.
+    if (validation.tests === 'missing' && tests && tests.comparaison.instables.total > 0) {
+      preuvesAbsentes.push(
+        `tests instables sur le bac du nœud ${tests.nodeId}, ${direTests(tests.comparaison.instables)} ` +
+          `— vus rouges à une exécution et verts à une autre, de la production ou de ${tests.base} : ` +
+          'ni régression ni vert, verdict inconnu — stabilisez-les, ou apportez la CI GitHub',
       );
     }
   } else if (validation.tests === 'not_applicable') {
@@ -431,8 +671,33 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
   // de son relecteur. Une CI en échec, elle, reste une faute du producteur —
   // d'où la place, après elle. Les preuves absentes SUIVENT le motif : la
   // personne qui approuve doit lire qu'aucun test n'a tourné, et pourquoi.
+  // ─── LA PORTE NON VÉRIFIÉE, EN POLYÉTHISME STRICT ─────────────────────────
+  //
+  // Même place que la relecture impossible, et pour la même raison : aucune
+  // preuve apportée plus tard ne la vérifiera — la porte tourne sur le nœud,
+  // au moment de la production, et nulle part ailleurs. « Tests
+  // supplémentaires requis » enverrait chercher ce qui ne débloque rien.
+  // En `strict`, ce qui n'a pas été vérifié du tout retient la production ;
+  // des paquets non publics à côté d'une analyse faite sont dits, pas retenus.
+  const nonVerifies = VOLETS_PORTE.filter((v) => securite[v].etat === 'non_verifie');
+  const porteRetenue =
+    input.securiteStricte === true && nonVerifies.length > 0
+      ? [
+          `porte de sécurité non vérifiée, polyéthisme strict : ${direVolets(securite, nonVerifies)}`,
+          `rendez-la vérifiable sur ${input.securite ? `le nœud ${input.securite.nodeId}` : 'le nœud producteur'} ` +
+            '(`hive doctor` dit ce qui manque), puis relancez la production — ou tranchez en revue humaine',
+        ]
+      : [];
   if (input.crossReviewImpossible && crossReview.reviewerCount === 0 && crossReviewPending === 0) {
-    reasons.push(`relecture impossible : ${input.crossReviewImpossible}`, ...preuvesAbsentes);
+    reasons.push(
+      `relecture impossible : ${input.crossReviewImpossible}`,
+      ...porteRetenue,
+      ...preuvesAbsentes,
+    );
+    return result(input.taskId, 'human_review_required', false, false, reasons, evidence);
+  }
+  if (porteRetenue.length > 0) {
+    reasons.push(...porteRetenue, ...preuvesAbsentes);
     return result(input.taskId, 'human_review_required', false, false, reasons, evidence);
   }
   if (preuvesAbsentes.length > 0) {
@@ -476,6 +741,24 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     `résultat réussi, Gardiennes propres, validations vertes et contre-revue favorable de ${relecteurs.join(', ')} sur une production de ${producteurs.join(', ')}`,
   ];
   if (source) acceptedReasons.push(`validations : ${source}`);
+  // Des tests rouges ont été excusés : ils l'étaient déjà à la base. Le vert
+  // le DIT — l'humain qui approuve lit ce qui reste rouge, et pourquoi.
+  if (validation.tests === 'passed' && tests && tests.comparaison.dejaRouges.total > 0) {
+    const { dejaRouges, ciblesPassees } = tests.comparaison;
+    // « Du même échec », et pas « que la production n'a pas cassé » : le nœud
+    // compare l'EMPREINTE de chaque échec — le message que le runner imprime,
+    // valeurs attendue et reçue comprises, et son fichier —, pas tout ce que
+    // le test aurait pu vérifier après l'assertion qui a lâché la première.
+    acceptedReasons.push(
+      `tests comparés à ${tests.base} : aucune régression — déjà rouge(s) à la base, du même ` +
+        `échec à la base et à la production, non bloquant(s), ${direTests(dejaRouges)}`,
+    );
+    if (ciblesPassees.total > 0) {
+      acceptedReasons.push(
+        `cibles passées, ${direTests(ciblesPassees)} — rouge(s) à la base, vert(s) à la production`,
+      );
+    }
+  }
   if (notApplicable.length > 0) {
     acceptedReasons.push(
       `non applicables, faute de déclaration par le projet : ${notApplicable.join(', ')}`,
@@ -493,6 +776,21 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
   if (input.consensus?.outcome === 'elected') {
     acceptedReasons.push('le Parlement a aussi élu ce résultat (signal supplémentaire)');
   }
+  // Une porte non vérifiée ne retient rien hors de `strict` — mais elle ne se
+  // tait pas : l'humain qui approuve lit qu'aucun outil n'a regardé.
+  // Des paquets introduits qui ne sont pas partis à osv.dev (source locale,
+  // git, registre privé, version non épinglée) : la porte n'est passée qu'EN
+  // PARTIE, et le dit.
+  const enPartie = VOLETS_PORTE.some((v) => (securite[v].nonInterroges ?? 0) > 0);
+  acceptedReasons.push(
+    nonVerifies.length > 0
+      ? `porte de sécurité non vérifiée (${direVolets(securite, nonVerifies)}) : jamais comptée ` +
+          'verte — elle ne retient la production qu’en polyéthisme strict'
+      : enPartie
+        ? `porte de sécurité passée en partie : ${direVolets(securite, VOLETS_PORTE)} — ` +
+          'un paquet qui n’a pas été interrogé n’est jamais compté vert'
+        : `porte de sécurité passée : ${direVolets(securite, VOLETS_PORTE)}`,
+  );
   return result(
     input.taskId,
     'accepted',
