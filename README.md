@@ -444,6 +444,21 @@ présente, agent exécutable) et dit pourquoi les autres sont écartés. Chaque
 conteneur porte l'étiquette de son nœud : relancé après un arrêt brutal, le
 nœud supprime ceux qu'il avait laissés.
 
+**La porte de sécurité.** Après une production réussie, avant ses validations,
+le nœud passe ce qu'elle **ajoute** à deux outils épinglés, invoqués et jamais
+liés : Betterleaks (MIT) sur les seules lignes ajoutées du diff — la valeur
+caviardée par l'outil (`--redact`), puis par le nœud dans le diff, les logs et
+le texte final — et osv-scanner (Apache-2.0) sur les lockfiles touchés, à la
+base et à la tête, pour ne signaler que les vulnérabilités **introduites**.
+osv-scanner interroge osv.dev en ligne : seuls partent les noms et versions des
+paquets des lockfiles que la production touche. Un constat : l'Evaluator
+demande une correction, et cite la règle et la ligne, ou l'avis et son CVE —
+jamais la valeur. Un outil absent : la porte est « non vérifiée », sa raison
+dite, **jamais comptée verte** ; en polyéthisme `strict`, la production attend
+un humain. L'image du bac épingle betterleaks 1.9.0 et osv-scanner 2.6.0 par
+version et SHA-256 ; sous bubblewrap ou sans bac, ce sont ceux de l'hôte, et
+`hive doctor` dit s'ils y sont.
+
 Dans le bac, l'agent a un HOME éphémère : la session de `claude login` ou de
 `codex login` n'y entre pas. Hive y transmet **par leur nom** les identifiants
 sans navigateur — `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) ou

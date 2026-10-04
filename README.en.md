@@ -269,6 +269,21 @@ keeps the first engine whose preflight passes (image present, agent runnable)
 and says why the others were skipped. Every container carries its node's label:
 restarted after a hard stop, the node removes the ones it left behind.
 
+**The security gate.** After a successful production, before its validations,
+the node passes what it **adds** to two pinned tools, invoked and never linked:
+Betterleaks (MIT) on the diff's added lines only — the value redacted by the
+tool (`--redact`), then by the node in the diff, the logs and the final text —
+and osv-scanner (Apache-2.0) on the touched lockfiles, at the base and at the
+head, so that only **introduced** vulnerabilities are reported. osv-scanner
+queries osv.dev online: only the names and versions of the packages in the
+lockfiles the production touches leave the machine. A finding: the Evaluator
+asks for a correction and cites the rule and the line, or the advisory and its
+CVE — never the value. A missing tool: the gate is "not verified", its reason
+said, **never counted green**; under `strict` polyethism the production waits
+for a human. The sandbox image pins betterleaks 1.9.0 and osv-scanner 2.6.0 by
+version and SHA-256; under bubblewrap or without a sandbox they are the host's,
+and `hive doctor` says whether they are there.
+
 Inside the sandbox the agent gets an ephemeral HOME: a `claude login` or
 `codex login` session does not reach it. Hive forwards the headless credentials
 **by name** — `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) or
