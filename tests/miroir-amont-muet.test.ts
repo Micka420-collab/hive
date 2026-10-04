@@ -177,9 +177,12 @@ describe('UN AMONT MUET NE TIENT PAS LE RAYON', () => {
     // (mesuré) ; la minuterie qui tue git, elle, attend la boucle d'événements.
     // Une boucle en retard, et git sortait de lui-même — « Operation too
     // slow », un échec de git quelconque — avant d'être tué : `délai` perdu, et
-    // avec lui « dépôt muet ». La boucle est tenue ici pour de vrai, de 4,8 à
-    // 5,6 s après la connexion de curl : sans la marge de `transportBorne`, le
-    // message de curl gagne à chaque fois.
+    // avec lui « dépôt muet ». La boucle est tenue ici pour de vrai, de 3,9 à
+    // 5,6 s après la connexion de curl : commencer plus tôt couvre un démarrage
+    // lent de git (1 s mesuré), qui recule d'autant le butoir de la commande —
+    // la fenêtre doit être tenue QUAND ce butoir tombe, pas seulement avant
+    // celui de curl. Sans la marge de `transportBorne`, le message de curl
+    // gagne à chaque fois.
     const miroir = new Miroir(path.join(racine, 'rayons-course'));
     const vues = connexions;
     let rendu = false;
@@ -187,7 +190,7 @@ describe('UN AMONT MUET NE TIENT PAS LE RAYON', () => {
     while (connexions === vues && !rendu) await new Promise((ok) => setTimeout(ok, 5));
     expect(connexions, 'git a bien parlé au serveur muet').toBeGreaterThan(vues);
     const connexion = performance.now();
-    await new Promise((ok) => setTimeout(ok, connexion + 4_800 - performance.now()));
+    await new Promise((ok) => setTimeout(ok, connexion + 3_900 - performance.now()));
     while (performance.now() < connexion + 5_600) {
       // La boucle tenue : ni minuterie ni fin de processus ne passe.
     }

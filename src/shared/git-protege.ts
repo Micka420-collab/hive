@@ -398,13 +398,16 @@ const DELAI_GIT_LOCAL_MS = 5 * 60_000;
 const MARGE_DU_TRANSPORT_S = 2;
 
 /**
- * Le butoir du TRANSPORT HTTP, calé sur celui de la commande. `execFile` ne
- * tue que `git` : son `git-remote-http(s)` survivait, rattaché à init, et
- * gardait ouverte la prise d'un serveur muet — curl n'a pas de délai de
- * lecture par défaut. Chaque tentative du miroir sur un amont muet laissait
- * donc un processus et une prise de plus sur la machine de la Reine. Moins
- * d'un octet par seconde pendant tout le butoir : curl abandonne de lui-même,
- * et l'assistant sort. Un vrai transfert lent n'est pas touché.
+ * Le butoir du TRANSPORT HTTP : la fenêtre de la commande plus deux secondes
+ * (`MARGE_DU_TRANSPORT_S`). `execFile` ne tue que `git` : son
+ * `git-remote-http(s)` survivait, rattaché à init, et gardait ouverte la prise
+ * d'un serveur muet — curl n'a pas de délai de lecture par défaut. Chaque
+ * tentative du miroir sur un amont muet laissait donc un processus et une prise
+ * de plus sur la machine de la Reine. Moins d'un octet par seconde pendant
+ * toute sa fenêtre : curl abandonne de lui-même, et l'assistant sort. Le rappel
+ * d'`execFile` n'attend PAS cet assistant orphelin : il rend la main dès que
+ * `git` meurt à son propre butoir, et curl fait sortir l'assistant un peu
+ * après, de son côté. Un vrai transfert lent n'est pas touché.
  *
  * ─── L'ÉCHÉANCE DU PROPRIÉTAIRE ARRIVE AVANT CELLE DE L'OUTIL ────────────────
  *
