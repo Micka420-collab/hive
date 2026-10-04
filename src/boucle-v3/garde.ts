@@ -206,6 +206,12 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   },
   {
     categorie: 'securite',
+    motif: /^tests\/(budget-boucle|budget-essaim|reseau-projet)\.test\.ts$/,
+    pourquoi:
+      'les bancs du budget dans la boucle de l’agent (plafond, arrêt cru par la Reine, leçons de l’essaim) et du réseau de chaque projet jusqu’au bac, sonde du plafond comprise : les affaiblir retire le garde-fou',
+  },
+  {
+    categorie: 'securite',
     motif: /^src\/shared\/graphe-experience\.ts$/,
     pourquoi:
       'le cloisonnement des projets dans le graphe d’expérience, et le cadrage de ce qu’il donne aux agents',
@@ -269,6 +275,18 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
     motif: /^src\/shared\/commentaire-revue\.ts$/,
     pourquoi:
       'les commentaires ancrés et le verdict « changements demandés » de la revue humaine, le geste que cette porte croit',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/shared\/arret-budgetaire\.ts$/,
+    pourquoi:
+      'le prédicat de l’arrêt budgétaire : ce qu’il range hors des échecs échappe aux leçons et aux correctifs de l’essaim, aux phéromones, à la dérive, au Génome, au Waggle, au Thermo, au Ghost et au Pulse — l’élargir cacherait de vrais échecs à ce que la ruche apprend et corrige',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/orchestrator\/delegation\.ts$|^src\/shared\/limites-delegation\.ts$/,
+    pourquoi:
+      'les bornes de la délégation : profondeur, enfants par parent et par racine, réservations cumulées de durée et de coût, et le plafond que chaque enfant reçoit dans la boucle de son agent — les relâcher laisse la ruche se démultiplier et dépenser au-delà de ce qu’un humain a réservé',
   },
   {
     categorie: 'permissions',
