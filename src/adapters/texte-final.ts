@@ -51,6 +51,7 @@
 // la Couveuse via `blocDonnees`). Et pas un secret de plus : le même texte
 // voyageait déjà vers le hub, noyé dans `logs`.
 
+import type { GraviteAgent } from '../shared/niveaux-sortie.js';
 import { COUPURE_TEXTE_FINAL, LIMITS } from '../shared/protocol.js';
 
 /** Ce qu'on garde du DÉBUT d'un texte trop long : là où la relecture pose son verdict. */
@@ -103,6 +104,39 @@ export const texteFinalStreamJson: LecteurEvenementFinal = (e) => {
   }
   return undefined;
 };
+
+/**
+ * La GRAVITÉ qu'une ligne du stream-json de Claude Code déclare d'elle-même —
+ * le niveau de cette ligne dans la console en direct. D'après les types du
+ * SDK (@anthropic-ai/claude-agent-sdk 0.3.239, sdk.d.ts), et l'enregistrement
+ * d'un vrai 400 (tests/fixtures/texte-final/claude-echec-api-400.stream.jsonl) :
+ *
+ *   · `result` à `is_error: true` : le tour a fini sur une erreur ;
+ *   · `assistant` porteur d'`error` (`SDKAssistantMessageError` : un CODE,
+ *     `invalid_request`, `rate_limit`…) : le message EST une erreur d'API ;
+ *   · `system` / `api_retry` : une requête a échoué et va être REFAITE — un
+ *     avertissement, pas encore l'échec.
+ *
+ * Tout le reste n'en dit rien. Jamais le texte : un message de l'agent qui
+ * parle d'« error » n'est pas une erreur. Les sous-chaînes épargnent le
+ * `JSON.parse` aux lignes qui ne peuvent rien déclarer (un `Read` recopie des
+ * fichiers entiers).
+ */
+export function graviteStreamJson(ligne: string): GraviteAgent | undefined {
+  if (!ligne.includes('"is_error"') && !ligne.includes('"error"')) return undefined;
+  let e: unknown;
+  try {
+    e = JSON.parse(ligne);
+  } catch {
+    return undefined;
+  }
+  if (typeof e !== 'object' || e === null || Array.isArray(e)) return undefined;
+  const { type, subtype, is_error, error } = e as Record<string, unknown>;
+  if (type === 'result') return is_error === true ? 'erreur' : undefined;
+  if (type === 'assistant') return typeof error === 'string' ? 'erreur' : undefined;
+  if (type === 'system' && subtype === 'api_retry') return 'avertissement';
+  return undefined;
+}
 
 /** Cline (`--json`) : `text` de l'événement `run_result`. */
 export const texteFinalCline: LecteurEvenementFinal = (e) =>

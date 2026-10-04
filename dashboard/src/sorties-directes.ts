@@ -30,6 +30,7 @@
 // React, et prévient les seuls abonnés de la tâche touchée
 // (`useSyncExternalStore`, dans `ConsoleDirecte.tsx`).
 
+import type { SegmentNiveau } from '../../src/shared/niveaux-sortie';
 import type { Task } from '../../src/shared/types';
 
 /** Ce que l'écran garde au plus de la sortie d'UNE tâche, en octets UTF-8. */
@@ -52,6 +53,14 @@ export interface MorceauSortie {
   nodeId: string;
   texte: string;
   octets: number;
+  /**
+   * Le niveau de chaque ligne, tel que le nœud l'a lu (`shared/niveaux-sortie.ts`).
+   * Absent : un nœud d'avant ce contrat, ou des niveaux qui ne tombaient pas
+   * juste — la console dit alors « niveau inconnu ».
+   */
+  niveaux?: readonly SegmentNiveau[];
+  /** Quand CET écran l'a reçu (`Date.now()`) : pas l'instant où l'agent l'a écrit. */
+  recu: number;
 }
 
 export interface SortieTache {
@@ -71,10 +80,19 @@ export function ajouterSortie(
   taskId: string,
   nodeId: string,
   texte: string,
+  niveaux?: readonly SegmentNiveau[],
+  recu: number = Date.now(),
 ): SortiesDirectes {
   if (texte === '') return prev;
   const avant = prev[taskId] ?? { morceaux: [], octets: 0, tronquee: false };
-  const morceaux = [...avant.morceaux, { nodeId, texte, octets: encodeur.encode(texte).length }];
+  const morceau: MorceauSortie = {
+    nodeId,
+    texte,
+    octets: encodeur.encode(texte).length,
+    recu,
+    ...(niveaux ? { niveaux } : {}),
+  };
+  const morceaux = [...avant.morceaux, morceau];
   let octets = avant.octets + morceaux[morceaux.length - 1]!.octets;
   let debut = 0;
   while (octets > SORTIE_ECRAN_MAX_OCTETS && debut < morceaux.length - 1) {
@@ -125,7 +143,7 @@ export function garderVivantes<T>(
 export interface MagasinSorties {
   lire(taskId: string): SortieTache | undefined;
   abonner(taskId: string, prevenir: () => void): () => void;
-  ajouter(taskId: string, nodeId: string, texte: string): void;
+  ajouter(taskId: string, nodeId: string, texte: string, niveaux?: readonly SegmentNiveau[]): void;
   oublier(taskId: string): void;
   garderVivantes(tasks: readonly Pick<Task, 'id' | 'status'>[]): void;
 }
@@ -154,7 +172,8 @@ export function creerMagasinSorties(): MagasinSorties {
         if (ensemble.size === 0) abonnes.delete(taskId);
       };
     },
-    ajouter: (taskId, nodeId, texte) => passer(ajouterSortie(etat, taskId, nodeId, texte)),
+    ajouter: (taskId, nodeId, texte, niveaux) =>
+      passer(ajouterSortie(etat, taskId, nodeId, texte, niveaux)),
     oublier: (taskId) => passer(oublierTache(etat, taskId)),
     garderVivantes: (tasks) => passer(garderVivantes(etat, tasks)),
   };

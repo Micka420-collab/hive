@@ -33,6 +33,8 @@ import { estOrdreArret } from '../shared/demarrage.js';
 import { plateformeDepuis } from '../shared/machine.js';
 import { laverIdentifiantsDuTexte } from '../shared/projet-public.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
+import { compterLignes, pousserSegment } from '../shared/niveaux-sortie.js';
+import type { BlocSortie, NiveauSortie, SegmentNiveau } from '../shared/niveaux-sortie.js';
 import type {
   AssignChantierMsg,
   AssignMergeMsg,
@@ -90,17 +92,58 @@ const DELEGATION_RESPONSE_TIMEOUT_MS = 15_000;
 const DELEGATION_RESULT_GRACE_MS = 5 * 60_000;
 
 /**
- * Un morceau de sortie en direct, après caviardage, sous `LIMITS.sortie`. Le
- * caviardage peut ALLONGER (`sk-x` devient `[secret]`) : couper à l'aveugle
- * ferait disparaître la fin sans le dire. On coupe à la dernière ligne entière
- * qui tient, et on l'annonce — comme `sortie-directe.ts` annonce ses omissions.
+ * Un morceau de sortie en direct, caviardé, sous `LIMITS.sortie`, et le niveau
+ * de chacune de ses lignes (`shared/niveaux-sortie.ts`).
+ *
+ * Caviardé BLOC PAR BLOC : un caviardage peut changer le nombre de lignes
+ * d'un texte (une clé sur plusieurs lignes devient `[secret]`), et c'est le
+ * texte CAVIARDÉ qu'on recompte — sans quoi les niveaux se décaleraient sur
+ * tout le reste du morceau. Un bloc réunit des lignes CONTIGUËS d'un même
+ * flux (`sortie-directe.ts`) : un secret à cheval sur stdout et stderr n'en
+ * est pas un.
+ *
+ * Et le caviardage peut ALLONGER (`sk-x` devient `[secret]`) : couper à
+ * l'aveugle ferait disparaître la fin sans le dire. Si le tout ne tient plus,
+ * on garde les lignes entières qui tiennent AVEC l'annonce — comme
+ * `sortie-directe.ts` annonce ses omissions, par une ligne de Hive. La place
+ * de l'annonce est réservée AVANT de retenir un bloc : les blocs retenus
+ * pouvaient sinon déjà laisser moins que l'annonce, qui passait quand même,
+ * et un morceau au-delà de `LIMITS.sortie` fait refuser le `task_update`
+ * ENTIER — le hub ferme la socket du nœud au milieu de la tâche.
  */
-function morceauCaviarde(sortie: string): string {
-  if (sortie.length <= LIMITS.sortie) return sortie;
+function morceauVersHub(
+  blocs: readonly BlocSortie[],
+  caviarder: (s: string) => string,
+): { sortie: string; niveaux: SegmentNiveau[] } | null {
+  const caviardes: BlocSortie[] = [];
+  let total = 0;
+  for (const bloc of blocs) {
+    let texte = caviarder(bloc.texte);
+    if (texte === '') continue;
+    if (!texte.endsWith('\n')) texte += '\n';
+    caviardes.push({ niveau: bloc.niveau, texte });
+    total += texte.length;
+  }
+  if (caviardes.length === 0) return null;
   const annonce = '[… fin du morceau omise après caviardage]\n';
-  const tete = sortie.slice(0, LIMITS.sortie - annonce.length);
-  const coupe = tete.lastIndexOf('\n');
-  return (coupe >= 0 ? tete.slice(0, coupe + 1) : '') + annonce;
+  const budget = total <= LIMITS.sortie ? LIMITS.sortie : LIMITS.sortie - annonce.length;
+  let sortie = '';
+  const niveaux: [NiveauSortie, number][] = [];
+  for (const { niveau, texte } of caviardes) {
+    // Chaque bloc retenu finit par `\n` : `sortie` est toujours coupée à une
+    // fin de ligne, et `place` ne descend jamais sous zéro.
+    const place = budget - sortie.length;
+    const coupe = place > 0 ? texte.lastIndexOf('\n', place - 1) : -1;
+    const tete = texte.length <= place ? texte : texte.slice(0, coupe + 1);
+    sortie += tete;
+    pousserSegment(niveaux, niveau, compterLignes(tete));
+    if (tete.length < texte.length) break;
+  }
+  if (budget < LIMITS.sortie) {
+    sortie += annonce;
+    pousserSegment(niveaux, 'hive', 1);
+  }
+  return { sortie, niveaux };
 }
 
 /**
@@ -1289,7 +1332,7 @@ export class HiveNodeClient {
       // par un adaptateur fini écrirait sinon dans la console de la tentative
       // suivante (même tâche, même nœud — le hub ne peut pas les distinguer).
       if (this.active.get(taskId) !== ctrl) return;
-      const sortie = p.sortie ? morceauCaviarde(caviardeur.texte(p.sortie)) : '';
+      const sortie = p.sortie ? morceauVersHub(p.sortie, (s) => caviardeur.texte(s)) : null;
       this.send({
         type: 'task_update',
         taskId,
@@ -1299,7 +1342,7 @@ export class HiveNodeClient {
           : {}),
         ...(p.presences ? { presences: p.presences } : {}),
         ...(p.log ? { log: caviardeur.texte(p.log).slice(0, LIMITS.log) } : {}),
-        ...(sortie ? { sortie } : {}),
+        ...(sortie ? { sortie: sortie.sortie, niveaux: sortie.niveaux } : {}),
       });
     };
   }

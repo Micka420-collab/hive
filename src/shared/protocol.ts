@@ -13,6 +13,8 @@ import type {
 import { estPlateforme } from './machine.js';
 import { estEmpreinte } from './empreinte-ruche.js';
 import { validationsBacDepuis } from './validations-bac.js';
+import { niveauxValides } from './niveaux-sortie.js';
+import type { SegmentNiveau } from './niveaux-sortie.js';
 import { estEffort, estListeEfforts, type Effort } from './effort.js';
 import type { ValidationsBac } from './validations-bac.js';
 import type { PlateformeNoeud } from './machine.js';
@@ -282,6 +284,13 @@ export interface TaskUpdateMsg {
    * seule exécution bavarde aurait effacé l'histoire de la ruche.
    */
   sortie?: string;
+  /**
+   * Le niveau de chaque ligne de `sortie` (stdout, stderr, erreur déclarée
+   * par l'agent…), en segments dont le total ÉGALE ses lignes
+   * (`shared/niveaux-sortie.ts`). Absent d'un nœud d'avant ce contrat :
+   * l'écran dit alors « niveau inconnu », il ne devine pas.
+   */
+  niveaux?: SegmentNiveau[];
 }
 
 export interface TaskResultMsg {
@@ -589,6 +598,8 @@ export interface TaskOutputMsg {
   taskId: string;
   nodeId: string;
   sortie: string;
+  /** Voir `TaskUpdateMsg.niveaux` : relayés tels quels, absents s'ils l'étaient. */
+  niveaux?: SegmentNiveau[];
 }
 
 export interface ErrorMsg {
@@ -1188,13 +1199,18 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         (m.subAgents === undefined || isSubAgents(m.subAgents)) &&
         (m.presences === undefined || isPresences(m.presences)) &&
         (m.log === undefined || isStrAllowEmpty(m.log, LIMITS.log)) &&
-        (m.sortie === undefined || isStr(m.sortie, LIMITS.sortie))
+        (m.sortie === undefined || isStr(m.sortie, LIMITS.sortie)) &&
+        // Des niveaux sans texte, ou qui ne tombent pas juste sur ses lignes,
+        // décaleraient tous les niveaux à l'écran : refusés avec le message.
+        (m.niveaux === undefined ||
+          (typeof m.sortie === 'string' && niveauxValides(m.niveaux, m.sortie)))
       ) {
         const msg: TaskUpdateMsg = { type: 'task_update', taskId: m.taskId, status: 'running' };
         if (m.subAgents !== undefined) msg.subAgents = m.subAgents as SubAgent[];
         if (m.presences !== undefined) msg.presences = m.presences as PresenceFichier[];
         if (m.log !== undefined) msg.log = m.log as string;
         if (m.sortie !== undefined) msg.sortie = m.sortie as string;
+        if (m.niveaux !== undefined) msg.niveaux = m.niveaux as SegmentNiveau[];
         return msg;
       }
       return null;
@@ -1529,9 +1545,15 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
     case 'task_output':
       // Du texte d'agent pour un écran : validé comme ce qu'un nœud a le droit
       // d'envoyer, pour qu'un hub bavard ne fasse pas gonfler la console.
-      return isId(m.taskId) && isId(m.nodeId) && isStr(m.sortie, LIMITS.sortie)
-        ? { type: 'task_output', taskId: m.taskId, nodeId: m.nodeId, sortie: m.sortie }
-        : null;
+      if (!isId(m.taskId) || !isId(m.nodeId) || !isStr(m.sortie, LIMITS.sortie)) return null;
+      if (m.niveaux !== undefined && !niveauxValides(m.niveaux, m.sortie)) return null;
+      return {
+        type: 'task_output',
+        taskId: m.taskId,
+        nodeId: m.nodeId,
+        sortie: m.sortie,
+        ...(m.niveaux !== undefined ? { niveaux: m.niveaux } : {}),
+      };
     case 'requisition_result':
       return isId(m.id) && (m.statut === 'accordee' || m.statut === 'refusee')
         ? { type: 'requisition_result', id: m.id, statut: m.statut }

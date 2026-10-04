@@ -12,5 +12,7 @@ export { Menu } from './menu';
 export type { ElementMenu } from './menu';
 export { Tabs } from './onglets';
 export type { Onglet } from './onglets';
+export { Terminal } from './terminal';
+export type { LigneTerminal, NiveauTerminal } from './terminal';
 export { ToastProvider, useToast } from './toast';
 export type { Annonce, TonToast } from './toast';

@@ -466,6 +466,194 @@
   overflow-wrap: anywhere;
 }
 
+/* ─── Terminal (console en direct, Journal) ──────────────────────────────── */
+.ds-terminal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Plein écran : natif quand le navigateur l'offre, sinon la fenêtre entière. */
+.ds-terminal.plein {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  padding: 16px;
+  background: var(--bg);
+}
+
+.ds-terminal:fullscreen {
+  padding: 16px;
+  background: var(--bg);
+}
+
+.ds-terminal-barre {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  flex-wrap: wrap;
+}
+
+.ds-terminal-titre {
+  margin: 0;
+  font-size: var(--fs-md);
+}
+
+.ds-terminal-actions,
+.ds-terminal-niveaux {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ds-terminal-recherche {
+  width: 150px;
+  padding: 4px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: var(--fs-xs);
+}
+
+.ds-terminal-recherche:focus-visible,
+.ds-terminal-zone:focus-visible {
+  outline: none;
+  border-color: var(--focus);
+  box-shadow: 0 0 0 3px var(--focus-halo);
+}
+
+.ds-terminal-compte {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+}
+
+/* Le cadre porte l'annonce « nouvelles lignes », posée sur le bas de la zone. */
+.ds-terminal-cadre {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.ds-terminal-zone {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  max-height: 320px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+
+.ds-terminal.plein .ds-terminal-zone,
+.ds-terminal:fullscreen .ds-terminal-zone {
+  max-height: none;
+}
+
+.ds-terminal-espace {
+  position: relative;
+  min-width: 100%;
+}
+
+/* Une ligne : hauteur FIXE sans repli (la virtualisation la suppose, voir
+   `HAUTEUR_LIGNE`), hauteur naturelle repliée (mesurée). */
+.ds-terminal-ligne {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  height: 20px;
+  padding: 0 10px 0 6px;
+  line-height: 20px;
+  white-space: pre;
+}
+
+.ds-terminal-zone.replie .ds-terminal-ligne {
+  height: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ds-terminal-repere {
+  flex: none;
+  width: 1.5em;
+  text-align: center;
+  color: var(--faint);
+  user-select: none;
+}
+
+.ds-terminal-texte {
+  flex: 1;
+  min-width: 0;
+}
+
+.ds-terminal-heure {
+  flex: none;
+  color: var(--faint);
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+  user-select: none;
+}
+
+.ds-terminal-ligne.niveau-stderr .ds-terminal-texte,
+.ds-terminal-repere.niveau-stderr {
+  color: var(--gold);
+}
+
+.ds-terminal-ligne.niveau-avertissement .ds-terminal-texte,
+.ds-terminal-repere.niveau-avertissement {
+  color: var(--amber);
+}
+
+.ds-terminal-ligne.niveau-erreur .ds-terminal-texte,
+.ds-terminal-repere.niveau-erreur {
+  color: var(--red);
+}
+
+.ds-terminal-ligne.niveau-hive .ds-terminal-texte,
+.ds-terminal-ligne.niveau-inconnu .ds-terminal-texte {
+  color: var(--muted);
+}
+
+.ds-terminal-marque {
+  background: var(--miel-fond);
+  color: var(--text);
+  border-radius: 2px;
+}
+
+.ds-terminal-marque.courante {
+  background: var(--miel-fond-fort);
+  color: var(--text);
+  outline: 1px solid var(--focus);
+}
+
+.ds-terminal-vide {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--muted);
+}
+
+.ds-terminal-nouvelles {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  box-shadow: var(--shadow);
+}
+
 @keyframes ds-apparition {
   from {
     opacity: 0;
@@ -501,5 +689,13 @@
   }
   .ds-onglet[aria-selected='true']::after {
     background: Highlight;
+  }
+  .ds-terminal-marque {
+    background: Mark;
+    color: MarkText;
+  }
+  .ds-terminal-marque.courante {
+    background: Highlight;
+    color: HighlightText;
   }
 }
