@@ -35,7 +35,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StateSnapshot, TaskStatus } from '../src/shared/types';
+import type { StateSnapshot } from '../src/shared/types';
 import type { ReplayFrame, ReplayResult } from '../src/orchestrator/replay';
 
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
@@ -54,13 +54,14 @@ let racine: Root | null = null;
 let conteneur: HTMLElement | null = null;
 
 const INSTANTANE: StateSnapshot = { projects: [], nodes: [], tasks: [], tasksTotal: 0 };
-const AUCUNE: Record<TaskStatus, number> = {
+const AUCUNE: ReplayFrame['tasks'] = {
   pending: 0,
   ready: 0,
   assigned: 0,
   running: 0,
   done: 0,
   failed: 0,
+  cancelled: 0,
 };
 
 /**

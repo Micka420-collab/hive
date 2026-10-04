@@ -30,6 +30,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   fetchInvite: vi.fn(),
+  // La section « Sur votre réseau local » vit dans la même modale : éteinte
+  // ici, comme par défaut — son propre banc est `decouverte-ecran.test.tsx`.
+  fetchDecouverte: vi.fn(() =>
+    Promise.resolve({ active: false, empreinte: 'abcd-efgh-jkmn', decouverts: [] }),
+  ),
 }));
 
 import { fetchInvite } from '../dashboard/src/api';

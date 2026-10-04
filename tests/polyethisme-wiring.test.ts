@@ -20,6 +20,7 @@ import { CASTES, SEUIL_BUTINEUSE } from '../src/orchestrator/polyethisme.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import { LIMITS } from '../src/shared/protocol.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-polyethisme-assez-long';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -65,27 +66,21 @@ describe('polyéthisme — câblage', () => {
   /** Connecte un nœud et rend les `assign_task` qu'il reçoit. */
   async function brancherNoeud(srv: HiveServer, nodeId: string): Promise<Assignation[]> {
     const recues: Assignation[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (data) => {
-      const msg = JSON.parse(data.toString()) as Assignation;
-      if (msg.type === 'assign_task') recues.push(msg);
-    });
-    await new Promise<void>((resolve, reject) => {
-      ws.once('open', () => resolve());
-      ws.once('error', reject);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    const { ws } = await brancherFauxNoeud<Assignation>(
+      srv.port,
+      {
         token: TOKEN,
         name: nodeId,
         ownerName: 'test',
         agentType: 'shell',
         maxConcurrency: 1,
         nodeId,
-      }),
+      },
+      (msg) => {
+        if (msg.type === 'assign_task') recues.push(msg);
+      },
     );
+    sockets.push(ws);
     return recues;
   }
 
@@ -211,11 +206,13 @@ describe('polyéthisme — câblage', () => {
     // Un assign_task au-delà de LIMITS.hiveContext est REJETÉ par le nœud :
     // un cadre trop bavard ne dégraderait pas la tâche, il la supprimerait.
     const srv = await demarrer({ polyethisme: 'consignes' });
-    // Beaucoup de souvenirs volumineux, pour que le budget soit disputé.
+    // Beaucoup de souvenirs volumineux, pour que le budget soit disputé. Nés
+    // d'un projet PUBLIC : ceux d'un projet privé ne servent qu'à ses tâches.
+    const partage = srv.store.createProject({ name: 'Savoir partagé', visibility: 'public' });
     for (let i = 0; i < 40; i++) {
       srv.store.recordMemory({
         taskId: `M${i}`,
-        projectId: 'p',
+        projectId: partage.id,
         title: `Souvenir ${i} authentification jeton session`,
         content: `authentification jeton session ${'x'.repeat(3_000)}`,
       });

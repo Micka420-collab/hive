@@ -1,0 +1,50 @@
+<!doctype html>
+<!-- Le fond de la fenêtre du DMG macOS, 540 × 380 (et @2x). L'icône de Hive
+     est posée à (140, 190), Applications à (400, 190) : `dmg.contents` dans
+     electron-builder.config.cjs — les deux doivent bouger ensemble. -->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      @font-face { font-family: 'Titre'; src: url('{{police-titre}}'); font-weight: 400 700; }
+      @font-face { font-family: 'Texte'; src: url('{{police-texte}}'); font-weight: 400 600; }
+      html, body { margin: 0; width: 540px; height: 380px; overflow: hidden; }
+      body {
+        background:
+          radial-gradient(420px 260px at 50% 50%, {{halo}}, transparent 70%),
+          linear-gradient(180deg, {{panneau}}, {{fond}});
+        color: {{texte}};
+        font-family: 'Texte', sans-serif;
+        position: relative;
+      }
+      h1 { position: absolute; top: 34px; width: 100%; margin: 0; text-align: center; font: 700 24px/1 'Titre', sans-serif; }
+      p { position: absolute; top: 70px; width: 100%; margin: 0; text-align: center; color: {{attenue}}; font-size: 13px; }
+      svg { position: absolute; left: 212px; top: 170px; }
+      .pied { position: absolute; bottom: 22px; width: 100%; text-align: center; color: {{attenue}}; font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <h1>{{nom}}</h1>
+    <p>Glissez Hive dans Applications · Drag Hive to Applications</p>
+    <svg width="116" height="40" viewBox="0 0 116 40">
+      <!-- Couleur pleine : un dégradé en boîte englobante n'a pas de hauteur sur
+           une ligne horizontale, et le trait disparaît. -->
+      <path
+        d="M4 20 H100"
+        stroke="{{miel}}"
+        stroke-width="5"
+        stroke-linecap="round"
+        stroke-dasharray="2 12"
+      />
+      <path
+        d="M92 8 L108 20 L92 32"
+        fill="none"
+        stroke="{{mielFonce}}"
+        stroke-width="5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+    </svg>
+    <div class="pied">{{accroche}} · {{accrocheEn}}</div>
+  </body>
+</html>

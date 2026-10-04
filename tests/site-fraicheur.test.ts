@@ -252,10 +252,13 @@ describe('LA VITRINE N’EXIGE PAS UN AUTRE NODE QUE LA RUCHE', () => {
     const paquet = JSON.parse(
       readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
     ) as { engines: { node: string } };
-    const exige = /(\d+)/.exec(paquet.engines.node)?.[1];
+    // Majeur ET mineur : le plancher est 24.18 (le premier Node 24 dont npm
+    // lit `allowScripts`), et une vitrine qui dirait « ≥ 24 » inviterait sous
+    // 24.17 — la ruche morte-née, par la porte de devant.
+    const exige = /(\d+\.\d+)/.exec(paquet.engines.node)?.[1];
     expect(exige, 'engines.node est illisible').toBeTruthy();
 
-    const annonce = /Node\s*(?:≥|&ge;|>=)\s*(\d+)/.exec(vitrine)?.[1];
+    const annonce = /Node\s*(?:≥|&ge;|>=)\s*(\d+(?:\.\d+)?)/.exec(vitrine)?.[1];
     expect(annonce, 'aucun bandeau « Node ≥ N » dans la vitrine').toBeTruthy();
     expect(
       annonce,
@@ -277,6 +280,22 @@ describe('la version affichée est celle du paquet', () => {
     expect(affichee, `l’en-tête annonce v${affichee}, le paquet est en ${paquet.version}`).toBe(
       paquet.version,
     );
+  });
+
+  it('et CHAQUE `vX.Y.Z` de la page aussi — le pied de page n’était gardé par rien', () => {
+    // La version est écrite deux fois : l'en-tête, gardé ci-dessus, et le
+    // pied de page (« © 2026 Hive · v0.3.0 · MIT »), que rien ne relisait.
+    // Au premier changement de version (0.3.0 → 0.4.0, première étiquette),
+    // il fallait s'en souvenir : c'est exactement ce qui s'oublie. La règle
+    // de publication est dans `docs/RELEASING.md`.
+    const paquet = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    ) as { version: string };
+    const citees = [...vitrine.matchAll(/\bv(\d+\.\d+\.\d+)\b/g)].map((m) => m[1]);
+    expect(citees.length, 'aucune version citée — la garde ne regarde rien').toBeGreaterThan(1);
+    for (const v of citees) {
+      expect(v, `la vitrine cite v${v}, le paquet est en ${paquet.version}`).toBe(paquet.version);
+    }
   });
 });
 

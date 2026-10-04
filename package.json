@@ -1,6 +1,6 @@
 {
   "name": "hive",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "private": true,
   "description": "Hive — plateforme communautaire d'orchestration d'agents IA (hub-and-spoke). Palier 1 : essaim réel, visible et persistant.",
   "bin": {
@@ -15,7 +15,7 @@
   ],
   "type": "module",
   "engines": {
-    "node": ">=24"
+    "node": ">=24.18.0"
   },
   "scripts": {
     "dev": "tsx watch src/orchestrator/main.ts",
@@ -23,6 +23,7 @@
     "join": "node scripts/lancer.mjs src/node-client/join.ts",
     "demo": "node scripts/lancer.mjs src/demo.ts",
     "preuve:v2-alpha": "node scripts/preuve-v2-alpha.mjs",
+    "boucle:v3": "node scripts/lancer.mjs src/boucle-v3/main.ts",
     "captures": "node scripts/captures-ecran.mjs",
     "cli": "node scripts/lancer.mjs src/cli.ts",
     "install:hive": "node scripts/lancer.mjs src/installer-main.ts",
@@ -41,6 +42,12 @@
     "fusionner": "sh scripts/fusionner.sh",
     "ruche": "node scripts/ruche.mjs",
     "bac:image": "node scripts/image-agents.mjs",
+    "app:dev": "npm run build && npm --prefix desktop run dev",
+    "app:build": "npm run build && npm --prefix desktop run build",
+    "app:dist:linux": "npm run build && npm --prefix desktop run dist:linux",
+    "app:dist:win": "npm run build && npm --prefix desktop run dist:win",
+    "app:dist:mac": "npm run build && npm --prefix desktop run dist:mac",
+    "app:fumee": "npm --prefix desktop run fumee --",
     "format": "prettier --write .",
     "build:node": "tsc -p tsconfig.build.json",
     "prepare": "npm run build:node"
@@ -52,7 +59,7 @@
     "@fastify/cors": "^11.2.0",
     "@fastify/proxy-addr": "^5.1.0",
     "@fastify/static": "^10.1.2",
-    "better-sqlite3": "^12.11.1",
+    "better-sqlite3": "^13.0.3",
     "fastify": "^5.10.0"
   },
   "devDependencies": {
@@ -90,7 +97,7 @@
     "vitest": "^4.1.11"
   },
   "allowScripts": {
-    "better-sqlite3": true,
+    "better-sqlite3": false,
     "esbuild": true
   }
 }

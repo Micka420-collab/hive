@@ -17,6 +17,9 @@ import type { StateSnapshot } from '../src/shared/types';
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   fetchChambre: vi.fn(),
+  // Le bilan de la fiche a son propre banc (bilan-mission-ecran) : ici, il
+  // échoue sans ouvrir de socket — comme le ferait un hub injoignable.
+  fetchBilanWorker: vi.fn(() => Promise.reject(new Error('bilan hors de ce banc'))),
   fetchMotifs: vi.fn(() => Promise.resolve({ motifs: [] })),
   fetchAtelier: vi.fn(() =>
     Promise.resolve({

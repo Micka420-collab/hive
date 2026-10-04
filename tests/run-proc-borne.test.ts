@@ -18,7 +18,8 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { GRACE_ARRET_MS, runProc } from '../src/node-client/merge-runner.js';
+import { GRACE_ARRET_MS } from '../src/shared/arbre-processus.js';
+import { runProc } from '../src/node-client/merge-runner.js';
 
 const dossiers: string[] = [];
 afterEach(() => {

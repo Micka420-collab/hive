@@ -261,6 +261,24 @@ describe('L’ÉLAGUEUR DES TÂCHES SUPPRIME VRAIMENT', () => {
     expect(store.getTaskReview(t.id), 'le verdict a survécu à sa tâche').toBeNull();
   });
 
+  it('L’ANNONCE DE DURÉE PART AVEC SA TÂCHE — sinon sa clé étrangère fait jeter toute la passe', () => {
+    // #527 : `annonces_duree` RÉFÉRENCE `tasks(id)` et vit 180 jours là où la
+    // tâche close en vit 30. Oubliée dans la cascade, une seule annonce faisait
+    // échouer `pruneTasks` (FOREIGN KEY) — et, dans le tick, toutes les bornes
+    // qui la suivent. Une clé étrangère active garantit qu'une tâche partie n'a
+    // plus d'annonce : la voir partir suffit.
+    const annoncee = poser({ titre: 'annoncée', statut: 'done', ageJours: 40 });
+    store.enregistrerAnnonce(
+      annoncee.id,
+      'n-1',
+      'dev',
+      { socle: 'global', n: 3, p50Ms: 10, p80Ms: 20 },
+      Date.now() - 40 * JOUR,
+    );
+    expect(store.pruneTasks(30 * JOUR), 'la borne a jeté ou n’a rien supprimé').toBe(1);
+    expect(store.getTask(annoncee.id), 'la tâche annoncée est restée').toBeUndefined();
+  });
+
   it('LA MÉMOIRE, ELLE, SURVIT — et c’est délibéré', () => {
     // Le Cerveau existe pour que le SAVOIR dure plus longtemps que l'épisode
     // qui l'a produit. Il a sa propre borne, par genre et par usage. Cascader

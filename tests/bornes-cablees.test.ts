@@ -30,8 +30,9 @@ import { fileURLToPath } from 'node:url';
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createServer } from '../src/orchestrator/server.js';
+import { performance } from 'node:perf_hooks';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { POLITIQUE_JOURNAL, createServer } from '../src/orchestrator/server.js';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
 const TOKEN = 'jeton-de-test-suffisamment-long-42';
@@ -526,4 +527,68 @@ describe('ÉLAGUER NE DOIT PAS ROUVRIR CE QUI A ÉTÉ FERMÉ', () => {
     expect(restants, 'la plus récente des mortes est gardée').toContain('srv-morte-3');
     expect(restants, 'les vieilles mortes sont parties').not.toContain('srv-morte-1');
   });
+});
+
+describe('UNE ANNONCE DE DURÉE NE FIGE PLUS LE TICK', () => {
+  // #527, reproduit tel qu'un relecteur l'a trouvé : une tâche close depuis
+  // 40 jours porte une annonce de durée (gardée 180 jours). `pruneTasks` la
+  // condamne, la clé étrangère de `annonces_duree` fait jeter la passe — et,
+  // quand tout le tick tenait dans un seul `try`, la rétention du journal ne
+  // tournait plus jamais : le journal grossissait sans borne, en silence.
+  it(
+    'la tâche part, le journal est élagué, et le tick ne jette pas',
+    { timeout: 20_000 },
+    async () => {
+      const dossier = mkdtempSync(path.join(os.tmpdir(), 'hive-tick-annonce-'));
+      const erreurs: string[] = [];
+      const sortie = vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => {
+        erreurs.push(a.map(String).join(' '));
+      });
+      const srv = await createServer({
+        port: 0,
+        host: '127.0.0.1',
+        token: TOKEN,
+        corsOrigins: [],
+        dbPath: path.join(dossier, 'hive.db'),
+        simulation: true,
+        tickMs: 50,
+      });
+      try {
+        const JOUR = 86_400_000;
+        const projet = srv.store.createProject({ name: 'Annoncée' });
+        const t = srv.store.createTask({ projectId: projet.id, title: 'x', prompt: 'p' });
+        srv.store.enregistrerAnnonce(
+          t.id,
+          'n-1',
+          'dev',
+          { socle: 'global', n: 3, p50Ms: 1, p80Ms: 2 },
+          Date.now() - 40 * JOUR,
+        );
+        srv.store.patchTask(t.id, { status: 'done' }, Date.now() - 40 * JOUR);
+        const bavardage = POLITIQUE_JOURNAL.fenetre + 600;
+        srv.store.enTransaction(() => {
+          for (let i = 0; i < bavardage; i++)
+            srv.store.appendEvent('task_progress', { log: `l${i}` });
+        });
+
+        const fin = performance.now() + 8_000;
+        while (
+          performance.now() < fin &&
+          srv.store.countEvents() > POLITIQUE_JOURNAL.fenetre + 50
+        ) {
+          await new Promise((r) => setTimeout(r, 50));
+        }
+        expect(srv.store.getTask(t.id), 'la tâche annoncée n’a pas été élaguée').toBeUndefined();
+        expect(
+          srv.store.countEvents(),
+          'la rétention du journal ne tourne plus',
+        ).toBeLessThanOrEqual(POLITIQUE_JOURNAL.fenetre + 50);
+        expect(erreurs.filter((e) => e.includes('erreur de tick'))).toEqual([]);
+      } finally {
+        sortie.mockRestore();
+        await srv.stop();
+        rmSync(dossier, { recursive: true, force: true });
+      }
+    },
+  );
 });

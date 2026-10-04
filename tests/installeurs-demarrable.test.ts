@@ -147,9 +147,17 @@ describe('LES TROIS SCRIPTS VÉRIFIENT QUE LA RUCHE PEUT DÉMARRER', () => {
     // Charger, pas compter sur un code de sortie. `better-sqlite3` et `fastify`
     // sont OPTIONNELLES : npm a le droit de les écarter, ou de refuser leur
     // script d'installation, et de réussir quand même.
+    //
+    // Et OUVRIR une base, pas seulement `require` : `better-sqlite3` 13 ne
+    // charge son binaire qu'au premier `new Database`. Sans binaire pour la
+    // plateforme, ou sous une glibc trop vieille, le `require` réussit — et la
+    // Reine meurt à son premier démarrage.
     const source = nu(lire(f));
     expect(source, `${f} ne charge pas better-sqlite3`).toMatch(
       /require\(['"]better-sqlite3['"]\)/,
+    );
+    expect(source, `${f} n’ouvre pas de base : le binaire n’est pas éprouvé`).toMatch(
+      /\(['"]:memory:['"]\)/,
     );
     expect(source, `${f} ne charge pas fastify`).toMatch(/require\(['"]fastify['"]\)/);
   });
@@ -170,34 +178,43 @@ describe('LES TROIS SCRIPTS VÉRIFIENT QUE LA RUCHE PEUT DÉMARRER', () => {
     // Un diagnostic sans commande à taper laisse l'utilisateur exactement où il
     // était. Ici la cause la plus fréquente est le verrou `allow-scripts` de
     // npm, et sa levée a un nom.
-    expect(nu(lire(f)), `${f} devrait nommer la commande de réparation`).toMatch(
-      /npm (install|rebuild|approve-scripts)/,
+    expect(nu(lire(f)), `${f} devrait nommer la commande de réparation`).toMatch(/npm install/);
+  });
+
+  it.each(SCRIPTS)('%s ne conseille PLUS `rebuild`, ni un compilateur', (f) => {
+    // ─── LE CONSEIL QUI EST DEVENU FAUX ────────────────────────────────────
+    //
+    // Du temps de `better-sqlite3` 12, `npm rebuild better-sqlite3` était LE
+    // geste : il refaisait un binaire lié à la mauvaise ABI, là où
+    // `npm install` voyait un paquet déjà présent et rendait 0.
+    //
+    // La 13 est N-API, livre son binaire dans le paquet, et `package.json`
+    // refuse son script (`allowScripts`). Mesuré : `rebuild` répond
+    // « rebuilt dependencies successfully » sans rien faire, et installer
+    // Visual Studio ou python3 ne répare rien non plus. Les causes qui restent
+    // — `--omit=optional`, npm sous 11.16, glibc sous 2.34, plateforme sans
+    // binaire — ont chacune leur geste, et le message les nomme.
+    const source = nu(lire(f));
+    expect(source, `${f} conseille encore npm rebuild`).not.toMatch(/npm rebuild/);
+    expect(source, `${f} envoie encore installer Visual Studio`).not.toMatch(
+      /Visual Studio Build Tools/,
     );
   });
 
   it.each(['install.sh', 'install.ps1'] as const)(
-    '%s conseille `rebuild`, PAS `install` seul',
+    '%s nomme les VRAIES causes, et le plancher de Node',
     (f) => {
-      // ─── LE MAUVAIS CONSEIL, MESURÉ ────────────────────────────────────────
-      //
-      // La première version de ce message disait « npm install ». Chez un
-      // utilisateur, ça ne réparait rien :
-      //
-      //     Error: le module better_sqlite3.node a été compilé pour
-      //     NODE_MODULE_VERSION 137. Cette version de Node exige 147.
-      //
-      // Le paquet ÉTAIT là, à la bonne version ; c'est son binaire natif qui ne
-      // correspondait pas à l'ABI du Node utilisé. `npm install` ne touche pas à
-      // un paquet déjà installé à la bonne version : il rend 0, et la panne
-      // reste entière. C'est le pire genre de conseil — il consomme la
-      // confiance de celui qui le suit.
-      //
-      // Seul `rebuild` refait le binaire.
-      expect(nu(lire(f)), `${f} doit conseiller npm rebuild better-sqlite3`).toMatch(
-        /npm rebuild better-sqlite3/,
-      );
+      const source = nu(lire(f));
+      expect(source).toMatch(/--include=optional/);
+      expect(source, 'npm sous 11.16 ignore allowScripts').toMatch(/11\.16/);
+      expect(source, 'une plateforme sans binaire : l’image Docker').toMatch(/Docker/);
     },
   );
+
+  it('install.sh nomme AUSSI la glibc — la cause propre à Linux', () => {
+    expect(nu(lire('install.sh'))).toMatch(/GLIBC_2\.34/);
+    expect(nu(lire('scripts/poser-la-ruche.sh'))).toMatch(/glibc ≥ 2\.34/);
+  });
 
   it.each(['install.sh', 'install.ps1'] as const)('%s ne conseille RIEN qui ne fasse rien', (f) => {
     // ─── DEUX COMMANDES, DONT UNE INUTILE ──────────────────────────────────

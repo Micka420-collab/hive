@@ -1,6 +1,7 @@
 // Tests du Hive Mind v0 (Palier 2) : moteur de récupération (tokenisation +
-// scoring BM25), stockage/rétention des souvenirs, capture d'un souvenir à la
-// réussite d'une tâche, et injection bout-en-bout du contexte dans le prompt.
+// scoring BM25), stockage/rétention des souvenirs, proposition d'un souvenir à
+// la réussite d'une tâche et son entrée en mémoire à la VALIDATION, et
+// injection bout-en-bout du contexte dans le prompt.
 
 import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
@@ -12,10 +13,16 @@ import {
   rankMemories,
   rankMemoriesHybrid,
   scoreNgram,
+  suiteSouvenir,
   summarizeTask,
   tokenize,
+  verdictSouvenir,
+  type IssueSouvenir,
   type Memory,
+  type ValidationSouvenir,
+  type VerdictSouvenir,
 } from '../src/orchestrator/hive-mind.js';
+import type { EvaluationDecision } from '../src/orchestrator/evaluator.js';
 import { leconsDesEchecs } from '../src/orchestrator/brood.js';
 import { LIMITS, parseServerMessage } from '../src/shared/protocol.js';
 import { HiveStore } from '../src/orchestrator/store.js';
@@ -333,8 +340,49 @@ describe('stockage des souvenirs', () => {
   });
 });
 
+describe('le corpus filtré par projet source', () => {
+  it('LE FILTRE PASSE AVANT LA BORNE — un voisin prolifique ne vide pas le corpus', () => {
+    const store = new HiveStore(':memory:');
+    try {
+      store.recordMemory(
+        { projectId: 'ouvert', taskId: 'o1', title: 'Ancien', content: 'migration postgres' },
+        1,
+      );
+      store.recordMemory(
+        { projectId: 'ferme', taskId: 'f1', title: 'Récent', content: 'migration postgres' },
+        2,
+      );
+      store.recordMemory(
+        { projectId: 'ferme', taskId: 'f2', title: 'Récent', content: 'migration postgres' },
+        3,
+      );
+      const admis = (source: string): boolean => source === 'ouvert';
+      // Borne 2 : filtrés APRÈS elle, les deux plus récents (écartés) ne
+      // laisseraient rien — le souvenir admis, plus ancien, se perdrait.
+      expect(store.listMemories(2, { admis }).map((m) => m.taskId)).toEqual(['o1']);
+      expect(
+        store.searchMemories('migration postgres', 3, { admis }).map((s) => s.memory.taskId),
+      ).toEqual(['o1']);
+      expect(
+        store.listMemories(1, { admis: () => true }),
+        'la borne tient aussi filtrée',
+      ).toHaveLength(1);
+      // La tâche exclue (une ombre et son originale) s'écarte AVANT la borne
+      // elle aussi : le plus récent exclu, la borne 1 garde le suivant.
+      expect(store.listMemories(1, { exclureTache: 'f2' }).map((m) => m.taskId)).toEqual(['f1']);
+      // Sans filtre, rien ne change : les plus récents d'abord.
+      expect(store.listMemories(2).map((m) => m.taskId)).toEqual(['f2', 'f1']);
+    } finally {
+      store.close();
+    }
+  });
+});
+
 describe('capture par le scheduler', () => {
-  it('consigne un souvenir à la réussite, pas à l’échec', () => {
+  it('la réussite PROPOSE un souvenir sans l’écrire ; l’échec ne propose rien', () => {
+    // Le souvenir s'écrivait à la réussite DÉCLARÉE — avant la contre-revue,
+    // l'Evaluator et l'humain. Une production ensuite rejetée restait dans les
+    // prompts voisins pendant des mois.
     const store = new HiveStore(':memory:');
     try {
       const scheduler = new Scheduler(store);
@@ -356,10 +404,15 @@ describe('capture par le scheduler', () => {
         subAgents: [],
       });
       expect(ok).toBe(true);
-      expect(store.countMemories()).toBe(1);
+      expect(store.countMemories(), 'rien en mémoire avant validation').toBe(0);
+      const resultId = store.resultsForTask('ok1').at(-1)?.resultId;
+      expect(store.souvenirPropose('ok1')).toEqual({ resultId, issue: 'en_attente' });
+
+      // Validée, la production entre en mémoire — avec ce qu'elle avait proposé.
+      store.statuerSouvenir('ok1', resultId as number, PAR_EVALUATOR);
       expect(store.listMemories()[0]?.content).toContain('JWT');
 
-      // Un échec ne laisse aucun souvenir.
+      // Un échec ne propose aucun souvenir.
       store.createTask({ id: 'ko1', projectId: project.id, title: 'X', prompt: 'quelque chose' });
       store.patchTask('ko1', { status: 'assigned', assignedNodeId: 'node-1' });
       scheduler.handleTaskResult('node-1', {
@@ -370,10 +423,298 @@ describe('capture par le scheduler', () => {
         durationMs: 5,
         subAgents: [],
       });
+      expect(store.souvenirPropose('ko1')).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
+  it('UNE RELECTURE NE PROPOSE AUCUN SOUVENIR — son verdict n’est pas un savoir', () => {
+    // « valide », « conteste » et des objections sur la production d'un autre :
+    // rangés en souvenir, ils revenaient comme exemple dans le prompt des
+    // tâches dont le titre ressemblait à celui qu'ils relisaient.
+    const store = new HiveStore(':memory:');
+    try {
+      const scheduler = new Scheduler(store);
+      const project = store.createProject({ name: 'P' });
+      store.createTask({ id: 'prod', projectId: project.id, title: 'Garde', prompt: 'p' });
+      store.createTask({
+        id: 'relu',
+        projectId: project.id,
+        title: 'Contre-expertise — Garde',
+        prompt: 'relis',
+      });
+      store.inscrireRelecture({
+        relectureTaskId: 'relu',
+        productionTaskId: 'prod',
+        relecteurNodeId: 'node-1',
+        relecteurAgent: 'codex',
+        producteurAgent: 'claude-code',
+      });
+      store.patchTask('relu', { status: 'assigned', assignedNodeId: 'node-1' });
+      expect(
+        scheduler.handleTaskResult('node-1', {
+          taskId: 'relu',
+          success: true,
+          diff: '',
+          logs: 'valide',
+          finalText: 'valide',
+          durationMs: 5,
+          subAgents: [],
+        }),
+      ).toBe(true);
+      expect(store.getTask('relu')?.status).toBe('done');
+      expect(store.countMemories(), 'le verdict d’une relecture est entré en mémoire').toBe(0);
+      expect(store.souvenirPropose('relu')).toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+});
+
+/** Les trois verdicts qu'un banc du store a besoin de rendre. */
+const PAR_EVALUATOR: VerdictSouvenir = { issue: 'retenu', validePar: 'evaluator' };
+const PAR_HUMAIN: VerdictSouvenir = { issue: 'retenu', validePar: 'revue_humaine' };
+const EN_ATTENTE: VerdictSouvenir = { issue: 'en_attente', validePar: null };
+const REJETE: VerdictSouvenir = { issue: 'rejete', validePar: null };
+
+describe('le souvenir suit le verdict (store)', () => {
+  function avecProposition(): { store: HiveStore; resultId: number } {
+    const store = new HiveStore(':memory:');
+    const project = store.createProject({ name: 'P' });
+    store.createTask({ id: 't', projectId: project.id, title: 'Auth', prompt: 'jwt' });
+    const resultId = store.insertResult({
+      taskId: 't',
+      nodeId: 'n',
+      success: true,
+      diff: '',
+      logs: '',
+      durationMs: 1,
+      subAgents: [],
+    });
+    store.proposerSouvenir({
+      projectId: project.id,
+      taskId: 't',
+      resultId,
+      title: 'Auth',
+      content: 'jwt sessions',
+    });
+    return { store, resultId };
+  }
+
+  it('retenu → en mémoire ; rejeté → retiré ; UN SEUL changement rendu par bascule', () => {
+    const { store, resultId } = avecProposition();
+    try {
+      expect(store.statuerSouvenir('t', resultId, EN_ATTENTE), 'rien ne bouge').toBeNull();
+
+      const retenu = store.statuerSouvenir('t', resultId, PAR_EVALUATOR, 1_000);
+      expect(retenu).toMatchObject({ avant: 'en_attente', apres: 'retenu' });
+      expect(retenu?.memoire).toMatchObject({
+        taskId: 't',
+        content: 'jwt sessions',
+        createdAt: 1_000,
+      });
+      expect(store.countMemories()).toBe(1);
+      // Le même verdict relu par un second fait ne réécrit rien.
+      expect(store.statuerSouvenir('t', resultId, PAR_EVALUATOR)).toBeNull();
+
+      expect(store.statuerSouvenir('t', resultId, REJETE)).toMatchObject({
+        avant: 'retenu',
+        apres: 'rejete',
+        memoire: null,
+        oublie: true,
+      });
+      expect(store.countMemories()).toBe(0);
+      expect(store.souvenirPropose('t')?.issue).toBe('rejete');
+    } finally {
+      store.close();
+    }
+  });
+
+  it('une preuve qui vieillit ne retire pas un souvenir validé — seul un rejet le fait', () => {
+    const { store, resultId } = avecProposition();
+    try {
+      store.statuerSouvenir('t', resultId, PAR_EVALUATOR);
+      expect(store.statuerSouvenir('t', resultId, EN_ATTENTE)).toBeNull();
       expect(store.countMemories()).toBe(1);
     } finally {
       store.close();
     }
+  });
+
+  it('UNE APPROBATION HUMAINE EFFACÉE RETIRE LE SOUVENIR QU’ELLE SEULE VALIDAIT', () => {
+    // L'« annuler » de la Miellerie : plus rien ne valide ce souvenir.
+    const { store, resultId } = avecProposition();
+    try {
+      store.statuerSouvenir('t', resultId, PAR_HUMAIN);
+      expect(store.countMemories()).toBe(1);
+      expect(store.statuerSouvenir('t', resultId, EN_ATTENTE)).toMatchObject({
+        avant: 'retenu',
+        apres: 'en_attente',
+        oublie: true,
+      });
+      expect(store.countMemories()).toBe(0);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('l’Evaluator qui accepte ensuite rend la validation plus forte que l’humain', () => {
+    // Approuvée d'abord, acceptée ensuite : effacer l'approbation ne retire
+    // plus un savoir que l'Evaluator a prouvé.
+    const { store, resultId } = avecProposition();
+    try {
+      store.statuerSouvenir('t', resultId, PAR_HUMAIN);
+      expect(store.statuerSouvenir('t', resultId, PAR_EVALUATOR), 'toujours retenu').toBeNull();
+      expect(store.statuerSouvenir('t', resultId, EN_ATTENTE)).toBeNull();
+      expect(store.countMemories()).toBe(1);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('UN SOUVENIR ÉCRIT AVANT LE REGISTRE EST ADOPTÉ, ET UN REJET L’EN RETIRE', () => {
+    // Avant ce registre, la mémoire s'écrivait à la simple réussite, sans
+    // proposition : sans adoption, un rejet d'aujourd'hui ne trouvait rien à
+    // statuer et le souvenir jamais validé restait.
+    const store = new HiveStore(':memory:');
+    try {
+      const project = store.createProject({ name: 'P' });
+      store.createTask({ id: 'h', projectId: project.id, title: 'Auth', prompt: 'jwt' });
+      const resultId = store.insertResult({
+        taskId: 'h',
+        nodeId: 'n',
+        success: true,
+        diff: '',
+        logs: '',
+        durationMs: 1,
+        subAgents: [],
+      });
+      store.recordMemory({ projectId: project.id, taskId: 'h', title: 'Auth', content: 'jwt' });
+      expect(store.souvenirPropose('h')).toBeNull();
+
+      expect(store.adopterSouvenirHerite('h')).toBe(true);
+      expect(store.adopterSouvenirHerite('h'), 'une fois').toBe(false);
+      expect(store.souvenirPropose('h')).toEqual({ resultId, issue: 'retenu' });
+      // Qui l'avait validé, on ne le sait pas : une preuve absente ne le retire pas…
+      expect(store.statuerSouvenir('h', resultId, EN_ATTENTE)).toBeNull();
+      // … un rejet, si.
+      expect(store.statuerSouvenir('h', resultId, REJETE)).toMatchObject({ oublie: true });
+      expect(store.countMemories()).toBe(0);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('LES SOUVENIRS LAISSÉS PAR DES RELECTURES AVANT LE REGISTRE SONT PURGÉS', () => {
+    const store = new HiveStore(':memory:');
+    try {
+      const project = store.createProject({ name: 'P' });
+      store.createTask({ id: 'prod', projectId: project.id, title: 'Garde', prompt: 'p' });
+      store.createTask({ id: 'relu', projectId: project.id, title: 'Relire', prompt: 'r' });
+      store.inscrireRelecture({
+        relectureTaskId: 'relu',
+        productionTaskId: 'prod',
+        relecteurNodeId: 'n',
+        relecteurAgent: 'codex',
+        producteurAgent: 'claude-code',
+      });
+      store.recordMemory({ projectId: project.id, taskId: 'prod', title: 'Garde', content: 'g' });
+      store.recordMemory({
+        projectId: project.id,
+        taskId: 'relu',
+        title: 'Relire',
+        content: 'valide',
+      });
+      expect(store.pruneMemories(100)).toBe(1);
+      expect(store.listMemories().map((m) => m.taskId)).toEqual(['prod']);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('UN ÉCHEC, UNE PORTE : la première qui a versé l’épisode reste', () => {
+    const { store, resultId } = avecProposition();
+    try {
+      expect(store.episodeDeProduction('t', resultId)).toBeNull();
+      store.marquerEpisodeProduction('t', resultId, 'rejet_evaluator');
+      store.marquerEpisodeProduction('t', resultId, 'contre_revue');
+      expect(store.episodeDeProduction('t', resultId)).toBe('rejet_evaluator');
+      expect(store.episodeDeProduction('t', resultId + 1), 'une autre production').toBeNull();
+    } finally {
+      store.close();
+    }
+  });
+
+  it('un verdict sur une AUTRE production ne touche rien', () => {
+    // Une nouvelle production remplace la proposition : un avis tardif rendu
+    // sur l'ancienne ne doit ni valider ni retirer celle d'aujourd'hui.
+    const { store, resultId } = avecProposition();
+    try {
+      expect(store.statuerSouvenir('t', resultId + 1, PAR_EVALUATOR)).toBeNull();
+      expect(store.countMemories()).toBe(0);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('la proposition ne survit pas à sa tâche ; le souvenir retenu, si', () => {
+    const { store, resultId } = avecProposition();
+    try {
+      store.statuerSouvenir('t', resultId, PAR_EVALUATOR);
+      store.patchTask('t', { status: 'done' }, 0);
+      expect(store.pruneTasks(1, 10)).toBe(1);
+      expect(store.pruneSouvenirsProposes()).toBe(1);
+      expect(store.souvenirPropose('t')).toBeNull();
+      expect(store.countMemories(), 'le savoir dure plus longtemps que la tâche').toBe(1);
+    } finally {
+      store.close();
+    }
+  });
+});
+
+describe('le souvenir suit le verdict (règle pure)', () => {
+  const evaluation = (
+    decision: EvaluationDecision,
+    humanReview: 'approved' | 'missing' = 'missing',
+  ) => ({ decision, evidence: { humanReview } }) as Parameters<typeof verdictSouvenir>[0];
+
+  it('l’Evaluator accepte, ou l’humain tranche ce que l’Evaluator laisse ouvert', () => {
+    expect(verdictSouvenir(evaluation('accepted'))).toEqual(PAR_EVALUATOR);
+    expect(verdictSouvenir(evaluation('accepted', 'approved'))).toEqual(PAR_EVALUATOR);
+    expect(verdictSouvenir(evaluation('human_review_required', 'approved'))).toEqual(PAR_HUMAIN);
+    expect(verdictSouvenir(evaluation('additional_test_required', 'approved'))).toEqual(PAR_HUMAIN);
+    expect(verdictSouvenir(evaluation('human_review_required'))).toEqual(EN_ATTENTE);
+    expect(verdictSouvenir(evaluation('additional_test_required'))).toEqual(EN_ATTENTE);
+  });
+
+  it('UN REJET DE L’EVALUATOR L’EMPORTE SUR UNE APPROBATION HUMAINE', () => {
+    // La ruche relance déjà une production approuvée qu'une relectrice
+    // conteste : un souvenir retenu enseignerait l'inverse de ce qu'elle fait.
+    expect(verdictSouvenir(evaluation('correction_required', 'approved'))).toEqual(REJETE);
+    expect(verdictSouvenir(evaluation('rejected', 'approved'))).toEqual(REJETE);
+  });
+
+  it('un rejet révoque toute validation ; une attente, seulement celle d’un humain qui se dédit', () => {
+    const issues: IssueSouvenir[] = ['en_attente', 'retenu', 'rejete'];
+    const table = issues.flatMap((avant) =>
+      issues.map((verdict) => `${avant}→${verdict}=${suiteSouvenir(avant, verdict, null) ?? '·'}`),
+    );
+    expect(table).toEqual([
+      'en_attente→en_attente=·',
+      'en_attente→retenu=retenu',
+      'en_attente→rejete=rejete',
+      'retenu→en_attente=·',
+      'retenu→retenu=·',
+      'retenu→rejete=rejete',
+      'rejete→en_attente=en_attente',
+      'rejete→retenu=retenu',
+      'rejete→rejete=·',
+    ]);
+    const validations: ValidationSouvenir[] = ['evaluator', 'revue_humaine'];
+    expect(
+      validations.map((par) => `${par}:${suiteSouvenir('retenu', 'en_attente', par) ?? '·'}`),
+    ).toEqual(['evaluator:·', 'revue_humaine:en_attente']);
   });
 });
 
@@ -482,7 +823,24 @@ describe('injection bout-en-bout', () => {
     });
     expect(receivedPrompts.get('mem-a')).toBeDefined();
     expect(receivedPrompts.get('mem-a')).not.toContain(HIVE_CONTEXT_HEADER);
+    // Réussie, mais pas VALIDÉE : une seule famille d'agent, aucune relecture
+    // indépendante — l'Evaluator laisse la question à l'humain, et la mémoire
+    // attend. Avant, le souvenir s'écrivait ici, sur la seule parole de l'ouvrière.
+    expect(server.store.countMemories(), 'un souvenir écrit avant toute validation').toBe(0);
+
+    // L'humain approuve : c'est là que la production entre au Hive Mind.
+    const revue = await fetch(`${base}/api/tasks/mem-a/review`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ state: 'approved' }),
+    });
+    expect(revue.status).toBe(200);
     expect(server.store.countMemories()).toBe(1);
+    expect(
+      server.store
+        .listEvents(0, 500)
+        .find((e) => e.type === 'memory_recorded' && e.payload.taskId === 'mem-a')?.payload,
+    ).toMatchObject({ source: 'revue_humaine', projectId: project.id });
 
     // Tâche B : proche de A (jwt, sessions) → le souvenir de A est injecté.
     await runTaskAndWait(base, project.id, {
@@ -495,6 +853,178 @@ describe('injection bout-en-bout', () => {
     expect(promptB).toContain(HIVE_CONTEXT_HEADER);
     expect(promptB).toContain('Authentification JWT'); // titre du souvenir de A
     expect(promptB).toContain('Ajouter la connexion utilisateur'); // prompt d'origine préservé
+  });
+
+  // La cloison des souvenirs protège entre PERSONNES (`savoirAdmis`, même
+  // règle que les épisodes du Cerveau) : un souvenir porte la réponse d'une
+  // ouvrière, il ne passe d'un projet privé à un autre que s'ils ont le même
+  // propriétaire, ou tous deux aucun. Chaque test a son sujet : les souvenirs
+  // des autres ne lui disputent pas les trois places.
+  type Proprio = string | null;
+  function projet(ownerId: Proprio, visibility: 'public' | 'private' = 'private'): string {
+    return server.store.createProject({ name: 'Projet', visibility, ownerId }).id;
+  }
+  function souvenir(projectId: string, marque: string, sujet: string): void {
+    server.store.recordMemory({
+      projectId,
+      taskId: `${marque}-${projectId}`,
+      title: marque,
+      content: sujet,
+    });
+  }
+  async function promptPour(projectId: string, sujet: string): Promise<string> {
+    // Par le magasin : un projet POSSÉDÉ refuse au seul jeton la création de
+    // tâches (ADR 0007), et ce n'est pas ce qu'on mesure ici.
+    const { id } = server.store.createTask({
+      projectId,
+      title: 'Tâche cible',
+      prompt: `Écrire la ${sujet}`,
+    });
+    server.store.patchTask(id, { status: 'ready' });
+    const fin = Date.now() + 8_000;
+    while (!receivedPrompts.has(id) && Date.now() < fin) {
+      await new Promise((r) => setTimeout(r, 40));
+    }
+    const prompt = receivedPrompts.get(id) ?? '';
+    expect(prompt, 'le banc : la cible doit recevoir un Hive Mind').toContain(HIVE_CONTEXT_HEADER);
+    return prompt;
+  }
+
+  it('DEUX PROPRIÉTAIRES DIFFÉRENTS NE PARTAGENT PAS — le public, si', async () => {
+    const sujet = 'migration schema postgres colonnes';
+    const cible = projet('alice');
+    souvenir(projet('bob'), 'SOUVENIR_DE_BOB', sujet);
+    souvenir(projet('bob', 'public'), 'SOUVENIR_PUBLIC_DE_BOB', sujet);
+    const prompt = await promptPour(cible, sujet);
+    expect(prompt, 'le souvenir privé de Bob a fui chez Alice').not.toContain('SOUVENIR_DE_BOB');
+    expect(prompt, 'le savoir public ne circule plus').toContain('SOUVENIR_PUBLIC_DE_BOB');
+    // L'attribution reste hors du prompt : le projet source n'y est jamais écrit.
+    expect(prompt).not.toMatch(/projectId/);
+  });
+
+  it('les projets privés d’un MÊME propriétaire partagent, et un projet se sert', async () => {
+    const sujet = 'tableau bord graphiques ventes trimestre';
+    const cible = projet('alice');
+    souvenir(projet('alice'), 'SOUVENIR_VOISIN_D_ALICE', sujet);
+    souvenir(cible, 'SOUVENIR_DU_PROJET_LUI_MEME', sujet);
+    const prompt = await promptPour(cible, sujet);
+    expect(prompt, 'un projet d’Alice perd le savoir d’un autre').toContain(
+      'SOUVENIR_VOISIN_D_ALICE',
+    );
+    expect(prompt, 'le projet a perdu son propre souvenir').toContain(
+      'SOUVENIR_DU_PROJET_LUI_MEME',
+    );
+  });
+
+  it('deux projets SANS propriétaire partagent (la ruche au seul jeton)', async () => {
+    const sujet = 'cache redis expiration cles sessions';
+    souvenir(projet(null), 'SOUVENIR_SANS_PROPRIETAIRE', sujet);
+    const prompt = await promptPour(projet(null), sujet);
+    expect(prompt, 'le chemin solo a perdu son savoir').toContain('SOUVENIR_SANS_PROPRIETAIRE');
+  });
+
+  it('POSSÉDÉ ET SANS PROPRIÉTAIRE NE PARTAGENT PAS, dans aucun sens', async () => {
+    const sujet = 'export fichier tableur colonnes dates';
+    souvenir(projet('alice'), 'SOUVENIR_POSSEDE', sujet);
+    souvenir(projet(null), 'SOUVENIR_ORPHELIN', sujet);
+    souvenir(projet('carol', 'public'), 'SOUVENIR_TEMOIN_PUBLIC', sujet);
+    const versOrphelin = await promptPour(projet(null), sujet);
+    expect(versOrphelin, 'possédé → sans propriétaire : a fui').not.toContain('SOUVENIR_POSSEDE');
+    const versPossede = await promptPour(projet('dave'), sujet);
+    expect(versPossede, 'sans propriétaire → possédé : a fui').not.toContain('SOUVENIR_ORPHELIN');
+  });
+
+  it('UN MEMBRE INVITÉ DANS UN PROJET D’ALICE NE FOUILLE PAS LES AUTRES', async () => {
+    // Revue de #529 : Mallory, membre du seul projet P d'Alice, écrit les
+    // tâches de P — donc la requête qui choisit les souvenirs — et en relit la
+    // sortie. Le savoir de Q (Alice, sans Mallory) ne doit pas y couler.
+    const sujet = 'facturation remises clients fideles';
+    const q = projet('alice');
+    souvenir(q, 'SECRET_DU_PROJET_Q_D_ALICE', sujet);
+    souvenir(projet('carol', 'public'), 'SOUVENIR_TEMOIN_PUBLIC', sujet);
+    const p = projet('alice');
+    server.store.addMember(p, 'mallory');
+    expect(await promptPour(p, sujet), 'Mallory lit Q par les tâches de P').not.toContain(
+      'SECRET_DU_PROJET_Q_D_ALICE',
+    );
+  });
+
+  it('UN COMPTE MEMBRE D’UN PROJET SANS PROPRIÉTAIRE NE FOUILLE PAS LES AUTRES', async () => {
+    // Décision du lead : la condition d'auditoire vaut aussi entre projets sans
+    // propriétaire. Mallory, membre de X seul, écrit les tâches de X ; le
+    // savoir de Y (sans propriétaire, sans Mallory) n'y coule pas. Sans aucun
+    // membre — le chemin solo au seul jeton — rien ne change.
+    const sujet = 'planification tournees livreurs horaires';
+    const y = projet(null);
+    souvenir(y, 'SECRET_DU_PROJET_Y_SANS_PROPRIETAIRE', sujet);
+    souvenir(projet('carol', 'public'), 'SOUVENIR_TEMOIN_PUBLIC', sujet);
+    const x = projet(null);
+    server.store.addMember(x, 'mallory');
+    expect(await promptPour(x, sujet), 'Mallory lit Y par les tâches de X').not.toContain(
+      'SECRET_DU_PROJET_Y_SANS_PROPRIETAIRE',
+    );
+    expect(await promptPour(projet(null), sujet), 'le chemin solo a perdu Y').toContain(
+      'SECRET_DU_PROJET_Y_SANS_PROPRIETAIRE',
+    );
+  });
+
+  it('le savoir coule vers un projet dont l’auditoire est INCLUS dans celui de la source', async () => {
+    const sujet = 'notifications courriel gabarits relances';
+    // P est partagé avec Mallory et Bob ; Q est à Alice seule (elle-même
+    // inscrite comme membre : le propriétaire ne compte pas de trop) ; R est
+    // partagé avec Mallory seule. Qui lit Q ou R lit déjà P.
+    const p = projet('alice');
+    server.store.addMember(p, 'mallory');
+    server.store.addMember(p, 'bob');
+    souvenir(p, 'SOUVENIR_DU_PROJET_PARTAGE', sujet);
+    const q = projet('alice');
+    server.store.addMember(q, 'alice');
+    expect(await promptPour(q, sujet), 'partagé → privé du même propriétaire : perdu').toContain(
+      'SOUVENIR_DU_PROJET_PARTAGE',
+    );
+    const r = projet('alice');
+    server.store.addMember(r, 'mallory');
+    expect(await promptPour(r, sujet), 'auditoire inclus : perdu').toContain(
+      'SOUVENIR_DU_PROJET_PARTAGE',
+    );
+  });
+
+  it('un souvenir dont le projet source a DISPARU n’est servi à personne', async () => {
+    // Le projet supprimé emporte ses souvenirs (EFFACEMENT_PROJET) ; il ne
+    // reste que des débris d'un effacement raté. Jamais servis.
+    const sujet = 'archivage journaux rotation compression';
+    souvenir('projet-disparu', 'SOUVENIR_ORPHELIN_DE_PROJET', sujet);
+    souvenir(projet('carol', 'public'), 'SOUVENIR_TEMOIN_PUBLIC', sujet);
+    expect(await promptPour(projet('alice'), sujet)).not.toContain('SOUVENIR_ORPHELIN_DE_PROJET');
+    expect(await promptPour(projet(null), sujet)).not.toContain('SOUVENIR_ORPHELIN_DE_PROJET');
+  });
+
+  it('LA REINE, CIBLÉE SUR UN PROJET, SUIT LA MÊME CLOISON (/api/chat)', async () => {
+    const sujet = 'inventaire entrepot etageres palettes';
+    const cible = projet('alice');
+    souvenir(projet('bob'), 'SOUVENIR_PRIVE_DE_BOB', sujet);
+    souvenir(projet('carol', 'public'), 'SOUVENIR_TEMOIN_PUBLIC', sujet);
+    const repondre = async (projectId?: string): Promise<string> => {
+      const r = await fetch(`http://127.0.0.1:${server.port}/api/chat`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          message: `quel souvenir sur ${sujet} ?`,
+          ...(projectId ? { projectId } : {}),
+        }),
+      });
+      expect(r.status).toBe(200);
+      return ((await r.json()) as { reply: string }).reply;
+    };
+    const cadree = await repondre(cible);
+    expect(cadree, 'le banc : la réponse doit citer la mémoire').toContain(
+      'SOUVENIR_TEMOIN_PUBLIC',
+    );
+    expect(cadree, 'le souvenir privé de Bob a fui chez Alice').not.toContain(
+      'SOUVENIR_PRIVE_DE_BOB',
+    );
+    // Sans projet ciblé : la portée du jeton de ruche, qui lit déjà tout.
+    expect(await repondre()).toContain('SOUVENIR_PRIVE_DE_BOB');
   });
 
   it('expose la mémoire via GET /api/hive-mind (et exige le token)', async () => {

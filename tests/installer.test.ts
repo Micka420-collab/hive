@@ -209,13 +209,18 @@ describe('installation — le fichier rendu', () => {
 
 describe('installation — la version de Node', () => {
   it('accepte ce qui suffit, refuse ce qui ne suffit pas', () => {
-    expect(nodeSuffisant(`v${NODE_MIN}.0.0`)).toBe(true);
-    expect(nodeSuffisant(`v${NODE_MIN + 4}.11.1`)).toBe(true);
-    expect(nodeSuffisant(`v${NODE_MIN - 2}.9.0`)).toBe(false);
+    expect(nodeSuffisant(`v${NODE_MIN}`)).toBe(true);
+    expect(nodeSuffisant('v26.10.0')).toBe(true);
+    expect(nodeSuffisant('v24.21.0')).toBe(true);
+    expect(nodeSuffisant('v24.17.0'), 'npm 11.13 ignore allowScripts').toBe(false);
+    expect(nodeSuffisant('v22.9.0')).toBe(false);
+    // Le mineur se compare en NOMBRE : « 24.9 » n'est pas au-dessus de « 24.18 ».
+    expect(nodeSuffisant('v24.9.0')).toBe(false);
   });
 
-  it('tolère l’absence de « v »', () => {
-    expect(nodeSuffisant(`${NODE_MIN}.1.0`)).toBe(true);
+  it('tolère l’absence de « v », et un suffixe de préversion', () => {
+    expect(nodeSuffisant(`${NODE_MIN}`)).toBe(true);
+    expect(nodeSuffisant('27.0.0-nightly20260901abc')).toBe(true);
   });
 
   it('refuse une version illisible plutôt que de supposer', () => {

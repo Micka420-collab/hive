@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-maitre-de-la-ruche-long';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -51,29 +52,19 @@ afterEach(async () => {
 
 async function noeudEnregistre(nodeId: string): Promise<{ ws: WebSocket; recus: unknown[] }> {
   const recus: unknown[] = [];
-  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+  const { ws } = await brancherFauxNoeud(
+    server.port,
+    {
+      token: TOKEN,
+      nodeId,
+      name: nodeId,
+      ownerName: 'testeur',
+      agentType: 'shell',
+      maxConcurrency: 1,
+    },
+    (msg) => recus.push(msg),
+  );
   ouverts.push(ws);
-  await new Promise<void>((resolve, reject) => {
-    ws.on('open', () => {
-      ws.send(
-        JSON.stringify({
-          type: 'register',
-          token: TOKEN,
-          nodeId,
-          name: nodeId,
-          ownerName: 'testeur',
-          agentType: 'shell',
-          maxConcurrency: 1,
-        }),
-      );
-    });
-    ws.on('message', (d) => {
-      const msg = JSON.parse(String(d)) as { type: string };
-      recus.push(msg);
-      if (msg.type === 'registered') resolve();
-    });
-    ws.on('error', reject);
-  });
   return { ws, recus };
 }
 

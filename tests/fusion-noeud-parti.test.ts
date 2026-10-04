@@ -61,6 +61,7 @@ import WebSocket from 'ws';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import type { MergeResultMsg } from '../src/shared/protocol.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-fusion-noeud-parti-long';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -96,29 +97,18 @@ function envoyer(ws: WebSocket, msg: unknown): void {
   ws.send(JSON.stringify(msg));
 }
 
-/** Ouvre un socket, s'inscrit sous ce nom, et rend le socket une fois accusé. */
-function inscrire(nom: string): Promise<WebSocket> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
-    ouverts.push(ws);
-    ws.on('open', () =>
-      envoyer(ws, {
-        type: 'register',
-        token: TOKEN,
-        nodeId: nom,
-        name: nom,
-        ownerName: 'testeur',
-        agentType: 'shell',
-        maxConcurrency: 1,
-      }),
-    );
-    ws.on('message', (d) => {
-      const m = JSON.parse(d.toString()) as { type: string };
-      if (m.type === 'registered') resolve(ws);
-    });
-    ws.on('close', () => reject(new Error(`${nom} fermé avant son accusé`)));
-    ws.on('error', reject);
+/** S'inscrit sous ce nom (et bat, `aide/faux-noeud`), et rend le socket une fois accusé. */
+async function inscrire(nom: string): Promise<WebSocket> {
+  const { ws } = await brancherFauxNoeud(server.port, {
+    token: TOKEN,
+    nodeId: nom,
+    name: nom,
+    ownerName: 'testeur',
+    agentType: 'shell',
+    maxConcurrency: 1,
   });
+  ouverts.push(ws);
+  return ws;
 }
 
 /** Un projet prêt à fusionner : un dépôt, une tâche terminée, un diff. */

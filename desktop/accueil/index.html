@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Hive</title>
+    <link rel="stylesheet" href="../marque/marque.css" />
+    <link rel="stylesheet" href="accueil.css" />
+  </head>
+  <body>
+    <main class="carte" aria-live="polite">
+      <header class="tete">
+        <img class="logo" src="../marque/icon.png" alt="" width="56" height="56" />
+        <div>
+          <h1 id="titre">Hive</h1>
+          <p class="sous-titre" id="sous-titre">La ruche démarre…</p>
+        </div>
+      </header>
+
+      <!-- Démarrage : ce que l'app prépare, et les agents qu'elle a trouvés. -->
+      <section id="demarrage">
+        <ol class="etapes">
+          <li id="etape-dossier" class="faite">Dossier de la ruche prêt</li>
+          <li id="etape-agents">Recherche des agents de code…</li>
+          <li id="etape-reine">La Reine démarre…</li>
+        </ol>
+        <ul class="agents" id="agents"></ul>
+        <p class="note" id="note-simulation" hidden>
+          Aucun agent connecté : la ruche démarre en démonstration simulée (diffs factices).
+          Installez et connectez Claude Code, Codex ou Cursor — la commande de chacun est ci-dessus
+          —, puis « Relancer la détection ».
+        </p>
+        <p class="note" id="note-port" hidden></p>
+        <p class="note">
+          Bac à sable : chaque ouvrière isole ses agents avec Podman, Docker ou bubblewrap s’il y en
+          a un sur ce poste ; sinon elle travaille sans, et le dit. La vue Essaim montre ce que
+          chacune a obtenu.
+        </p>
+        <div class="actions" id="actions-demarrage">
+          <button type="button" id="ouvrir-ecran" class="primaire" hidden>
+            Ouvrir Mission Control
+          </button>
+          <button type="button" id="detecter" hidden>Relancer la détection</button>
+        </div>
+        <label class="case">
+          <input type="checkbox" id="session" />
+          <span>Lancer Hive à l’ouverture de session</span>
+        </label>
+      </section>
+
+      <!-- Reprise : une ruche installée par git existe déjà sur ce poste. -->
+      <section id="reprise" hidden>
+        <p>
+          Une ruche existe déjà sur ce poste : <code id="reprise-dossier"></code>. Elle n’est jamais
+          modifiée, quel que soit votre choix.
+        </p>
+        <div class="choix">
+          <button type="button" id="choix-ouvrir">
+            <strong>Ouvrir cette ruche</strong>
+            <span id="choix-ouvrir-detail"
+              >Sa Reine tourne : l’app l’affiche sans rien lancer.</span
+            >
+          </button>
+          <button type="button" id="choix-importer" class="primaire">
+            <strong>Importer une copie</strong>
+            <span>La base (copie cohérente), la mémoire, les identités des nœuds et les clés.</span>
+          </button>
+          <button type="button" id="choix-neuve">
+            <strong>Commencer une ruche neuve</strong>
+            <span>Une ruche vide, propre à l’app.</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Erreur : la Reine s'est arrêtée, et ne redémarre pas. -->
+      <section id="erreur" hidden>
+        <p id="erreur-titre"></p>
+        <pre id="erreur-lignes"></pre>
+        <div class="actions">
+          <button type="button" id="reessayer" class="primaire">Réessayer</button>
+          <button type="button" id="journaux">Ouvrir les journaux</button>
+        </div>
+      </section>
+    </main>
+    <script src="accueil.js"></script>
+  </body>
+</html>

@@ -63,7 +63,77 @@ describe('affectationsDepuisEvenements — la raison, telle que le journal la ga
       moyenne: null,
       score: null,
       aExplorer: true,
+      // Ni harness, ni effort, ni intervalle, ni coût avant la v3 : inconnus.
+      harness: null,
+      effort: null,
+      intervalle: null,
+      cout: null,
     });
+  });
+
+  it('V3 : UNE LIGNE EST UN BRAS — harness, effort, intervalle, coût, et l’état de la décision', () => {
+    const [a] = affectationsDepuisEvenements([
+      ev(1, 'task_assigned', {
+        taskId: 't',
+        nodeId: 'n1',
+        modele: 'opus',
+        effort: 'high',
+        categorie: 'code',
+        versionAiguillage: 3,
+        decisionAiguillage: { etat: 'decide', coutPondere: true },
+        raisonModele: [
+          {
+            modele: 'opus',
+            harness: 'claude-code',
+            effort: 'high',
+            essais: 40,
+            enVol: 0,
+            moyenne: 0.95,
+            intervalle: { bas: 0.84, haut: 0.99 },
+            cout: 0.3,
+            score: 0.93,
+          },
+          {
+            modele: 'fable',
+            harness: 'codex',
+            effort: null,
+            essais: 3,
+            enVol: 0,
+            moyenne: 0.2,
+            // Illisible (bas > haut) : tu, jamais « réparé ».
+            intervalle: { bas: 0.9, haut: 0.1 },
+            cout: null,
+            score: 0.4,
+          },
+        ],
+      }),
+    ]);
+    expect(a?.effort).toBe('high');
+    expect(a?.decision).toEqual({ etat: 'decide', coutPondere: true });
+    expect(a?.raisonModele[0]).toMatchObject({
+      harness: 'claude-code',
+      effort: 'high',
+      intervalle: { bas: 0.84, haut: 0.99 },
+      cout: 0.3,
+    });
+    expect(a?.raisonModele[1]).toMatchObject({ harness: 'codex', effort: null, intervalle: null });
+  });
+
+  it('AVANT LA V3, NI DÉCISION NI BRAS NE SONT LUS — même si le payload en porte', () => {
+    const [a] = affectationsDepuisEvenements([
+      ev(1, 'task_assigned', {
+        taskId: 't',
+        nodeId: 'n1',
+        modele: 'opus',
+        versionAiguillage: 2,
+        decisionAiguillage: { etat: 'decide', coutPondere: false },
+        raisonModele: [
+          { modele: 'opus', essais: 3, enVol: 0, moyenne: 1, score: 1.9, harness: 'x' },
+        ],
+      }),
+    ]);
+    expect(a?.decision).toBeNull();
+    expect(a?.raisonModele[0]).toMatchObject({ harness: null, intervalle: null });
   });
 
   it('LES PHÉROMONES S’ATTACHENT À L’AFFECTATION QUI SUIT — et au même nœud seulement', () => {
@@ -147,6 +217,78 @@ describe('affectationsDepuisEvenements — la raison, telle que le journal la ga
     expect(reprise?.modelesEcartes, 'un nom illisible est ignoré').toEqual(['fable']);
     expect(reprise?.modelesReadmis).toEqual(['grok']);
     expect(course?.modelesReadmis, 'absent, il reste absent').toEqual([]);
+  });
+});
+
+describe('ce que l’ouvrière a lu du graphe d’expérience, relu avec l’affectation', () => {
+  // Ce que la vue rend ; le journal porte en plus le `score`, qu'elle n'affiche pas.
+  const similaire = {
+    taskId: 'voisine',
+    titre: 'Une voisine',
+    projectId: 'p',
+    memeProjet: true,
+    categorie: true,
+    fichiers: ['src/a.ts'],
+    erreurs: 0,
+    rendue: true,
+    validee: false,
+    contestee: true,
+    tentativesEchouees: 1,
+    modeles: ['opus'],
+    lecons: 2,
+  };
+
+  it('S’ATTACHE À L’AFFECTATION QU’IL SUIT — une fois, même quand une course l’émet par drone', () => {
+    const [a, b] = affectationsDepuisEvenements([
+      // Avant toute affectation : il n'éclaire rien, il est ignoré.
+      ev(1, 'experience_context', { taskId: 't', similaires: [{ taskId: 'orpheline' }] }),
+      ev(2, 'task_assigned', { taskId: 't', nodeId: 'n1' }),
+      ev(3, 'experience_context', {
+        taskId: 't',
+        nodeId: 'n1',
+        portee: 'projet',
+        similaires: [{ ...similaire, score: 3 }],
+      }),
+      ev(4, 'experience_context', { taskId: 't', nodeId: 'n2', portee: 'ruche', similaires: [] }),
+      ev(5, 'task_assigned', { taskId: 't', nodeId: 'n1' }),
+      ev(6, 'experience_refus', {
+        taskId: 't',
+        portee: 'autre-chose',
+        motif: 'budget',
+        similaires: [{ taskId: 'x', erreurs: -3, fichiers: 'pas une liste' }, 42, {}],
+      }),
+    ]);
+    expect(a?.experience).toEqual({ etat: 'jointe', portee: 'projet', similaires: [similaire] });
+    // Perdue au budget : dite telle quelle ; un champ illisible retombe sur
+    // l'absence (0, [], faux), une portée inconnue sur `null`, jamais devinée.
+    expect(b?.experience).toEqual({
+      etat: 'perdue',
+      portee: null,
+      similaires: [
+        {
+          taskId: 'x',
+          titre: null,
+          projectId: null,
+          memeProjet: null,
+          categorie: false,
+          fichiers: [],
+          erreurs: 0,
+          rendue: false,
+          validee: false,
+          contestee: false,
+          tentativesEchouees: 0,
+          modeles: [],
+          lecons: 0,
+        },
+      ],
+    });
+  });
+
+  it('SANS CE FAIT, RIEN — pas une expérience vide inventée', () => {
+    const [a] = affectationsDepuisEvenements([
+      ev(1, 'task_assigned', { taskId: 't', nodeId: 'n' }),
+    ]);
+    expect(a?.experience).toBeUndefined();
   });
 });
 

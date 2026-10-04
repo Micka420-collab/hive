@@ -12,6 +12,7 @@ import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import type { LectureThermo } from '../src/orchestrator/thermo.js';
 import type { TraceePheromone } from '../src/orchestrator/pheromones.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-instinct-assez-long';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -289,33 +290,28 @@ describe('le filet de re-livraison de l’instinct de ruche', () => {
     'la re-livraison de secours porte le contexte de la Couveuse',
     { timeout: 20_000 },
     async () => {
-      // Un nœud brut qui reçoit assign_task et ne répond JAMAIS : au bout de
-      // 5 s, le serveur re-livre le message (filet anti-perte en vol).
-      const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+      // Un nœud qui reçoit assign_task et ne répond JAMAIS : au bout de
+      // 5 s, le serveur re-livre le message (filet anti-perte en vol). Il bat
+      // (`aide/faux-noeud`) : muet sur sa tâche, pas mort — ce banc attend
+      // jusqu'à 15 s ses re-livraisons, la fenêtre même du faucheur.
       const assignations: Array<Record<string, unknown>> = [];
       let wsSansModele: WebSocket | undefined;
-      ws.on('message', (data) => {
-        const msg = JSON.parse(data.toString()) as Record<string, unknown>;
-        if (msg.type === 'assign_task') assignations.push(msg);
-      });
-      await new Promise<void>((resolve, reject) => {
-        ws.once('open', () => resolve());
-        ws.once('error', reject);
-      });
+      const { ws } = await brancherFauxNoeud<{ type: string } & Record<string, unknown>>(
+        server.port,
+        {
+          token: TOKEN,
+          name: 'ouvriere-muette',
+          ownerName: 'test',
+          agentType: 'shell',
+          maxConcurrency: 1,
+          modeles: ['opus'],
+          nodeId: 'noeud-muet',
+        },
+        (msg) => {
+          if (msg.type === 'assign_task') assignations.push(msg);
+        },
+      );
       try {
-        ws.send(
-          JSON.stringify({
-            type: 'register',
-            token: TOKEN,
-            name: 'ouvriere-muette',
-            ownerName: 'test',
-            agentType: 'shell',
-            maxConcurrency: 1,
-            modeles: ['opus'],
-            nodeId: 'noeud-muet',
-          }),
-        );
-
         // Le modèle est réellement choisi par l'Aiguillage : trois productions
         // relues établissent l'expérience « opus » pour le même genre de tâche.
         // Le test vérifie ainsi le contrat de production, pas une valeur posée
@@ -400,27 +396,23 @@ describe('le filet de re-livraison de l’instinct de ruche', () => {
         // relivraison enverrait opus au nouveau nœud, qui n'a jamais choisi ce
         // modèle, et l'historique lui attribuerait un résultat qu'il n'a pas
         // exécuté.
-        wsSansModele = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
         const assignationsSansModele: Array<Record<string, unknown>> = [];
-        wsSansModele.on('message', (data) => {
-          const msg = JSON.parse(data.toString()) as Record<string, unknown>;
-          if (msg.type === 'assign_task') assignationsSansModele.push(msg);
-        });
-        await new Promise<void>((resolve, reject) => {
-          wsSansModele?.once('open', () => resolve());
-          wsSansModele?.once('error', reject);
-        });
-        wsSansModele.send(
-          JSON.stringify({
-            type: 'register',
-            token: TOKEN,
-            name: 'ouvriere-sans-modele',
-            ownerName: 'test',
-            agentType: 'shell',
-            maxConcurrency: 1,
-            nodeId: 'noeud-sans-modele',
-          }),
-        );
+        wsSansModele = (
+          await brancherFauxNoeud<{ type: string } & Record<string, unknown>>(
+            server.port,
+            {
+              token: TOKEN,
+              name: 'ouvriere-sans-modele',
+              ownerName: 'test',
+              agentType: 'shell',
+              maxConcurrency: 1,
+              nodeId: 'noeud-sans-modele',
+            },
+            (msg) => {
+              if (msg.type === 'assign_task') assignationsSansModele.push(msg);
+            },
+          )
+        ).ws;
         const fermeture = new Promise<void>((resolve) => ws.once('close', () => resolve()));
         ws.close();
         await fermeture;

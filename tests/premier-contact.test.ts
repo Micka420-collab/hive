@@ -40,7 +40,8 @@ function releveAvec(reglages: { cle: string; valeur: string }[]): Releve {
   const jeton = val('HIVE_TOKEN');
   const secret = val('HIVE_JWT_SECRET');
   return {
-    nodeMajeur: 24,
+    versionNode: '24.21.0',
+    glibc: '2.36',
     fichierEnv: { present: true, lisible: true, permissions: 0o600 },
     secretSession: {
       // On applique la règle du serveur, pas une règle approchante : c'est
@@ -67,6 +68,7 @@ function releveAvec(reglages: { cle: string; valeur: string }[]): Releve {
     wsJoignable: true,
     reglages: { runner: 'off', bindPublic: false, gardiennes: 'strict', corsOuvert: false },
     espace: { octetsLibres: 40 * 1024 * 1024 * 1024, inscriptible: true },
+    decouverte: { ruche: false, machine: false, ecouteLocale: true },
   };
 }
 

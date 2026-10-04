@@ -3,8 +3,12 @@
 // Le membre garde le contrôle : rien ne s'exécute sans lancer ce client.
 
 import os from 'node:os';
-import path from 'node:path';
-import { bornerConcurrence, identiteStable } from './identite-noeud.js';
+import {
+  bornerConcurrence,
+  identiteStable,
+  racineDeTravailParDefaut,
+  refusRacineDeTravail,
+} from './identite-noeud.js';
 import {
   agentCredentialEnv,
   inventaireAgents,
@@ -21,6 +25,7 @@ import { entreeEnRuche } from '../shared/presence-noeud.js';
 import { HiveNodeClient, arreterSurSignaux } from './client.js';
 import { isolementDeclareDe, optionBac, preparerBac, reprendreIdentite } from './bac.js';
 import { parseModeles } from './modeles.js';
+import { Signalement, annonceDeMachine } from './decouverte-noeud.js';
 import { CODE } from '../codes-sortie.js';
 import { createInterface } from 'node:readline/promises';
 
@@ -105,8 +110,14 @@ if (refusAgent) {
 // Même défaut que `HiveNodeClient` (client.ts) : calculé ICI pour pouvoir
 // lire/écrire l'identité stable AVANT de construire le client.
 const name = process.env.HIVE_NODE_NAME ?? os.hostname();
-const workRoot =
-  process.env.HIVE_WORKDIR ?? path.join('.hive-work', name.replace(/[^A-Za-z0-9_-]+/g, '_'));
+const workRoot = process.env.HIVE_WORKDIR ?? racineDeTravailParDefaut(name);
+// Une racine DONNÉE que Windows ne peut pas créer se refuse ici, en la
+// nommant — plutôt qu'un `mkdir` qui échoue sur un périphérique (`refusRacineDeTravail`).
+const refusRacine = refusRacineDeTravail(workRoot);
+if (refusRacine) {
+  console.error(`✘ Ce nœud ne démarre pas : ${refusRacine}\n`);
+  process.exit(CODE.PREREQUIS);
+}
 
 // L'identité survit au redémarrage — même mécanisme que `join.ts`
 // (`identite-noeud.ts`). Sans elle, chaque lancement de `npm run node`
@@ -203,6 +214,23 @@ if (aDire) console.log(aDire);
 
 const variables = [...new Set([...agentCredentialEnv(agentType), ...extraKeep])];
 
+// ─── SE SIGNALER SUR LE RÉSEAU LOCAL — seulement si on le demande ───────────
+//
+// `HIVE_DECOUVRABLE=1` : ce nœud dit sur le réseau local qu'il est membre, et
+// de quelle ruche (l'empreinte que sa Reine lui remet à l'inscription). Même
+// objet que `join.ts`. Rien n'est diffusé sans ce réglage.
+const signalement =
+  process.env.HIVE_DECOUVRABLE === '1'
+    ? new Signalement(
+        annonceDeMachine({
+          nom: name,
+          plateforme: process.platform,
+          inventaire,
+          places: maxConcurrency,
+        }),
+      )
+    : null;
+
 const client = new HiveNodeClient({
   url: process.env.HIVE_URL ?? 'ws://localhost:7777/ws',
   token: process.env.HIVE_TOKEN ?? 'change-me',
@@ -221,6 +249,7 @@ const client = new HiveNodeClient({
   // production ne porte pas le champ du tout, et ne peut donc pas se le voir
   // basculer par accident.
   ...(entree.mode === 'presence' ? { presenceSeule: true } : {}),
+  ...(signalement ? { surInscription: ({ ruche }) => signalement.inscrit(ruche) } : {}),
 });
 
 // ─── CE QUE LE NŒUD A VU, LE HUB DOIT L'APPRENDRE ───────────────────────────
@@ -244,8 +273,13 @@ console.log(
 );
 
 // SIGTERM comme SIGINT — le signal des superviseurs ; pourquoi, et ses limites :
-// `arreterSurSignaux` (client.ts).
-arreterSurSignaux(client);
+// `arreterSurSignaux` (client.ts). L'adieu réseau part avant (voir `join.ts`).
+arreterSurSignaux({
+  stop: () => {
+    void signalement?.arreter();
+    client.stop();
+  },
+});
 
 // Dernier recours : un imprévu ne doit pas tuer le nœud en silence et perdre la
 // reconnexion. On journalise et on laisse le client continuer/reconnecter.

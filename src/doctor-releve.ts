@@ -41,6 +41,7 @@ import type { Releve } from './shared/doctor.js';
 import { RUCHE_COMPLETE } from './shared/doctor.js';
 import { adresseLocale, hoteDeConnexion, portDepuisEnv } from './shared/port.js';
 import { gardiennesDepuisEnv } from './shared/reglages.js';
+import { boucleLocale } from './shared/joignable.js';
 import { modeRunnerDepuisEnv } from './orchestrator/essaim-runner.js';
 import { inventaireAgents, type InventaireAgents } from './node-client/agent-detect.js';
 import {
@@ -265,7 +266,14 @@ export async function moteurManquant(
   let raison: string | null = null;
   for (const nom of paquets) {
     try {
-      await import(nom);
+      const module = (await import(nom)) as { default: unknown };
+      // `better-sqlite3` ne charge son binaire qu'au premier `new Database` :
+      // l'`import` réussit sans lui — plateforme sans prébuilt, glibc trop
+      // vieille. Ouvrir une base en mémoire est le seul geste qui le prouve.
+      if (nom === 'better-sqlite3') {
+        const Database = module.default as new (chemin: string) => { close(): void };
+        new Database(':memory:').close();
+      }
     } catch (e) {
       manquants.push(nom);
       // La PREMIÈRE raison seulement, et sa première ligne : une trace
@@ -275,6 +283,15 @@ export async function moteurManquant(
     }
   }
   return { manquants, raison };
+}
+
+/**
+ * La glibc qui exécute ce Node (« 2.36 »), lue dans le rapport de diagnostic
+ * de Node ; `null` hors Linux et sous musl, où le rapport ne la donne pas.
+ */
+export function glibcVersion(): string | null {
+  const rapport = process.report.getReport() as { header?: { glibcVersionRuntime?: string } };
+  return rapport.header?.glibcVersionRuntime ?? null;
 }
 
 /** Place libre sur un chemin, ou `null` si le système ne répond pas. */
@@ -354,7 +371,8 @@ export async function relever(
   const joignables = await moteursJoignables().catch((): Fournisseur[] => []);
 
   return {
-    nodeMajeur: Number(process.versions.node.split('.')[0] ?? 0),
+    versionNode: process.versions.node,
+    glibc: glibcVersion(),
     fichierEnv: {
       present: envPresent,
       // MUTANT NON TESTÉ, ET C'EST ÉCRIT PLUTÔT QUE TU. Remplacer ce `&&` par
@@ -437,6 +455,12 @@ export async function relever(
       // encore : c'est là qu'il sera créé, donc c'est sa place qui compte.
       octetsLibres: octetsLibres(existsSync(lieux.travail) ? lieux.travail : racine),
       inscriptible: existsSync(lieux.travail) ? inscriptible(lieux.travail) : inscriptible(racine),
+    },
+    // Les MÊMES lectures que la ruche et le nœud : seul « 1 » allume.
+    decouverte: {
+      ruche: env.HIVE_DECOUVERTE === '1',
+      machine: env.HIVE_DECOUVRABLE === '1',
+      ecouteLocale: boucleLocale(env.HIVE_HOST ?? '127.0.0.1'),
     },
   };
 }

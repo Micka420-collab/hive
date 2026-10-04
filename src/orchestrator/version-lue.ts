@@ -2,11 +2,11 @@
 //
 // ─── POURQUOI PAS `git rev-parse` ────────────────────────────────────────────
 //
-// Le hub ne lance `git` nulle part aujourd'hui, et lui donner cette capacité
-// pour répondre à « quelle version fais-tu tourner ? » serait cher payé : un
-// binaire de plus à trouver sur le PATH, un processus de plus à borner, une
-// surface de plus. Les deux fichiers qu'on lit ici sont du TEXTE, et la
-// réponse y est écrite.
+// Le hub ne lance `git` que pour le miroir du Rayon (`miroir.ts`, par la porte
+// commune), et s'en servir aussi pour répondre à « quelle version fais-tu
+// tourner ? » serait cher payé : un processus de plus à borner, une panne de
+// plus possible sur une route qui doit toujours répondre. Les deux fichiers
+// qu'on lit ici sont du TEXTE, et la réponse y est écrite.
 //
 // ─── CE QUI PEUT ÉCHOUER, ET CE QU'ON EN FAIT ───────────────────────────────
 //

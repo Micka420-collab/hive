@@ -564,6 +564,13 @@ describe('UN CHAMP « SUR UNE LIGNE » TIENT SUR UNE LIGNE', () => {
   it('la borne de longueur tient', () => {
     expect(champSurUneLigne('x'.repeat(500), 40)).toHaveLength(40);
   });
+
+  it('la borne ne coupe jamais une paire de substitution en deux', () => {
+    // La moitié seule, JSON.stringify l'écrirait `\udXXX` : un caractère qui
+    // n'en est pas un, six fois plus long (un nom de fichier du dépôt en emoji).
+    expect(champSurUneLigne('a😀b', 2)).toBe('a');
+    expect(champSurUneLigne('a😀b', 3)).toBe('a😀');
+  });
 });
 
 describe('invariants de la chaîne de livraison', () => {

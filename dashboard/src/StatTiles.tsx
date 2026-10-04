@@ -1,10 +1,13 @@
 // Rangée de KPI : l'état de la ruche en un coup d'œil.
 
 import type { StateSnapshot } from '../../src/shared/types';
+import type { DepenseRuche } from './api';
+import { travailDesProjets } from './views/shared';
 import { useLang, useT } from './i18n';
-import { ProgressBar } from './ui';
+import { direSommeDeclaree, direUsd, ProgressBar } from './ui';
 import { direNote } from './horloge-vue';
 import type { NoteVue } from './horloge-vue';
+import { direDuree } from '../../src/shared/horloge-chantier';
 
 interface Props {
   snapshot: StateSnapshot;
@@ -18,9 +21,15 @@ interface Props {
    * pas », alors que la vérité est « le journal ne s'en souvient plus ».
    */
   calibration?: NoteVue;
+  /**
+   * La dépense des dernières 24 heures (`GET /api/cockpit`). Absente tant que
+   * le cockpit n'a pas répondu : la tuile ne se rend pas — un « 0 $ » affiché
+   * pendant le chargement se lirait « rien dépensé ».
+   */
+  depense?: DepenseRuche;
 }
 
-export function StatTiles({ snapshot, throughput, calibration }: Props) {
+export function StatTiles({ snapshot, throughput, calibration, depense }: Props) {
   const t = useT();
   const lang = useLang();
   const { nodes, tasks } = snapshot;
@@ -36,9 +45,13 @@ export function StatTiles({ snapshot, throughput, calibration }: Props) {
   // on écrit à côté ce que la fenêtre laisse dehors.
   const tronque = snapshot.tasksTotal > tasks.length;
   const online = nodes.filter((n) => n.status === 'online').length;
-  const done = tasks.filter((t) => t.status === 'done').length;
+  // Terminées et échouées disent le TRAVAIL des projets : une ombre du banc
+  // (`travailDesProjets`) rejoue une tâche déjà comptée, et n'y entre pas. En cours,
+  // si : elle occupe bel et bien une ouvrière, comme le dit la charge.
+  const travail = travailDesProjets(tasks);
+  const done = travail.filter((t) => t.status === 'done').length;
   const running = tasks.filter((t) => t.status === 'running' || t.status === 'assigned').length;
-  const failed = tasks.filter((t) => t.status === 'failed').length;
+  const failed = travail.filter((t) => t.status === 'failed').length;
   const onlineNodes = nodes.filter((n) => n.status === 'online');
   const capacity = onlineNodes.reduce((sum, n) => sum + n.maxConcurrency, 0);
   // Charge = tâches actives des nœuds EN LIGNE (cohérent avec la capacité).
@@ -58,10 +71,10 @@ export function StatTiles({ snapshot, throughput, calibration }: Props) {
       <div className="tile accent">
         <div className="tile-value">
           {done}
-          <span className="tile-unit">/{tasks.length}</span>
+          <span className="tile-unit">/{travail.length}</span>
         </div>
         <div className="tile-label">{t('Tâches terminées', 'Tasks done')}</div>
-        <ProgressBar value={done} max={Math.max(tasks.length, 1)} />
+        <ProgressBar value={done} max={Math.max(travail.length, 1)} />
         {tronque && (
           <div className="tile-sub" title={t('Fenêtre de l’instantané', 'Snapshot window')}>
             {t('sur les ', 'of the last ')}
@@ -96,6 +109,18 @@ export function StatTiles({ snapshot, throughput, calibration }: Props) {
       </div>
 
       {/*
+        LA DÉPENSE N'EST UN CHIFFRE DE TÊTE QU'AVEC SA COUVERTURE.
+
+        Le coût vient de ce que les CLI des agents DÉCLARENT : Claude Code le
+        dit, Codex ne dit que ses jetons. Un total nu se lirait comme une
+        facture ; il est donc toujours suivi de « 3/5 tentatives déclarées », et
+        précédé de « ≥ » quand une tentative s'est tue. Rien n'est extrapolé à
+        la tentative muette. Le temps modèle suit la même règle ; le temps
+        Worker, lui, est MESURÉ par les nœuds.
+      */}
+      {depense && <TuileDepense depense={depense} />}
+
+      {/*
         L'HORLOGE SE NOTE, ET LA NOTE EST À L'ÉCRAN.
 
         Une horloge qui affiche sa propre erreur est utilisable ; une horloge
@@ -118,6 +143,50 @@ export function StatTiles({ snapshot, throughput, calibration }: Props) {
           <div className="tile-sub" title={direNote(calibration, lang)}>
             {direNote(calibration, lang)}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TuileDepense({ depense }: { depense: DepenseRuche }) {
+  const t = useT();
+  const lang = useLang();
+  const cout = direSommeDeclaree(depense.coutFournisseur, (v) => direUsd(v, lang), t);
+  const modele = direSommeDeclaree(depense.dureeModele, (v) => direDuree(v, lang), t);
+  const aucune = depense.tentatives === 0;
+  return (
+    <div className="tile" data-testid="tuile-depense">
+      <div className="tile-value tile-value-mot">{aucune ? '—' : cout.valeur}</div>
+      <div className="tile-label">{t('Dépense déclarée · 24 h', 'Declared spend · 24 h')}</div>
+      <div className="tile-sub" data-testid="depense-couverture">
+        {aucune
+          ? t('aucune tentative sur 24 h', 'no attempt in 24 h')
+          : (cout.couverture ??
+            t(
+              `aucune des ${depense.tentatives} tentative(s) ne déclare son coût`,
+              `none of the ${depense.tentatives} attempt(s) declares its cost`,
+            ))}
+      </div>
+      {!aucune && (
+        <div className="tile-sub" data-testid="depense-temps">
+          {t('modèle', 'model')} {modele.valeur}
+          {modele.couverture ? ` (${modele.couverture})` : ''} · {t('Worker', 'Worker')}{' '}
+          {depense.dureeWorker
+            ? direDuree(depense.dureeWorker.totalMs, lang)
+            : t('non mesuré', 'not measured')}
+        </div>
+      )}
+      {depense.tronquee && (
+        <div
+          className="tile-sub"
+          data-testid="depense-tronquee"
+          title={t(
+            'Le journal a été élagué : des tentatives de ces 24 heures ont pu en sortir.',
+            'The journal was pruned: attempts from these 24 hours may have left it.',
+          )}
+        >
+          {t('journal élagué : ont pu manquer', 'journal pruned: some may be missing')}
         </div>
       )}
     </div>

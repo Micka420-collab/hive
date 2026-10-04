@@ -66,7 +66,12 @@ set -eu
 # exact de `curl | sh` — puis exige que rien ne sorte.
 principal() {
 
-NODE_MIN=24
+# Le plancher de Node, jusqu'au mineur : 24.18.0 est le premier Node 24 livré
+# avec npm 11.16, le premier qui lit `allowScripts` — sous lui, npm tente de
+# compiler `better-sqlite3` et l'écarte EN SILENCE là où python3 manque. Le
+# même nombre que `NODE_MINIMUM` (`src/shared/doctor.ts`), gardé par
+# `tests/installeurs.test.ts`.
+NODE_MIN=24.18.0
 # Le dépôt d'où l'on tire Hive. Surchargeable par l'environnement pour UNE
 # raison : éprouver l'installation SUR L'ARBRE QU'ON VIENT D'ÉCRIRE. Sans cela,
 # la CI ne pourrait vérifier que `main`, c'est-à-dire du code déjà fusionné —
@@ -451,28 +456,46 @@ if ! command -v node >/dev/null 2>&1; then
   dire "      Hive exige Node ${NODE_MIN} ou plus. Le plus simple :"
   dire ""
   accent "        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash"
-  accent "        nvm install $NODE_MIN"
+  accent "        nvm install ${NODE_MIN%%.*}"
   dire ""
   dire "      (ou brew install node sur macOS, ou nodejs via votre gestionnaire de paquets)"
   dire ""
   exit $CODE_PREREQUIS
 fi
 
-# La version se lit sans `sed -E` ni bashisme : `v24.3.1` → `24`.
-MAJEUR=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
-if [ "$MAJEUR" -lt "$NODE_MIN" ] 2>/dev/null; then
-  echec "Node $MAJEUR détecté — Hive exige $NODE_MIN ou plus."
+# La version se lit sans `sed -E`, sans `sort -V` (absent de busybox) ni
+# bashisme : champ par champ, en NOMBRES — « 24.9 » est sous « 24.18 ».
+# Un suffixe de préversion (`-nightly…`) est retiré avant.
+VERSION=$(node -p 'process.versions.node' 2>/dev/null || echo 0.0.0)
+VERSION=${VERSION%%-*}
+# `true` si $1 < $2, deux versions « a.b.c ».
+version_avant() {
+  _a=$1
+  _b=$2
+  for _i in 1 2 3; do
+    _x=${_a%%.*}
+    _y=${_b%%.*}
+    [ "${_x:-0}" -lt "${_y:-0}" ] 2>/dev/null && return 0
+    [ "${_x:-0}" -gt "${_y:-0}" ] 2>/dev/null && return 1
+    case "$_a" in *.*) _a=${_a#*.} ;; *) _a=0 ;; esac
+    case "$_b" in *.*) _b=${_b#*.} ;; *) _b=0 ;; esac
+  done
+  return 1
+}
+if version_avant "$VERSION" "$NODE_MIN"; then
+  echec "Node $VERSION détecté — Hive exige $NODE_MIN ou plus."
   dire ""
-  dire "      Sous cette version, le module natif SQLite doit être COMPILÉ, ce qui"
-  dire "      échoue sur toute machine sans outillage C++ — en silence, parce que la"
-  dire "      dépendance est optionnelle. À partir de Node $NODE_MIN, un binaire"
-  dire "      prébuilt existe : rien à compiler, aucun compilateur à installer."
+  dire "      Sous cette version, npm (avant 11.16) ignore le refus que Hive pose"
+  dire "      sur la compilation du module natif SQLite : il la tente, échoue sur"
+  dire "      toute machine sans python3 — en silence, parce que la dépendance"
+  dire "      est optionnelle. À partir de Node $NODE_MIN, le binaire du paquet"
+  dire "      est pris tel quel : rien à compiler, aucun compilateur à installer."
   dire ""
-  accent "        nvm install $NODE_MIN && nvm use $NODE_MIN"
+  accent "        nvm install ${NODE_MIN%%.*} && nvm use ${NODE_MIN%%.*}"
   dire ""
   exit $CODE_PREREQUIS
 fi
-ok "Node $MAJEUR (≥ $NODE_MIN exigé)"
+ok "Node $VERSION (≥ $NODE_MIN exigé)"
 ok "git $(git --version | cut -d' ' -f3)"
 
 # ─── 2. Récupérer Hive — sans jamais écraser un travail en cours ────────────
@@ -528,37 +551,42 @@ if [ "$SEC" = 0 ]; then
   # ne traverse en installant.
   #
   # `better-sqlite3` et `fastify` sont OPTIONNELLES : npm a le droit de les
-  # écarter, ou de refuser leur script d'installation (npm ≥ 11.17 le fait par
-  # défaut, cf. « allow-scripts »), et de sortir avec 0 quand même. Croire le
-  # code de sortie, c'est écrire une configuration pour une ruche morte.
-  if ! node -e "require('better-sqlite3'); require('fastify')" 2>/dev/null; then
+  # écarter et de sortir avec 0 quand même. Croire le code de sortie, c'est
+  # écrire une configuration pour une ruche morte.
+  #
+  # La sonde OUVRE une base : `better-sqlite3` 13 ne charge son binaire qu'au
+  # premier `new Database`, et un `require` seul réussit sans lui — glibc trop
+  # vieille, plateforme sans binaire. Sa première ligne d'erreur est gardée :
+  # c'est elle qui dit laquelle des causes ci-dessous est la bonne.
+  if ! ERREUR_MOTEUR=$(node -e "new (require('better-sqlite3'))(':memory:').close(); require('fastify')" 2>&1); then
     echo ""
     echo "✘ Les dépendances sont installées mais la ruche ne peut pas démarrer."
     echo ""
-    echo "  « better-sqlite3 » ou « fastify » ne se charge pas. Les deux sont"
-    echo "  OPTIONNELLES : npm a pu les écarter — ou refuser leur script"
-    echo "  d'installation — sans échouer pour autant."
+    echo "  « better-sqlite3 » ou « fastify » ne se charge pas :"
     echo ""
-    echo "  Une seule commande, et c'est la bonne dans tous les cas :"
+    LIGNE=$(printf '%s\n' "$ERREUR_MOTEUR" | grep -m1 'Error' || true)
+    [ -n "$LIGNE" ] || LIGNE=$(printf '%s\n' "$ERREUR_MOTEUR" | head -n 1)
+    echo "    $LIGNE"
     echo ""
-    echo "    npm rebuild better-sqlite3"
+    # PLUS DE « npm rebuild better-sqlite3 » : avec la 13, le script du paquet
+    # est refusé (`allowScripts`) et son binaire vient tout fait. Mesuré :
+    # `rebuild` répond « rebuilt dependencies successfully » sans rien faire,
+    # et installer un compilateur ne répare rien non plus. Chaque cause a son
+    # geste, et aucun n'est celui-là.
+    echo "  Selon ce que dit cette ligne :"
     echo ""
-    # UNE commande, parce qu'elle a suffi. Ce message en listait deux, dont
-    # `npm approve-scripts --allow-scripts-pending` — qui ne fait que LISTER,
-    # sans rien autoriser. La trace d'un utilisateur montre `npm rebuild
-    # better-sqlite3` réussissant SEUL, verrou toujours en place : `rebuild`
-    # compile au lieu d'attendre le script d'installation.
-    #
-    # Deux commandes, dont une qui ne fait rien, c'est deux occasions de croire
-    # qu'on a essayé.
-    echo "  Elle règle les deux causes qui donnent ce message : le verrou"
-    echo "  « allow-scripts » de npm, qui a empêché la récupération du binaire, et"
-    echo "  un Node qui a CHANGÉ depuis l'installation — le binaire reste alors"
-    echo "  celui de l'ancienne ABI."
+    echo "  · « GLIBC_2.34 not found » — le binaire Linux exige glibc 2.34"
+    echo "    (Ubuntu 22.04+, Debian 12+) : mettez le système à jour, ou lancez"
+    echo "    la ruche dans son image Docker (docs/INSTALLATION.md)."
+    echo "  · « Cannot find module 'better-sqlite3' » (ou 'fastify') — npm a écarté"
+    echo "    le paquet : une installation en --omit=optional, ou un npm sous 11.16"
+    echo "    (ici : $(npm -v 2>/dev/null || echo '?')). Node ≥ $NODE_MIN, puis :"
     echo ""
-    echo "  « npm install » n'y suffirait PAS : il voit un paquet déjà présent à"
-    echo "  la bonne version, ne touche à rien, et rend 0. Seul « rebuild » refait"
-    echo "  le binaire."
+    echo "      npm install --include=optional"
+    echo ""
+    echo "  · « …better_sqlite3.node » introuvable — cette plateforme n'a pas de"
+    echo "    binaire (Linux, macOS, Windows en x64 ou arm64 seulement) : l'image"
+    echo "    Docker."
     echo ""
     echo "  On s'arrête ICI plutôt que d'écrire une configuration pour une ruche"
     echo "  qui ne démarrera pas."

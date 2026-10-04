@@ -131,8 +131,24 @@ describe('un nœud ne lève jamais sur un message du hub', () => {
     const { lancerVraiment } = await import('../src/node-client/pose-runner.js');
     const r = await lancerVraiment('binaire-qui-nexiste-vraiment-pas-du-tout', ['--version']);
     expect(r.code).toBeNull();
-    expect(r.sortie).toContain("n'a pas démarré");
+    // Sous Windows, un nom qui n'est ni livré avec Node ni un vrai `.exe` est
+    // refusé AVANT le lancement (`resoudreLanceur`), et le refus se lit.
+    expect(r.sortie).toContain(
+      process.platform === 'win32' ? 'ne peut pas être lancé' : "n'a pas démarré",
+    );
   });
+});
+
+describe('le lanceur réel lance `npm` sur les trois systèmes', () => {
+  it('`npm --version` RÉPOND — y compris sous Windows, où `npm` est un `.cmd`', async () => {
+    // Toutes les commandes du catalogue commencent par `npm`. Sous Windows,
+    // `spawn('npm', …, { shell: false })` rendait ENOENT : aucune pose n'y
+    // aboutissait. La jambe `windows-latest` de la CI est celle qui le prouve.
+    const { lancerVraiment } = await import('../src/node-client/pose-runner.js');
+    const r = await lancerVraiment('npm', ['--version']);
+    expect(r.code, r.sortie).toBe(0);
+    expect(r.sortie.trim()).toMatch(/^\d+\.\d+\.\d+/);
+  }, 60_000);
 });
 
 describe('le lanceur réel n’interprète pas de shell', () => {

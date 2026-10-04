@@ -7,3 +7,8 @@ package-lock.json
 *.db
 .claude
 dist
+# L'application de bureau : sorties générées (marque.css compris) et paquets.
+desktop/marque
+desktop/build/hive
+desktop/release
+desktop/branding/*/sorties

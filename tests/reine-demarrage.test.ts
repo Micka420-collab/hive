@@ -18,11 +18,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { prendreVerrouReine } from '../src/orchestrator/verrou-reine.js';
-import { lancerBorneTuyaute, reprendreTous, tuerGroupe } from './harnais-processus.js';
+import { ORDRE_ARRET } from '../src/shared/demarrage.js';
+import { lancerBorne, lancerBorneTuyaute, reprendreTous, tuerGroupe } from './harnais-processus.js';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
 const MAIN = path.join(RACINE, 'src', 'orchestrator', 'main.ts');
 const TSX = path.join(RACINE, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+/** La porte de `npm run ruche` : un seul processus, le canal IPC va à la Reine elle-même. */
+const LANCER = path.join(RACINE, 'scripts', 'lancer.mjs');
 const POSIX = process.platform !== 'win32';
 
 const aNettoyer: string[] = [];
@@ -183,6 +186,45 @@ describe('la Reine — démarrage, bannière, arrêt', () => {
     },
     60_000,
   );
+
+  it('L’ORDRE DE LA RUCHE, PAR LE CANAL IPC, L’ARRÊTE PROPREMENT — sur les trois systèmes', async () => {
+    // Sous Windows, `npm run ruche` arrêtait sa Reine par `kill('SIGTERM')`,
+    // c'est-à-dire `TerminateProcess` : aucune ligne de `shutdown` ne tournait,
+    // et la base ne se fermait jamais proprement. Le lanceur lui envoie
+    // désormais `ORDRE_ARRET` sur le canal où elle s'annonce — lancée comme il
+    // la lance (`scripts/lancer.mjs`, pas `tsx` qui s'interposerait).
+    const cwd = dossier();
+    // cwd = le dossier jetable : la Reine lit le `.env` du répertoire courant,
+    // et celui du dépôt n'a rien à faire dans ce banc.
+    const proc = lancerBorne(process.execPath, [LANCER, 'src/orchestrator/main.ts'], {
+      cwd,
+      env: envReine({ HIVE_DB: path.join(cwd, 'ruche.db') }),
+      stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    });
+    let sortie = '';
+    proc.stdout?.on('data', (m: Buffer) => (sortie += m.toString('utf8')));
+    proc.stderr?.on('data', (m: Buffer) => (sortie += m.toString('utf8')));
+    // L'ordre part APRÈS l'annonce : avant, il testerait la course du démarrage.
+    proc.on('message', (message: { type?: string }) => {
+      if (message?.type === 'reine-en-ligne') proc.send(ORDRE_ARRET);
+    });
+    const code = await new Promise<number | null>((resoudre, rejeter) => {
+      const boucher = setTimeout(() => {
+        tuerGroupe(proc);
+        rejeter(new Error(`la Reine n’a pas obéi à l’ordre de la ruche :\n${sortie}`));
+      }, 45_000);
+      boucher.unref?.();
+      proc.on('error', rejeter);
+      proc.on('exit', (c) => {
+        clearTimeout(boucher);
+        resoudre(c);
+      });
+    });
+    expect(sortie, 'l’arrêt doit se dire — pas seulement se produire').toContain(
+      "ordre de la ruche reçu, arrêt de l'orchestrateur",
+    );
+    expect(code, `un arrêt demandé n’est pas un échec :\n${sortie}`).toBe(0);
+  }, 60_000);
 
   it('UNE CONFIANCE DE PROXY REFUSÉE ARRÊTE LE DÉMARRAGE — et dit quoi écrire', async () => {
     // `HIVE_TRUST_PROXY=1` venait du `.env.example` de #439. La Reine

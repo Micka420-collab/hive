@@ -26,6 +26,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
+import { brancherFauxNoeud, InscriptionRefusee } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-maitre-de-la-ruche-long';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -88,35 +89,25 @@ async function obtenirCle(nodeId: string): Promise<string> {
  * fermeture. On ne teste jamais « ça n'a pas planté » : on regarde ce que le
  * serveur RÉPOND.
  */
-function tenterRegister(
+async function tenterRegister(
   nodeId: string,
   token: string,
 ): Promise<{ ok: true; ws: WebSocket } | { ok: false; code: number }> {
-  return new Promise((resolve) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+  try {
+    const { ws } = await brancherFauxNoeud(server.port, {
+      token,
+      nodeId,
+      name: nodeId,
+      ownerName: 'testeur',
+      agentType: 'shell',
+      maxConcurrency: 1,
+    });
     ouverts.push(ws);
-    ws.on('open', () => {
-      ws.send(
-        JSON.stringify({
-          type: 'register',
-          token,
-          nodeId,
-          name: nodeId,
-          ownerName: 'testeur',
-          agentType: 'shell',
-          maxConcurrency: 1,
-        }),
-      );
-    });
-    ws.on('message', (d) => {
-      const m = JSON.parse(d.toString()) as { type: string };
-      if (m.type === 'registered') resolve({ ok: true, ws });
-    });
-    ws.on('close', (code) => resolve({ ok: false, code }));
-    ws.on('error', () => {
-      /* la fermeture porte déjà l'information */
-    });
-  });
+    return { ok: true, ws };
+  } catch (e) {
+    if (e instanceof InscriptionRefusee) return { ok: false, code: e.code };
+    throw e;
+  }
 }
 
 describe('la clé de nœud sur le WebSocket', () => {

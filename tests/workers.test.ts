@@ -27,6 +27,7 @@ describe('projection Worker', () => {
           title: 'Implémenter endpoint',
           prompt: 'ajouter la route',
           modele: 'alpha',
+          harness: 'claude-code',
           suite: 'appliquer',
         },
       ],
@@ -44,35 +45,50 @@ describe('projection Worker', () => {
       moyenne: 1,
       exploration: false,
     });
-    expect(worker.modeles?.[1]?.categories.code).toEqual({
+    expect(worker.modeles?.[1]?.categories.code).toMatchObject({
       essais: 0,
       enVol: 0,
       moyenne: null,
-      score: null,
+      intervalle: null,
+      effort: null,
       exploration: true,
     });
+    // Plus de `+∞` : un modèle jamais jugé a un score fini (a priori), jamais
+    // un nombre inventé pour masquer l'infini.
+    expect(Number.isFinite(worker.modeles?.[1]?.categories.code.score)).toBe(true);
   });
 
   it('CLASSE LES MODÈLES D’UN WORKER ENSEMBLE — chaque case est la ligne de `classer`', () => {
-    // Classé SEUL, chaque modèle recevait le bonus d'exploration d'un genre où
-    // il n'aurait aucun rival : un score que l'Aiguillage ne calcule jamais.
-    // Ici alpha et zeta ont chacun deux verdicts « code » : le total du genre
-    // est 4, pas 2.
+    // Classé SEUL, chaque modèle recevait l'optimisme d'un genre où il n'aurait
+    // aucun rival : un score que l'Aiguillage ne calcule jamais. Ici alpha et
+    // zeta ont chacun deux verdicts « code » : le total du genre est 4, pas 2.
     const tache = { title: 'Implémenter endpoint', prompt: 'ajouter la route' };
+    const verdict = (modele: string, suite: 'appliquer' | 'refaire') => ({
+      ...tache,
+      modele,
+      modeleExact: modele,
+      harness: 'claude-code',
+      suite,
+    });
     const vecu = {
       verdicts: [
-        { ...tache, modele: 'alpha', modeleExact: 'alpha', suite: 'appliquer' as const },
-        { ...tache, modele: 'alpha', modeleExact: 'alpha', suite: 'appliquer' as const },
-        { ...tache, modele: 'zeta', modeleExact: 'zeta', suite: 'refaire' as const },
-        { ...tache, modele: 'zeta', modeleExact: 'zeta', suite: 'refaire' as const },
+        verdict('alpha', 'appliquer'),
+        verdict('alpha', 'appliquer'),
+        verdict('zeta', 'refaire'),
+        verdict('zeta', 'refaire'),
       ],
       enVol: [],
     };
     const [worker] = projeterWorkers([node({ modeles: ['zeta', 'alpha'] })], vecu);
     const antecedents = antecedentsDuVecu(vecu.verdicts, vecu.enVol);
+    const bras = ['alpha', 'zeta'].map((modele) => ({
+      modele,
+      harness: 'claude-code',
+      effort: null,
+    }));
 
     for (const categorie of CATEGORIES) {
-      for (const rang of classer(categorie, ['alpha', 'zeta'], antecedents)) {
+      for (const rang of classer(categorie, bras, antecedents).rang) {
         const vue = worker?.modeles?.find((m) => m.modele === rang.modele)?.categories[categorie];
         expect(vue?.essais, `${rang.modele}/${categorie}`).toBe(rang.essais);
         expect(vue?.score, `${rang.modele}/${categorie}`).toBe(
@@ -80,25 +96,35 @@ describe('projection Worker', () => {
         );
       }
     }
-    expect(worker?.modeles?.[0]?.categories.code.score).toBeCloseTo(
-      1 + Math.SQRT2 * Math.sqrt(Math.log(4) / 2),
-      10,
-    );
+    expect(
+      worker?.modeles?.[0]?.categories.code.intervalle,
+      'alpha a deux verdicts',
+    ).not.toBeNull();
   });
 
   it('UN MODÈLE EN VOL SANS VERDICT RESTE À EXPLORER — avec le score fini sur lequel le routing décide', () => {
     const [worker] = projeterWorkers([node({ modeles: ['alpha'] })], {
       verdicts: [],
-      enVol: [{ title: 'Implémenter endpoint', prompt: 'ajouter la route', modele: 'alpha' }],
+      enVol: [
+        {
+          title: 'Implémenter endpoint',
+          prompt: 'ajouter la route',
+          modele: 'alpha',
+          harness: 'claude-code',
+        },
+      ],
     });
 
-    expect(worker?.modeles?.[0]?.categories.code).toEqual({
+    expect(worker?.modeles?.[0]?.categories.code).toMatchObject({
       essais: 0,
       enVol: 1,
       moyenne: null,
-      score: 0,
       exploration: true,
     });
+    // Seul en lice sur un genre qui n'a servi qu'une fois : l'optimisme est
+    // nul (ln 1), le score est la moyenne a posteriori, tirée vers 0 par
+    // l'essai en vol — celle sur laquelle le routing décide.
+    expect(worker?.modeles?.[0]?.categories.code.score).toBeCloseTo(5 / 11, 10);
   });
 
   it('n’invente pas de modèles quand le nœud ne les déclare pas', () => {
