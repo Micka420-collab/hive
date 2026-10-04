@@ -294,6 +294,31 @@ const DECISIONS: readonly Acte[] = [
     refus: 'tache',
   },
   {
+    // G06 : un commentaire ancré prépare un verdict — même porte que lui.
+    nom: 'tasks/:taskId/commentaires-revue',
+    methode: 'POST',
+    route: '/api/tasks/:taskId/commentaires-revue',
+    url: (c) => `/api/tasks/${c.tache}/commentaires-revue`,
+    corps: () => ({ resultId: 1, fichier: 'src/a.ts', ligneDebut: 1, ligneFin: 1, texte: 'x' }),
+    refus: 'tache',
+  },
+  {
+    nom: 'tasks/:taskId/commentaires-revue/:commentaireId',
+    methode: 'DELETE',
+    route: '/api/tasks/:taskId/commentaires-revue/:commentaireId',
+    url: (c) => `/api/tasks/${c.tache}/commentaires-revue/com-inconnu`,
+    refus: 'tache',
+  },
+  {
+    // Le verdict « demander des changements » : un rejet qui relance.
+    nom: 'tasks/:taskId/demande-changements',
+    methode: 'POST',
+    route: '/api/tasks/:taskId/demande-changements',
+    url: (c) => `/api/tasks/${c.tache}/demande-changements`,
+    corps: () => ({ resultId: 1, resume: 'reprendre' }),
+    refus: 'tache',
+  },
+  {
     nom: 'tasks/:taskId/cancel',
     methode: 'POST',
     route: '/api/tasks/:taskId/cancel',

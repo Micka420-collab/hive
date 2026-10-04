@@ -18,6 +18,7 @@ import type {
 } from '../../src/shared/types';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
 import type { Constat } from '../../src/shared/critique-structuree.js';
+import type { CommentaireRevue } from '../../src/shared/commentaire-revue.js';
 import type {
   DecisionConseil,
   Desaccord,
@@ -1835,12 +1836,77 @@ export function postReview(
   });
 }
 
+// ─── Revue ligne par ligne (G06, shared/commentaire-revue.ts) ─────────────
+
+/** Les commentaires ancrés d'une tâche, toutes productions confondues. */
+export function fetchCommentairesRevue(taskId: string): Promise<{
+  taskId: string;
+  resultId: number | null;
+  max: number;
+  commentaires: CommentaireRevue[];
+}> {
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/commentaires-revue`);
+}
+
+/** Pose un commentaire EN ATTENTE sur des lignes de la production `resultId`. */
+export function posterCommentaireRevue(
+  taskId: string,
+  corps: { resultId: number; fichier: string; ligneDebut: number; ligneFin: number; texte: string },
+): Promise<CommentaireRevue> {
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/commentaires-revue`, {
+    method: 'POST',
+    body: JSON.stringify(corps),
+  });
+}
+
+/** Retire un commentaire encore en attente (un commentaire envoyé reste à l'histoire). */
+export function retirerCommentaireRevue(taskId: string, id: string): Promise<{ ok: true }> {
+  return api(
+    `/api/tasks/${encodeURIComponent(taskId)}/commentaires-revue/${encodeURIComponent(id)}`,
+    // Sans corps : un DELETE annoncé JSON mais vide, Fastify le refuse (400).
+    { method: 'DELETE', headers: { 'content-type': 'text/plain' } },
+  );
+}
+
+/**
+ * « Demander des changements » : un rejet qui emporte tous les commentaires en
+ * attente de la production dans UNE correction. Sans commentaire, `resume`
+ * est exigé (400 `changements_sans_contenu`).
+ */
+export function demanderChangements(
+  taskId: string,
+  resultId: number,
+  resume: string,
+  clientId?: string,
+): Promise<{
+  state: 'rejected';
+  changements: { soumission: string; commentaires: number };
+  retry?: { ok: boolean; reason?: string };
+}> {
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/demande-changements`, {
+    method: 'POST',
+    body: JSON.stringify({
+      resultId,
+      ...(resume.trim() ? { resume: resume.trim() } : {}),
+      ...(clientId ? { clientId } : {}),
+    }),
+  });
+}
+
 /** La critique figée d'une correction (voir `blocCritique`, brood.ts). */
 export interface CritiqueReprise {
   source: 'contre_revue' | 'revue_humaine' | 'evaluator';
   objections: string[];
   raisons: string[];
   noteHumaine?: string;
+  /** Les commentaires ancrés d'une demande de changements (G06). */
+  commentaires?: {
+    fichier: string;
+    ligneDebut: number;
+    ligneFin: number;
+    texte: string;
+    extrait?: string;
+  }[];
   /** Les constats non bloquants (mineur, info) de la contre-revue, s'il y en avait. */
   remarques?: Constat[];
 }
