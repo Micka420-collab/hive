@@ -4,6 +4,7 @@
 // unitairement avec un store en mémoire.
 
 import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
+import { motifDepotIllisible } from '../shared/protocol.js';
 import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
 import type { PresenceFichier } from '../shared/presence.js';
 import { VALIDATION_KEYS } from '../shared/validations-bac.js';
@@ -1844,6 +1845,10 @@ export class Scheduler {
         error: `tâche ${task.status} — une course ne se lance que sur une tâche prête (ready)`,
       };
     }
+    // Un dépôt que le protocole refuse : chaque drone jetterait l'assignation
+    // (la garde de la passe, `depotIllisible`).
+    const depot = this.motifDuDepot(task.projectId);
+    if (depot !== null) return { ok: false, error: `${depot} — course refusée` };
     // Une contre-expertise ne se court pas. Sa valeur est d'être lue par une
     // famille PRÉCISE, et la course enrôle n'importe qui — le producteur
     // d'abord, libre puisqu'il vient de rendre : Claude relirait Claude, et
@@ -2622,6 +2627,43 @@ export class Scheduler {
     return true;
   }
 
+  /** Ce que les nœuds reprocheraient au dépôt de ce projet (`motifDepotIllisible`), ou `null`. */
+  private motifDuDepot(projectId: string): string | null {
+    const repoUrl = this.store.getProject(projectId)?.repoUrl;
+    return repoUrl === undefined || repoUrl === null ? null : motifDepotIllisible(repoUrl);
+  }
+
+  /**
+   * Une tâche dont le projet porte un dépôt que le protocole REFUSE ne part
+   * pas : chaque nœud jetterait son assignation (un caractère de contrôle,
+   * qu'une base d'avant #551 garde, ou qu'un chemin local d'administrateur
+   * laissait passer). Envoyée, elle restait `assigned` sans un mot, re-servie
+   * toutes les 15 s ; un nœud à jour la refuse, mais la ruche ne conclurait
+   * qu'au bout de max(3, 3 × nœuds en ligne) refus, sous une cause générique
+   * (« aucun nœud n'a pu la préparer »).
+   *
+   * L'URL d'un projet ne se change pas encore : la tâche ne partira jamais.
+   * Elle échoue donc ICI, avant tout envoi, sous sa cause (`depot_illisible`,
+   * et le `motif` que le Journal affiche) — même clôture qu'une réservation
+   * dépensée, et une relecture close sans avis le dit. Rend vrai quand la
+   * tâche est close.
+   */
+  private depotIllisible(
+    task: Task,
+    lien: LienRelecture | null,
+    motif: string | null,
+    now: number,
+    fermees: Set<string>,
+  ): boolean {
+    if (motif === null) return false;
+    this.infraRejects.delete(task.id);
+    this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
+    this.emit('task_failed', { taskId: task.id, reason: 'depot_illisible', motif });
+    for (const id of this.fermerSousArbre(task.id, 'ancestor_failed', now)) fermees.add(id);
+    this.relectureCloseSansAvis(task, 'depot_illisible', lien);
+    return true;
+  }
+
   private relecteurAbsent(
     task: Task,
     lien: LienRelecture,
@@ -2675,7 +2717,7 @@ export class Scheduler {
    */
   private relectureCloseSansAvis(
     task: Task,
-    motif: 'relecteur_absent' | 'aucun_agent_fonctionnel' | 'annulee',
+    motif: 'relecteur_absent' | 'aucun_agent_fonctionnel' | 'annulee' | 'depot_illisible',
     lien = this.store.relectureDe(task.id),
   ): void {
     if (!lien) return;
@@ -2855,6 +2897,12 @@ export class Scheduler {
       if (!rejeux.has(projectId)) rejeux.set(projectId, this.routageRejeu(projectId));
       return rejeux.get(projectId) ?? null;
     };
+    // Le dépôt de chaque projet, jugé au plus une fois par passe, de même.
+    const depots = new Map<string, string | null>();
+    const motifDepot = (projectId: string): string | null => {
+      if (!depots.has(projectId)) depots.set(projectId, this.motifDuDepot(projectId));
+      return depots.get(projectId) ?? null;
+    };
     // ─── LES RELECTURES D'ABORD ────────────────────────────────────────────
     // Une relecture achève un travail DÉJÀ payé ; une production prête est une
     // dépense neuve. En file par date de création, une relecture passait
@@ -2882,6 +2930,7 @@ export class Scheduler {
     for (const { task, lien } of pretes) {
       if (fermees.has(task.id)) continue;
       if (this.reservationDepensee(task, now, fermees)) continue;
+      if (this.depotIllisible(task, lien, motifDepot(task.projectId), now, fermees)) continue;
       // Une OMBRE du banc (shadow-bench.ts) : épinglée à SON modèle, hors
       // Aiguillage, hors Sting Detector. Lue par clé primaire, comme le lien
       // de relecture.

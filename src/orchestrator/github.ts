@@ -31,6 +31,7 @@
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
 import { lireIssue, pourChoisir as pourChoisirIssues } from '../shared/issue.js';
 import type { IssueGithub } from '../shared/issue.js';
+import { isValidRemoteRepoUrl } from '../shared/protocol.js';
 import {
   estIdWorkflow,
   estRefPlausible,
@@ -91,7 +92,12 @@ export function lireDepot(brut: unknown): DepotGithub | null {
   const d = brut as Record<string, unknown>;
   const fullName = texte(d.full_name, MAX_NOM);
   const cloneUrl = typeof d.clone_url === 'string' ? d.clone_url : '';
-  if (!fullName.includes('/') || !estUrlHttps(cloneUrl)) return null;
+  // Le contrat de toute source entrée par une route (`isValidRemoteRepoUrl`) :
+  // `new URL` retire en silence tabulations et sauts de ligne, l'adresse rangée
+  // les garderait — et chaque nœud refuserait les assignations du projet.
+  if (!fullName.includes('/') || !estUrlHttps(cloneUrl) || !isValidRemoteRepoUrl(cloneUrl)) {
+    return null;
+  }
 
   const pousse = typeof d.pushed_at === 'string' ? Date.parse(d.pushed_at) : Number.NaN;
   return {

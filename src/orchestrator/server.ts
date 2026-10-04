@@ -170,6 +170,7 @@ import {
   isValidLocalRepoPath,
   isValidRemoteRepoUrl,
   LIMITS,
+  motifDepotIllisible,
   octetsDe,
   parseClientMessage,
 } from '../shared/protocol.js';
@@ -11878,6 +11879,12 @@ async function monterReine(
     corps: CorpsMerge,
     livraison?: DemandeLivraisonMission,
   ): RefusMerge | { mergeId: string; nodeId: string; nodeName: string } => {
+    // Un dépôt que le protocole refuse : le nœud jetterait l'assignation, et le
+    // merge attendrait son délai sans cause. La porte des deux routes de merge.
+    const depot = motifDepotIllisible(project.repoUrl);
+    if (depot !== null) {
+      return { refus: { code: 409, corps: { code: 'depot_illisible', error: depot } } };
+    }
     // ─── UNE LIVRAISON NE PARTAGE PAS SON PROJET ────────────────────────────
     // `/merge/result` garde UN résultat par projet. Un merge d'essai qui
     // finirait après une livraison écraserait son rapport : l'écran et la CLI,
@@ -12368,6 +12375,10 @@ async function monterReine(
       if (!project.repoUrl) {
         return reply.code(400).send({ error: 'le projet doit avoir un dépôt (repoUrl)' });
       }
+      // Un dépôt que le protocole refuse : le miroir le copierait peut-être (un
+      // chemin local au caractère de contrôle), le nœud jetterait l'assignation.
+      const depot = motifDepotIllisible(project.repoUrl);
+      if (depot !== null) return reply.code(409).send({ code: 'depot_illisible', error: depot });
       // La préparation s'exécute sur la machine d'un membre, et une
       // installation exécute les scripts de ce qu'elle installe.
       if (req.body?.prepareCommand) {

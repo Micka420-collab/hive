@@ -219,7 +219,8 @@ export function choisirCritiques(
  * `contre_expertise_review_failed`, pour être dit à un humain.
  *
  * Les émetteurs ne parlent pas la même langue : le planificateur pose des
- * codes (`relecteur_absent`, `aucun_agent_fonctionnel`, `annulee`), le hub un
+ * codes (`relecteur_absent`, `aucun_agent_fonctionnel`, `annulee`,
+ * `depot_illisible`), le hub un
  * code (`famille_non_designee`) ou une phrase (`MOTIF_RELECTURE_SANS_TEXTE_FINAL`),
  * et un échec ordinaire n'a pas de motif du tout — c'est la borne d'essais qui
  * l'a rendu terminal. Une seule traduction, ici : deux copies diraient deux
@@ -239,6 +240,8 @@ export function causeEchecRelecture(
       return `aucun nœud ${relecteur} n’a pu lancer son agent`;
     case 'annulee':
       return `la relecture confiée à ${relecteur} a été annulée`;
+    case 'depot_illisible':
+      return 'l’URL du dépôt du projet est illisible pour les nœuds — recréez le projet';
     case MOTIF_RELECTURE_SANS_TEXTE_FINAL:
       return `${relecteur} a terminé sans réponse finale lisible`;
     default:

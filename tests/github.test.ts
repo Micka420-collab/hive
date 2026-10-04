@@ -94,6 +94,9 @@ describe('lire un dépôt', () => {
       brut({ full_name: 'sans-slash' }),
       brut({ clone_url: 'git@github.com:moi/projet.git' }), // pas https
       brut({ clone_url: null }),
+      // `new URL` l'accepte (il retire le saut de ligne), le protocole non :
+      // importé, ce dépôt ferait refuser par chaque nœud toutes ses assignations.
+      brut({ clone_url: 'https://github.com/moi/projet.git\n' }),
     ]) {
       expect(lireDepot(mauvais), JSON.stringify(mauvais)?.slice(0, 40)).toBeNull();
     }
