@@ -4,7 +4,13 @@
 
 import type { PresenceFichier } from '../shared/presence.js';
 import type { Effort } from '../shared/effort.js';
-import type { ExecutionUsage, SubAgent, Task, UsageFournisseur } from '../shared/types.js';
+import type {
+  ArretBudgetaire,
+  ExecutionUsage,
+  SubAgent,
+  Task,
+  UsageFournisseur,
+} from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
 import { createClineAdapter } from './cline.js';
 import { createCodexAdapter } from './codex.js';
@@ -117,6 +123,13 @@ export interface AdapterContext {
    * le hub (`AssignTaskMsg.relecture`), jamais deviné du prompt.
    */
   role?: 'relecture';
+  /**
+   * Ce que cette tentative peut encore dépenser, en micro-USD (≥ 1), dit par
+   * la Reine (`AssignTaskMsg.plafondCoutMicros`). Un adaptateur qui sait le
+   * tenir dans la boucle de son agent le lui passe (Claude Code :
+   * `--max-budget-usd`), et le DIT quand il ne le peut pas. Absent : aucun.
+   */
+  plafondCoutMicros?: number;
 }
 
 export interface AdapterResult {
@@ -145,6 +158,11 @@ export interface AdapterResult {
    * Voir `texte-final.ts`.
    */
   finalText?: string;
+  /**
+   * Le CLI s'est arrêté sur son plafond de coût ou de tours — ce qu'IL a
+   * déclaré (le `subtype` de son résultat), jamais déduit des logs.
+   */
+  arretBudgetaire?: ArretBudgetaire;
 }
 
 export interface AgentAdapter {

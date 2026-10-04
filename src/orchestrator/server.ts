@@ -181,7 +181,7 @@ import type {
   ServerMessage,
 } from '../shared/protocol.js';
 import { RefusDemarrage, direManques, manquesDeDemarrage } from '../shared/amorce.js';
-import { DEFAULT_TOKEN } from '../shared/types.js';
+import { DEFAULT_TOKEN, estArretBudgetaire } from '../shared/types.js';
 import type { HiveEvent, HiveNode, Project, Task } from '../shared/types.js';
 import type { Effort } from '../shared/effort.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
@@ -275,7 +275,7 @@ import {
 } from './abonnement.js';
 import type { Abonnement, EtatAbonnement } from './abonnement.js';
 import { antecedentsDuVecu, categoriser, type Categorie } from './aiguillage.js';
-import { budgetCoutEpuise, reserveRacine } from './delegation.js';
+import { budgetCoutEpuise, plafondCoutTentative, reserveRacine } from './delegation.js';
 import { LIMITES_DELEGATION_DEFAUT } from '../shared/limites-delegation.js';
 import { lireConsigneRoutage, type ConsigneRoutage } from '../shared/consigne-routage.js';
 import {
@@ -445,7 +445,12 @@ import { buildTimeline } from './replay.js';
 import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
 import { ETAT_LIVRAISON_EN_COURS, ETAT_LIVRAISON_RELAYEE, HiveStore } from './store.js';
-import type { LivraisonRangee, RepriseLivraison, SessionRangee } from './store.js';
+import type {
+  DelegationRangee,
+  LivraisonRangee,
+  RepriseLivraison,
+  SessionRangee,
+} from './store.js';
 import { direArretBrutal, prendreVerrouReine } from './verrou-reine.js';
 import type { VerrouReine } from './verrou-reine.js';
 import {
@@ -3089,6 +3094,46 @@ async function monterReine(
   };
 
   /**
+   * La tentative en cours de cet enfant reçoit-elle un plafond de coût ? Un
+   * enfant délégué Hive, hors course de drones. Une même question à l'envoi
+   * (`delegationDe`) et au retour (`task_result`) : un arrêt budgétaire n'est
+   * cru que d'une tentative que la Reine a plafonnée — sinon un nœud pourrait
+   * clore n'importe quelle tâche en un seul message, sans reprise.
+   *
+   * La course n'en reçoit pas : chaque drone aurait le même reste, la course
+   * le dépenserait autant de fois qu'elle a de drones, et son arbitrage lit
+   * l'échec d'un drone en reprise (suite nommée). L'enveloppe de la racine
+   * tient toujours, après chaque tentative rendue.
+   */
+  const plafonneeParHive = (lien: DelegationRangee): boolean =>
+    lien.origine === 'hive' && !scheduler.getRace(lien.childTaskId);
+
+  const delegationDe = (
+    taskId: string,
+  ): Pick<AssignTaskMsg, 'delegationBudget' | 'delegationRootTaskId' | 'plafondCoutMicros'> => {
+    const delegation = store.getDelegation(taskId);
+    if (!delegation) return {};
+    return {
+      delegationBudget: {
+        durationMs: delegation.durationMs,
+        costMicros: delegation.costMicros,
+        resourceUnits: delegation.resourceUnits,
+      },
+      delegationRootTaskId: delegation.rootTaskId,
+      // Relu des faits rangés à chaque envoi : une re-livraison (`muettes`)
+      // rend le même plafond que l'envoi qu'elle remplace.
+      ...(plafonneeParHive(delegation)
+        ? {
+            plafondCoutMicros: plafondCoutTentative(
+              delegation.costMicros,
+              store.depenseDeclareeEnfant(taskId),
+            ),
+          }
+        : {}),
+    };
+  };
+
+  /**
    * Envoie une tâche à un nœud PRÉCIS.
    *
    * ─── POURQUOI CE GESTE EST NOMMÉ PLUTÔT QU'ANONYME ─────────────────────────
@@ -3102,22 +3147,6 @@ async function monterReine(
    * contexte du Cerveau et le journal des refus. Deux portes, c'est une porte
    * qu'on oublie de garder.
    */
-  const delegationDe = (
-    taskId: string,
-  ): Pick<AssignTaskMsg, 'delegationBudget' | 'delegationRootTaskId'> => {
-    const delegation = store.getDelegation(taskId);
-    return delegation
-      ? {
-          delegationBudget: {
-            durationMs: delegation.durationMs,
-            costMicros: delegation.costMicros,
-            resourceUnits: delegation.resourceUnits,
-          },
-          delegationRootTaskId: delegation.rootTaskId,
-        }
-      : {};
-  };
-
   const envoyerTache = (nodeId: string, task: Task, modele?: string, effort?: Effort): void => {
     const ws = nodeSockets.get(nodeId);
     // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
@@ -3853,11 +3882,17 @@ async function monterReine(
       };
     }
     if (event.type !== 'task_failed') return null;
-    const raison = typeof p.reason === 'string' ? p.reason : 'échec';
+    // Un arrêt budgétaire n'est pas un échec de l'agent : le message le dit tel.
+    const arret = estArretBudgetaire(p.arretBudgetaire);
+    const raison = arret
+      ? `arrêt budgétaire — plafond de ${p.arretBudgetaire === 'cout' ? 'coût' : 'tours'} atteint dans la boucle de l’agent`
+      : typeof p.reason === 'string'
+        ? p.reason
+        : 'échec';
     return {
       kind: 'blocage',
       projectId: task.projectId,
-      titre: `Tâche en échec — ${task.title}`,
+      titre: `${arret ? 'Tâche arrêtée par son budget' : 'Tâche en échec'} — ${task.title}`,
       corps: `Motif : ${raison}`,
       taskId,
     };
@@ -14807,6 +14842,9 @@ async function monterReine(
             // Le modèle de CETTE tentative se lit avant : un échec la remet en
             // file, et la réassignation qui suit réécrit l'Aiguillage.
             const modeleTentative = scheduler.modeleCommande(msg.taskId, nodeId);
+            const lienPlafond = msg.arretBudgetaire ? store.getDelegation(msg.taskId) : null;
+            const arretBudgetaire =
+              lienPlafond && plafonneeParHive(lienPlafond) ? msg.arretBudgetaire : undefined;
             const pris = scheduler.handleTaskResult(nodeId, {
               taskId: msg.taskId,
               success: msg.success,
@@ -14818,6 +14856,7 @@ async function monterReine(
               ...(msg.fournisseur ? { fournisseur: msg.fournisseur } : {}),
               ...(msg.finalText !== undefined ? { finalText: msg.finalText } : {}),
               ...(msg.validations ? { validations: msg.validations } : {}),
+              ...(arretBudgetaire ? { arretBudgetaire } : {}),
             });
             if (!pris) {
               send(ws, {
@@ -14836,7 +14875,10 @@ async function monterReine(
             // gonflerait le compteur de récurrences d'une panne qui n'a pas eu
             // lieu deux fois, et le seuil de consolidation deviendrait faux.
             // (Une OMBRE du banc n'y entre pas : `verserEpisode` la refuse.)
-            if (pris && !msg.success) {
+            //
+            // Un arrêt budgétaire non plus : la borne a tenu, le projet n'a
+            // rien raté — compté, il deviendrait une « panne récurrente ».
+            if (pris && !msg.success && !arretBudgetaire) {
               noterEchec(msg.taskId, nodeId, modeleTentative, msg.logs ?? '', msg.finalText);
             }
             if (pris) {

@@ -110,7 +110,9 @@ export function definitionsOutilsDelegation(
             maximum: maxCostMicros,
             description:
               `Coût réservé en micro-USD (1 000 000 = 1 USD), sur ${maxCostMicros} cumulés ` +
-              'par racine.',
+              'par racine. C’est aussi le plafond de l’enfant : un agent Claude Code s’arrête ' +
+              'dans sa boucle quand sa dépense l’atteint, tentatives précédentes déduites — ' +
+              'réserve ce que la sous-tâche coûtera.',
           },
           resourceUnits: {
             type: 'integer',

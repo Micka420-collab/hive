@@ -120,9 +120,12 @@ export interface ExecutionUsage {
  * les appels au modèle, modèles exacts, jetons. Hive ne l'estime jamais : un
  * champ absent veut dire « non déclaré », et l'interface le dit « inconnu ».
  *
- * `coutUsd` est le montant rapporté par le CLI (Claude Code : `total_cost_usd`,
- * calculé par le CLI au tarif public). Sur un abonnement, ce n'est pas une
- * facture : c'est la valeur déclarée, et elle est présentée comme telle.
+ * `coutUsd` est le montant rapporté par le CLI (Claude Code : `total_cost_usd`).
+ * C'est l'ESTIMATION du CLI, pas une facture : il la calcule de son côté sur
+ * une table de prix embarquée à sa construction — « client-side estimates, not
+ * authoritative billing data » (code.claude.com/docs/en/agent-sdk/cost-tracking).
+ * Hive la relaie sans l'estimer à son tour, et l'écran la dit telle
+ * (`NOTE_COUT_DECLARE`, dashboard/src/ui.tsx).
  */
 export interface UsageFournisseur {
   /** L'agent dont le CLI a fait la déclaration. */
@@ -160,6 +163,21 @@ export interface Task {
   ombre?: true;
 }
 
+/**
+ * Une tentative ARRÊTÉE PAR SON BUDGET, dans la boucle même de l'agent : son
+ * CLI a atteint le plafond de coût (`cout` — Claude Code `error_max_budget_usd`)
+ * ou de tours (`tours` — `error_max_turns`) qu'il avait reçu. Ni un échec de
+ * l'agent, ni une panne d'infrastructure : une borne tenue. La tâche finit
+ * `failed` sans reprise — sa réservation est dépensée —, et le registre Genome
+ * la compte interrompue, jamais en échec (`registre-genome.ts`).
+ */
+export const ARRETS_BUDGETAIRES = ['cout', 'tours'] as const;
+export type ArretBudgetaire = (typeof ARRETS_BUDGETAIRES)[number];
+
+export function estArretBudgetaire(v: unknown): v is ArretBudgetaire {
+  return (ARRETS_BUDGETAIRES as readonly unknown[]).includes(v);
+}
+
 /** Résultat complet remonté par un nœud. Le diff reste soumis à revue humaine. */
 export interface TaskResult {
   /** Identifiant SQLite de la production — présent quand elle vient du store. */
@@ -187,6 +205,12 @@ export interface TaskResult {
    * au `resultId`, et `resultsForTask` ne les relit pas.
    */
   validations?: ValidationsBac;
+  /**
+   * La tentative s'est arrêtée sur le plafond que Hive lui avait passé — à la
+   * réception seulement, et seulement pour une tentative plafonnée par la
+   * Reine (`server.ts`, `plafonneeParHive`).
+   */
+  arretBudgetaire?: ArretBudgetaire;
 }
 
 /** Entrée du journal d'événements — base du futur Time-Lapse Replay (palier 3). */

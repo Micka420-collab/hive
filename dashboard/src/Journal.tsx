@@ -270,7 +270,22 @@ const EVENTS: Record<string, Meta> = {
     cls: 'fail',
     text: (p, t) => {
       const ms = cout(p.durationMs);
-      const base = t(`échouée (${short(p.taskId)})`, `failed (${short(p.taskId)})`);
+      // Un ARRÊT BUDGÉTAIRE ferme la tâche sans être un échec de l'agent : la
+      // borne qu'il avait reçue a tenu, dans sa boucle. L'écrire « échouée »
+      // l'accuserait d'un travail raté.
+      const arret =
+        p.arretBudgetaire === 'cout'
+          ? t('coût', 'cost')
+          : p.arretBudgetaire === 'tours'
+            ? t('tours', 'turns')
+            : null;
+      const base =
+        arret === null
+          ? t(`échouée (${short(p.taskId)})`, `failed (${short(p.taskId)})`)
+          : t(
+              `arrêtée sur son plafond de ${arret} dans la boucle de l’agent (${short(p.taskId)}) — ni échec, ni panne`,
+              `stopped at its ${arret} cap inside the agent loop (${short(p.taskId)}) — neither a failure nor an outage`,
+            );
       // « coût : X » plutôt qu'un participe accordé : la durée est formatée
       // (« 1 h », « 4 h 12 min », « 340 ms ») et aucun accord français ne tient
       // sur toutes ces formes.

@@ -17,8 +17,9 @@ import { estEffort, estListeEfforts, type Effort } from './effort.js';
 import type { ValidationsBac } from './validations-bac.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
-import { NIVEAUX_ISOLEMENT } from './types.js';
+import { estArretBudgetaire, NIVEAUX_ISOLEMENT } from './types.js';
 import type {
+  ArretBudgetaire,
   ExecutionUsage,
   HiveEvent,
   IsolementDeclare,
@@ -309,6 +310,12 @@ export interface TaskResultMsg {
    * qui le lie au `resultId` exact que la Reine attribue à la réception.
    */
   validations?: ValidationsBac;
+  /**
+   * Le CLI s'est arrêté sur le plafond que la Reine avait passé à cette
+   * tentative (`AssignTaskMsg.plafondCoutMicros`) — voir `ArretBudgetaire`. La
+   * Reine ne le croit que pour une tentative qu'elle a plafonnée.
+   */
+  arretBudgetaire?: ArretBudgetaire;
 }
 
 /**
@@ -507,6 +514,15 @@ export interface AssignTaskMsg {
   effort?: Effort;
   /** Budget persistant de l'enfant ; absent pour une tâche racine ou une revue. */
   delegationBudget?: DelegationBudget;
+  /**
+   * Ce que CETTE tentative d'un enfant délégué peut encore dépenser, en
+   * micro-USD : sa réservation moins le coût déclaré de ses tentatives
+   * précédentes (`plafondCoutTentative`, delegation.ts). Le nœud le passe à
+   * son adaptateur, qui l'impose dans la boucle de l'agent (Claude Code :
+   * `--max-budget-usd`). Absent : aucun plafond — racine, revue, drone d'une
+   * course. Jamais nul : le CLI refuse `0`.
+   */
+  plafondCoutMicros?: number;
   /**
    * La tâche est une RELECTURE (contre-expertise, `store.relectureDe`) : le
    * nœud le dit à son adaptateur (`AdapterContext.role`), qui peut lancer son
@@ -1215,6 +1231,11 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         // elles redeviennent `missing`, ce qu'elles étaient sans rapport.
         const validations =
           m.validations === undefined ? null : validationsBacDepuis(m.validations);
+        // Un arrêt mal nommé est abandonné, comme les validations : le
+        // résultat reste un échec ordinaire, jamais une borne inventée.
+        const arretBudgetaire = estArretBudgetaire(m.arretBudgetaire)
+          ? m.arretBudgetaire
+          : undefined;
         return {
           type: 'task_result',
           taskId: m.taskId,
@@ -1227,6 +1248,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           ...(fournisseur ? { fournisseur } : {}),
           ...(finalText !== undefined ? { finalText } : {}),
           ...(validations ? { validations } : {}),
+          ...(arretBudgetaire ? { arretBudgetaire } : {}),
         };
       }
       return null;
@@ -1434,6 +1456,12 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       if (m.delegationBudget !== undefined && !isDelegationBudget(m.delegationBudget)) {
         return null;
       }
+      if (
+        m.plafondCoutMicros !== undefined &&
+        !isInt(m.plafondCoutMicros, 1, LIMITS.delegationCostMicros)
+      ) {
+        return null;
+      }
       if (m.relecture !== undefined && m.relecture !== true) return null;
       if (m.delegationRootTaskId !== undefined && !isId(m.delegationRootTaskId)) return null;
       // Prolonger exige une branche de la ruche à cloner : un hub qui
@@ -1457,6 +1485,7 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         };
       }
       if (m.delegationRootTaskId !== undefined) msg.delegationRootTaskId = m.delegationRootTaskId;
+      if (m.plafondCoutMicros !== undefined) msg.plafondCoutMicros = m.plafondCoutMicros;
       return msg;
     }
     case 'cancel_task':

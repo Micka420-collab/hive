@@ -24,7 +24,10 @@
 //     plus la dépense déclarée de l'arbre : quand elle atteint ce plafond,
 //     plus aucun enfant n'est admis et ceux en vol sont annulés. Une tentative
 //     sans coût déclaré n'est JAMAIS comptée pour zéro : elle est dite
-//     inconnue, à part.
+//     inconnue, à part. La réservation d'un enfant est aussi SON plafond,
+//     tenu dans la boucle de son agent : chaque tentative reçoit ce qu'il en
+//     reste (`plafondCoutTentative`, orchestrator/delegation.ts), que Claude
+//     Code applique (`--max-budget-usd`) — un arrêt budgétaire, pas un échec.
 //   · `maxResourceUnits` est un compte ABSTRAIT : Hive ne mesure aucune
 //     ressource réelle derrière (ni CPU, ni mémoire, ni machines). C'est une
 //     unité que l'agent s'alloue à lui-même pour se borner, rien de plus.

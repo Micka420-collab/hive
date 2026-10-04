@@ -126,6 +126,34 @@ export function budgetCoutEpuise(
   return depense.micros >= limites.maxCostMicros;
 }
 
+/**
+ * Ce qu'UNE tentative d'un enfant délégué peut encore dépenser, en micro-USD :
+ * sa RÉSERVATION moins le coût déclaré de ses tentatives terminées
+ * (`depenseDeclareeEnfant`). Chaque reprise est un processus neuf, et le
+ * plafond du CLI ne compte que l'appel en cours : sans la soustraction, trois
+ * tentatives dépenseraient trois fois la réservation.
+ *
+ * Jamais le reste de la RACINE : des frères qui tournent en même temps le
+ * dépasseraient chacun, N fois au total. La réservation de l'enfant, elle, est
+ * déjà prise sur l'enveloppe — atomiquement, à son admission.
+ *
+ * Une tentative au coût inconnu ne se retranche pas (Hive n'invente aucun
+ * montant) : le plafond est alors un majorant, comme la dépense un plancher.
+ *
+ * Jamais moins d'un micro-USD : le CLI refuse `--max-budget-usd 0`, et un
+ * refus à l'analyse des options brûlerait chaque tentative sans rien dire.
+ * Réservation dépensée, l'agent s'arrête donc après sa première réponse — le
+ * dépassement d'une réponse que le CLI documente, choisi ici plutôt qu'une
+ * seconde porte qui empêcherait l'envoi : il ne survient qu'après un
+ * dépassement que le CLI n'a pas tenu (version d'avant le plafond, course).
+ */
+export function plafondCoutTentative(
+  reservationMicros: number,
+  depense: Readonly<DepenseDeclaree>,
+): number {
+  return Math.max(1, reservationMicros - depense.micros);
+}
+
 /** La dépense, dite telle qu'elle est connue : un plancher quand des coûts manquent. */
 export function direDepense(depense: Readonly<DepenseDeclaree>): string {
   const base = `${depense.micros} µUSD déclarés sur ${depense.tentatives} tentative(s)`;

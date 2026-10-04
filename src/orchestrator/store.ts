@@ -4022,16 +4022,29 @@ export class HiveStore {
    * tant qu'il vole — la dépense se dit alors « au moins », jamais moins.
    */
   depenseDeclareeRacine(rootTaskId: string): DepenseDeclaree {
+    return this.depenseDeclaree('rootTaskId', rootTaskId);
+  }
+
+  /**
+   * La dépense déclarée d'UN enfant délégué, sous la même règle : ce que ses
+   * tentatives terminées ont coûté — celle qu'on envoie ne l'est pas encore.
+   * C'est ce que la réservation de l'enfant a déjà payé (`plafondCoutTentative`).
+   */
+  depenseDeclareeEnfant(taskId: string): DepenseDeclaree {
+    return this.depenseDeclaree('taskId', taskId);
+  }
+
+  private depenseDeclaree(colonne: 'rootTaskId' | 'taskId', id: string): DepenseDeclaree {
     const ligne = this.db
       .prepare(
         `SELECT COUNT(*) AS tentatives, COUNT(d.coutMicros) AS declarees,
                 COALESCE(SUM(d.coutMicros), 0) AS micros
            FROM depenses_delegation d LEFT JOIN tasks t ON t.id = d.taskId
-          WHERE d.rootTaskId = ?
+          WHERE d.${colonne} = ?
             AND NOT (d.resultId IS NULL AND t.assignedNodeId = d.nodeId
                      AND t.status IN ('assigned', 'running'))`,
       )
-      .get(rootTaskId) as { tentatives: number; declarees: number; micros: number };
+      .get(id) as { tentatives: number; declarees: number; micros: number };
     if (ligne.tentatives === 0) return { ...AUCUNE_DEPENSE };
     return {
       micros: ligne.micros,

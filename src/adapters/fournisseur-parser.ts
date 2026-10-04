@@ -46,9 +46,16 @@ export function declarationDepuisResultat(
   const declaration: UsageFournisseur = { source };
   const cout = nombre(r.total_cost_usd);
   if (cout !== undefined) declaration.coutUsd = cout;
-  const dureeApi = entier(r.duration_api_ms);
+  // Un ARRÊT SUR PLAFOND de coût laisse hors de `usage` la réponse qui l'a
+  // franchi — « usage leaves out the response that crossed the budget, while
+  // total_cost_usd and modelUsage include it » (agent-sdk/cost-tracking).
+  // Mesuré deux fois sur 2.1.289 : `usage` ET `duration_api_ms` à zéro, quand
+  // `modelUsage` compte 24 924 jetons d'entrée et 264 de sortie. Lus là, jetons
+  // et temps modèle seraient faux : ils restent non déclarés — le coût est entier.
+  const plafondAtteint = r.subtype === 'error_max_budget_usd';
+  const dureeApi = plafondAtteint ? undefined : entier(r.duration_api_ms);
   if (dureeApi !== undefined) declaration.dureeApiMs = dureeApi;
-  if (typeof r.usage === 'object' && r.usage !== null) {
+  if (typeof r.usage === 'object' && r.usage !== null && !plafondAtteint) {
     const usage = r.usage as Record<string, unknown>;
     const entree = jetonsEntree(usage);
     if (entree !== undefined) declaration.jetonsEntree = entree;

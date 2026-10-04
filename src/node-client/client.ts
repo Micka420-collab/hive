@@ -134,7 +134,7 @@ function borneApresCaviardage(s: string, max: number): string {
 function declarationsDuResultat(
   result: AdapterResult,
   caviardeur: Caviardeur,
-): Pick<TaskResultMsg, 'fournisseur' | 'finalText'> {
+): Pick<TaskResultMsg, 'fournisseur' | 'finalText' | 'arretBudgetaire'> {
   // Caviardé AVANT d'être borné : la borne garde la fin, et une clé coupée
   // par elle ne serait plus reconnue. `reponse`, pas `texte` : le hub RELIT ce
   // texte (proposition d'éclaireuse, avis de conseil — voir `Caviardeur`).
@@ -145,6 +145,7 @@ function declarationsDuResultat(
   return {
     ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
     ...(finalText ? { finalText } : {}),
+    ...(result.arretBudgetaire ? { arretBudgetaire: result.arretBudgetaire } : {}),
   };
 }
 
@@ -393,6 +394,7 @@ export class HiveNodeClient {
     modele?: string;
     effort?: Effort;
     delegationBudget?: DelegationBudget;
+    plafondCoutMicros?: number;
     relecture: boolean;
     workspace: Workspace;
     started: number;
@@ -422,11 +424,13 @@ export class HiveNodeClient {
   private readonly rendezVous = new RendezVousPont();
 
   /**
-   * Arme la seule limite d'exécution que le Worker peut tenir pendant la
-   * tentative : la durée. Le coût, lui, n'est connu qu'à la fin — le CLI le
-   * DÉCLARE avec son résultat —, et c'est la Reine qui tient l'enveloppe coût
-   * de l'arbre (`tenirBudgetCoutRacine`). `resourceUnits` est un compte
-   * abstrait, sans mesure derrière : transporté, jamais appliqué ici.
+   * Arme la limite que le NŒUD tient pendant la tentative : la durée. Le coût,
+   * le nœud ne le voit qu'à la fin — le CLI le DÉCLARE avec son résultat : c'est
+   * l'AGENT qui le tient dans sa boucle, sur le plafond que la Reine passe à la
+   * tentative (`plafondCoutMicros`, Claude Code : `--max-budget-usd`), et la
+   * Reine qui tient l'enveloppe de l'arbre (`tenirBudgetCoutRacine`).
+   * `resourceUnits` est un compte abstrait, sans mesure derrière : transporté,
+   * jamais appliqué — il ne borne ni des tours, ni rien d'autre.
    */
   private startDelegationBudget(
     budget: DelegationBudget | undefined,
@@ -1011,6 +1015,7 @@ export class HiveNodeClient {
           msg.delegationRootTaskId,
           msg.effort,
           msg.prolonger === true,
+          msg.plafondCoutMicros,
         );
         break;
       case 'assign_merge':
@@ -1315,6 +1320,7 @@ export class HiveNodeClient {
     delegationRootTaskId?: string,
     effort?: Effort,
     prolonger = false,
+    plafondCoutMicros?: number,
   ): Promise<void> {
     // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
     // fait pas confiance au hub (anti path-traversal si le hub était compromis).
@@ -1446,6 +1452,8 @@ export class HiveNodeClient {
         ...(modele ? { modele } : {}),
         // L'effort, seulement si l'Aiguillage en a commandé un.
         ...(effort ? { effort } : {}),
+        // Le plafond de coût de CETTE tentative, si la Reine en a passé un.
+        ...(plafondCoutMicros !== undefined ? { plafondCoutMicros } : {}),
         ...this.optionBacTache(task.id),
         ...(relecture ? { role: 'relecture' as const } : {}),
         delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),
@@ -1483,6 +1491,7 @@ export class HiveNodeClient {
             modele,
             effort,
             delegationBudget,
+            ...(plafondCoutMicros !== undefined ? { plafondCoutMicros } : {}),
             relecture,
             workspace,
             started,
@@ -1615,6 +1624,7 @@ export class HiveNodeClient {
       modele,
       effort,
       delegationBudget,
+      plafondCoutMicros,
       relecture,
       workspace,
       started,
@@ -1674,6 +1684,7 @@ export class HiveNodeClient {
         signal: ctrl.signal,
         ...(modele ? { modele } : {}),
         ...(effort ? { effort } : {}),
+        ...(plafondCoutMicros !== undefined ? { plafondCoutMicros } : {}),
         ...this.optionBacTache(task.id),
         ...(relecture ? { role: 'relecture' as const } : {}),
         delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),

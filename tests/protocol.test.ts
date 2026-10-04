@@ -590,6 +590,36 @@ describe('parseServerMessage — validation des messages du hub (anti-traversal/
     expect(parseServerMessage(message({ ...budget, costMicros: 1_000_000_001 }))).toBeNull();
   });
 
+  it('LE PLAFOND D’UNE TENTATIVE (G09a) : nul ou non entier, tout l’assign_task tombe ; un arrêt inconnu est abandonné, pas le résultat', () => {
+    const assignation = (plafondCoutMicros: unknown) =>
+      parseServerMessage(
+        JSON.stringify({ type: 'assign_task', task: validTask, plafondCoutMicros }),
+      );
+    expect(assignation(50_000)).toMatchObject({ type: 'assign_task', plafondCoutMicros: 50_000 });
+    // `0` : le CLI le refuse (« must be a positive number greater than 0 »).
+    for (const mauvais of [0, -1, 0.5, '50000', LIMITS.delegationCostMicros + 1]) {
+      expect(assignation(mauvais), String(mauvais)).toBeNull();
+    }
+    const resultat = (arretBudgetaire: unknown) =>
+      parseClientMessage(
+        JSON.stringify({
+          type: 'task_result',
+          taskId: 't1',
+          success: false,
+          diff: '',
+          logs: '',
+          durationMs: 1,
+          subAgents: [],
+          arretBudgetaire,
+        }),
+      );
+    expect(resultat('cout')).toMatchObject({ type: 'task_result', arretBudgetaire: 'cout' });
+    expect(resultat('tours')).toMatchObject({ arretBudgetaire: 'tours' });
+    const inconnu = resultat('duree');
+    expect(inconnu).toMatchObject({ type: 'task_result', success: false });
+    expect(inconnu).not.toHaveProperty('arretBudgetaire');
+  });
+
   it('rejette assign_task sans task ou avec un task.id malveillant (path traversal)', () => {
     expect(parseServerMessage(JSON.stringify({ type: 'assign_task' }))).toBeNull();
     expect(

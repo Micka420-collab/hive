@@ -1328,17 +1328,29 @@ export class Scheduler {
         if (!this.store.ombreDe(task.id)) this.proposerSouvenir(task, resultId, result);
         this.fermerSousArbre(task.id, 'ancestor_done', Date.now());
       } else {
-        // Le modèle commandé à CETTE tentative a échoué (la production creuse
-        // refusée compte comme un échec d'agent, cf. plus haut) : écarté des
-        // reprises. Lu avant la réassignation, qui effacera ou remplacera la ligne.
-        const modeleEchoue = this.store.modeleAiguillageDe(task.id);
-        this.apresCommit(() => this.ecarterModele(task.id, modeleEchoue));
+        // ─── UN ARRÊT BUDGÉTAIRE N'EST NI UN ÉCHEC NI UNE PANNE ──────────────
+        //
+        // L'agent s'est arrêté dans sa boucle, sur le plafond que la Reine lui
+        // avait passé (`plafondCoutTentative`) : la réservation de l'enfant est
+        // dépensée, une reprise n'aurait plus rien à dépenser. La tâche finit
+        // `failed` SANS reprise, et rien ne l'impute au modèle : ni écarté des
+        // reprises, ni compté en échec par le registre Genome, qui lit
+        // `arretBudgetaire` sur le fait. Le serveur ne le transmet que d'une
+        // tentative qu'il a plafonnée (`plafonneeParHive`).
+        const arret = result.arretBudgetaire;
+        if (!arret) {
+          // Le modèle commandé à CETTE tentative a échoué (la production creuse
+          // refusée compte comme un échec d'agent, cf. plus haut) : écarté des
+          // reprises. Lu avant la réassignation, qui effacera ou remplacera la ligne.
+          const modeleEchoue = this.store.modeleAiguillageDe(task.id);
+          this.apresCommit(() => this.ecarterModele(task.id, modeleEchoue));
+        }
         const attempts = task.attempts + 1;
         // Bornée ici aussi, en plus de l'entrée (`isInt(m.durationMs, 0, …)`,
         // protocol.ts) : aucune durée négative n'entre dans le journal, quel que
         // soit l'appelant. La Balance la reborne une troisième fois au repli.
         const durationMs = Math.max(0, result.durationMs);
-        if (attempts >= this.maxAttemptsDe(task)) {
+        if (arret || attempts >= this.maxAttemptsDe(task)) {
           this.store.patchTask(task.id, {
             status: 'failed',
             attempts,
@@ -1364,6 +1376,7 @@ export class Scheduler {
             durationMs,
             ...(result.usage ? { usage: result.usage } : {}),
             ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+            ...(arret ? { arretBudgetaire: arret } : {}),
           });
           this.fermerSousArbre(task.id, 'ancestor_failed', Date.now());
         } else {

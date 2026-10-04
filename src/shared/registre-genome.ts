@@ -71,6 +71,7 @@ import type {
 import { declarationDe, sommeDeclaree } from './declaration-fournisseur.js';
 import { mediane } from './economie.js';
 import type { SommeDeclaree } from './declaration-fournisseur.js';
+import { estArretBudgetaire } from './types.js';
 import type { HiveEvent, TaskStatus } from './types.js';
 import type { ValidationState } from './validations-bac.js';
 
@@ -102,14 +103,19 @@ export interface FaitsGenome {
   echecs: number;
   /** Le nœud a refusé la tâche avant de l'exécuter. */
   refus: number;
-  /** Interrompue sans verdict sur le modèle (nœud perdu, annulation, reprise au boot). */
+  /**
+   * Interrompue sans verdict sur le modèle : nœud perdu, annulation, reprise au
+   * boot — ou arrêtée sur son plafond de coût ou de tours (`arretBudgetaire`
+   * de `task_failed`), une borne tenue que rien n'impute au modèle.
+   */
   interrompues: number;
   /**
    * L'Evaluator a renvoyé la production en correction (`task_retry` source
    * `evaluator`). Une panne du bac pendant les validations (mémoire, disque,
    * DNS, démon) n'y arrive JAMAIS : elle rend `missing`, raison
    * `environnement` (`shared/validations-bac.ts`), et un manquant ne
-   * recommande aucune correction — ni faute au modèle, ni au Worker.
+   * recommande aucune correction — ni faute au modèle, ni au Worker. Un arrêt
+   * budgétaire non plus : la tâche finit sans production à corriger.
    */
   corrections: number;
   /** Avis des relectrices croisées sur les productions de ce modèle. */
@@ -476,7 +482,11 @@ export function registreGenomeDepuisEvenements(
       }
       case 'task_failed': {
         if (!issue) break;
-        accumulateur(issue).faits.echecs += 1;
+        // Un arrêt budgétaire est une borne TENUE, pas un échec du modèle :
+        // interrompu, sans verdict — sa dépense, elle, reste déclarée.
+        const faits = accumulateur(issue).faits;
+        if (estArretBudgetaire(p.arretBudgetaire)) faits.interrompues += 1;
+        else faits.echecs += 1;
         consignerDeclaration(accumulateur(issue), p);
         solder();
         break;
