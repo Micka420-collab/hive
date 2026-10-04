@@ -223,8 +223,19 @@ export function balayerPontsOrphelins(): string[] {
  */
 export class RendezVousPont implements ReservationPont {
   private racine: string | null = null;
-  /** `fermer()` est définitif : un nœud arrêté ne rouvre jamais ce rendez-vous. */
-  private fermee = false;
+  /**
+   * Fermé par l'arrêt du nœud (`fermer`), rouvert par son démarrage
+   * (`ouvrir`). Une tâche que l'arrêt a annulée peut encore passer ici en
+   * finissant de se dérouler — une étape asynchrone de sa préparation, et elle
+   * arrive au pont après coup : un dossier créé MAINTENANT ne serait effacé par
+   * personne, et sous le TMPDIR du moment, qui n'est peut-être plus le même.
+   */
+  private ferme = false;
+
+  /** Le démarrage du nœud : ses ponts peuvent de nouveau s'ouvrir. */
+  ouvrir(): void {
+    this.ferme = false;
+  }
 
   /**
    * Le motif si AUCUN pont ne pourra s'ouvrir sur ce poste, sinon `null`. Ne
@@ -242,8 +253,9 @@ export class RendezVousPont implements ReservationPont {
     // Après `fermer()` : une tentative qui traîne derrière l'arrêt du nœud
     // (annulée, mais déjà en route vers son pont) recréait la racine que
     // l'arrêt venait d'effacer — un dossier orphelin jusqu'au prochain
-    // balayage. Un nœud arrêté n'ouvre plus rien.
-    if (this.fermee) throw new Error('nœud arrêté : aucun pont ne s’ouvre plus');
+    // balayage. Un nœud arrêté n'ouvre plus rien — ni pont de délégation, ni
+    // session réseau de tâche — jusqu'à son redémarrage (`ouvrir`).
+    if (this.ferme) throw new Error('nœud arrêté : aucun pont ne s’ouvre plus');
     const motif = this.alerte();
     if (motif) throw new CheminSocketTropLong(motif);
     // Recréé s'il a disparu (nettoyage de `/tmp` sur un nœud resté inactif des
@@ -262,7 +274,7 @@ export class RendezVousPont implements ReservationPont {
    * suivant reprendra ce qui reste.
    */
   fermer(): void {
-    this.fermee = true;
+    this.ferme = true;
     const racine = this.racine;
     this.racine = null;
     if (!racine || !dossierPrive(racine)) return;

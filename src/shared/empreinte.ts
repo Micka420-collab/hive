@@ -260,6 +260,15 @@ export function empreinte(ctx: Contexte): Emplacement[] {
           quoi: 'le miroir de la porte de sécurité — effacé dès qu’elle a jugé, sinon avec la tâche',
         },
         {
+          // Les validations du bac (`node-client/validations-bac.ts`, G11b)
+          // rejouent à part la base d'une tâche et l'arbre qu'elle livre, À
+          // CÔTÉ d'elle — hors du montage du bac —, `node_modules` compris, et
+          // les effacent dès la comparaison faite ; un nœud tué au mauvais
+          // moment les laisse, et le prochain passage de la tâche les reprend.
+          chemin: p.join(ctx.workdir, '<nœud>', 'tasks', '<tâche>.base, <tâche>.tete'),
+          quoi: 'les rejeux à part des tests en échec (la base, l’arbre livré) — effacés dès la comparaison faite',
+        },
+        {
           // Le seul contenu d'ici qui ne se REFAIT pas : une mission livrée
           // sans GitHub et sans poussée vit dans ce dépôt nu, et nulle part
           // ailleurs (`node-client/livraison-locale.ts`).

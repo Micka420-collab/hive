@@ -25,7 +25,7 @@
 // membre. C'est le niveau `processus` de `constat()`, et c'est là — pas ici —
 // que la vérité de l'isolement s'écrit.
 
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { CLONE_MS } from '../shared/butoirs-noeud.js';
 import { effacerDossier } from '../shared/effacement.js';
@@ -132,6 +132,41 @@ const SECRETS_INTERDITS_AGENT = new Set([
 export async function retirerFichiersIgnores(depot: DepotEpingle): Promise<void> {
   // `-ff` : aussi les dépôts imbriqués ignorés ; `-d` : les dossiers entiers.
   await gitHote(['clean', '-ffdX'], depot);
+}
+
+/**
+ * Où un côté d'une tâche est REJOUÉ à part pour comparer ses tests (G11b,
+ * `node-client/validations-bac.ts`) — sa base, et l'arbre que la production
+ * livre : À CÔTÉ de la tâche, comme son TEMP et son registre, hors de ce que
+ * le bac de la tâche monte. Effacés par les validations dès la comparaison
+ * faite, et ici avec le reste si un nœud tué les a laissés.
+ */
+export const dossierDeBase = (cwd: string): string => `${cwd}.base`;
+export const dossierDeTete = (cwd: string): string => `${cwd}.tete`;
+
+/**
+ * Efface un rejeu à part, et son TEMP (`buildSandboxEnv`). Ici, parce que ce
+ * fichier possède le répertoire de tâche et ses voisins : l'inventaire de ce
+ * que Hive écrit chez le membre (`empreinte.ts`) reste vrai.
+ *
+ * ASYNCHRONE, en UNE passe : un rejeu porte un `node_modules` complet, et
+ * l'effacer en synchrone, en pleine tâche, gelait la boucle du nœud — sans
+ * battement au-delà de `NODE_TIMEOUT_MS` (15 s), la Reine le déclare hors
+ * ligne. Pas de `maxRetries` : l'option multiplie les reprises par niveau de
+ * dossier (le piège de #538/#552). Ce qui reste (un fichier verrouillé sous
+ * Windows), le prochain `prepareWorkspace` de la tâche, ou son `cleanup`, le
+ * reprendra. Ne lève jamais : rien ne doit emporter le résultat de la tâche.
+ */
+export async function effacerRejeu(dossier: string): Promise<void> {
+  const options = { recursive: true, force: true } as const;
+  await Promise.all([fsp.rm(dossier, options), fsp.rm(`${dossier}.tmp`, options)]).catch(
+    () => undefined,
+  );
+}
+
+/** Les deux rejeux d'une tâche — sa base, sa tête. */
+async function effacerRejeux(cwd: string): Promise<void> {
+  await Promise.all([effacerRejeu(dossierDeBase(cwd)), effacerRejeu(dossierDeTete(cwd))]);
 }
 
 export function variablesAgentSansSecrets(variables: readonly string[]): string[] {
@@ -277,6 +312,7 @@ export async function prepareWorkspace(
   await effacerRestes().catch((err: unknown) => {
     throw new DossierDeTacheIneffacable(cwd, err);
   });
+  await effacerRejeux(cwd);
   mkdirSync(cwd, { recursive: true });
 
   let branch: string | null = null;
@@ -334,6 +370,9 @@ export async function prepareWorkspace(
       return depot ? diffContreBase(depot, baseSha) : '';
     },
     async cleanup(): Promise<void> {
+      // Les rejeux sont déjà effacés par les validations : ceci rattrape un
+      // reste, sans retenir le nœud.
+      void effacerRejeux(cwd);
       // Fichier encore tenu : la prochaine tentative de la tâche réessaiera,
       // et DIRA pourquoi si le dossier résiste (`DossierDeTacheIneffacable`).
       await effacerRestes().catch(() => undefined);

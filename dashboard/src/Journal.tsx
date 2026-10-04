@@ -26,6 +26,34 @@ const SYMBOLE_VALIDATION: Record<string, string> = {
   not_applicable: '—',
 };
 
+/**
+ * Les tests comparés à la base (G11b), en quelques mots après leur symbole :
+ * un `✔` qui tairait des tests rouges excusés — déjà rouges à la base — serait
+ * un vert muet. Lu défensivement : le journal est une trace, pas une zone de
+ * confiance.
+ */
+function precisionDesTests(details: unknown, t: Translate): string {
+  const objet = (v: unknown): Record<string, unknown> | null =>
+    typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null;
+  const comparaison = objet(objet(objet(details)?.tests)?.comparaison);
+  if (!comparaison) return '';
+  const total = (liste: string): number => {
+    const n = objet(comparaison[liste])?.total;
+    return typeof n === 'number' && Number.isSafeInteger(n) && n > 0 ? n : 0;
+  };
+  const [regressions, instables, dejaRouges] = ['regressions', 'instables', 'dejaRouges'].map(
+    total,
+  );
+  const dits = [
+    ...(regressions ? [t(`${regressions} régression(s)`, `${regressions} regression(s)`)] : []),
+    ...(instables ? [t(`${instables} instable(s)`, `${instables} flaky`)] : []),
+    ...(dejaRouges
+      ? [t(`${dejaRouges} déjà rouge(s) à la base`, `${dejaRouges} already red at the base`)]
+      : []),
+  ];
+  return dits.length > 0 ? ` (${dits.join(', ')})` : '';
+}
+
 /** La porte de sécurité : `?` non vérifiée — surtout pas un vert. */
 const SYMBOLE_PORTE: Record<string, string> = {
   rien_trouve: '✔',
@@ -360,7 +388,9 @@ const EVENTS: Record<string, Meta> = {
           ? (p.validation as Record<string, unknown>)
           : {};
       const ligne = VALIDATION_KEYS.map(
-        (cle) => `${cle} ${SYMBOLE_VALIDATION[String(etats[cle])] ?? '?'}`,
+        (cle) =>
+          `${cle} ${SYMBOLE_VALIDATION[String(etats[cle])] ?? '?'}` +
+          (cle === 'tests' ? precisionDesTests(p.details, t) : ''),
       ).join(' · ');
       return t(
         `validations ${short(p.taskId)} (${source}) : ${ligne}`,

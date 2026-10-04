@@ -1,0 +1,54 @@
+
+> vt@1.0.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /hive/tache
+
+ ❯ tests/a.test.js (1 test | 1 failed) 13ms
+   × ancien 10ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/a.test.js > ancien
+AssertionError: expected 'cassé' to be 'réparé' // Object.is equality
+
+Expected: "réparé"
+Received: "cassé"
+
+ ❯ tests/a.test.js:1:40
+      1| test('ancien', () => { expect('cassé').toBe('réparé'); });
+       |                                        ^
+      2|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+⎯⎯⎯⎯⎯⎯ Unhandled Errors ⎯⎯⎯⎯⎯⎯
+
+Vitest caught 1 unhandled error during the test run.
+This might cause false positive tests. Resolve unhandled errors to make sure your tests are not affected.
+
+⎯⎯⎯⎯ Unhandled Rejection ⎯⎯⎯⎯⎯
+Error: rejet non géré
+ ❯ tests/b.test.js:1:43
+      1| test('additionne', () => { Promise.reject(new Error('rejet non géré'))…
+       |                                           ^
+      2|
+ ❯ ../../../../../../hive/outils/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11
+ ❯ ../../../../../../hive/outils/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26
+ ❯ ../../../../../../hive/outils/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20
+ ❯ runWithCancel ../../../../../../hive/outils/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10
+ ❯ ../../../../../../hive/outils/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20
+ ❯ runWithTimeout ../../../../../../hive/outils/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10
+ ❯ ../../../../../../hive/outils/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64
+
+This error originated in "tests/b.test.js" test file. It doesn't mean the error was thrown inside the file itself, but while it was running.
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+
+ Test Files  1 failed | 1 passed (2)
+      Tests  1 failed | 1 passed (2)
+     Errors  1 error
+   Start at  10:52:54
+   Duration  618ms (transform 32ms, setup 0ms, import 57ms, tests 16ms, environment 0ms)
+

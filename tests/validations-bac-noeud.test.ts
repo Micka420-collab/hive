@@ -74,7 +74,9 @@ const marque = (nom: string, code = 0): string =>
 
 async function depot(fichiers: Record<string, string>): Promise<string> {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-validations-'));
-  dossiers.push(dir);
+  // Ses voisins aussi : le TEMP des commandes (`buildSandboxEnv`) et les
+  // rejeux à part de G11b — un banc ne laisse rien dans `os.tmpdir()`.
+  dossiers.push(dir, ...['.tmp', '.base', '.base.tmp', '.tete', '.tete.tmp'].map((s) => dir + s));
   for (const [nom, contenu] of Object.entries(fichiers)) {
     mkdirSync(path.dirname(path.join(dir, nom)), { recursive: true });
     writeFileSync(path.join(dir, nom), contenu);

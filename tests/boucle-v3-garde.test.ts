@@ -208,6 +208,13 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     // passer les bancs ci-dessus pour de mauvaises raisons.
     ['tests/fixtures/faux-outils-porte.ts', 'securite'],
     ['tests/fixtures/verrous-porte.ts', 'securite'],
+    // Les verdicts test par test (G11b) : le lecteur qui excuse un échec déjà
+    // rouge à la base, ses bancs et les sorties réelles qu'ils rejouent.
+    ['src/shared/lecture-tests.ts', 'permissions'],
+    ['tests/lecture-tests.test.ts', 'permissions'],
+    ['tests/verdicts-par-test-noeud.test.ts', 'permissions'],
+    ['tests/verdicts-par-test-bout-en-bout.test.ts', 'permissions'],
+    ['tests/fixtures/sorties-de-tests/vitest-defaut.txt', 'permissions'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');

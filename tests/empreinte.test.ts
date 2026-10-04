@@ -693,7 +693,9 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
       'réseau d’une tâche, dans le rendez-vous du nœud (inventorié, « ponts »)',
     'src/node-client/reseau-tache.ts':
       'efface le dossier de session réseau de la tâche (sous hive-pont-*) à sa fin',
-    'src/node-client/workspace.ts': '<workdir>/<nom> et son .tmp voisin',
+    'src/node-client/workspace.ts':
+      '<workdir>/<nom>, son .tmp voisin, et ses rejeux à part (<nom>.base, <nom>.tete) qu’il ' +
+      'efface — déclarés dans `empreinte()` comme contenu nommé de « travail »',
     'src/node-client/porte-securite.ts':
       '<workdir>/<nœud>/tasks/<tâche>/.hive-porte-* — le miroir de la porte de sécurité, ' +
       'écrit DANS la tâche (le seul dossier que le bac monte) après le calcul du diff, et ' +
@@ -704,7 +706,8 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
       'pendant l’exécution, voisine de la tâche et effacée avec elle',
     'src/node-client/git-hote.ts':
       '<workdir>/tasks/<id>.git — le git dir de la ruche, voisin de la tâche et ' +
-      'effacé avec elle ; et `info/attributes` dans le git dir d’un clone de fusion',
+      'effacé avec elle ; `info/attributes` dans le git dir d’un clone de fusion ; et les ' +
+      'rejeux à part d’une tâche (<id>.base, <id>.tete) qu’il extrait, voisins d’elle',
     'src/orchestrator/miroir.ts': '<données>/rayons — les miroirs git',
     'src/shared/effacement.ts':
       'n’écrit rien, il EFFACE — et seulement ce que ses appelants lui désignent ' +

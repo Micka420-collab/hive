@@ -1,0 +1,139 @@
+
+> nt@1.0.0 test
+> node --test
+
+✔ passe (1.610817ms)
+✖ echoue (1.150568ms)
+﹣ saute (1.530023ms) # SKIP
+﹣ saute avec raison (0.145122ms) # pas sur ce système
+⚠ a faire (0.1824ms) # TODO
+✔ a faire vert (0.139821ms) # plus tard
+▶ groupe
+  ✔ sous passe (0.274495ms)
+  ✖ sous echoue (0.638633ms)
+✖ groupe (1.806398ms)
+▶ suite B
+  ✔ b passe (0.288247ms)
+✔ suite B (0.763315ms)
+▶ externe
+  ▶ interne
+    ✖ profond echoue (1.116832ms)
+    ✔ profond passe (0.128879ms)
+  ✖ interne (1.450257ms)
+✖ externe (2.023249ms)
+▶ crochet
+  ✖ jamais
+✖ crochet (0.357255ms)
+✔ diagnostic (1.461728ms)
+ℹ un message du test
+journal du test b
+✔ b avec console (1.357971ms)
+✖ b delai (21.803347ms)
+/hive/tache/test/d.test.js:1
+syntax error here(
+       ^^^^^
+
+SyntaxError: Unexpected identifier 'error'
+    at wrapSafe (node:internal/modules/cjs/loader:1861:18)
+    at Module._compile (node:internal/modules/cjs/loader:1903:20)
+    at Object..js (node:internal/modules/cjs/loader:2060:10)
+    at Module.load (node:internal/modules/cjs/loader:1651:32)
+    at Module._load (node:internal/modules/cjs/loader:1443:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:261:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+    at node:internal/main/run_main_module:33:47
+
+Node.js v24.20.0
+✖ test/d.test.js (37.358572ms)
+ℹ tests 17
+ℹ suites 4
+ℹ pass 6
+ℹ fail 5
+ℹ cancelled 2
+ℹ skipped 2
+ℹ todo 2
+ℹ duration_ms 488.344254
+
+✖ failing tests:
+
+test at test/a.test.js:4:1
+✖ echoue (1.150568ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  1 !== 2
+  
+      at TestContext.<anonymous> (/hive/tache/test/a.test.js:4:31)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test/a.test.js:7:1
+⚠ a faire (0.1824ms) # TODO
+  Error: pas encore
+      at TestContext.<anonymous> (/hive/tache/test/a.test.js:7:47)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+      at Test.postRun (node:internal/test_runner/test:1537:19)
+      at Test.run (node:internal/test_runner/test:1462:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7)
+
+test at test/a.test.js:11:11
+✖ sous echoue (0.638633ms)
+  Error: boum
+      at TestContext.<anonymous> (/hive/tache/test/a.test.js:11:45)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.start (node:internal/test_runner/test:1257:17)
+      at TestContext.test (node:internal/test_runner/test:399:20)
+      at TestContext.<anonymous> (/hive/tache/test/a.test.js:11:11)
+      at async Test.run (node:internal/test_runner/test:1404:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7)
+
+test at test/a.test.js:18:5
+✖ profond echoue (1.116832ms)
+  Error: x
+      at TestContext.<anonymous> (/hive/tache/test/a.test.js:18:40)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1397:25)
+      at Test.start (node:internal/test_runner/test:1257:17)
+      at node:internal/test_runner/test:1887:71
+      at node:internal/per_context/primordials:504:82
+      at new Promise (<anonymous>)
+      at new SafePromise (node:internal/per_context/primordials:478:3)
+      at node:internal/per_context/primordials:504:9
+      at Array.map (<anonymous>)
+
+test at test/a.test.js:24:3
+✖ jamais
+  'test did not finish before its parent and was cancelled'
+
+test at test/a.test.js:22:1
+✖ crochet (0.357255ms)
+  Error: before casse
+      at SuiteContext.<anonymous> (/hive/tache/test/a.test.js:23:24)
+      at TestHook.runInAsyncScope (node:async_hooks:227:14)
+      at TestHook.run (node:internal/test_runner/test:1397:25)
+      at TestHook.run (node:internal/test_runner/test:1741:18)
+      at TestHook.run (node:internal/util:581:20)
+      at Suite.runHook (node:internal/test_runner/test:1284:20)
+      at Suite.run (node:internal/test_runner/test:1883:18)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:969:7)
+
+test at test/b.test.js:3:1
+✖ b delai (21.803347ms)
+  'test timed out after 20ms'
+
+test at test/d.test.js:1:1
+✖ test/d.test.js (37.358572ms)
+  'test failed'

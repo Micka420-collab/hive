@@ -115,7 +115,10 @@ export interface FaitsGenome {
    * DNS, démon) n'y arrive JAMAIS : elle rend `missing`, raison
    * `environnement` (`shared/validations-bac.ts`), et un manquant ne
    * recommande aucune correction — ni faute au modèle, ni au Worker. Un arrêt
-   * budgétaire non plus : la tâche finit sans production à corriger.
+   * budgétaire non plus : la tâche finit sans production à corriger. Un test
+   * déjà rouge à la base non plus (G11b : `passed`, raison `comparee`), ni un
+   * test instable (`missing`, raison `instable`) : seule une RÉGRESSION — rouge
+   * à chaque exécution de la production, à aucune de la base — en compte une.
    */
   corrections: number;
   /** Avis des relectrices croisées sur les productions de ce modèle. */

@@ -141,11 +141,14 @@ const OUTPUT_CAP = 512 * 1024;
 function sortieBornee(moitie = OUTPUT_CAP / 2): {
   ajouter: (morceau: string) => void;
   texte: () => string;
+  /** Un milieu a-t-il été omis ? Les validations du bac ne lisent alors pas la sortie test par test. */
+  tronquee: () => boolean;
 } {
   let debut = '';
   let fin = '';
   let omis = 0;
   return {
+    tronquee: () => omis > 0 || fin.length > moitie,
     ajouter(morceau) {
       const place = moitie - debut.length;
       if (place > 0) {
@@ -205,6 +208,11 @@ function issueRatee(code: number | null, arret: Arret | undefined): string {
  * (`shared/arbre-processus.ts`), la même que celle des agents. Au délai ou à
  * l'annulation, tout l'ARBRE de la commande part — `npm` et ce qu'il a lancé
  * —, et le nœud qui s'arrête emporte ceux qui tournent encore.
+ *
+ * `tronquee` : la sortie a perdu son milieu (`sortieBornee`). Un FAIT d'ici,
+ * pas une marque à chercher dans le texte, qu'un test pourrait imprimer : les
+ * validations du bac ne lisent pas test par test une sortie dont un échec a
+ * pu tomber dans le trou (G11b).
  */
 export function runProc(
   cmd: string[],
@@ -213,7 +221,7 @@ export function runProc(
   timeoutMs: number,
   signal?: AbortSignal,
   bac?: BacExecution,
-): Promise<{ code: number | null; output: string; arret?: Arret }> {
+): Promise<{ code: number | null; output: string; arret?: Arret; tronquee?: true }> {
   return new Promise((resolve) => {
     const [bin, ...args] = cmd;
     const sortie = sortieBornee();
@@ -280,7 +288,11 @@ export function runProc(
             ? '\n[hive] la sortie est restée ouverte après la fin de la commande : ' +
               'un processus qu’elle a lancé la tenait'
             : '';
-          resolve({ code: issue.code, output: sortie.texte() + note });
+          resolve({
+            code: issue.code,
+            output: sortie.texte() + note,
+            ...(sortie.tronquee() ? { tronquee: true as const } : {}),
+          });
         } else if (issue.issue === 'arret') {
           // Pas de code : celui d'une commande ARRÊTÉE n'est pas un verdict —
           // un runner qui répond à SIGTERM par `exit 0` n'a pas réussi.
