@@ -13,12 +13,14 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   (`https://user:jeton@…`). Jusqu'ici, le clone de chaque tâche l'écrivait
   dans son `.git/config` — lisible par chaque agent —, et git le confiait à
   l'assistant d'identifiants du membre qui clonait ou poussait : en clair dans
-  `~/.git-credentials` avec `store`, à la place de son entrée dans le
-  gestionnaire de Windows ou le trousseau de macOS. Révoquez-le chez
-  l'hébergeur ; l'URL d'un projet ne se change pas encore : recréez le projet
-  avec le nouveau. Sur chaque machine, `hive doctor` (`identifiants_git`)
-  nomme les fichiers et les hôtes qui gardent un jeton — jamais sa valeur ;
-  l'entrée se retire à la main (#551).
+  `~/.git-credentials` avec `store`, dans le gestionnaire de Windows — à la
+  place de l'entrée du membre pour cet hôte —, dans le trousseau de macOS.
+  Révoquez-le chez l'hébergeur ; l'URL d'un projet ne se change pas encore :
+  recréez le projet avec le nouveau. Sur chaque machine, `hive doctor`
+  (`identifiants_git`) nomme les fichiers de `store` et les hôtes du
+  gestionnaire de Windows qui gardent un identifiant git — jamais sa valeur.
+  Le trousseau de macOS se vérifie dans « Trousseaux d'accès » ; chaque entrée
+  se retire à la main (#551).
 - **git ≥ 2.31** sur les ouvrières et la Reine pour un projet dont l'URL porte
   un jeton : en dessous, git ignorerait l'accès que la ruche lui passe par
   l'environnement — le clone est refusé, en le disant (`hive doctor` : `git`).
