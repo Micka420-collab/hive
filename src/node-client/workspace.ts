@@ -116,6 +116,23 @@ export async function retirerFichiersIgnores(depot: DepotEpingle): Promise<void>
  */
 export const dossierDeBase = (cwd: string): string => `${cwd}.base`;
 
+/**
+ * Efface la base rejouée d'une tâche, et son TEMP (`buildSandboxEnv`). Ici,
+ * parce que ce fichier possède le répertoire de tâche et ses voisins :
+ * l'inventaire de ce que Hive écrit chez le membre (`empreinte.ts`) reste vrai.
+ * Un fichier verrouillé (Windows) reste : le prochain `prepareWorkspace` de la
+ * tâche, ou son `cleanup`, le reprendra.
+ */
+export function effacerDossierDeBase(cwd: string): void {
+  const options = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
+  try {
+    rmSync(dossierDeBase(cwd), options);
+    rmSync(`${dossierDeBase(cwd)}.tmp`, options);
+  } catch {
+    // Voir plus haut : rien ne doit emporter le résultat de la tâche.
+  }
+}
+
 export function variablesAgentSansSecrets(variables: readonly string[]): string[] {
   return variables.filter((name) => !SECRETS_INTERDITS_AGENT.has(name));
 }
@@ -245,8 +262,7 @@ export async function prepareWorkspace(
   rmSync(`${cwd}.tmp`, rmOpts);
   rmSync(registre, rmOpts);
   rmSync(reserveDeConfiguration(cwd), rmOpts);
-  rmSync(dossierDeBase(cwd), rmOpts);
-  rmSync(`${dossierDeBase(cwd)}.tmp`, rmOpts);
+  effacerDossierDeBase(cwd);
   mkdirSync(cwd, { recursive: true });
 
   let branch: string | null = null;
@@ -309,8 +325,7 @@ export async function prepareWorkspace(
         rmSync(`${cwd}.tmp`, rmOpts);
         rmSync(registre, rmOpts);
         rmSync(reserveDeConfiguration(cwd), rmOpts);
-        rmSync(dossierDeBase(cwd), rmOpts);
-        rmSync(`${dossierDeBase(cwd)}.tmp`, rmOpts);
+        effacerDossierDeBase(cwd);
       } catch {
         // Fichier verrouillé (Windows) : le prochain run de la tâche nettoiera.
       }

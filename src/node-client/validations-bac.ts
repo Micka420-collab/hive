@@ -91,7 +91,7 @@
 // c'est la contre-revue et la revue humaine qui les lisent. D'où la provenance
 // `hive_sandbox`, toujours affichée — jamais confondue avec la CI.
 
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { argvDe } from '../shared/chantier.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
@@ -122,7 +122,12 @@ import type { BacExecution } from './isolement.js';
 import { runProc } from './merge-runner.js';
 import { gitHote } from '../shared/git-protege.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
-import { buildSandboxEnv, dossierDeBase, retirerFichiersIgnores } from './workspace.js';
+import {
+  buildSandboxEnv,
+  dossierDeBase,
+  effacerDossierDeBase,
+  retirerFichiersIgnores,
+} from './workspace.js';
 
 /** Délai de chaque commande de validation — celui des tests d'un merge. */
 export const DELAI_VALIDATION_MS = 5 * 60_000;
@@ -623,14 +628,6 @@ function baseRejouee(ctx: {
       return lue.echecs;
     },
     aTourne: () => executions > 0,
-    nettoyer() {
-      const options = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
-      try {
-        rmSync(dossier, options);
-        rmSync(`${dossier}.tmp`, options);
-      } catch {
-        // Fichier verrouillé : `prepareWorkspace` et `cleanup` le retrouveront.
-      }
-    },
+    nettoyer: () => effacerDossierDeBase(opts.cwd),
   };
 }
