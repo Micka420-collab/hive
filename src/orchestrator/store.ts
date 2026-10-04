@@ -115,7 +115,6 @@ import {
 import { lireConsigneRoutage, type ConsigneRoutage } from '../shared/consigne-routage.js';
 import { NIVEAU_RESEAU_DEFAUT, estNiveauReseau, type NiveauReseau } from '../shared/reseau.js';
 import type {
-  ExecutionUsage,
   HiveEvent,
   HiveNode,
   IsolementDeclare,
@@ -3296,8 +3295,12 @@ export class HiveStore {
     durationMs: number;
     createdAt: number;
     logs: string;
-    /** Ressources observées par le nœud pendant la tentative (#427), si mesurées. */
-    usage?: ExecutionUsage;
+    /**
+     * Les ressources de l'AGENT pendant la tentative (`RessourcesExecution`,
+     * relevées par son pilote) ; une mesure d'avant celle-ci est relue
+     * `noeud_ancien`, jamais rendue comme la sienne. Absentes : non mesurées.
+     */
+    ressources?: RessourcesExecution;
   }> {
     const rows = this.db
       .prepare(
@@ -3313,17 +3316,17 @@ export class HiveStore {
       createdAt: number;
       logs: string;
     }>;
-    // Les mesures se relisent PAR TÂCHE (`usagesForResults`, servie par
+    // Les mesures se relisent PAR TÂCHE (`ressourcesDesResultats`, servie par
     // `idx_events_tache`) : une lecture par tâche touchée, jamais un balayage
     // des mesures de toute la ruche retenue.
     const parTache = new Map<string, number[]>();
     for (const r of rows) parTache.set(r.taskId, [...(parTache.get(r.taskId) ?? []), r.id]);
-    const usages = new Map<number, TaskResult['usage']>();
+    const mesures = new Map<number, RessourcesExecution>();
     for (const [taskId, ids] of parTache) {
-      for (const [id, usage] of this.usagesForResults(taskId, ids)) usages.set(id, usage);
+      for (const [id, mesure] of this.ressourcesDesResultats(taskId, ids)) mesures.set(id, mesure);
     }
     return rows.map((r) => {
-      const usage = usages.get(r.id);
+      const ressources = mesures.get(r.id);
       return {
         resultId: r.id,
         taskId: r.taskId,
@@ -3331,7 +3334,7 @@ export class HiveStore {
         durationMs: r.durationMs,
         createdAt: r.createdAt,
         logs: r.logs,
-        ...(usage ? { usage } : {}),
+        ...(ressources ? { ressources } : {}),
       };
     });
   }

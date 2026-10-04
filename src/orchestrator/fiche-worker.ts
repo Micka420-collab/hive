@@ -28,7 +28,7 @@
 
 import { extraitDesLogs } from './brood.js';
 import type { EntreeWarRoom } from '../shared/war-room.js';
-import type { ExecutionUsage } from '../shared/types.js';
+import type { RessourcesExecution } from '../shared/types.js';
 
 /** Au plus autant de leçons : les plus récentes, celles que la Couveuse relirait. */
 export const LECONS_MAX = 6;
@@ -57,8 +57,11 @@ export interface MissionRendue {
   /** Durée déclarée par le nœud pour CETTE tentative (`results.durationMs`). */
   dureeMs: number;
   createdAt: number;
-  /** Ressources locales observées pendant la tentative (#427) ; absent : non mesurées. */
-  usage?: ExecutionUsage;
+  /**
+   * Les ressources de l'AGENT pendant la tentative — l'arbre de ses processus
+   * ou son conteneur (`RessourcesExecution`) ; absentes : non mesurées.
+   */
+  ressources?: RessourcesExecution;
 }
 
 /** Comment ce Worker a pris part au débat. */
@@ -83,7 +86,7 @@ interface ResultatDuNoeud {
   durationMs: number;
   createdAt: number;
   logs: string;
-  usage?: ExecutionUsage;
+  ressources?: RessourcesExecution;
 }
 
 /**
@@ -129,7 +132,7 @@ export function missionsDuWorker(
     succes: r.success,
     dureeMs: Math.max(0, r.durationMs),
     createdAt: r.createdAt,
-    ...(r.usage ? { usage: r.usage } : {}),
+    ...(r.ressources ? { ressources: r.ressources } : {}),
   }));
 }
 

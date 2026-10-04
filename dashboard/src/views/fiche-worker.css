@@ -124,6 +124,13 @@
   font-size: var(--fs-xs);
 }
 
+/* Les ressources de l'agent : une phrase (portée, CPU « au moins », pic,
+   relevés) ou la raison de leur absence — pas un nombre à aligner. */
+.fw-ressources {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+
 .fw-inconnu {
   color: var(--faint);
   font-style: italic;

@@ -19,6 +19,7 @@ import type { FicheWorker as Fiche } from '../api';
 import { AvatarWorker, EmptyState, ErrorState, Skeleton, Tabs } from '../composants';
 import { useLang, useT } from '../i18n';
 import { formatMs } from '../ui';
+import { direRessources } from '../ressources-agent';
 import { libelleAgent } from '../../../src/shared/agent-libelle';
 import { libelleMetier } from '../../../src/orchestrator/metier';
 import { CATEGORIES } from '../../../src/orchestrator/aiguillage';
@@ -61,11 +62,6 @@ function direRole(role: RoleDebat, t: Traduire): string {
     case 'auteur':
       return t('sa production', 'its production');
   }
-}
-
-/** Octets en Mo, lisibles ; les ressources sont des mesures du processus, pas une facture. */
-function mo(octets: number): string {
-  return `${(octets / (1024 * 1024)).toFixed(0)} Mo`;
 }
 
 export function FicheWorker({
@@ -292,11 +288,9 @@ export function FicheWorker({
                         {m.succes ? t('✓ rendue', '✓ returned') : t('✗ échec', '✗ failed')}
                       </td>
                       <td className="fw-num">{formatMs(m.dureeMs)}</td>
-                      <td className="fw-num">
-                        {m.usage
-                          ? `${formatMs(Math.round((m.usage.userCpuMicros + m.usage.systemCpuMicros) / 1000))} CPU · ${mo(m.usage.maxRssBytes)}`
-                          : t('non mesurées', 'not measured')}
-                      </td>
+                      {/* Celles de l'AGENT (#558), dites comme dans le tiroir de la
+                          tâche — jamais les compteurs du processus du nœud. */}
+                      <td className="fw-ressources">{direRessources(m.ressources, t)}</td>
                     </tr>
                   ))}
                 </tbody>

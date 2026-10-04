@@ -413,6 +413,8 @@ describe('GET /api/workers/:nodeId/fiche', () => {
       success: false,
       durationMs: 1200,
       subAgents: [],
+      // La mesure de l'AGENT (#558), rangée au journal avec le résultat.
+      ressources: { portee: 'arbre', releves: 2, cpuMs: 330, picOctets: 100 * 1024 * 1024 },
     });
     s.insertResult({
       taskId: autre.id,
@@ -474,11 +476,23 @@ describe('GET /api/workers/:nodeId/fiche', () => {
       maxAttempts: 3,
     });
 
+    // Une mesure d'AVANT celle de l'agent : les compteurs du processus du nœud.
+    s.appendEvent('worker_usage', {
+      resultId: 3,
+      taskId: relecture.id,
+      nodeId: 'n1',
+      userCpuMicros: 600_000,
+      systemCpuMicros: 90_000,
+      maxRssBytes: 280 * 1024 * 1024,
+      rssBytes: 1,
+      heapUsedBytes: 1,
+    });
+
     const res = await fetch(`${url}/api/workers/n1/fiche`, { headers: { 'x-hive-token': TOKEN } });
     expect(res.status).toBe(200);
     const fiche = (await res.json()) as {
       worker: { id: string; agentType: string };
-      missions: Array<{ taskId: string; succes: boolean; dureeMs: number }>;
+      missions: Array<{ taskId: string; succes: boolean; dureeMs: number; ressources?: unknown }>;
       lecons: Array<{ taskId: string; extrait: string }>;
       debats: Array<{ role: string; entree: { genre: string; taskId?: string } }>;
       taches: Record<string, { titre: string }>;
@@ -490,6 +504,13 @@ describe('GET /api/workers/:nodeId/fiche', () => {
       [relecture.id, true, 300],
       [prod.id, false, 1200],
     ]);
+    // Chaque mission porte les ressources de son AGENT (#558) ; une mesure
+    // d'avant (le processus du nœud) se dit `noeud_ancien`, jamais en chiffres.
+    expect(fiche.missions.map((m) => m.ressources)).toEqual([
+      { portee: 'aucune', raison: 'noeud_ancien' },
+      { portee: 'arbre', releves: 2, cpuMs: 330, picOctets: 100 * 1024 * 1024 },
+    ]);
+    expect(JSON.stringify(fiche.missions)).not.toMatch(/userCpuMicros|maxRssBytes|usage/);
     // La leçon est la sienne, et le jeton de la Reine n'en sort jamais.
     expect(fiche.lecons).toHaveLength(1);
     expect(fiche.lecons[0]!.taskId).toBe(prod.id);

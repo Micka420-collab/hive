@@ -112,13 +112,16 @@ function fiche(over: Partial<Fiche> = {}): Fiche {
         succes: false,
         dureeMs: 65_000,
         createdAt: 2,
-        usage: {
-          userCpuMicros: 2_000_000,
-          systemCpuMicros: 500_000,
-          maxRssBytes: 300 * 1024 * 1024,
-          rssBytes: 1,
-          heapUsedBytes: 1,
-        },
+        ressources: { portee: 'arbre', releves: 12, cpuMs: 2_500, picOctets: 300 * 1024 * 1024 },
+      },
+      {
+        resultId: 1,
+        taskId: 't1',
+        titre: 'Avant la mesure de l’agent',
+        succes: true,
+        dureeMs: 1_000,
+        createdAt: 1,
+        ressources: { portee: 'aucune', raison: 'noeud_ancien' },
       },
     ],
     lecons: [
@@ -241,9 +244,18 @@ describe('la fiche', () => {
     expect(aller).toHaveBeenCalledWith('warroom');
 
     await act(async () => onglet(dom, 'Missions').click());
-    const ligne = dom.querySelector('.fw-table tbody tr')!;
-    expect(ligne.textContent).toContain('échec');
-    expect(ligne.textContent).toContain('300 Mo');
+    const [ligne, ancienne] = [...dom.querySelectorAll('.fw-table tbody tr')];
+    expect(ligne!.textContent).toContain('échec');
+    // Les ressources de l'AGENT (#558), dites comme dans le tiroir de la tâche
+    // — jamais les compteurs du processus du nœud.
+    expect(ligne!.querySelector('.fw-ressources')?.textContent).toBe(
+      'arbre de processus de l’agent : au moins 2.5 s CPU · pic RSS échantillonné 300 Mio · ' +
+        '12 relevés toutes les 5 s',
+    );
+    expect(ancienne!.querySelector('.fw-ressources')?.textContent).toBe(
+      'ressources de l’agent non mesurées — nœud d’une version antérieure, qui ne mesurait ' +
+        'que lui-même',
+    );
     expect(dom.textContent).toContain('aucune moyenne');
   });
 
