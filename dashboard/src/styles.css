@@ -3478,6 +3478,107 @@ button.mc-cell:focus-visible {
   }
 }
 
+/* Les Paramètres, au pied de la barre : `.mc-nav` s'étire (flex: 1) pour
+   pousser le pouls en bas ; la liste du pied garde sa taille. */
+.mc-nav.mc-nav-pied {
+  flex: none;
+  padding: 8px 0 0;
+  border-top: 1px solid color-mix(in srgb, var(--sur-encre-fort) 10%, transparent);
+}
+
+/* Le bouton ☰ n'existe qu'au format téléphone (voir juste dessous). */
+.mc-burger {
+  display: none;
+}
+
+.mc-burger svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+}
+
+/* ─── LE TIROIR DE NAVIGATION ────────────────────────────────────────────────
+   Sous 560 px (la borne de `REQUETE_TIROIR`, App.tsx), le rail d'icônes de
+   62 px ne reste plus à demeure : la barre sort du flux, hors champ à gauche,
+   et le contenu prend toute la largeur. Le bouton ☰ l'ouvre en dialogue
+   modal, avec ses libellés — dans un tiroir, la place n'est plus comptée.
+
+   FERMÉE, elle est `visibility: hidden`, pas seulement décalée : une barre
+   poussée hors de l'écran mais visible garderait ses quinze cases dans l'ordre
+   de tabulation et dans ce que lit un lecteur d'écran — on tabulerait à
+   l'aveugle dans un menu qu'on ne voit pas. La visibilité ne bascule qu'APRÈS
+   le glissement de fermeture (délai de la transition), pour qu'il se voie. */
+@media (max-width: 560px) {
+  .mc-burger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+  }
+  .mc-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100dvh;
+    width: min(280px, 84vw);
+    padding: 18px 12px 14px;
+    z-index: 45;
+    box-shadow: var(--shadow-lg);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition:
+      transform 0.2s ease,
+      visibility 0s linear 0.2s;
+  }
+  .mc-sidebar--ouverte {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.2s ease;
+  }
+  .mc-nav-cell {
+    justify-content: flex-start;
+    padding: 8px 12px;
+  }
+  /* Le rail de 900 px les avait retirés ; le tiroir a la place de les dire. */
+  .mc-sidebar-nom {
+    display: flex;
+  }
+  .mc-nav-label {
+    display: block;
+  }
+  .mc-nav-badge {
+    position: static;
+    margin-left: auto;
+    padding: 1px 7px;
+  }
+  .mc-tiroir-voile {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: var(--voile-dense);
+  }
+  /* Ce que le tiroir et les Paramètres portent déjà — la langue, le jeton,
+     le bouton de déconnexion — quitte la barre du haut, qui montait sur cinq
+     lignes avant la première donnée. Le nom de session, le thème et les
+     voyants restent : ce sont des états, pas des réglages. */
+  .mc-topbar .mc-lang,
+  .mc-topbar .token-input,
+  .mc-topbar .mc-account .btn {
+    display: none;
+  }
+  .mc-topbar {
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  .mc-topbar .brand h1 {
+    font-size: var(--fs-2xl);
+  }
+}
+
 .mc-unsynced {
   color: var(--amber);
   font-size: var(--fs-xs);

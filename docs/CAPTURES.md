@@ -93,7 +93,9 @@ des avertissements.
 
 - **chaque case de la barre de navigation**, cliquée : la barre fait foi (la
   case dit sa vue, `data-vue`), une vue ajoutée demain est photographiée sans
-  toucher au script ;
+  toucher au script. Au format `mobile`, la barre est un tiroir : le script
+  l'ouvre par le ☰ avant chaque clic, puis photographie le tiroir ouvert
+  (`navigation.mobile.png`) ;
 - la **Chambre** de l'ouvrière et le **tiroir** de la tâche reprise ;
 - la **War Room filtrée sur les décisions humaines** (`warroom-decisions`) :
   le fil entier, nourri par chaque tour de Conseil, noierait ce que l'humain
