@@ -266,6 +266,26 @@ npm run cli -- livrer-local <projectId> --prolonger=1         # corriger : avanc
   prolonger effacerait leur travail. Trois prolongations au plus par branche.
   C'est la même règle que la reprise d'une pull request GitHub, qui fait
   **avancer la branche de la PR** au lieu d'en ouvrir une seconde.
+- **Le garde de PR** veille sur les pull requests que la ruche a ouvertes
+  elle-même (jamais sur une PR étrangère) : une passe par minute, séquentielle,
+  qui ne relit une PR qu'à son échéance (2 min quand la CI tourne, 10 min au
+  calme) et se met tout entière en pause, avec un recul qui double, quand
+  GitHub refuse (limite secondaire). Quand la CI casse sur une **tête neuve**,
+  il fait ce que l'autonomie du projet autorise : `off` et `propose`
+  **préviennent** (journal `garde_pr_alerte`, relayé aux connecteurs comme un
+  blocage) ; `gouverne` et `plein` **ouvrent la reprise** sur la même branche
+  — le geste du bouton « reprendre », relu par l'Evaluator et la relecture
+  croisée — si l'hôte a allumé `HIVE_RUNNER`, et préviennent sinon. Jamais
+  deux fois sur la même tête. Un job GitHub Actions n'est **relancé** tel quel
+  que s'il a réussi sur la base à ses trois derniers passages, une fois par
+  tête, et cette preuve est journalisée (`garde_pr_relance`). Les reprises
+  se comptent **depuis la dernière CI verte** que le garde a vue, pour lui
+  comme pour le bouton : plafond `HIVE_GARDE_PR_PLAFOND` (1 à 10, défaut 3).
+  Fusionnée ou fermée, la PR sort du garde. Il ne fusionne jamais.
+  `HIVE_GARDE_PR=off` l'éteint ; l'écran des livraisons montre, par PR, son
+  dernier geste et le compteur.
+
+  ![Projets → Ce que devient le travail livré : la ligne du garde, par pull request](images/garde-pr-bureau.png)
 
 ## ⟲ Missions rejouables — le Time Travel
 

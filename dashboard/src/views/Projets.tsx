@@ -1973,6 +1973,16 @@ export function LivraisonsProjet({
               {!repris[l.taskId] && !l.reprenable && l.nonReprenable && (
                 <span className="pj-liv-repris">{l.nonReprenable}</span>
               )}
+              {/* Le garde de PR : ce qu'il a fait sans qu'on clique, et où en
+                  est le compteur. Éteint, il le dit — un garde muet se lirait
+                  comme un garde qui veille. */}
+              {l.garde && (
+                <span className="pj-liv-repris pj-liv-garde">
+                  {l.garde.actif
+                    ? `${t('garde', 'guard')} · ${l.garde.dit || t('en veille', 'watching')} · ${t('reprises', 'retries')} ${l.garde.tentatives}/${l.garde.plafond}`
+                    : t('garde éteint', 'guard off')}
+                </span>
+              )}
             </li>
           ))}
         </ul>
