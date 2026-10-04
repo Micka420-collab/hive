@@ -814,6 +814,39 @@ les préférences ni une course de drones ne franchissent ; l'affectation est
 consignée « forcée par l'opérateur », et aucun score appris n'est touché. Si
 aucune ouvrière en ligne ne la satisfait, la tâche attend et le journal le dit.
 
+## 🛑 La vigie — un agent qui tourne en rond, un fournisseur épuisé
+
+Seuls des délais fixes arrêtaient un agent (15 min, 30 min pour Cline et
+Hermes) : un agent qui bouclait brûlait son Worker et son budget jusque-là,
+puis échouait sur « timeout ». Le nœud a désormais une **vigie** qui lit le flux
+d'outils que Claude Code (`stream-json`) et Codex (`--json`) déclarent — jamais
+la narration — et rend l'une de deux issues **distinctes** :
+
+- **enlisé** — le même appel d'outil et le même retour quatre fois de suite, le
+  même appel en échec quatre fois, ou deux appels qui alternent sans progrès
+  (A→B→A→B→A→B). Seuils et règles portés du StuckDetector d'OpenHands (MIT,
+  notice dans `THIRD_PARTY_NOTICES.md`) ; chaque sous-agent a son propre fil. Un
+  agent qui progresse — un fichier écrit autrement, des tests dont la sortie
+  change — n'est jamais arrêté. La tentative est un **échec du modèle**, compté
+  comme tel, qui dit enfin sa cause : « enlisé : même appel d'outil répété 4
+  fois, même résultat (Read) ».
+- **fournisseur épuisé** — limite de débit ou d'abonnement, surcharge (529,
+  5xx), plus de réponse du tout. Rien à reprocher au modèle : la tentative est
+  **réaffectée sans en brûler une**, par le chemin des pannes d'infrastructure
+  (une autre ouvrière, une autre famille au besoin) : un refus au registre
+  Genome, jamais un échec ni une reprise, et rien dans ce qu'apprend
+  l'Aiguillage. Si le CLI a déclaré l'heure de remise à zéro,
+  la tâche ne revient pas à ce nœud avant elle.
+
+La vigie ne devance **jamais** la décision par défaut du CLI : Claude Code
+relance dix fois, Codex cinq ; au-delà (chien de garde de Claude Code, attente
+du réseau sans fin de Codex), elle arrête. L'arrêt passe par le geste de
+l'annulation — l'arbre de l'agent abattu en entier — et sa cause est dite au
+journal de la tâche, dans sa console en direct (Sandbox Live) et dans son
+tiroir. Aucun réglage. Cursor, Cline, Grok, Hermes et un agent sur mesure n'ont
+pas de flux d'outils que Hive lise : pour eux, seuls le délai fixe et la
+lecture de l'échec après coup restent.
+
 ## 🛡️ Sting Detector — prévention de conflits (Palier 2)
 
 Deux tâches qui pourraient tourner **en même temps** (aucun ordre de dépendance

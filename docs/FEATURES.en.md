@@ -671,6 +671,39 @@ it, from any project), and are only readable under "The whole hive".
 # GET /api/admin/experience            (administrator account)
 ```
 
+## 🛑 The lookout — an agent going in circles, an exhausted provider
+
+Only fixed timeouts used to stop an agent (15 min, 30 min for Cline and
+Hermes): an agent stuck in a loop burned its Worker and its budget until then,
+then failed on "timeout". The node now has a **lookout** that reads the tool
+stream Claude Code (`stream-json`) and Codex (`--json`) declare — never the
+narration — and returns one of two **distinct** outcomes:
+
+- **stuck** — the same tool call with the same result four times in a row, the
+  same call failing four times, or two calls alternating with no progress
+  (A→B→A→B→A→B). Thresholds and rules ported from OpenHands' StuckDetector
+  (MIT, notice in `THIRD_PARTY_NOTICES.md`); each sub-agent has its own thread.
+  An agent making progress — a file written differently, tests whose output
+  changes — is never stopped. The attempt is a **model failure**, counted as
+  such, that finally says why: "stuck: same tool call repeated 4 times, same
+  result (Read)".
+- **provider exhausted** — rate or subscription limit, overload (529, 5xx), no
+  answer at all. Nothing is held against the model: the attempt is
+  **reassigned without spending one**, through the infrastructure-failure path
+  (another worker, another family if needed): a refusal in the Genome
+  registry, never a failure nor a retry, and nothing in what the Router
+  learns. When the CLI declared its reset time, the task does
+  not come back to that node before it.
+
+The lookout **never** pre-empts the CLI's default decision: Claude Code retries
+ten times, Codex five; beyond that (Claude Code's watchdog, Codex's endless wait
+for the network), it stops. The stop goes through the cancellation gesture —
+the agent's whole process tree — and its cause is said in the task's journal,
+in its live console (Sandbox Live) and in its drawer. No setting. Cursor,
+Cline, Grok, Hermes and a custom agent expose no tool stream Hive reads: for
+them, only the fixed timeout and the after-the-fact reading of the failure
+remain.
+
 ## 🛡️ Sting Detector — conflict prevention
 
 Two tasks that could run **at the same time** (no dependency ordering between
