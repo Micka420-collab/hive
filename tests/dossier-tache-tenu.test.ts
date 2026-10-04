@@ -6,7 +6,7 @@
 // Hive 0.5.0, application de bureau sous Windows : la ruche redémarre pendant
 // qu'une ouvrière travaille, et le dossier de la tâche reste, clone compris.
 // À la tentative suivante, `prepareWorkspace` ne pouvait plus l'effacer
-// (`effacerDossier`, workspace.ts, dit pourquoi) et le refus partait sous
+// (`effacerDossier`, src/shared/effacement.ts, dit pourquoi) et le refus partait sous
 // « clone impossible : EPERM … » — une panne de dépôt ou d'identifiants qui
 // n'existait pas. Le compte des refus concluait bien, mais en « aucun agent
 // qui fonctionne — réparez l'agent » : deux fausses pistes pour l'opérateur.
