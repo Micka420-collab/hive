@@ -40,6 +40,13 @@
 // module allait lire le disque lui-même.
 
 import { LONGUEUR_MIN_SECRET_JWT } from '../orchestrator/auth.js';
+import {
+  ETIQUETTE_PORTE,
+  PUBLICATION_OUTIL,
+  VALEUR_ETIQUETTE_PORTE,
+  VERSION_EPINGLEE,
+  type OutilPorte,
+} from './porte-securite.js';
 import { MIN_TOKEN_LENGTH } from './types.js';
 
 /**
@@ -187,6 +194,20 @@ export interface Releve {
     /** L'image par défaut, absente partout : la commande qui la construit. */
     construire: string | null;
   } | null;
+  /** Les outils de la porte de sécurité, là où le nœud les lancera. */
+  porteSecurite: {
+    /**
+     * Sur l'HÔTE : la version que `<outil> --version` dit, ou `null` s'il ne
+     * répond pas. Bubblewrap monte le PATH de l'hôte ; sans bac, c'est lui.
+     */
+    hote: Readonly<Record<OutilPorte, string | null>>;
+    /**
+     * Dans l'IMAGE du bac, quand un moteur de conteneurs l'a : son étiquette
+     * `hive.porte-securite` (`''` si elle ne la porte pas), ou `null` si
+     * aucun moteur n'a pu la lire — ou s'il n'y a pas d'image à lire.
+     */
+    image: string | null;
+  };
   /** Le WebSocket répond-il ? `null` si la ruche n'écoute pas — on ne peut pas conclure. */
   wsJoignable: boolean | null;
   reglages: {
@@ -288,7 +309,7 @@ export const ESPACE_MINIMUM_OCTETS = 500 * 1024 * 1024;
 const go = (octets: number): string => `${(octets / (1024 * 1024 * 1024)).toFixed(1)} Go`;
 
 /**
- * Les quatorze diagnostics, dans l'ordre où ils se réparent.
+ * Les quinze diagnostics, dans l'ordre où ils se réparent.
  *
  * L'ORDRE EST UNE INFORMATION, pas une présentation : Node d'abord, parce que
  * réparer un port quand on tourne sur Node 18 ne sert à rien. Qui lit de haut
@@ -312,6 +333,9 @@ export function diagnostiquer(r: Releve): Diagnostic[] {
     dashboard(r),
     agent(r),
     isolement(r),
+    // Juste après le bac : c'est LUI qui dit où tournent les outils de la
+    // porte — dans son image, ou sur l'hôte (bubblewrap, ou sans bac).
+    porteSecurite(r),
     websocket(r),
     reglages(r),
     espace(r),
@@ -344,7 +368,7 @@ export function codeDeSortie(diags: Diagnostic[]): number {
   return 0;
 }
 
-// ─── Les quatorze ───────────────────────────────────────────────────────────
+// ─── Les quinze ────────────────────────────────────────────────────────────
 
 function nodeVersion(r: Releve): Diagnostic {
   if (nodeSuffisant(r.versionNode)) {
@@ -780,6 +804,99 @@ function isolement(r: Releve): Diagnostic {
     gravite: 'inconnu',
     constat: `${r.isolement} répond, mais n'a rien dit de l'image du bac (${image})`,
     reparation: `${r.isolement} image inspect ${image}  — la réponse dit ce qui bloque`,
+  };
+}
+
+/**
+ * La porte de sécurité du nœud (`node-client/porte-securite.ts`) : ses outils
+ * répondront-ils là où ils tourneront ?
+ *
+ * La MÊME règle que le nœud pour le lieu : un moteur de conteneurs qui a
+ * l'image (ou la télécharge au démarrage, image nommée) lance les outils de
+ * l'IMAGE ; bubblewrap monte ceux du PATH de l'hôte ; sans bac prêt, le nœud
+ * les lance sur l'hôte.
+ *
+ * Dans l'image, le docteur ne lance rien : il lit l'étiquette que le
+ * Dockerfile pose après avoir installé et vérifié les outils
+ * (`ETIQUETTE_PORTE`). Absente, l'image a été construite avant eux.
+ *
+ * Un outil absent ou d'une autre version que celle qu'épingle l'image est un
+ * `risque` : chaque production serait « non vérifiée » — jamais verte, et
+ * retenue en polyéthisme `strict`. Ce que personne n'a pu lire est `inconnu`.
+ */
+function porteSecurite(r: Releve): Diagnostic {
+  const img = r.imageBac;
+  const moteurImage =
+    img && img.dans !== 'bubblewrap' ? (img.dans ?? (img.construire ? null : img.absenteDe)) : null;
+  const outils = Object.keys(VERSION_EPINGLEE) as OutilPorte[];
+  const epinglees = outils.map((o) => `${o} ${VERSION_EPINGLEE[o]}`).join(', ');
+  if (img && moteurImage) {
+    const lue = r.porteSecurite.image;
+    const lire =
+      `${moteurImage} image inspect --format '{{index .Config.Labels "${ETIQUETTE_PORTE}"}}' ` +
+      img.image;
+    if (lue === null) {
+      return {
+        cle: 'porte_securite',
+        gravite: 'inconnu',
+        constat:
+          `outils de la porte de sécurité lancés dans l'image du bac (${img.image}) : ` +
+          `${moteurImage} n'a rien dit de son étiquette ${ETIQUETTE_PORTE}`,
+        reparation: `${lire}  — la réponse dit ce qu'elle porte`,
+      };
+    }
+    if (lue === VALEUR_ETIQUETTE_PORTE) {
+      return {
+        cle: 'porte_securite',
+        gravite: 'ok',
+        constat: `porte de sécurité vérifiable (image ${img.image}, ${moteurImage}) : ${epinglees}`,
+        reparation: null,
+      };
+    }
+    return {
+      cle: 'porte_securite',
+      gravite: 'risque',
+      constat:
+        `l'image du bac (${img.image}) ` +
+        (lue === ''
+          ? `ne dit pas porter les outils de la porte (aucune étiquette ${ETIQUETTE_PORTE} : construite avant eux, ou image tierce)`
+          : `porte d'autres versions des outils de la porte (${lue} ; épinglées : ${epinglees})`) +
+        ' — chaque production y sera « non vérifiée », jamais verte',
+      reparation:
+        'npm run bac:image (reconstruit l’image par défaut) — une image tierce : installez-y ' +
+        `${epinglees}, et posez LABEL ${ETIQUETTE_PORTE}="${VALEUR_ETIQUETTE_PORTE}"`,
+    };
+  }
+  const lieu = img?.dans === 'bubblewrap' ? 'bubblewrap, PATH de l’hôte' : 'sur l’hôte, sans bac';
+  const ecarts = outils.filter((o) => r.porteSecurite.hote[o] !== VERSION_EPINGLEE[o]);
+  if (ecarts.length === 0) {
+    return {
+      cle: 'porte_securite',
+      gravite: 'ok',
+      constat: `porte de sécurité vérifiable (${lieu}) : ${epinglees}`,
+      reparation: null,
+    };
+  }
+  const dits = ecarts.map((o) => {
+    const vue = r.porteSecurite.hote[o];
+    return vue === null ? `${o} absent` : `${o} ${vue} (épinglé : ${VERSION_EPINGLEE[o]})`;
+  });
+  return {
+    cle: 'porte_securite',
+    gravite: 'risque',
+    constat:
+      `porte de sécurité non vérifiable telle quelle (${lieu}) : ${dits.join(' · ')} — ` +
+      'chaque production sera « non vérifiée », jamais verte',
+    reparation: ecarts
+      .map((o) => {
+        const { depot, empreintes } = PUBLICATION_OUTIL[o];
+        return (
+          `${o} ${VERSION_EPINGLEE[o]} : https://github.com/${depot}/releases/tag/` +
+          `v${VERSION_EPINGLEE[o]} (vérifiez le SHA-256 dans ${empreintes})`
+        );
+      })
+      .join(' · ')
+      .concat(', dans un dossier du PATH'),
   };
 }
 

@@ -59,6 +59,12 @@ RUN apt-get update \
 #
 # Téléchargés par le `fetch` de Node, déjà dans l'image : ni curl, ni wget de
 # plus dans un bac où tourne le code des agents.
+#
+# Les empreintes viennent des fichiers de checksums PUBLIÉS par chaque release
+# (relus le 4 octobre, égaux aux empreintes que GitHub donne de chaque
+# fichier) — jamais recalculées sur un binaire téléchargé à la main. Une
+# empreinte vide fait échouer la construction en le disant : une valeur
+# inventée serait pire qu'aucune.
 ARG BETTERLEAKS_VERSION=1.9.0
 ARG BETTERLEAKS_SHA256_AMD64=f8b185a39ffcece2a1ca82bf3a4e7435cd81963ffd16b7a9128daf75f35f6de7
 ARG BETTERLEAKS_SHA256_ARM64=1d39116e0a58dc94574715e2aa12a2dbd5062f193eee3fec011fef6ba06bd13b
@@ -72,6 +78,9 @@ RUN set -eu; \
     arm64) bl_arch=arm64; bl_sha="$BETTERLEAKS_SHA256_ARM64"; osv_arch=arm64; osv_sha="$OSV_SCANNER_SHA256_ARM64" ;; \
     *) echo "porte de sécurité : architecture $(dpkg --print-architecture) sans binaire épinglé" >&2; exit 1 ;; \
   esac; \
+  if [ -z "$bl_sha" ] || [ -z "$osv_sha" ]; then \
+    echo "porte de sécurité : empreinte SHA-256 manquante — reprenez-la du fichier de checksums de la release" >&2; exit 1; \
+  fi; \
   telecharger() { node -e 'fetch(process.argv[1]).then(async (r) => { if (!r.ok) throw new Error(`${r.status} ${process.argv[1]}`); require("node:fs").writeFileSync(process.argv[2], Buffer.from(await r.arrayBuffer())); })' "$1" "$2"; }; \
   cd /tmp; \
   telecharger "https://github.com/betterleaks/betterleaks/releases/download/v${BETTERLEAKS_VERSION}/betterleaks_${BETTERLEAKS_VERSION}_linux_${bl_arch}.tar.gz" betterleaks.tar.gz; \
@@ -84,6 +93,11 @@ RUN set -eu; \
   rm -f betterleaks.tar.gz betterleaks osv-scanner; \
   betterleaks --version; \
   osv-scanner --version
+
+# Ce que `hive doctor` lit sans rien lancer dans l'image (`ETIQUETTE_PORTE`,
+# `src/shared/porte-securite.ts`). Une construction qui arrive ici a installé
+# ET vérifié les deux outils : une image sans cette étiquette date d'avant eux.
+LABEL hive.porte-securite="betterleaks=${BETTERLEAKS_VERSION} osv-scanner=${OSV_SCANNER_VERSION}"
 
 # The runtime invokes the container as uid/gid 1000. Keep the image contract
 # aligned with the official Node image and never run an agent as root.

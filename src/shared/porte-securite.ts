@@ -81,6 +81,29 @@ export const VERSION_EPINGLEE: Readonly<Record<OutilPorte, string>> = {
   'osv-scanner': '2.6.0',
 };
 
+/**
+ * Où chaque outil publie ses binaires et le fichier de leurs empreintes
+ * SHA-256 : ce que l'image télécharge et vérifie, et ce que `hive doctor`
+ * conseille à un hôte qui les lance lui-même (bubblewrap, ou sans bac).
+ */
+export const PUBLICATION_OUTIL: Readonly<
+  Record<OutilPorte, { depot: string; empreintes: string }>
+> = {
+  betterleaks: { depot: 'betterleaks/betterleaks', empreintes: 'checksums.txt' },
+  'osv-scanner': { depot: 'google/osv-scanner', empreintes: 'osv-scanner_SHA256SUMS' },
+};
+
+/**
+ * L'étiquette que `docker/agents/Dockerfile` pose sur l'image qui porte les
+ * outils, après les avoir installés ET vérifiés : `hive doctor` la lit sans
+ * rien lancer dans l'image. Absente, l'image a été construite avant eux.
+ */
+export const ETIQUETTE_PORTE = 'hive.porte-securite';
+/** Sa valeur pour les versions épinglées : `betterleaks=1.9.0 osv-scanner=2.6.0`. */
+export const VALEUR_ETIQUETTE_PORTE = Object.entries(VERSION_EPINGLEE)
+  .map(([outil, version]) => `${outil}=${version}`)
+  .join(' ');
+
 export type EtatPorte = 'constat' | 'non_verifie' | 'rien_trouve';
 
 /** Chaque raison, et l'état qu'elle autorise — un couple hors table est refusé. */

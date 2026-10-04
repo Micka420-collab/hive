@@ -17,7 +17,7 @@
 //   npm run cli -- replay [sinceId]                   time-lapse (rejeu du journal)
 //   npm run cli -- waggle                             classement des contributeurs (nectar)
 //   npm run cli -- consensus <taskId>                 vote des agents sur le résultat
-//   npm run cli -- doctor [chemin] [--json]          diagnostic local : 14 causes de panne
+//   npm run cli -- doctor [chemin] [--json]          diagnostic local : 15 causes de panne
 //   npm run cli -- ghost                              anomalies (nœuds/tâches douteux)
 //   npm run cli -- shift                              disponibilité heures creuses (HIVE_SHIFT, local)
 //   npm run cli -- pulse                              signes vitaux de la ruche

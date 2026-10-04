@@ -63,6 +63,7 @@ const RELEVE_QUELCONQUE: Releve = {
   agentsNonConnectes: [],
   isolement: 'aucun',
   imageBac: null,
+  porteSecurite: { hote: { betterleaks: null, 'osv-scanner': null }, image: null },
   wsJoignable: false,
   reglages: { runner: 'off', bindPublic: false, gardiennes: 'strict', corsOuvert: false },
   espace: { octetsLibres: 0, inscriptible: false },

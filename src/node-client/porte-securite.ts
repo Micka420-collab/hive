@@ -60,6 +60,7 @@ import type { Caviardeur, FichierDuDiff, LigneAjoutee } from '../shared/caviarda
 import type { DepotEpingle } from '../shared/git-protege.js';
 import {
   BORNES_PORTE,
+  ETIQUETTE_PORTE,
   LOCKFILES_SURVEILLES,
   REGLE_CAVIARDAGE_HIVE,
   lireRapportBetterleaks,
@@ -83,7 +84,7 @@ import type {
   SourceLue,
   Volet,
 } from '../shared/porte-securite.js';
-import type { BacExecution } from './isolement.js';
+import { envMoteur, type BacExecution, type Fournisseur } from './isolement.js';
 import { runProc } from './merge-runner.js';
 import { fichierDeBase } from './validations-bac.js';
 import { buildSandboxEnv } from './workspace.js';
@@ -180,6 +181,39 @@ async function sonder(
   if (r.arret === 'annule' || r.arret === 'delai') return { raison: r.arret };
   const version = r.code === 0 ? versionDeSortie(r.output) : null;
   return version ? { nom: outil, version } : { raison: 'outil_absent' };
+}
+
+/**
+ * L'étiquette `hive.porte-securite` d'une image (`hive doctor`) : `''` si
+ * l'image ne la porte pas, `null` si le moteur ne répond pas. Une lecture de
+ * métadonnées, avec l'environnement du moteur (`envMoteur`) : rien ne se
+ * lance dans l'image.
+ */
+export function etiquetteDeLImage(
+  fournisseur: Fournisseur,
+  image: string,
+  delaiMs = 5_000,
+): Promise<string | null> {
+  const format = `{{index .Config.Labels "${ETIQUETTE_PORTE}"}}`;
+  return new Promise((resolve) => {
+    try {
+      execFile(
+        fournisseur.bin,
+        ['image', 'inspect', '--format', format, image],
+        {
+          shell: false,
+          windowsHide: true,
+          timeout: delaiMs,
+          encoding: 'utf8',
+          env: envMoteur(fournisseur),
+        },
+        // Une clé absente s'imprime vide — ou `<no value>` selon le client.
+        (err, stdout) => resolve(err ? null : stdout.trim().replace(/^<no value>$/, '')),
+      );
+    } catch {
+      resolve(null);
+    }
+  });
 }
 
 /** La version d'un outil sur l'HÔTE (`hive doctor`), ou `null`. */
