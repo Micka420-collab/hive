@@ -49,11 +49,12 @@
 //     pas commise.
 //
 // osv-scanner interroge osv.dev EN LIGNE, et c'est un choix (docs) : la base
-// hors ligne de npm pèse 217 Mo (mesuré le 4 octobre), se republie plusieurs
-// fois par jour, et le bac n'a ni disque persistant ni mémoire pour elle
-// (racine en lecture seule, /tmp de 512 Mo, 2 Go). Ce qui part : les noms et
-// versions des paquets des seuls lockfiles que la production touche — rien
-// quand elle n'en touche aucun, ce qui est le cas courant.
+// hors ligne de npm pèse 217 Mo (`npm/all.zip`, 217 394 349 octets le 4
+// octobre), à retélécharger pour rester à jour, et le bac n'a ni disque
+// persistant ni mémoire pour elle (racine en lecture seule, /tmp de 512 Mo,
+// 2 Go). Ce qui part : les noms et versions des paquets des seuls lockfiles
+// que la production touche — rien quand elle n'en touche aucun, ce qui est
+// le cas courant.
 //
 // Module PUR : aucune I/O. Le nœud (`node-client/porte-securite.ts`) écrit le
 // miroir, lance les outils et lit leurs rapports avec ces fonctions ; la Reine
