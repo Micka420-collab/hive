@@ -14,7 +14,7 @@
 // tâche. Chaque comparaison dit son verdict — rendu par les tests — et sa
 // confiance ; aucune ne change le routing.
 
-import { direJetons, direUsd, formatMs } from './ui';
+import { direJetons, direUsd, formatMs, NOTE_COUT_DECLARE } from './ui';
 import { useLang, useT } from './i18n';
 import type { Translate } from './i18n';
 import { direConfianceOmbre, direIssueCote, direVerdictOmbre } from './banc-ombre-rendu';
@@ -160,8 +160,8 @@ export function RegistreGenome({ registre, erreur }: Props) {
             </span>
           )}
           {t(
-            `Lu sur ${registre.fenetre.evenements} événement(s) du journal retenu. Aucun classement : le routing apprend des seules contre-visites. Coût, temps modèle et jetons : ce que déclare le CLI de l’agent, jamais estimés — « ≥ » quand une tentative n’a rien déclaré ; aucun coût n’est tiré des jetons.`,
-            `Read from ${registre.fenetre.evenements} retained journal event(s). No ranking: routing learns from counter-reviews only. Cost, model time and tokens: what the agent CLI declares, never estimated — “≥” when an attempt declared nothing; no cost is derived from tokens.`,
+            `Lu sur ${registre.fenetre.evenements} événement(s) du journal retenu. Aucun classement : le routing apprend des seules contre-visites. ${NOTE_COUT_DECLARE.fr} Jetons : ce qu’il déclare aussi — « ≥ » quand une tentative n’a rien déclaré ; aucun coût n’est tiré des jetons.`,
+            `Read from ${registre.fenetre.evenements} retained journal event(s). No ranking: routing learns from counter-reviews only. ${NOTE_COUT_DECLARE.en} Tokens: what it declares too — “≥” when an attempt declared nothing; no cost is derived from tokens.`,
           )}
           {registre.fenetre.tronquee && (
             <span data-testid="genome-tronque">

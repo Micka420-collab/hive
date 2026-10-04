@@ -654,10 +654,23 @@ n'est admis, aucune correction ne repart, et ceux en vol sont annulés — chacu
 avec sa raison, que le parent qui l'attend reçoit tout de suite — comme celui
 dont l'enfant a échoué sans rien rendre. Une tentative sans coût déclaré, ou
 interrompue avant d'avoir rendu (ouvrière perdue, annulation), n'est jamais
-comptée pour zéro : le tiroir de la tâche dit « au moins ». Un parent qui
-attend ses enfants **relâche sa place à son propre arbre** sur son ouvrière :
-un arbre ne s'interbloque plus sur un poste plein, et une autre racine ne se
-glisse pas dans cette place — `maxConcurrency` borne toujours le travail neuf.
+comptée pour zéro : le tiroir de la tâche dit « au moins ».
+
+La réservation d'un enfant est aussi **son plafond, tenu dans la boucle de son
+agent** : chaque tentative reçoit ce qu'il en reste — la réservation moins le
+coût déclaré de ses tentatives précédentes, jamais le reste de la racine — et
+Claude Code (≥ 2.1.217) s'arrête dessus (`--max-budget-usd`, au plus une
+réponse de dépassement, documentée). La tâche finit alors **arrêtée par son
+budget** : ni un échec de l'agent, ni une panne — pas de reprise, et le
+registre Genome la compte interrompue. Un Claude Code plus ancien ne reçoit pas
+le drapeau, et le journal de la tâche le dit ; Codex ne déclare aucun coût,
+rien ne l'arrête dans sa boucle. Ce coût déclaré est l'estimation du CLI, pas
+une facture.
+
+Un parent qui attend ses enfants **relâche sa place à son propre arbre** sur
+son ouvrière : un arbre ne s'interbloque plus sur un poste plein, et une autre
+racine ne se glisse pas dans cette place — `maxConcurrency` borne toujours le
+travail neuf.
 
 `preferredAgent` / `preferredModel` ne font que **départager des ex æquo** —
 l'Aiguillage garde le dernier mot, et la raison du choix dit si la préférence a

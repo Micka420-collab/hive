@@ -428,6 +428,19 @@ export function direSommeDeclaree(
   };
 }
 
+/**
+ * Ce que vaut un coût « déclaré », dit sous chaque écran qui en montre — le
+ * libellé, pas trente variantes. C'est l'ESTIMATION du CLI de l'agent : il la
+ * calcule de son côté sur une table de prix embarquée, « client-side estimates,
+ * not authoritative billing data » (code.claude.com/docs/en/agent-sdk/cost-tracking).
+ * Hive la relaie sans rien estimer à son tour — ni depuis les jetons, ni pour
+ * un CLI muet.
+ */
+export const NOTE_COUT_DECLARE = {
+  fr: 'Coût : l’estimation que déclare le CLI de l’agent, sur sa table de prix — pas une facture. Temps modèle : ce qu’il déclare. Hive n’estime rien.',
+  en: 'Cost: the estimate the agent CLI declares, from its own price table — not a bill. Model time: what it declares. Hive estimates nothing.',
+} as const;
+
 /** Montant déclaré, en dollars US — jusqu'à quatre décimales pour les petits coûts. */
 export function direUsd(montant: number, lang: 'fr' | 'en'): string {
   return new Intl.NumberFormat(lang === 'fr' ? 'fr-FR' : 'en-US', {
