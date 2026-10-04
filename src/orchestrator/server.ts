@@ -368,7 +368,8 @@ import {
 } from './horizon.js';
 import { expliquerRefusBapteme } from './bapteme.js';
 import { METIERS, expliquerRefusMetier } from './metier.js';
-import { expliquerRefusRequisition } from './requisition.js';
+import { estNiveauAutonomie } from '../shared/politique-actions.js';
+import { expliquerRefusRequisition, estStatutRequisition } from './requisition.js';
 import {
   FOURNISSEURS_CLE,
   estEnvQueenAutorisee,
@@ -666,6 +667,18 @@ export const PRESENCES_RETENTION_MS = 60 * 60_000;
  * doit rester visible.
  */
 export const REQUISITIONS_RETENTION_MS = 30 * 24 * 60 * 60_000;
+
+/**
+ * Échéance d'une réquisition d'ACTION (G12) : dix minutes — le PLAFOND de la
+ * Chambre. Le Worker reste suspendu sur son `--permission-prompt-tool`
+ * pendant qu'elle décide ; une échéance plus longue que ce qui reste à vivre
+ * au CLI (délai dur sur le processus entier) transformerait chaque silence
+ * humain en échec opaque de l'agent au lieu d'un refus dit — d'où le
+ * `budgetMs` de `requisition_open`, qui RACCOURCIT ce plafond quand l'action
+ * arrive tard dans le run. À l'échéance : statut `expiree`, deny au nœud,
+ * escalade au journal.
+ */
+export const REQUISITION_ACTION_TTL_MS = 10 * 60_000;
 
 /**
  * Journal des connecteurs externes : 90 jours. Une trace d'audit d'appels
@@ -1049,6 +1062,13 @@ export interface ServerConfig {
   tickMs?: number;
   /** Périodicité du tour des Routines (ms). Défaut : 30 s — la minute du cron, à moitié. */
   routinesTickMs?: number;
+  /**
+   * Échéance (ms) d'une réquisition d'ACTION (G12) avant expiration + escalade.
+   * Défaut : `REQUISITION_ACTION_TTL_MS`. Paramétrable pour la même raison que
+   * `relivraisonMinMs` — un banc qui observe l'expiration ne peut pas attendre
+   * dix minutes par tour.
+   */
+  requisitionActionTtlMs?: number;
   /**
    * Espacement minimum entre deux re-livraisons d'une MÊME tâche muette.
    *
@@ -3208,6 +3228,12 @@ async function monterReine(
       : {};
   };
 
+  /** Le niveau d'autonomie réglé pour un projet — `off` sans réglage (G12). */
+  const autonomieDuProjet = (projectId: string): NiveauAutonomie => {
+    const brut = store.getEssaim(projectId)?.niveau;
+    return estNiveauAutonomie(brut) ? brut : 'off';
+  };
+
   const envoyerTache = (nodeId: string, task: Task, modele?: string, effort?: Effort): void => {
     const ws = nodeSockets.get(nodeId);
     // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
@@ -3338,6 +3364,10 @@ async function monterReine(
         // Le réseau que le projet permet à ses agents — toujours dit, défaut
         // compris : un nœud ne devine pas le réglage d'un projet.
         reseau: store.niveauReseau(task.projectId),
+        // Le niveau d'autonomie du projet (G12) : le nœud y cale la décision
+        // par défaut d'une action proposée. Toujours envoyé — l'absence est
+        // réservée à un hub plus ancien, que le nœud lit comme `off`.
+        autonomie: autonomieDuProjet(task.projectId),
       });
 
       // ─── L'HORLOGE DU CHANTIER : ce qu'on ANNONCE, écrit au moment où on
@@ -5234,10 +5264,7 @@ async function monterReine(
   app.get('/api/requisitions', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
     const q = req.query as { statut?: string; nodeId?: string };
-    const statut =
-      q.statut === 'ouverte' || q.statut === 'accordee' || q.statut === 'refusee'
-        ? q.statut
-        : undefined;
+    const statut = estStatutRequisition(q.statut) ? q.statut : undefined;
     const rows = store.listerRequisitions({
       ...(typeof q.nodeId === 'string' ? { nodeId: q.nodeId } : {}),
       ...(statut ? { statut } : {}),
@@ -16292,12 +16319,26 @@ async function monterReine(
             break;
           }
           case 'requisition_open': {
+            const maintenant = Date.now();
+            // Seul le genre `action` (G12) porte une échéance : le Worker est
+            // SUSPENDU sur cette décision, et son CLI n'attend pas sans fin.
+            // Le TTL est une politique de la Chambre (plafond, décidé ici) ;
+            // le `budgetMs` du nœud — ce qui reste à vivre à son run CLI — ne
+            // peut que la RACCOURCIR : une échéance posée après la mort du
+            // CLI ferait de chaque silence humain une case morte.
+            const ttlAction = config.requisitionActionTtlMs ?? REQUISITION_ACTION_TTL_MS;
+            const echeance =
+              msg.genre === 'action'
+                ? maintenant + Math.min(ttlAction, msg.budgetMs ?? ttlAction)
+                : null;
             const v = store.ouvrirRequisition(
               nodeId,
               msg.genre,
               msg.libelle,
               msg.detail ?? null,
               msg.taskId ?? null,
+              maintenant,
+              echeance,
             );
             if (!v.ok) {
               send(ws, {
@@ -16311,12 +16352,17 @@ async function monterReine(
               nodeId,
               genre: v.genre,
               libelle: v.libelle,
+              ...(msg.taskId ? { taskId: msg.taskId } : {}),
             });
             send(ws, {
               type: 'requisition_ack',
               id: v.id,
               genre: v.genre,
               libelle: v.libelle,
+              ...(msg.requestId ? { requestId: msg.requestId } : {}),
+              // L'échéance effective repart au nœud : son filet local s'y
+              // cale au lieu d'un délai figé (revue G12).
+              ...(echeance !== null ? { expiresAt: echeance } : {}),
             });
             stateDirty = true;
             break;
@@ -16711,6 +16757,9 @@ async function monterReine(
               ...(store.relectureDe(task.id) ? { relecture: true as const } : {}),
               ...(store.repriseDe(task.id) ? { prolonger: true as const } : {}),
               reseau: store.niveauReseau(task.projectId),
+              // Reconstruit champ par champ : omettre l'autonomie ici ferait
+              // décider la re-livraison comme `off` sous un projet `gouverne`.
+              autonomie: autonomieDuProjet(task.projectId),
             });
           }
         }
@@ -16814,6 +16863,24 @@ async function monterReine(
     etape('pruneLivraisons', () => store.pruneLivraisons(LIVRAISONS_RETENTION));
     // Présences Rayon orphelines (outil jamais refermé / nœud parti).
     etape('prunePresences', () => store.prunePresences(PRESENCES_RETENTION_MS));
+    // Réquisitions d'ACTION échues (G12) : l'absence de décision EST une
+    // décision — statut `expiree`, deny relayé au Worker suspendu, et
+    // escalade au journal (`requisition_expiree` → Chambre + cockpit).
+    etape('expirerRequisitions', () => {
+      for (const echue of store.expirerRequisitions(maintenant)) {
+        emitEvent('requisition_expiree', {
+          id: echue.id,
+          nodeId: echue.nodeId,
+          genre: echue.genre,
+          libelle: echue.libelle,
+          ...(echue.taskId ? { taskId: echue.taskId } : {}),
+          motif: 'échéance dépassée sans décision humaine',
+        });
+        const ws = nodeSockets.get(echue.nodeId);
+        if (ws) send(ws, { type: 'requisition_result', id: echue.id, statut: 'expiree' });
+        stateDirty = true;
+      }
+    });
     // Réquisitions closes trop vieilles (les ouvertes restent).
     etape('pruneRequisitions', () => store.pruneRequisitions(REQUISITIONS_RETENTION_MS));
     // Le journal des connecteurs externes : 90 jours, comme le registre Horizon.

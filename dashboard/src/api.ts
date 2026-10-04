@@ -3508,9 +3508,11 @@ export interface RequisitionPoste {
   genre: string;
   libelle: string;
   detail: string | null;
-  statut: 'ouverte' | 'accordee' | 'refusee';
+  statut: 'ouverte' | 'accordee' | 'refusee' | 'expiree';
   creeA: number;
   closA: number | null;
+  /** Échéance (ms epoch) d'une réquisition d'ACTION (G12) ; absente sinon. */
+  expiresAt?: number | null;
   bapteme?: string | null;
 }
 

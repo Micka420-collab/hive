@@ -1,7 +1,7 @@
 // Pont MCP éphémère entre un Worker Hive et le CLI lancé par l'adaptateur.
 //
 // Le CLI est un processus enfant : il ne peut pas recevoir directement les
-// callbacks `AdapterContext`. Le pont lui expose deux outils MCP bornés et
+// callbacks `AdapterContext`. Le pont lui expose trois outils MCP bornés et
 // relaie leurs appels vers le Worker parent par un socket local authentifié.
 // Le jeton de ce pont est aléatoire, valable pour une seule tentative et n'est
 // jamais le HIVE_TOKEN.
@@ -19,6 +19,7 @@ import { SECRETS_JAMAIS_SONDES } from '../node-client/agent-detect.js';
 import { MONTAGE_PONT } from '../node-client/isolement.js';
 import { CheminSocketTropLong } from '../node-client/rendez-vous-pont.js';
 import { FORMAT_ID_ENFANT, LIMITES_DELEGATION_DEFAUT } from '../shared/limites-delegation.js';
+import type { DecisionAction } from '../shared/politique-actions.js';
 import type { SubAgent } from '../shared/types.js';
 import type {
   AdapterContext,
@@ -40,9 +41,17 @@ const MAX_RESULT_TEXT = 32 * 1024;
 
 export const HIVE_DELEGATE_TOOL = 'hive_delegate';
 export const HIVE_WAIT_TOOL = 'hive_wait_for_delegation_result';
+/**
+ * L'outil de DÉCISION (G12) : branché par `--permission-prompt-tool`, appelé
+ * par le CLI — pas par le modèle — quand une action n'est couverte ni par le
+ * mode de permission ni par le `permissions.allow` compilé. Le pont relaie la
+ * question au Worker, qui classe l'action (politique-actions.ts) et répond
+ * `allow`/`deny` — après réquisition dans la Chambre pour l'irréversible.
+ */
+export const HIVE_APPROVE_TOOL = 'hive_approve_action';
 
 /**
- * Les deux outils MCP tels que le modèle les LIT — la seule documentation de
+ * Les outils MCP tels que le modèle les LIT — la seule documentation de
  * la délégation qu'il verra jamais.
  *
  * ─── POURQUOI LES BORNES SONT DANS LE TEXTE ──────────────────────────────────
@@ -55,7 +64,7 @@ export const HIVE_WAIT_TOOL = 'hive_wait_for_delegation_result';
  * texte ne peut pas dériver d'elles. Les préférences y sont dites pour ce
  * qu'elles sont — un départage —, pas pour un choix qu'elles ne font pas.
  *
- * Bornée : ≈ 1 500 caractères pour les deux outils, envoyés une fois par
+ * Bornée : ≈ 1 900 caractères pour les trois outils, envoyés une fois par
  * session du CLI.
  */
 export function definitionsOutilsDelegation(
@@ -159,6 +168,31 @@ export function definitionsOutilsDelegation(
         required: ['childTaskId'],
       },
     },
+    {
+      name: HIVE_APPROVE_TOOL,
+      description:
+        'Décision de permission Hive, appelée par le CLI quand une action n’est pas déjà ' +
+        'autorisée. Hive classe l’action : une commande déclarée par le dépôt passe, une ' +
+        'action irréversible (git push, publication, rm hors du répertoire, réseau non ' +
+        'déclaré) ouvre une réquisition dans la Chambre et attend la décision humaine — ' +
+        'avec expiration. Rend {behavior:"allow"|"deny"}.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          tool_name: { type: 'string', maxLength: MAX_NAME_LENGTH, description: 'Outil proposé.' },
+          input: {
+            type: 'object',
+            description: 'Arguments proposés, rendus tels quels sur allow.',
+          },
+          tool_use_id: {
+            type: 'string',
+            maxLength: MAX_ID_LENGTH,
+            description: 'Corrélation du CLI.',
+          },
+        },
+        required: ['tool_name', 'input'],
+      },
+    },
   ];
 }
 
@@ -166,7 +200,7 @@ type BridgeSuccess = {
   type: 'result';
   id: string;
   ok: true;
-  value: WorkerDelegationOutcome | WorkerDelegationResult;
+  value: WorkerDelegationOutcome | WorkerDelegationResult | DecisionAction;
 };
 
 type BridgeFailure = {
@@ -196,6 +230,13 @@ type BridgeCall =
       id: string;
       operation: 'wait';
       childTaskId: string;
+    }
+  | {
+      type: 'call';
+      id: string;
+      operation: 'approve';
+      toolName: string;
+      input: Record<string, unknown>;
     };
 
 type BridgeMessage = BridgeHello | BridgeCall;
@@ -270,6 +311,7 @@ const ID_ENFANT = new RegExp(${JSON.stringify(FORMAT_ID_ENFANT)});
 const SUPPORTED_PROTOCOL_VERSIONS = new Set(['2024-11-05', '2025-03-26', '2025-06-18']);
 const HIVE_DELEGATE_TOOL = 'hive_delegate';
 const HIVE_WAIT_TOOL = 'hive_wait_for_delegation_result';
+const HIVE_APPROVE_TOOL = 'hive_approve_action';
 
 if (!endpoint || !token || !parentTaskId) {
   process.exitCode = 2;
@@ -430,6 +472,22 @@ if (!endpoint || !token || !parentTaskId) {
         );
       }
     }
+    if (name === HIVE_APPROVE_TOOL) {
+      // FERMÉ PAR DÉFAUT : quoi qu'il arrive — arguments mal formés, pont
+      // tombé, parent en erreur — le CLI reçoit une DÉCISION deny lisible,
+      // jamais une erreur d'outil qu'il traduirait en panne opaque.
+      const refus = (message) => result(requestId, { behavior: 'deny', message });
+      const toolName = text(args && args.tool_name, MAX_NAME_LENGTH);
+      const input = args && typeof args.input === 'object' && args.input !== null && !Array.isArray(args.input) ? args.input : null;
+      if (!toolName || !input) return refus('demande d’approbation mal formée — tool_name (texte) et input (objet) requis');
+      try {
+        const value = await callParent('approve', { toolName, input });
+        if (value && (value.behavior === 'allow' || value.behavior === 'deny')) return result(requestId, value);
+        return refus('décision du pont illisible' + (value && value.message ? ' : ' + value.message : ''));
+      } catch (error) {
+        return refus('pont Hive indisponible : ' + (error instanceof Error ? error.message : String(error)));
+      }
+    }
     return { jsonrpc: '2.0', id: requestId, error: { code: -32601, message: 'outil MCP inconnu' } };
   };
 
@@ -517,6 +575,19 @@ function finiteBudget(value: unknown, allowZero = false): value is number {
   return (
     typeof value === 'number' && Number.isSafeInteger(value) && (allowZero ? value >= 0 : value > 0)
   );
+}
+
+/**
+ * La décision du Worker, revalidée AVANT de traverser le pont : un callback qui
+ * rendrait autre chose qu'une décision fermée devient un deny dit — jamais un
+ * allow par accident, jamais une trame illisible pour le CLI.
+ */
+function decisionBornee(value: DecisionAction): DecisionAction {
+  if (isRecord(value) && value.behavior === 'allow' && isRecord(value.updatedInput)) return value;
+  if (isRecord(value) && value.behavior === 'deny' && typeof value.message === 'string') {
+    return { behavior: 'deny', message: boundedMessage(value.message) };
+  }
+  return { behavior: 'deny', message: 'décision du nœud illisible — refus par défaut' };
 }
 
 function validDelegationInput(value: unknown): value is WorkerDelegationInput {
@@ -617,7 +688,7 @@ export function codexMcpOverrides(bridge: DelegationBridge): string[] {
     '-c',
     `${prefix}.enabled=true`,
     '-c',
-    `${prefix}.enabled_tools=${toml([HIVE_DELEGATE_TOOL, HIVE_WAIT_TOOL])}`,
+    `${prefix}.enabled_tools=${toml([HIVE_DELEGATE_TOOL, HIVE_WAIT_TOOL, HIVE_APPROVE_TOOL])}`,
     // Une clé POINTÉE par variable, pas une table : `-c` lit sa valeur en TOML,
     // où `{"A":"1"}` n'est pas une table en ligne (`{ A = "1" }` l'est) — la
     // forme JSON y serait lue comme une simple chaîne.
@@ -665,7 +736,10 @@ export function resultatSansPont(error: unknown, subAgents: SubAgent[]): Adapter
  * jeton éphémère et l'identifiant exact du parent ; HIVE_TOKEN reste absent.
  */
 export async function createDelegationBridge(
-  ctx: Pick<AdapterContext, 'bac' | 'delegate' | 'waitForDelegationResult' | 'rendezVous'>,
+  ctx: Pick<
+    AdapterContext,
+    'bac' | 'delegate' | 'waitForDelegationResult' | 'rendezVous' | 'decideAction'
+  >,
   parentTaskId: string,
 ): Promise<DelegationBridge> {
   if (!text(parentTaskId, MAX_ID_LENGTH)) throw new Error('identifiant parent invalide');
@@ -674,6 +748,7 @@ export async function createDelegationBridge(
   }
   const delegate = ctx.delegate;
   const waitForDelegationResult = ctx.waitForDelegationResult;
+  const decideAction = ctx.decideAction;
   if (process.platform === 'win32' && ctx.bac) {
     throw new Error('pont MCP sandboxé indisponible sous Windows : transport local non partagé');
   }
@@ -752,6 +827,19 @@ export async function createDelegationBridge(
             ok: true,
             value: boundedDelegationValue(value),
           } satisfies BridgeSuccess);
+        } else if (message.operation === 'approve') {
+          if (!text(message.toolName, MAX_NAME_LENGTH) || !isRecord(message.input)) {
+            reject(message.id, 'arguments_invalides', 'demande d’approbation invalide');
+            return;
+          }
+          // Sans capacité de décision (adaptateur appelé seul), FERMÉ : un
+          // deny dit, jamais un allow implicite ni une erreur muette.
+          const value = decideAction
+            ? decisionBornee(
+                await decideAction({ toolName: message.toolName, input: message.input }),
+              )
+            : { behavior: 'deny' as const, message: 'capacité de décision absente sur ce nœud' };
+          send({ type: 'result', id: message.id, ok: true, value } satisfies BridgeSuccess);
         } else {
           reject(message.id, 'operation_invalide', 'opération du pont invalide');
         }
