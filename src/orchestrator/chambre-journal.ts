@@ -4,6 +4,8 @@
 // MODULE PUR. N'invente rien : si le payload n'a pas de détail utile, on
 // renvoie seulement le type d'événement.
 
+import { arreteeParSonBudget } from '../shared/arret-budgetaire.js';
+
 export interface LigneJournalChambre {
   resume: string;
   detail: string | null;
@@ -43,6 +45,19 @@ export function resumerEvenementChambre(
       resume: chemin,
       detail: taskId,
       badge: outil.toUpperCase().slice(0, 6),
+    };
+  }
+  // Un arrêt sur plafond ferme la tâche sans être un échec : la pastille le
+  // dit, plutôt qu'un « ÉCHEC » qui accuserait l'agent d'un travail raté.
+  if (type === 'task_failed' && arreteeParSonBudget(payload)) {
+    return {
+      resume:
+        title ?? (lang === 'en' ? 'Task stopped by its budget' : 'Tâche arrêtée par son budget'),
+      detail:
+        lang === 'en'
+          ? 'its cost cap held — neither a failure nor an outage'
+          : 'son plafond de coût a tenu — ni échec, ni panne',
+      badge: 'BUDGET',
     };
   }
   if (type.includes('fail') || type.includes('error') || type === 'task_failed') {

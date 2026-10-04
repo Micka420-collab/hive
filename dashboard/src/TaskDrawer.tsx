@@ -13,8 +13,9 @@ import type {
 } from './api';
 import type { ExecutionUsage, HiveNode, Task, TaskResult } from '../../src/shared/types';
 import { useLang, useT } from './i18n';
-import { formatMs, StatusBadge, useDialog } from './ui';
+import { formatMs, NOTE_COUT_DECLARE, StatusBadge, useDialog } from './ui';
 import { direAnnonce, direDuree } from '../../src/shared/horloge-chantier';
+import { arreteeParSonBudget } from '../../src/shared/arret-budgetaire';
 import { verdictAnnonce } from './horloge-vue';
 import { RoutageTache } from './RoutageTache';
 import { ConsigneRoutageTache } from './ConsigneRoutageTache';
@@ -123,8 +124,9 @@ function enveloppeDelegation(e: EnveloppeDelegation, t: ReturnType<typeof useT>)
 /**
  * La durée réellement observée vient du résultat persisté, relayé dans
  * `delegation_result`. Le budget demandé ne doit jamais être présenté comme
- * une consommation : coût et ressources restent inconnus tant qu'un Worker ne
- * fournit pas un contrat de mesure fiable.
+ * une consommation. Le COÛT n'est pas dit ici : c'est l'estimation que le CLI
+ * déclare, et elle a sa ligne — la dépense déclarée de l'enveloppe, sous le
+ * libellé canonique (`NOTE_COUT_DECLARE`). « Non mesuré » ici la contredisait.
  */
 function consommationDelegation(
   events: DelegationEvent[],
@@ -140,8 +142,8 @@ function consommationDelegation(
   const durationMs = event?.payload.durationMs;
   if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs < 0) {
     return t(
-      'Consommation réelle : non disponible · coût et ressources non mesurés',
-      'Actual usage: unavailable · cost and resources not measured',
+      'Consommation réelle : non disponible · ressources non mesurées',
+      'Actual usage: unavailable · resources not measured',
     );
   }
   const duree = formatMs(durationMs);
@@ -160,14 +162,14 @@ function consommationDelegation(
       Number.isFinite(maxRssBytes)
     ) {
       return t(
-        `Dernière exécution mesurée : ${duree} · processus Worker : ${(userCpuMicros + systemCpuMicros) / 1_000} ms CPU · ${(maxRssBytes / (1024 * 1024)).toFixed(1)} MiB RSS · coût fournisseur non mesuré`,
-        `Last measured run: ${duree} · Worker process: ${(userCpuMicros + systemCpuMicros) / 1_000} ms CPU · ${(maxRssBytes / (1024 * 1024)).toFixed(1)} MiB RSS · provider cost not measured`,
+        `Dernière exécution mesurée : ${duree} · processus Worker : ${(userCpuMicros + systemCpuMicros) / 1_000} ms CPU · ${(maxRssBytes / (1024 * 1024)).toFixed(1)} MiB RSS`,
+        `Last measured run: ${duree} · Worker process: ${(userCpuMicros + systemCpuMicros) / 1_000} ms CPU · ${(maxRssBytes / (1024 * 1024)).toFixed(1)} MiB RSS`,
       );
     }
   }
   return t(
-    `Dernière exécution mesurée : ${duree} · coût non mesuré · ressources non mesurées`,
-    `Last measured run: ${duree} · cost not measured · resources not measured`,
+    `Dernière exécution mesurée : ${duree} · ressources non mesurées`,
+    `Last measured run: ${duree} · resources not measured`,
   );
 }
 
@@ -373,7 +375,7 @@ export function TaskDrawer({
         <header className="drawer-head">
           <div>
             <h2 id="drawer-title">{task.title}</h2>
-            <StatusBadge status={task.status} />
+            <StatusBadge status={task.status} arretBudgetaire={arreteeParSonBudget(task.result)} />
           </div>
           <button className="modal-close" onClick={onClose} aria-label={t('Fermer', 'Close')}>
             ×
@@ -444,7 +446,8 @@ export function TaskDrawer({
                 className={`delegation-tree-budget${delegation.enveloppe.coutEpuise ? ' epuise' : ''}`}
                 data-testid="delegation-enveloppe"
               >
-                {enveloppeDelegation(delegation.enveloppe, t)}
+                {enveloppeDelegation(delegation.enveloppe, t)}{' '}
+                {t(NOTE_COUT_DECLARE.fr, NOTE_COUT_DECLARE.en)}
               </p>
             )}
           {!delegationLoading && !delegationError && delegation && delegation.graph.length <= 1 && (

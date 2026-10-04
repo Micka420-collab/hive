@@ -504,10 +504,29 @@ admitted, no correction restarts, and the ones in flight are cancelled — each
 with its reason, which a waiting parent receives at once — as does a parent
 whose child failed without returning anything. An attempt with no declared
 cost, or interrupted before returning (lost worker, cancellation), never counts
-as zero: the task drawer says "at least". A parent waiting on its children
-**releases its slot to its own tree** on its worker: a tree no longer deadlocks
-on a full worker, and another root does not slip into that slot —
-`maxConcurrency` still bounds new work.
+as zero: the task drawer says "at least".
+
+A child's reservation is also **its own cap, held inside its agent's loop**:
+it is at least 1 µUSD (a single response already costs around 13,000 to
+25,000 µUSD on the smallest model), and each attempt receives what is left of
+it — the reservation minus the declared cost of its previous attempts, never
+what is left of the root. Claude Code (≥ 2.1.217) stops on it
+(`--max-budget-usd`, at most one response over, as documented). The task then
+ends **stopped by its budget**: neither an agent failure nor an outage — no
+retry, and no reader counts it as a failure (Genome register, Thermo, Waggle,
+Ghost, Pulse, pheromones, swarm lessons, experience graph, screens). The parent
+reads at the head of the logs the spend, the partial diff if there is one, and
+that it must re-delegate under a **new** child id: the same one replays the
+stopped child. A reservation already spent by previous attempts is not sent
+again: the Queen closes the child and tells the parent. Only workers that
+declare they hold a cap receive it; for the others (Codex, Cursor, Cline,
+shell, an older worker) the task journal says at dispatch that it will not be
+held — and a Claude Code older than 2.1.217 says so too, with `claude update`.
+That declared cost is the CLI's estimate, not a bill.
+
+A parent waiting on its children **releases its slot to its own tree** on its
+worker: a tree no longer deadlocks on a full worker, and another root does not
+slip into that slot — `maxConcurrency` still bounds new work.
 
 `preferredAgent` / `preferredModel` only **break ties** — the router keeps the
 last word, and the recorded reason says whether the preference mattered. The

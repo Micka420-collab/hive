@@ -30,6 +30,19 @@ describe('resumerEvenementChambre', () => {
     expect(en.badge).toBe('EXPIRED');
   });
 
+  it('arrêt sur plafond : la borne a tenu — ni « ÉCHEC », ni accusation', () => {
+    const l = resumerEvenementChambre(
+      'task_failed',
+      { title: 'Lot borné', taskId: 't1', arretBudgetaire: 'cout' },
+      'fr',
+    );
+    expect(l).toEqual({
+      resume: 'Lot borné',
+      detail: 'son plafond de coût a tenu — ni échec, ni panne',
+      badge: 'BUDGET',
+    });
+  });
+
   it('sans payload utile : type seul', () => {
     const l = resumerEvenementChambre('tick', {});
     expect(l.resume).toBe('tick');

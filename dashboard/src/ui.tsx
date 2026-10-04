@@ -334,8 +334,15 @@ const STATUS_LABEL_EN: Record<TaskStatus, string> = {
   failed: 'failed',
 };
 
-/** Libellé de statut dans la langue demandée (FR = export historique). */
-export function statusLabel(status: TaskStatus, lang: UiLang): string {
+/**
+ * Libellé de statut dans la langue demandée (FR = export historique).
+ * `arretBudgetaire` : la tâche `failed` s'est ARRÊTÉE sur son plafond de coût
+ * (`arreteeParSonBudget` de son résumé) — dite telle, pas « échouée ».
+ */
+export function statusLabel(status: TaskStatus, lang: UiLang, arretBudgetaire = false): string {
+  if (status === 'failed' && arretBudgetaire) {
+    return lang === 'fr' ? 'arrêtée (budget)' : 'stopped (budget)';
+  }
   return lang === 'fr' ? STATUS_LABEL[status] : STATUS_LABEL_EN[status];
 }
 
@@ -348,12 +355,19 @@ export const STATUS_ICON: Record<TaskStatus, string> = {
   failed: '✘',
 };
 
-export function StatusBadge({ status }: { status: TaskStatus }) {
+export function StatusBadge({
+  status,
+  arretBudgetaire = false,
+}: {
+  status: TaskStatus;
+  arretBudgetaire?: boolean;
+}) {
   const lang = useLang();
+  const arretee = status === 'failed' && arretBudgetaire;
   return (
     <span className={`badge ${status}`}>
-      <span className="badge-icon">{STATUS_ICON[status]}</span>
-      {statusLabel(status, lang)}
+      <span className="badge-icon">{arretee ? '¤' : STATUS_ICON[status]}</span>
+      {statusLabel(status, lang, arretee)}
     </span>
   );
 }
@@ -427,6 +441,19 @@ export function direSommeDeclaree(
     ),
   };
 }
+
+/**
+ * Ce que vaut un coût « déclaré », dit sous chaque écran qui en montre — le
+ * libellé, pas trente variantes. C'est l'ESTIMATION du CLI de l'agent : il la
+ * calcule de son côté sur une table de prix embarquée, « client-side estimates,
+ * not authoritative billing data » (code.claude.com/docs/en/agent-sdk/cost-tracking).
+ * Hive la relaie sans rien estimer à son tour — ni depuis les jetons, ni pour
+ * un CLI muet.
+ */
+export const NOTE_COUT_DECLARE = {
+  fr: 'Coût : l’estimation que déclare le CLI de l’agent, sur sa table de prix — pas une facture. Temps modèle : ce qu’il déclare. Hive n’estime rien.',
+  en: 'Cost: the estimate the agent CLI declares, from its own price table — not a bill. Model time: what it declares. Hive estimates nothing.',
+} as const;
 
 /** Montant déclaré, en dollars US — jusqu'à quatre décimales pour les petits coûts. */
 export function direUsd(montant: number, lang: 'fr' | 'en'): string {

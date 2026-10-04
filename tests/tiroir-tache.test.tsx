@@ -78,6 +78,7 @@ import {
   poserConsigneRoutage,
 } from '../dashboard/src/api';
 import { TaskDrawer } from '../dashboard/src/TaskDrawer';
+import { NOTE_COUT_DECLARE } from '../dashboard/src/ui';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -229,6 +230,24 @@ describe('le tiroir — les métadonnées et le geste qui coupe', () => {
     );
   });
 
+  it('UNE TÂCHE ARRÊTÉE SUR SON PLAFOND se dit arrêtée, pas « échouée »', async () => {
+    // Le fait porté par la tâche (`result.arretBudgetaire`), lu par le badge.
+    const arretee: Task = {
+      ...tache('failed'),
+      result: { success: false, nodeId: 'noeud-1', durationMs: 900, arretBudgetaire: 'cout' },
+    };
+    const dom = await monter(<TaskDrawer task={arretee} nodes={NOEUDS} onClose={() => {}} />);
+    const badge = dom.querySelector('.drawer-head .badge')?.textContent ?? '';
+    expect(badge).toBe('¤arrêtée (budget)');
+    // Sans le fait, la même tâche reste une tâche échouée.
+    act(() => racine?.unmount());
+    conteneur?.remove();
+    const echouee = await monter(
+      <TaskDrawer task={tache('failed')} nodes={NOEUDS} onClose={() => {}} />,
+    );
+    expect(echouee.querySelector('.drawer-head .badge')?.textContent).toBe('✘échouée');
+  });
+
   it('ANNULER n’existe que si la tâche peut encore l’être — et le clic annule VRAIMENT', async () => {
     const enCours = await monter(
       <TaskDrawer task={tache('running')} nodes={NOEUDS} onClose={() => {}} />,
@@ -330,7 +349,7 @@ describe('le tiroir — le graphe de délégation réel', () => {
     expect(dom.textContent).toContain('isoler les tests de sécurité');
     expect(dom.textContent).toContain('Budget réservé : 60.0 s · coût 42 µUSD · ressources 1');
     expect(dom.textContent).toContain(
-      'Dernière exécution mesurée : 1.3 s · processus Worker : 15 ms CPU · 4.0 MiB RSS · coût fournisseur non mesuré',
+      'Dernière exécution mesurée : 1.3 s · processus Worker : 15 ms CPU · 4.0 MiB RSS',
     );
     expect(dom.textContent).toContain('terminée');
   });
@@ -631,6 +650,8 @@ describe('le tiroir — l’enveloppe de la racine et la consigne de l’opérat
     expect(ligne).toContain(
       'Dépense déclarée : au moins 1200 µUSD — 1 tentative(s) sur 3 sans coût déclaré (inconnu, pas zéro).',
     );
+    // Ce que vaut ce coût, dit sous le libellé canonique de tous les écrans.
+    expect(ligne).toContain(NOTE_COUT_DECLARE.fr);
   });
 
   it('se lit « forcée par l’opérateur », et dit quand aucune ouvrière en ligne ne la satisfait', async () => {

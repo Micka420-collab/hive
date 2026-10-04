@@ -11,6 +11,7 @@
 // But : donner à la Reine de quoi écarter proactivement un contributeur douteux
 // AVANT qu'il ne pénalise le projet commun. Module PUR, déterministe, sans I/O.
 
+import { arreteeParSonBudget } from '../shared/arret-budgetaire.js';
 import type { HiveEvent } from '../shared/types.js';
 
 export type GhostKind =
@@ -138,6 +139,11 @@ export function detectGhosts(events: HiveEvent[]): GhostReport {
         break;
       }
       case 'task_failed': {
+        // Un arrêt sur plafond n'est la faute de personne : la borne a tenu.
+        // Compté, il faisait d'un nœud sain un `flaky_node` — le jumeau du
+        // Waggle Board, que la Reine lit au même chat — et de la tâche une
+        // `looping_task` « échouée définitivement ».
+        if (arreteeParSonBudget(p)) break;
         // Échec imputable à un nœud (pas les dépendances) + trace au niveau tâche.
         if (nodeId) ensureNode(nodes, nodeId).failed += 1;
         if (taskId) {

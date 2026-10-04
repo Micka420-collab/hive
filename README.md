@@ -149,7 +149,9 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
     relectrices, revue humaine, durée — sans note ni classement
     ([#454](https://github.com/Micka420-collab/hive/pull/454)) ;
   - le coût et le temps modèle **déclarés par le CLI de l'agent** (Claude
-    Code), avec leur couverture — « inconnu » quand rien n'est déclaré
+    Code), avec leur couverture — « inconnu » quand rien n'est déclaré ; ce
+    coût est l'**estimation du CLI**, calculée sur sa table de prix embarquée,
+    pas une facture
     ([#455](https://github.com/Micka420-collab/hive/pull/455),
     [#456](https://github.com/Micka420-collab/hive/pull/456)) ; Codex, lancé
     en `codex exec --json`, déclare ses **jetons** d'entrée et de sortie, et

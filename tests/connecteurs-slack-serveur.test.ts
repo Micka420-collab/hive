@@ -522,6 +522,37 @@ describe('Slack à travers la Reine — approbations et relais', () => {
       .toContain('Blocage');
   });
 
+  it('un ARRÊT BUDGÉTAIRE part en blocage qui dit la borne et la suite — pas « en échec »', async () => {
+    postes = [];
+    server.scheduler.registerNode({
+      nodeId: 'n-plafond',
+      name: 'claude',
+      ownerName: 'banc',
+      agentType: 'claude-code',
+      maxConcurrency: 1,
+    });
+    const t = server.store.createTask({ projectId: projet, title: 'Lot plafonné', prompt: 'x' });
+    server.store.patchTask(t.id, { status: 'running', assignedNodeId: 'n-plafond' });
+    server.scheduler.handleTaskResult('n-plafond', {
+      taskId: t.id,
+      success: false,
+      diff: '',
+      logs: 'arrêt',
+      durationMs: 10,
+      subAgents: [],
+      fournisseur: { source: 'claude-code', coutUsd: 0.05 },
+      arretBudgetaire: 'cout',
+    });
+    await expect
+      .poll(() => postes.find((m) => m.text.includes('Lot plafonné'))?.text)
+      .toContain('Tâche arrêtée par son budget');
+    const poste = postes.find((m) => m.text.includes('Lot plafonné'));
+    expect(poste?.text).not.toContain('en échec');
+    expect(JSON.stringify(poste?.blocks)).toContain(
+      'Suite : la tâche parente peut la redéléguer sous un nouvel identifiant',
+    );
+  });
+
   it('une fusion manuelle FUSIONNÉE part en résumé ; merged:false ne part pas', async () => {
     postes = [];
     for (const pr of [11, 12]) {

@@ -179,9 +179,15 @@ import type {
   MergeDiffInput,
   MergeResultMsg,
   ServerMessage,
+  TaskResultMsg,
 } from '../shared/protocol.js';
 import { RefusDemarrage, direManques, manquesDeDemarrage } from '../shared/amorce.js';
 import { DEFAULT_TOKEN } from '../shared/types.js';
+import {
+  arreteeParSonBudget,
+  usdDeMicros,
+  type ArretBudgetaire,
+} from '../shared/arret-budgetaire.js';
 import type { HiveEvent, HiveNode, Project, Task } from '../shared/types.js';
 import type { Effort } from '../shared/effort.js';
 import { NIVEAU_RESEAU_DEFAUT, NIVEAUX_RESEAU, type NiveauReseau } from '../shared/reseau.js';
@@ -309,7 +315,7 @@ import {
 } from './abonnement.js';
 import type { Abonnement, EtatAbonnement } from './abonnement.js';
 import { antecedentsDuVecu, categoriser, type Categorie } from './aiguillage.js';
-import { budgetCoutEpuise, reserveRacine } from './delegation.js';
+import { budgetCoutEpuise, plafondCoutTentative, reserveRacine } from './delegation.js';
 import { LIMITES_DELEGATION_DEFAUT } from '../shared/limites-delegation.js';
 import { lireConsigneRoutage, type ConsigneRoutage } from '../shared/consigne-routage.js';
 import {
@@ -1402,6 +1408,10 @@ async function monterReine(
   // eux reçoivent une reprise ou une suite de mission — un nœud plus ancien
   // perdrait `prolonger` et travaillerait loin de la branche de la PR.
   const nodesQuiProlongent = new Set<string>();
+  // Les nœuds dont l'adaptateur tient un plafond de coût dans la boucle de son
+  // agent (`register.plafondCout`) : seuls eux reçoivent `plafondCoutMicros`,
+  // et seuls eux sont crus quand ils disent leur agent arrêté dessus.
+  const nodesQuiPlafonnent = new Set<string>();
   /** Chantiers partis vers un nœud et pas encore rendus. */
   const pendingChantiers = new Map<
     string,
@@ -1970,13 +1980,17 @@ async function monterReine(
       reason === 'root_cost_budget_exhausted'
         ? `budget coût de la racine épuisé (${LIMITES_DELEGATION_DEFAUT.maxCostMicros} µUSD de ` +
           'dépense déclarée) — plus aucune sous-tâche sous cette racine : termine avec ce que tu as'
-        : reason === 'no_working_agent'
-          ? 'aucun agent fonctionnel ne l’a exécutée — refais ce travail toi-même ou délègue autrement'
-          : typeof reason === 'string' && reason.length > 0
-            ? reason
-            : issue === 'annulee'
-              ? 'annulée'
-              : 'échouée';
+        : reason === 'reservation_depensee'
+          ? `réservation de coût de cette sous-tâche dépensée (${String(fait.depense ?? '?')}) — ` +
+            'redélègue sous un NOUVEL childTaskId avec une réservation plus large, ou fais ce ' +
+            'travail toi-même'
+          : reason === 'no_working_agent'
+            ? 'aucun agent fonctionnel ne l’a exécutée — refais ce travail toi-même ou délègue autrement'
+            : typeof reason === 'string' && reason.length > 0
+              ? reason
+              : issue === 'annulee'
+                ? 'annulée'
+                : 'échouée';
     send(socket, {
       type: 'delegation_result',
       parentTaskId: lien.parentTaskId,
@@ -3199,6 +3213,74 @@ async function monterReine(
   };
 
   /**
+   * Le plafond de coût de la tentative de `taskId` — celle qui part, ou celle
+   * dont le résultat revient —, recalculé des faits rangés : un enfant délégué
+   * Hive hors course, sa réservation moins le coût déclaré de ses tentatives
+   * TERMINÉES. La ligne de dépense de la tentative en vol est encore ouverte,
+   * donc hors de la somme : à l'envoi comme au retour, le même nombre — et une
+   * re-livraison (`muettes`) rend le même plafond que l'envoi qu'elle remplace.
+   * `undefined` : aucun plafond — racine, revue, drone, ou réservation déjà
+   * dépensée (le planificateur clôt alors l'enfant avant tout envoi,
+   * `reservationDepensee`).
+   *
+   * La course n'en reçoit pas : chaque drone aurait le même reste, la course
+   * le dépenserait autant de fois qu'elle a de drones, et son arbitrage lit
+   * l'échec d'un drone en reprise (suite nommée). L'enveloppe de la racine
+   * tient toujours, après chaque tentative rendue.
+   */
+  const plafondDe = (taskId: string): number | undefined => {
+    const lien = store.getDelegation(taskId);
+    if (!lien || lien.origine !== 'hive' || scheduler.getRace(taskId)) return undefined;
+    const plafond = plafondCoutTentative(lien.costMicros, store.depenseDeclareeEnfant(taskId));
+    return plafond >= 1 ? plafond : undefined;
+  };
+
+  /**
+   * Un arrêt budgétaire que dit un nœud n'est CRU que s'il est celui de la
+   * tentative que la Reine a plafonnée : un nœud qui tient un plafond, une
+   * tentative en échec, un coût DÉCLARÉ arrivé sur le plafond de cette
+   * tentative (`plafondDe`). Sinon un seul message clorait n'importe quelle
+   * tâche sans reprise : il reste un échec ordinaire, et la tâche suit son
+   * cours.
+   *
+   * Le CLI ne s'arrête qu'une fois sa dépense ARRIVÉE au plafond (au plus une
+   * réponse au-delà) : un coût déclaré en dessous n'est pas cet arrêt-là. Le
+   * `- 1` absorbe l'arrondi — le coût voyage en dollars flottants, le plafond
+   * en micro-USD entiers.
+   */
+  const arretCru = (nodeId: string, msg: TaskResultMsg): ArretBudgetaire | undefined => {
+    if (!msg.arretBudgetaire || msg.success || !nodesQuiPlafonnent.has(nodeId)) return undefined;
+    const plafond = plafondDe(msg.taskId);
+    const cout = msg.fournisseur?.coutUsd;
+    if (plafond === undefined || cout === undefined) return undefined;
+    return Math.round(cout * 1_000_000) >= plafond - 1 ? msg.arretBudgetaire : undefined;
+  };
+
+  const delegationDe = (
+    taskId: string,
+    nodeId: string,
+  ): Pick<AssignTaskMsg, 'delegationBudget' | 'delegationRootTaskId' | 'plafondCoutMicros'> => {
+    const delegation = store.getDelegation(taskId);
+    if (!delegation) return {};
+    const plafond = nodesQuiPlafonnent.has(nodeId) ? plafondDe(taskId) : undefined;
+    return {
+      delegationBudget: {
+        durationMs: delegation.durationMs,
+        costMicros: delegation.costMicros,
+        resourceUnits: delegation.resourceUnits,
+      },
+      delegationRootTaskId: delegation.rootTaskId,
+      ...(plafond !== undefined ? { plafondCoutMicros: plafond } : {}),
+    };
+  };
+
+  /** Le niveau d'autonomie réglé pour un projet — `off` sans réglage (G12). */
+  const autonomieDuProjet = (projectId: string): NiveauAutonomie => {
+    const brut = store.getEssaim(projectId)?.niveau;
+    return estNiveauAutonomie(brut) ? brut : 'off';
+  };
+
+  /**
    * Envoie une tâche à un nœud PRÉCIS.
    *
    * ─── POURQUOI CE GESTE EST NOMMÉ PLUTÔT QU'ANONYME ─────────────────────────
@@ -3212,28 +3294,6 @@ async function monterReine(
    * contexte du Cerveau et le journal des refus. Deux portes, c'est une porte
    * qu'on oublie de garder.
    */
-  const delegationDe = (
-    taskId: string,
-  ): Pick<AssignTaskMsg, 'delegationBudget' | 'delegationRootTaskId'> => {
-    const delegation = store.getDelegation(taskId);
-    return delegation
-      ? {
-          delegationBudget: {
-            durationMs: delegation.durationMs,
-            costMicros: delegation.costMicros,
-            resourceUnits: delegation.resourceUnits,
-          },
-          delegationRootTaskId: delegation.rootTaskId,
-        }
-      : {};
-  };
-
-  /** Le niveau d'autonomie réglé pour un projet — `off` sans réglage (G12). */
-  const autonomieDuProjet = (projectId: string): NiveauAutonomie => {
-    const brut = store.getEssaim(projectId)?.niveau;
-    return estNiveauAutonomie(brut) ? brut : 'off';
-  };
-
   const envoyerTache = (nodeId: string, task: Task, modele?: string, effort?: Effort): void => {
     const ws = nodeSockets.get(nodeId);
     // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
@@ -3247,7 +3307,23 @@ async function monterReine(
         task,
         cadre.length,
       );
-      const delegation = delegationDe(task.id);
+      const delegation = delegationDe(task.id, nodeId);
+      // Un plafond que ce nœud ne tiendra pas se DIT, une fois, à l'envoi :
+      // Codex, Cursor, Cline, shell, ou un nœud d'avant ce contrat le
+      // perdraient sans trace. Une ligne du journal de la tâche, pas une erreur.
+      const nonTenu = nodesQuiPlafonnent.has(nodeId) ? undefined : plafondDe(task.id);
+      if (nonTenu !== undefined) {
+        const noeud = store.getNode(nodeId);
+        emitEvent('task_progress', {
+          taskId: task.id,
+          nodeId,
+          log:
+            `plafond de ${usdDeMicros(nonTenu)} USD non tenu : l’ouvrière ` +
+            `${noeud?.name ?? nodeId} (${noeud?.agentType ?? '?'}) ne déclare tenir aucun plafond ` +
+            'de coût dans la boucle de son agent — seule l’enveloppe de la racine le borne, ' +
+            'après chaque tentative rendue',
+        });
+      }
       // Le Cerveau a refusé : ses invariants ne tenaient pas dans le budget,
       // donc cette ouvrière travaille sans les contraintes de sûreté du
       // projet. C'est précisément le genre de fait qu'un `''` silencieux
@@ -4023,12 +4099,28 @@ async function monterReine(
       };
     }
     if (event.type !== 'task_failed') return null;
-    const raison = typeof p.reason === 'string' ? p.reason : 'échec';
+    // Un arrêt budgétaire n'est pas un échec de l'agent : le message le dit
+    // tel, avec la suite à donner.
+    if (arreteeParSonBudget(p)) {
+      const borne =
+        p.reason === 'reservation_depensee'
+          ? 'réservation de coût dépensée par ses tentatives précédentes — la Reine ne l’a pas relancée'
+          : 'plafond de coût atteint dans la boucle de l’agent';
+      return {
+        kind: 'blocage',
+        projectId: task.projectId,
+        titre: `Tâche arrêtée par son budget — ${task.title}`,
+        corps:
+          `Motif : ${borne}. Suite : la tâche parente peut la redéléguer sous un nouvel ` +
+          'identifiant, avec une réservation plus large.',
+        taskId,
+      };
+    }
     return {
       kind: 'blocage',
       projectId: task.projectId,
       titre: `Tâche en échec — ${task.title}`,
-      corps: `Motif : ${raison}`,
+      corps: `Motif : ${typeof p.reason === 'string' ? p.reason : 'échec'}`,
       taskId,
     };
   };
@@ -15875,6 +15967,8 @@ async function monterReine(
             else nodesQuiPoussent.delete(node.id);
             if (msg.prolonge === true) nodesQuiProlongent.add(node.id);
             else nodesQuiProlongent.delete(node.id);
+            if (msg.plafondCout === true) nodesQuiPlafonnent.add(node.id);
+            else nodesQuiPlafonnent.delete(node.id);
             send(ws, { type: 'registered', nodeId: node.id, ruche: empreinteRuche });
             // Réconciliation : requalifier les tâches que le nœud ne fait plus
             // tourner (crash/redémarrage), et demander l'abandon de ses zombies
@@ -15938,6 +16032,8 @@ async function monterReine(
             // Le modèle de CETTE tentative se lit avant : un échec la remet en
             // file, et la réassignation qui suit réécrit l'Aiguillage.
             const modeleTentative = scheduler.modeleCommande(msg.taskId, nodeId);
+            // Lu AVANT le résultat, qui clôt la ligne de dépense de la tentative.
+            const arretBudgetaire = arretCru(nodeId, msg);
             const pris = scheduler.handleTaskResult(nodeId, {
               taskId: msg.taskId,
               success: msg.success,
@@ -15949,6 +16045,7 @@ async function monterReine(
               ...(msg.fournisseur ? { fournisseur: msg.fournisseur } : {}),
               ...(msg.finalText !== undefined ? { finalText: msg.finalText } : {}),
               ...(msg.validations ? { validations: msg.validations } : {}),
+              ...(arretBudgetaire ? { arretBudgetaire } : {}),
             });
             if (!pris) {
               send(ws, {
@@ -15967,7 +16064,10 @@ async function monterReine(
             // gonflerait le compteur de récurrences d'une panne qui n'a pas eu
             // lieu deux fois, et le seuil de consolidation deviendrait faux.
             // (Une OMBRE du banc n'y entre pas : `verserEpisode` la refuse.)
-            if (pris && !msg.success) {
+            //
+            // Un arrêt budgétaire non plus : la borne a tenu, le projet n'a
+            // rien raté — compté, il deviendrait une « panne récurrente ».
+            if (pris && !msg.success && !arretBudgetaire) {
               noterEchec(msg.taskId, nodeId, modeleTentative, msg.logs ?? '', msg.finalText);
             }
             if (pris) {
@@ -15990,13 +16090,20 @@ async function monterReine(
                 // doit pas réveiller le Worker parent avec un résultat
                 // intermédiaire : le graphe conserve le fait, l'adaptateur
                 // attend la production finale.
+                //
+                // Et seulement quand CE résultat a clos l'enfant (`tasks.result`,
+                // posé par le résultat qui le termine — la règle du rejeu,
+                // `delegate_task`). Un enfant que la Reine a clos aussitôt sans
+                // le relancer — réservation dépensée — a déjà dit pourquoi à son
+                // parent (`prevenirParentSansResultat`) : relayer ici la
+                // tentative ordinaire écraserait ce motif, et la suite à donner.
                 const child = store.getTask(msg.taskId);
                 const parent = store.getTask(delegation.parentTaskId);
                 const parentNodeId = parent?.assignedNodeId;
                 const parentSocket = parentNodeId ? nodeSockets.get(parentNodeId) : undefined;
                 if (
                   result &&
-                  child &&
+                  child?.result &&
                   (child.status === 'done' || child.status === 'failed') &&
                   parentSocket
                 ) {
@@ -16573,6 +16680,7 @@ async function monterReine(
         nodeOnShift.delete(nodeId);
         nodesQuiPoussent.delete(nodeId);
         nodesQuiProlongent.delete(nodeId);
+        nodesQuiPlafonnent.delete(nodeId);
         scheduler.nodeDisconnected(nodeId, 'ws_closed');
         // Un merge, un chantier ou une pose confiés à ce nœud : une issue
         // visible tout de suite (sinon leur résultat resterait `null` ou
@@ -16729,10 +16837,10 @@ async function monterReine(
           contextesRelivres.set(task.id, hiveContext);
         }
         derniereRelivraison.set(task.id, maintenant);
-        const delegation = delegationDe(task.id);
         for (const nodeId of ouvertes) {
           const ws = nodeSockets.get(nodeId);
           if (ws) {
+            const delegation = delegationDe(task.id, nodeId);
             // Une re-livraison doit reprendre exactement le modèle commandé
             // lors de l'assignation initiale. Une course garde un modèle par
             // drone ; une tâche ordinaire garde le dernier modèle élu dans le
