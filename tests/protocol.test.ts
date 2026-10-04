@@ -334,6 +334,26 @@ describe('parseClientMessage', () => {
     expect(refus({ infra: true, avantAgent: 'oui' })).toBeNull();
   });
 
+  it('task_reject : « illisible » ne voyage qu’avec un refus avant l’agent', () => {
+    // Ce n'est pas une panne : la température et les fantômes l'écartent. Sans
+    // `avantAgent`, rien ne dit qu'aucun agent n'a tourné — le drapeau tombe.
+    const refus = (extra: Record<string, unknown>) =>
+      parseClientMessage(
+        JSON.stringify({ type: 'task_reject', taskId: 't1', reason: 'illisible', ...extra }),
+      );
+    expect(refus({ infra: true, avantAgent: true, illisible: true })).toEqual({
+      type: 'task_reject',
+      taskId: 't1',
+      reason: 'illisible',
+      infra: true,
+      avantAgent: true,
+      illisible: true,
+    });
+    expect(refus({ infra: true, illisible: true })).not.toHaveProperty('illisible');
+    expect(refus({ illisible: true })).not.toHaveProperty('illisible');
+    expect(refus({ infra: true, avantAgent: true, illisible: 'oui' })).toBeNull();
+  });
+
   it('accepte task_reject et register avec activeTasks, rejette les invalides', () => {
     expect(
       parseClientMessage(JSON.stringify({ type: 'task_reject', taskId: 't1', reason: 'sature' }))

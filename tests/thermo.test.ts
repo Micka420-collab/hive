@@ -117,6 +117,20 @@ describe('lireTemperature (module pur)', () => {
     expect(lecture.temperature).toBe(0);
   });
 
+  it('une assignation ILLISIBLE pour le nœud ne chauffe pas : ni agent ni poste en panne', () => {
+    // Le refus porte `infra` — la Reine doit le borner — mais sa cause est une
+    // version ou une borne (`illisible`). Compté, il faisait monter de 40° une
+    // ruche saine : bande normale, et plus haut à chaque refus.
+    const illisible = Array.from({ length: 4 }, () => ({
+      type: 'task_rejected',
+      ts: now,
+      payload: { reason: 'assignation illisible', infra: true, avantAgent: true, illisible: true },
+    }));
+    const lecture = lireTemperature([...illisible, ...evs('task_done', 4, now)], now);
+    expect(lecture.signaux).toEqual({ echecs: 0, retries: 0, refusInfra: 0, succes: 4, total: 4 });
+    expect(lecture.temperature).toBe(0);
+  });
+
   it('frontière basse : 1 échec pour 3 succès → 25° pile, bande normale', () => {
     const lecture = lireTemperature(
       [...evs('task_done', 3, now), ...evs('task_failed', 1, now)],

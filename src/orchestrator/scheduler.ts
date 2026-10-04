@@ -810,13 +810,15 @@ export class Scheduler {
    *
    * `infra: 'avant_agent'` — le dépôt de la tâche ne s'est pas cloné : compté
    * comme tout refus d'infrastructure, mais aucun modèle n'a tourné, aucun
-   * n'est écarté des reprises.
+   * n'est écarté des reprises. `'illisible'` — le nœud n'a pas su lire
+   * l'assignation : de même, et le fait le dit (`illisible`), pour que ni la
+   * température ni les fantômes n'y voient une panne de ce nœud.
    */
   rejectTask(
     nodeId: string,
     taskId: string,
     reason: string,
-    infra: boolean | 'avant_agent' = false,
+    infra: boolean | 'avant_agent' | 'illisible' = false,
     now = Date.now(),
     retryAfterMs?: number,
   ): void {
@@ -872,7 +874,8 @@ export class Scheduler {
       nodeId,
       reason,
       ...(infra ? { infra: true } : {}),
-      ...(infra === 'avant_agent' ? { avantAgent: true } : {}),
+      ...(infra === 'avant_agent' || infra === 'illisible' ? { avantAgent: true } : {}),
+      ...(infra === 'illisible' ? { illisible: true } : {}),
     });
 
     if (infra) {

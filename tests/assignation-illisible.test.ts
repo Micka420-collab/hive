@@ -176,12 +176,14 @@ describe('le nœud dit ce qu’il ne sait pas lire', () => {
     );
     // Un refus d'infrastructure AVANT l'agent : la Reine tente ailleurs sans
     // brûler de tentative ni écarter de modèle, et conclut au bout de sa borne.
+    // `illisible` : ce n'est pas une panne de ce nœud.
     expect(refus).toEqual({
       type: 'task_reject',
       taskId: TACHE.id,
       reason: MOTIF_CONTROLE,
       infra: true,
       avantAgent: true,
+      illisible: true,
     });
     expect(lignes.join('\n')).toContain(`assignation illisible (assign_task) : ${MOTIF_CONTROLE}`);
     expect(lancees, 'une assignation illisible ne lance aucun agent').toEqual([]);
@@ -457,17 +459,29 @@ describe('de bout en bout : le refus du nœud termine la tâche, cause dite', ()
           reason: MOTIF_HORS_PROTOCOLE,
           infra: true,
           avantAgent: true,
+          illisible: true,
         });
       }
       const echec = srv.store.evenementsDeTache(t.id, ['task_failed'])[0];
       expect(echec?.payload.reason).toBe('no_working_agent');
       expect(lancees, 'une assignation illisible ne lance aucun agent').toEqual([]);
 
-      const cockpit = (await (
-        await fetch(`http://127.0.0.1:${srv.port}/api/cockpit`, {
-          headers: { 'x-hive-token': TOKEN },
-        })
-      ).json()) as { alertes: Record<string, unknown>[] };
+      const lire = async (chemin: string): Promise<unknown> =>
+        (
+          await fetch(`http://127.0.0.1:${srv.port}${chemin}`, {
+            headers: { 'x-hive-token': TOKEN },
+          })
+        ).json();
+      // Ces refus disent une borne, pas un agent ni un poste en panne : la
+      // ruche ne chauffe pas, et le nœud n'est pas un fantôme d'infrastructure.
+      const thermo = (await lire('/api/thermo')) as {
+        instantane: { signaux: { refusInfra: number } };
+      };
+      expect(thermo.instantane.signaux.refusInfra).toBe(0);
+      const fantomes = (await lire('/api/ghost')) as { ghosts: Array<{ kind: string }> };
+      expect(fantomes.ghosts.map((g) => g.kind)).not.toContain('infra_node');
+
+      const cockpit = (await lire('/api/cockpit')) as { alertes: Record<string, unknown>[] };
       expect(cockpit.alertes).toContainEqual(
         expect.objectContaining({
           genre: 'refus',

@@ -353,6 +353,14 @@ export interface TaskRejectMsg {
    */
   avantAgent?: boolean;
   /**
+   * Avec `avantAgent` : ce nœud n'a pas su LIRE l'assignation — des versions
+   * différentes ou un champ hors bornes, ni une panne de son agent ni de son
+   * poste. La Reine borne ce refus comme les autres ; il ne chauffe pas la
+   * ruche (thermo.ts) et ne fait pas de ce nœud une panne d'infrastructure
+   * (ghost.ts).
+   */
+  illisible?: true;
+  /**
    * Indisponibilité PRÉVISIBLE (ex. Night Shift : fenêtre fermée) : durée en ms
    * avant laquelle il est inutile de représenter cette tâche à CE nœud. Le hub
    * l'utilise comme cooldown (borné) au lieu du cooldown court par défaut —
@@ -1312,11 +1320,13 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         isStr(m.reason, LIMITS.name) &&
         (m.infra === undefined || typeof m.infra === 'boolean') &&
         (m.avantAgent === undefined || typeof m.avantAgent === 'boolean') &&
+        (m.illisible === undefined || typeof m.illisible === 'boolean') &&
         (m.retryAfterMs === undefined || isInt(m.retryAfterMs, 0, 24 * 60 * 60 * 1000))
       ) {
         const msg: TaskRejectMsg = { type: 'task_reject', taskId: m.taskId, reason: m.reason };
         if (m.infra === true) msg.infra = true;
         if (m.infra === true && m.avantAgent === true) msg.avantAgent = true;
+        if (msg.avantAgent && m.illisible === true) msg.illisible = true;
         if (typeof m.retryAfterMs === 'number') msg.retryAfterMs = m.retryAfterMs;
         return msg;
       }
@@ -1736,7 +1746,7 @@ export interface AssignationIllisible {
  *   · une tâche : `task_reject` d'infrastructure AVANT l'agent — la Reine la
  *     confie ailleurs sans brûler de tentative ni écarter de modèle (un nœud à
  *     jour la lira peut-être), puis l'échoue au bout de sa borne, ce motif au
- *     cockpit ;
+ *     cockpit. Marqué `illisible` : ce n'est pas une panne de ce nœud ;
  *   · un merge, un chantier : leur résultat REFUSÉ, un échec explicite.
  *
  * Le motif ne recopie RIEN du message : le dépôt peut porter le jeton du
@@ -1772,7 +1782,14 @@ export function assignationIllisible(raw: unknown): AssignationIllisible | null 
         type: 'assign_task',
         motif: raison,
         reponse: isId(taskId)
-          ? { type: 'task_reject', taskId, reason: raison, infra: true, avantAgent: true }
+          ? {
+              type: 'task_reject',
+              taskId,
+              reason: raison,
+              infra: true,
+              avantAgent: true,
+              illisible: true,
+            }
           : null,
       };
     }

@@ -16256,11 +16256,15 @@ async function monterReine(
             break;
           }
           case 'task_reject': {
-            // Refus d'assignation (saturation, agent en panne ou dépôt qui ne
-            // se clone pas → infra) : requeue sans brûler de tentative ; le
-            // token-failover gère l'infra. retryAfterMs (Night Shift) allonge
-            // le cooldown de re-sollicitation.
-            const infra = msg.avantAgent ? 'avant_agent' : (msg.infra ?? false);
+            // Refus d'assignation (saturation, agent en panne, dépôt qui ne
+            // se clone pas ou assignation illisible → infra) : requeue sans
+            // brûler de tentative ; le token-failover gère l'infra.
+            // retryAfterMs (Night Shift) allonge le cooldown de re-sollicitation.
+            const infra = msg.illisible
+              ? 'illisible'
+              : msg.avantAgent
+                ? 'avant_agent'
+                : (msg.infra ?? false);
             scheduler.rejectTask(
               nodeId,
               msg.taskId,

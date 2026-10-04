@@ -115,6 +115,27 @@ describe('detectGhosts', () => {
     expect(of(report.ghosts, 'rejecting_node')).toBeUndefined();
   });
 
+  it('un refus d’assignation ILLISIBLE n’est ni une panne d’infra ni un refus de capacité', () => {
+    // Le nœud a lu une assignation hors de son protocole et l'a dit : des
+    // versions, une borne. Compté, il annonçait « 3 panne(s) d'infrastructure
+    // (auth/quota/tokens) » sur un nœud sain.
+    const refus = {
+      reason: 'assignation illisible',
+      infra: true,
+      avantAgent: true,
+      illisible: true,
+    };
+    const report = detectGhosts(
+      journal(
+        ['node_online', { nodeId: 'n1', name: 'Bob' }],
+        ['task_rejected', { nodeId: 'n1', taskId: 'ta', ...refus }],
+        ['task_rejected', { nodeId: 'n1', taskId: 'tb', ...refus }],
+        ['task_rejected', { nodeId: 'n1', taskId: 'tc', ...refus }],
+      ),
+    );
+    expect(report.ghosts).toEqual([]);
+  });
+
   it('trie par gravité décroissante (high avant medium/low)', () => {
     const report = detectGhosts(
       journal(

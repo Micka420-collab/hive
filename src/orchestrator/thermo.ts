@@ -83,7 +83,9 @@ export interface LectureThermo {
  *    un ARRÊT BUDGÉTAIRE (`arretBudgetaire`) non plus : la borne a tenu ;
  *  - seul un `task_rejected` d'INFRASTRUCTURE (`infra: true` — agent
  *    injoignable, quota) compte : un refus de saturation ou de Night Shift
- *    (nœud hors service) vient d'une ruche parfaitement saine.
+ *    (nœud hors service) vient d'une ruche parfaitement saine, et une
+ *    assignation que le nœud n'a pas su lire (`illisible` — des versions, une
+ *    borne) aussi : aucun agent n'y est en panne.
  */
 export function lireTemperature(
   events: Array<{ type: string; ts: number; payload?: Record<string, unknown> }>,
@@ -107,7 +109,7 @@ export function lireTemperature(
         signaux.retries += 1;
         break;
       case 'task_rejected':
-        if (e.payload?.infra === true) signaux.refusInfra += 1;
+        if (e.payload?.infra === true && e.payload.illisible !== true) signaux.refusInfra += 1;
         break;
       default:
         break;
