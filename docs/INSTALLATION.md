@@ -381,7 +381,7 @@ dépôt, n'est pas repris : Hive ne suit aucun lien, et le journal le dit.
 cd ~/hive && npm run cli -- doctor
 ```
 
-Douze diagnostics, et **chacun dit quoi taper** pour réparer — pas seulement ce
+Seize diagnostics, et **chacun dit quoi taper** pour réparer — pas seulement ce
 qui ne va pas. Un thermomètre qui ne propose rien ne sert qu'à nommer la peine.
 
 ```
