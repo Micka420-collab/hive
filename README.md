@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024.18-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-8492%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-8596%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -131,6 +131,21 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   déclare pas est « non applicable », jamais vert. **Il faut un bac** (podman,
   docker ou bubblewrap) : sans lui, le code de l'agent ne tourne pas sur l'hôte
   nu, et l'écran le dit. `accepted` demande en plus la relecture croisée.
+- **Tests comparés à la base, test par test.** Quand les tests échouent et que
+  leur sortie par défaut se lit **complète et cohérente** (vitest, jest,
+  `node --test`, TAP — sans ajouter d'argument au script), chaque échec est
+  comparé à la **base**, rejouée à part dans le bac : un test déjà rouge à la
+  base, **du même échec**, ne bloque plus `accepted`, qui le **dit** ; une
+  régression demande une correction qui la **nomme** ; un test vu rouge puis
+  vert est « instable » — ni régression, ni vert. Cette sortie est en partie
+  écrite par le code de l'agent : une ligne collée, un résumé qui ne compte pas
+  tout, un nom en double, et Hive ne la lit pas — **au moindre doute, le
+  verdict du script reste**. **Surcoût, annoncé dans la ligne de
+  progression :** seulement quand les tests échouent — la base rejouée à part
+  (extraction, installation, build, tests : jusqu'à 25 min), puis, si une
+  régression reste possible, la production rejouée de même depuis son arbre
+  livré et une seconde exécution de la base, au pire 55 min ; une base déjà
+  rejouée par le nœud ne se rejoue pas.
 - **Mission Control explique ce qu'il a fait**, depuis le journal, sans rien
   recalculer ni estimer :
   - pourquoi ce Worker et ce modèle : le classement de l'Aiguillage figé à

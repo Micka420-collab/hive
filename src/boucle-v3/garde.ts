@@ -223,6 +223,13 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   },
   {
     categorie: 'permissions',
+    motif:
+      /^src\/shared\/lecture-tests\.ts$|^tests\/(lecture-tests|verdicts-par-test-[^/]+)\.test\.ts$|^tests\/fixtures\/sorties-de-tests\//,
+    pourquoi:
+      'le lecteur des sorties de test, ses bancs et les sorties réelles qu’ils rejouent : un échec qu’il lit rouge à la base n’arrête plus la livraison — l’assouplir ferait passer une régression pour un test déjà rouge',
+  },
+  {
+    categorie: 'permissions',
     motif: /^src\/shared\/(partage|invite|projet-public)\.ts$/,
     pourquoi: 'qui voit ou rejoint la ruche',
   },

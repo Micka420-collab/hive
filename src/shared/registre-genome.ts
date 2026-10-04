@@ -109,7 +109,10 @@ export interface FaitsGenome {
    * `evaluator`). Une panne du bac pendant les validations (mémoire, disque,
    * DNS, démon) n'y arrive JAMAIS : elle rend `missing`, raison
    * `environnement` (`shared/validations-bac.ts`), et un manquant ne
-   * recommande aucune correction — ni faute au modèle, ni au Worker.
+   * recommande aucune correction — ni faute au modèle, ni au Worker. Un test
+   * déjà rouge à la base non plus (G11b : `passed`, raison `comparee`), ni un
+   * test instable (`missing`, raison `instable`) : seule une RÉGRESSION — rouge
+   * à chaque exécution de la production, à aucune de la base — en compte une.
    */
   corrections: number;
   /** Avis des relectrices croisées sur les productions de ce modèle. */

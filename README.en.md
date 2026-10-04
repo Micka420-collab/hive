@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024.18-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-8492%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-8596%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -84,6 +84,21 @@ disagree: [docs/PROTOCOLE-DEBAT.en.md](docs/PROTOCOLE-DEBAT.en.md).
    sandbox — podman, docker or bubblewrap; without one, agent code never runs
    on the bare host and the screen says so. The Evaluator counts them like
    GitHub CI and always says which one spoke (“Hive sandbox” or “GitHub CI”).
+   When the tests fail and their default output reads **complete and
+   consistent** (vitest, jest, `node --test`, TAP — no argument added to the
+   script), each failure is compared to the **base**, replayed apart in the
+   sandbox: a test already red at the base, **with the same failure**, no
+   longer blocks `accepted`, which **says** it; a regression asks for a
+   correction that **names** it; a test seen red then green is “flaky” —
+   neither a regression nor green. That output is partly written by the
+   agent's code: a glued line, a summary that does not count everything, a
+   duplicate name, and Hive does not read it — **at the slightest doubt, the
+   script’s verdict stays**. **Overhead, announced in the progress line:** only
+   when tests fail — the base replayed apart (extraction, install, build,
+   tests: up to 25 min), then, if a regression is still possible, the
+   production replayed the same way from its delivered tree and a second run
+   of the base, 55 min at worst; a base the node already replayed is not
+   replayed again.
 4. **You open a worker’s station.** Hive view → node sheet → **Open workstation**
    (Chambre): baptismal name, **observed** files, Atelier noVNC, requisitions —
    never inventing what isn’t there. Detail:

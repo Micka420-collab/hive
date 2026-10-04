@@ -615,3 +615,33 @@ describe('les décisions se lisent comme des décisions — jamais par leur type
     });
   }
 });
+
+// G11b — des tests comparés à la base. Un `tests ✔` qui tairait des tests
+// rouges, excusés parce qu'ils l'étaient déjà à la base, serait un vert muet :
+// la ligne dit combien, et la régression comme l'instabilité sont dites aussi.
+describe('les tests comparés à la base au journal : le ✔ dit ce qu’il excuse', () => {
+  const validations = (tests: string, comparaison: Record<string, unknown>) =>
+    evenement('validation_recorded', {
+      source: 'hive_sandbox',
+      taskId: 'tache-g11b',
+      validation: { tests, typecheck: 'not_applicable', build: 'not_applicable', lint: 'passed' },
+      details: { tests: { raison: 'comparee', script: 'test', code: 1, comparaison } },
+    });
+
+  it('UN VERT QUI EXCUSE DES TESTS ROUGES LE DIT', async () => {
+    const dom = await monter(validations('passed', { dejaRouges: { total: 2, noms: ['a', 'b'] } }));
+    expect(ligne(dom)).toContain('tests ✔ (2 déjà rouge(s) à la base) · typecheck —');
+  });
+
+  it('UNE RÉGRESSION EST COMPTÉE À CÔTÉ DU ✘ — en anglais aussi', async () => {
+    setLang('en');
+    const comparaison = { regressions: { total: 1 }, dejaRouges: { total: 1 } };
+    const dom = await monter(validations('failed', comparaison));
+    expect(ligne(dom)).toContain('tests ✘ (1 regression(s), 1 already red at the base)');
+  });
+
+  it('SANS COMPARAISON (ou illisible), LA LIGNE NE CHANGE PAS', async () => {
+    const dom = await monter(validations('failed', { regressions: { total: 'beaucoup' } }));
+    expect(ligne(dom)).toContain('tests ✘ · typecheck');
+  });
+});

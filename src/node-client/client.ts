@@ -79,7 +79,7 @@ import { VALIDATION_KEYS } from '../shared/validations-bac.js';
 import type { ValidationsBac } from '../shared/validations-bac.js';
 import type { PorteSecurite } from '../shared/porte-securite.js';
 import { passerLaPorte } from './porte-securite.js';
-import { validerProduction } from './validations-bac.js';
+import { memoireDesBases, validerProduction } from './validations-bac.js';
 
 const MAX_PENDING_DELEGATIONS = 32;
 const MAX_ACCEPTED_DELEGATIONS = 128;
@@ -422,6 +422,12 @@ export class HiveNodeClient {
    * dossier d'où l'on a lancé le nœud (voir `rendez-vous-pont.ts`).
    */
   private readonly rendezVous = new RendezVousPont();
+  /**
+   * Les tests rouges des bases que CE nœud a rejouées pour comparer ses
+   * productions (G11b) : par nœud, parce qu'ils dépendent de son bac — voir
+   * `node-client/validations-bac.ts`.
+   */
+  private readonly memoireDesBases = memoireDesBases();
 
   /**
    * Arme la seule limite d'exécution que le Worker peut tenir pendant la
@@ -500,6 +506,8 @@ export class HiveNodeClient {
    * TMPDIR profond ne coûte rien, et l'en avertir serait un faux signal.
    */
   private preparerRendezVous(): void {
+    // Un nœud redémarré rouvre ses ponts : son arrêt les avait fermés.
+    this.rendezVous.ouvrir();
     for (const reste of balayerPontsOrphelins()) this.log(`pont orphelin effacé : ${reste}`);
     const agent = this.opts.agentType;
     if (!estAgentType(agent) || binaireMcpDansBac(agent) === null) return;
@@ -1464,9 +1472,16 @@ export class HiveNodeClient {
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
       // validations du bac comptent dans la durée d'un enfant délégué — son
       // parent ne l'attend que `durationMs` plus une grâce, et des
-      // validations hors budget (jusqu'à une demi-heure) lui feraient lire
-      // « résultat absent » pour un enfant qui a réussi. À l'échéance, le
-      // signal arrête les validations en cours (`annule`) et le résultat part.
+      // validations hors budget lui feraient lire « résultat absent » pour un
+      // enfant qui a réussi. Leur pire cas, aux délais par défaut : 31 min
+      // quand les tests passent (sonde, installation, quatre commandes — plus
+      // les git locaux qui les préparent, cinq minutes chacun au plus), et
+      // jusqu'à `surcoutMaxMs()` de plus (`validations-bac.ts`, 55 min) quand
+      // des tests en échec se comparent à la base (G11b) : la base puis la
+      // production rejouées à part, chacune extraite (fetch + checkout),
+      // installée, construite et testée, puis une seconde exécution de la
+      // base. À l'échéance, le signal arrête les validations en cours
+      // (`annule`) et le résultat part.
       const result =
         budgetExceeded && delegationBudget
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
@@ -1652,6 +1667,7 @@ export class HiveNodeClient {
       caviarder: (texte) => caviardeur.texte(texte),
       signal: ctrl.signal,
       surEtape,
+      memoire: this.memoireDesBases,
     });
     const etats = VALIDATION_KEYS.map((cle) => `${cle} ${validations.controles[cle].etat}`);
     this.log(`validations du bac : ${etats.join(' · ')}`);
@@ -1738,9 +1754,16 @@ export class HiveNodeClient {
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
       // validations du bac comptent dans la durée d'un enfant délégué — son
       // parent ne l'attend que `durationMs` plus une grâce, et des
-      // validations hors budget (jusqu'à une demi-heure) lui feraient lire
-      // « résultat absent » pour un enfant qui a réussi. À l'échéance, le
-      // signal arrête les validations en cours (`annule`) et le résultat part.
+      // validations hors budget lui feraient lire « résultat absent » pour un
+      // enfant qui a réussi. Leur pire cas, aux délais par défaut : 31 min
+      // quand les tests passent (sonde, installation, quatre commandes — plus
+      // les git locaux qui les préparent, cinq minutes chacun au plus), et
+      // jusqu'à `surcoutMaxMs()` de plus (`validations-bac.ts`, 55 min) quand
+      // des tests en échec se comparent à la base (G11b) : la base puis la
+      // production rejouées à part, chacune extraite (fetch + checkout),
+      // installée, construite et testée, puis une seconde exécution de la
+      // base. À l'échéance, le signal arrête les validations en cours
+      // (`annule`) et le résultat part.
       const result =
         budgetExceeded && delegationBudget
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
