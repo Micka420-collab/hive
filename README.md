@@ -120,8 +120,13 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   clés d'API accordées depuis la Chambre sont rangées dans le volume de
   données ([#446](https://github.com/Micka420-collab/hive/pull/446)).
 - **Orchestration.** Graphe de délégation borné et persistant, Workers
-  (identité, historique, ressources observées, limites d'autonomie), Evaluator
-  et contre-revue exacte, visibles dans Mission Control.
+  (identité, historique, limites d'autonomie), Evaluator et contre-revue
+  exacte, visibles dans Mission Control. Les ressources d'une exécution sont
+  celles de l'**agent**, mesurées sur l'arbre de ses processus ou sur son
+  conteneur — jamais sur le nœud : CPU au dernier relevé (un plancher), pic de
+  mémoire échantillonné ou tenu par le noyau ; « non mesurées », avec la
+  raison, là où rien ne se mesure (Windows hors conteneur, nœud plus ancien).
+  Les validations du bac et les fusions n'en portent aucune.
 - **Validations sans GitHub.** Après une production réussie, le nœud lance
   dans son bac les scripts `test`, `typecheck`, `build` et `lint` que le dépôt
   déclarait **avant** la production (rien, si la production a touché aux
