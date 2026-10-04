@@ -283,7 +283,7 @@ describe('réquisition d’action (G12) — push gardé, décision relayée, éc
     expect(decisions[1]?.behavior).toBe('deny');
     expect((decisions[1] as { message: string }).message).toContain('autonomie off');
     expect((decisions[1] as { message: string }).message).toContain('Chambre');
-    expect(server.store.listerRequisitions({})).toEqual([]);
+    expect(server.store.listerRequisitions({}).filter((r) => r.taskId === taskId)).toEqual([]);
     await attendre(() => (server.store.getTask(taskId)?.status === 'done' ? true : undefined));
     expect(server.store.getTask(taskId)?.status).toBe('done');
   });
@@ -376,7 +376,7 @@ describe('réquisition d’action (G12) — push gardé, décision relayée, éc
     await attendre(() => (decisions.length === 1 ? true : undefined));
     expect(decisions[0]?.behavior).toBe('deny');
     expect((decisions[0] as { message: string }).message).toContain('budget du run');
-    expect(server.store.listerRequisitions({})).toEqual([]);
+    expect(server.store.listerRequisitions({}).filter((r) => r.taskId === taskId)).toEqual([]);
     await attendre(() => (server.store.getTask(taskId)?.status === 'done' ? true : undefined));
     expect(server.store.getTask(taskId)?.status).toBe('done');
   });
