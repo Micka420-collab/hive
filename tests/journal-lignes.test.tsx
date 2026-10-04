@@ -648,7 +648,12 @@ describe('un arrêt budgétaire a SA ligne — ni le ✘ ni le mot « échouée 
       }),
     );
     expect(dom.querySelector('.journal .jrow')?.className).toContain('warn');
-    expect(dom.querySelector('.journal .jicon')?.textContent).toBe('¤');
+    // Le Journal vit dans le Terminal (#523) : l'icône est son repère, et la
+    // classe `warn` y devient un NIVEAU qu'on filtre — un avertissement, pas
+    // une erreur.
+    const repere = dom.querySelector('.journal .jrow .ds-terminal-repere');
+    expect(repere?.textContent).toBe('¤');
+    expect(repere?.className).toContain('niveau-avertissement');
     expect(ligne(dom)).toBe(
       'arrêtée sur son plafond de coût dans la boucle de l’agent (enfant-1) — ni échec, ni ' +
         'panne : à redéléguer sous un nouvel identifiant, avec une réservation plus large',
