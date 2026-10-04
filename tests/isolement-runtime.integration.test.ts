@@ -701,13 +701,16 @@ describe('isolement — intégration bubblewrap réelle', () => {
     async () => {
       expect(bwrap, 'HIVE_BWRAP_REQUIS=1 exige un bubblewrap qui démarre').not.toBeNull();
       racine = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'hive-bwrap-mesure-')));
+      // DANS la racine : `buildSandboxEnv` crée `<workspace>.tmp` à côté de lui.
+      const workspace = path.join(racine, 'tache');
+      mkdirSync(workspace);
       const pilote = new PiloteExecution(() => undefined, SONDES_REELLES, 100);
       try {
         const r = await jusquALaMesure(
-          racine,
+          workspace,
           pilote,
           {
-            env: buildSandboxEnv(racine, []),
+            env: buildSandboxEnv(workspace, []),
             bac: { fournisseur: bwrap!, image: 'sans objet pour bubblewrap', variables: [] },
           },
           (m) => m.portee === 'arbre' && (m.cpuMs ?? 0) >= 280 && (m.picOctets ?? 0) >= 50 * MIO,
