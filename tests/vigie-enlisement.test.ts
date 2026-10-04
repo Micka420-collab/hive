@@ -89,6 +89,12 @@ const codex = (lignes: readonly string[]) =>
 const [, APPEL_REEL, RETOUR_REEL] = fixture('texte-final', 'claude-echec-api-400.stream.jsonl');
 let suivant = 0;
 
+/** Ce qu'on récrit d'une ligne enregistrée : ses blocs, et le sous-agent qui l'émet. */
+interface LigneOutil {
+  message: { content: unknown[] };
+  parent_tool_use_id: string | null;
+}
+
 /** Un `tool_use` puis son `tool_result`, à la forme enregistrée sur 2.1.289. */
 function outil(
   nom: string,
@@ -98,10 +104,10 @@ function outil(
 ): string[] {
   suivant += 1;
   const id = `toolu_banc_${suivant}`;
-  const appel = JSON.parse(APPEL_REEL!) as Record<string, any>;
+  const appel = JSON.parse(APPEL_REEL!) as LigneOutil;
   appel.message.content = [{ type: 'tool_use', id, name: nom, input }];
   appel.parent_tool_use_id = opts.agent ?? null;
-  const resultat = JSON.parse(RETOUR_REEL!) as Record<string, any>;
+  const resultat = JSON.parse(RETOUR_REEL!) as LigneOutil;
   resultat.message.content = [
     {
       tool_use_id: id,
