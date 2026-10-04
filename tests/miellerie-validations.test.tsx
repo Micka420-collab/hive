@@ -22,6 +22,7 @@ import { setLang } from '../dashboard/src/i18n';
 import { EvaluationPanel } from '../dashboard/src/views/Miellerie';
 import { texteControle } from '../dashboard/src/views/validations-rendu';
 import type { EvaluationResult, ValidationProvenance } from '../src/orchestrator/evaluator';
+import { PORTE_SANS_RAPPORT } from '../src/shared/porte-securite';
 import {
   ETATS_PAR_RAISON,
   PANNES_ENVIRONNEMENT,
@@ -82,6 +83,7 @@ function evaluation(provenance: ValidationProvenance): EvaluationResult {
         recordedAt: 0,
       },
       humanReview: 'missing',
+      securite: PORTE_SANS_RAPPORT,
     },
   };
 }

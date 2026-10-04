@@ -15,11 +15,31 @@
 // l'Evaluator dit aussi) — rien ne le tire vers le DOM.
 
 import type { ValidationProvenance } from '../../../src/orchestrator/evaluator';
+import { DIRE_RAISON_PORTE, type PorteSecurite } from '../../../src/shared/porte-securite';
 import { DIRE_PANNE, type DetailControle } from '../../../src/shared/validations-bac';
 import { formatDuree } from '../ui';
 
 /** Traduire, tel que `useT` le rend : `t(fr, en)`. */
 export type Traduire = (fr: string, en: string) => string;
+
+/**
+ * La porte de sécurité, volet par volet : son état, sa raison, l'outil qui a
+ * tourné. Une Reine antérieure à la porte n'en rend pas — la ligne le dit,
+ * plutôt que de laisser croire à un « rien trouvé ».
+ */
+export function resumePorte(porte: PorteSecurite | undefined, t: Traduire): string {
+  if (!porte) return t('non rapportée par cette Reine', 'not reported by this Queen');
+  const volet = (nom: string, v: PorteSecurite['secrets'] | PorteSecurite['dependances']) => {
+    const [fr, en] = DIRE_RAISON_PORTE[v.raison];
+    const combien = v.etat === 'constat' ? ` ×${v.total}` : '';
+    const outil = v.outil ? ` · ${v.outil.nom} ${v.outil.version}` : '';
+    return `${nom} ${v.etat}${combien} (${t(fr, en)}${outil})`;
+  };
+  return [
+    volet(t('secrets', 'secrets'), porte.secrets),
+    volet(t('dépendances', 'dependencies'), porte.dependances),
+  ].join(' · ');
+}
 
 /** Une ligne : quelle source, et à quoi elle est rattachée. */
 export function resumeProvenance(provenance: ValidationProvenance, t: Traduire): string {

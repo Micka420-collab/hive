@@ -209,31 +209,46 @@ at that row only:
 
 <!-- verifie:evaluator -->
 
-| #   | When                                                       | Decision                   | Retry recommended | Reason given (excerpt)           |
-| --- | ---------------------------------------------------------- | -------------------------- | ----------------- | -------------------------------- |
-| 1   | no Worker result                                           | `correction_required`      | yes               | `aucun résultat Worker`          |
-| 2   | latest result failed                                       | `rejected`                 | yes               | `le dernier résultat a échoué`   |
-| 3   | hollow production (Gardiennes `hollow`)                    | `rejected`                 | yes               | `production creuse`              |
-| 4   | Gardiennes `suspect`                                       | `correction_required`      | yes               | `signal suspect`                 |
-| 5   | human rejection                                            | `correction_required`      | yes               | `la revue humaine a rejeté`      |
-| 6   | no Gardiennes inspection                                   | `human_review_required`    | no                | `aucune inspection indépendante` |
-| 7   | the result is not the one the Parliament elected           | `correction_required`      | yes               | `faction élue`                   |
-| 8   | contested counter-review                                   | `correction_required`      | yes               | `demande une amélioration`       |
-| 9   | a failed validation                                        | `correction_required`      | yes               | `en échec`                       |
-| 10  | review impossible, with no opinion and no review in flight | `human_review_required`    | no                | `relecture impossible :`         |
-| 11  | a validation is missing (or tests are not declared)        | `additional_test_required` | no                | `preuves manquantes`             |
-| 12  | a review of this result is still in flight                 | `human_review_required`    | no                | `contre-revue en cours`          |
-| 13  | no favorable opinion from another family                   | `human_review_required`    | no                | `aucune contre-revue`            |
-| 14  | everything green **and** an independent favorable opinion  | `accepted`                 | no                | `contre-revue favorable`         |
+| #   | When                                                                   | Decision                   | Retry recommended | Reason given (excerpt)             |
+| --- | ---------------------------------------------------------------------- | -------------------------- | ----------------- | ---------------------------------- |
+| 1   | no Worker result                                                       | `correction_required`      | yes               | `aucun résultat Worker`            |
+| 2   | latest result failed                                                   | `rejected`                 | yes               | `le dernier résultat a échoué`     |
+| 3   | hollow production (Gardiennes `hollow`)                                | `rejected`                 | yes               | `production creuse`                |
+| 4   | the security gate found an added secret or an introduced vulnerability | `correction_required`      | yes               | `la porte de sécurité a trouvé`    |
+| 5   | Gardiennes `suspect`                                                   | `correction_required`      | yes               | `signal suspect`                   |
+| 6   | human rejection                                                        | `correction_required`      | yes               | `la revue humaine a rejeté`        |
+| 7   | no Gardiennes inspection                                               | `human_review_required`    | no                | `aucune inspection indépendante`   |
+| 8   | the result is not the one the Parliament elected                       | `correction_required`      | yes               | `faction élue`                     |
+| 9   | contested counter-review                                               | `correction_required`      | yes               | `demande une amélioration`         |
+| 10  | a failed validation                                                    | `correction_required`      | yes               | `en échec`                         |
+| 11  | review impossible, with no opinion and no review in flight             | `human_review_required`    | no                | `relecture impossible :`           |
+| 12  | security gate not verified, under `strict` polyethism                  | `human_review_required`    | no                | `non vérifiée, polyéthisme strict` |
+| 13  | a validation is missing (or tests are not declared)                    | `additional_test_required` | no                | `preuves manquantes`               |
+| 14  | a review of this result is still in flight                             | `human_review_required`    | no                | `contre-revue en cours`            |
+| 15  | no favorable opinion from another family                               | `human_review_required`    | no                | `aucune contre-revue`              |
+| 16  | everything green **and** an independent favorable opinion              | `accepted`                 | no                | `contre-revue favorable`           |
 
 <!-- /verifie:evaluator -->
 
-The impossible review (10) comes **before** missing evidence: no CI would
+The impossible review (11) comes **before** missing evidence: no CI would
 make `accepted` without an independent opinion, and "additional tests
 required" would send the operator after evidence that unblocks nothing. A
 first favorable opinion is not acceptance while another review of the same
-result is in flight (12): an objection stays blocking, wherever it comes
+result is in flight (14): an objection stays blocking, wherever it comes
 from.
+
+The **security gate** (`src/shared/porte-securite.ts`) is not a fifth
+validation: the node attaches it to its result (`porteSecurite`, recorded as
+`security_gate_recorded`), part by part — secrets (Betterleaks, added lines
+only) and dependencies (osv-scanner, vulnerabilities INTRODUCED compared with
+the base). A finding (4) comes before everything that calls a human:
+`human_review_required` does not stop delivery, and an approval must not let a
+key go out. Not verified (tool missing, failed, node older than the gate), it
+is **never counted green** — `accepted` says so in its reasons — and it holds
+the production only under `strict` polyethism (12): like a missing
+counter-visit, the production then waits for a human (`human_review_required`,
+no retry — the producer cannot install the node's tool). A human rejection
+relaunches the production, and the gate with it.
 
 ### Step 4 — the correction, with the critique (#488)
 

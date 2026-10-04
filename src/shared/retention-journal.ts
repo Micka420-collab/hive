@@ -76,7 +76,7 @@ import { TYPES_ROUTAGE } from './routage-vue.js';
 
 /**
  * Les preuves que relit l'Evaluator (et la War Room qui les montre) : CI et bac,
- * relectures croisées de leur lancement à leur verdict ou leur impossibilité,
+ * porte de sécurité, relectures croisées de leur lancement à leur verdict ou leur impossibilité,
  * verdict humain, renvois refusés, arrêts levés à la main.
  * `ci_validation_recorded` est le nom historique des preuves GitHub, encore relu
  * par `latestValidation` : une preuve déjà ingérée ne doit pas partir plus tôt
@@ -85,6 +85,9 @@ import { TYPES_ROUTAGE } from './routage-vue.js';
 const PREUVES_EVALUATOR = [
   'validation_recorded',
   'ci_validation_recorded',
+  // Ce que la porte de sécurité du nœud a vu : élaguée, la production
+  // redeviendrait « non vérifiée » — ou, constat oublié, livrable.
+  'security_gate_recorded',
   'contre_expertise',
   'contre_expertise_verdict',
   'contre_expertise_impossible',

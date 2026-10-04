@@ -25,6 +25,13 @@ const SYMBOLE_VALIDATION: Record<string, string> = {
   not_applicable: '—',
 };
 
+/** La porte de sécurité : `?` non vérifiée — surtout pas un vert. */
+const SYMBOLE_PORTE: Record<string, string> = {
+  rien_trouve: '✔',
+  constat: '✘',
+  non_verifie: '?',
+};
+
 /**
  * La Balance au journal. PESER et PRÉVOIR n'ont introduit aucun type
  * d'événement : ils ont rendu ÉCONOMIQUEMENT LISIBLES ceux qui existaient déjà,
@@ -343,6 +350,27 @@ const EVENTS: Record<string, Meta> = {
       return t(
         `validations ${short(p.taskId)} (${source}) : ${ligne}`,
         `validations ${short(p.taskId)} (${source}): ${ligne}`,
+      );
+    },
+  },
+  // La porte de sécurité d'une production : chaque volet, son état et le
+  // nombre de constats — jamais une valeur, le rapport n'en porte pas.
+  security_gate_recorded: {
+    icon: '⛨',
+    cls: 'info',
+    text: (p, t) => {
+      const porte = (typeof p.porte === 'object' && p.porte !== null ? p.porte : {}) as Record<
+        string,
+        { etat?: unknown; total?: unknown } | undefined
+      >;
+      const volet = (cle: string): string => {
+        const etat = String(porte[cle]?.etat ?? '?');
+        const total = etat === 'constat' ? ` ×${String(porte[cle]?.total ?? '?')}` : '';
+        return `${SYMBOLE_PORTE[etat] ?? '?'}${total}`;
+      };
+      return t(
+        `porte de sécurité ${short(p.taskId)} : secrets ${volet('secrets')} · dépendances ${volet('dependances')}`,
+        `security gate ${short(p.taskId)}: secrets ${volet('secrets')} · dependencies ${volet('dependances')}`,
       );
     },
   },

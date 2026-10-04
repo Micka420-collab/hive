@@ -13,8 +13,10 @@ import type {
 import { estPlateforme } from './machine.js';
 import { estEmpreinte } from './empreinte-ruche.js';
 import { validationsBacDepuis } from './validations-bac.js';
+import { porteSecuriteDepuis } from './porte-securite.js';
 import { estEffort, estListeEfforts, type Effort } from './effort.js';
 import type { ValidationsBac } from './validations-bac.js';
+import type { PorteSecurite } from './porte-securite.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
 import { NIVEAUX_ISOLEMENT } from './types.js';
@@ -309,6 +311,13 @@ export interface TaskResultMsg {
    * qui le lie au `resultId` exact que la Reine attribue à la réception.
    */
   validations?: ValidationsBac;
+  /**
+   * Ce que la porte de sécurité du nœud a vu dans ce que la production AJOUTE
+   * (`porte-securite.ts`) : secrets, dépendances introduites — jamais une
+   * valeur. ADDITIF : un nœud plus ancien ne l'envoie pas, et la Reine lit
+   * alors « non vérifié », jamais un vert.
+   */
+  porteSecurite?: PorteSecurite;
 }
 
 /**
@@ -1215,6 +1224,10 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         // elles redeviennent `missing`, ce qu'elles étaient sans rapport.
         const validations =
           m.validations === undefined ? null : validationsBacDepuis(m.validations);
+        // Même règle pour la porte : mal formée, elle est abandonnée, et la
+        // Reine la lit absente — « non vérifiée », jamais « rien trouvé ».
+        const porteSecurite =
+          m.porteSecurite === undefined ? null : porteSecuriteDepuis(m.porteSecurite);
         return {
           type: 'task_result',
           taskId: m.taskId,
@@ -1227,6 +1240,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           ...(fournisseur ? { fournisseur } : {}),
           ...(finalText !== undefined ? { finalText } : {}),
           ...(validations ? { validations } : {}),
+          ...(porteSecurite ? { porteSecurite } : {}),
         };
       }
       return null;
