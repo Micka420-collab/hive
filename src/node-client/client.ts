@@ -1385,9 +1385,9 @@ export class HiveNodeClient {
   /**
    * Un message du hub que ce nœud ne sait pas lire ne tombe plus sans un mot.
    * Une assignation reçoit le refus que la Reine attend pour CE travail
-   * (`assignationIllisible`) ; sans identifiant sûr à lui renvoyer, ce journal
-   * est sa seule trace. Jamais le message lui-même : il peut porter le jeton
-   * d'un projet.
+   * (`assignationIllisible`), sauf s'il tourne déjà ici ; sans identifiant sûr
+   * à lui renvoyer, ce journal est sa seule trace. Jamais le message lui-même :
+   * il peut porter le jeton d'un projet.
    */
   private direIllisible(raw: string): void {
     const illisible = assignationIllisible(raw);
@@ -1395,13 +1395,27 @@ export class HiveNodeClient {
       this.log('message du hub illisible : ignoré');
       return;
     }
-    if (illisible.reponse) this.send(illisible.reponse);
-    this.log(
-      `✘ assignation illisible (${illisible.type}) : ${illisible.motif} → ` +
-        (illisible.reponse
-          ? 'refusée auprès de la Reine'
-          : 'aucun identifiant sûr, rien à lui répondre'),
-    );
+    const { reponse } = illisible;
+    const ligne = `✘ assignation illisible (${illisible.type}) : ${illisible.motif} →`;
+    if (!reponse) {
+      this.log(`${ligne} aucun identifiant sûr, rien à lui répondre`);
+      return;
+    }
+    // Le garde-doublon de runTask, runMergeJob et runChantierJob : ce travail
+    // tourne ICI, et la Reine prendrait le refus (`rejectTask` accepte une
+    // tâche `running`) — remise en file, et double exécution.
+    const enCours =
+      reponse.type === 'task_reject'
+        ? this.active.has(reponse.taskId)
+        : reponse.type === 'merge_result'
+          ? this.activeMerges.has(reponse.mergeId)
+          : this.activeChantiers.has(reponse.chantierId);
+    if (enCours) {
+      this.log(`${ligne} ce travail tourne déjà ici, aucun refus envoyé`);
+      return;
+    }
+    this.send(reponse);
+    this.log(`${ligne} refusée auprès de la Reine`);
   }
 
   private startHeartbeat(): void {

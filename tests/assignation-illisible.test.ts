@@ -121,7 +121,14 @@ describe('le nœud dit ce qu’il ne sait pas lire', () => {
    */
   async function noeudFaceA(
     assignation: Record<string, unknown>,
-  ): Promise<{ recus: Record<string, unknown>[]; lignes: string[]; lancees: string[] }> {
+    adapter?: AgentAdapter,
+  ): Promise<{
+    recus: Record<string, unknown>[];
+    lignes: string[];
+    lancees: string[];
+    /** Un message de plus du hub, après l'assignation. */
+    envoyer: (m: Record<string, unknown>) => void;
+  }> {
     const recus: Record<string, unknown>[] = [];
     const lignes: string[] = [];
     const lancees: string[] = [];
@@ -131,7 +138,9 @@ describe('le nœud dit ce qu’il ne sait pas lire', () => {
     hub = new WebSocketServer({ port: 0, host: '127.0.0.1' });
     await new Promise<void>((r) => hub!.once('listening', () => r()));
     const port = (hub.address() as AddressInfo).port;
+    let socket: WebSocket | null = null;
     hub.on('connection', (ws) => {
+      socket = ws;
       ws.on('message', (d) => {
         const m = JSON.parse(d.toString()) as Record<string, unknown>;
         recus.push(m);
@@ -150,11 +159,11 @@ describe('le nœud dit ce qu’il ne sait pas lire', () => {
       agentType: 'shell',
       maxConcurrency: 1,
       workRoot: path.join(dir, 'work'),
-      adapter: agentQuiNeTournePas(lancees),
+      adapter: adapter ?? agentQuiNeTournePas(lancees),
       quiet: false,
     });
     await client.start();
-    return { recus, lignes, lancees };
+    return { recus, lignes, lancees, envoyer: (m) => socket?.send(JSON.stringify(m)) };
   }
 
   /** Ni le jeton ni l'adresse ne doivent sortir : ni vers la Reine, ni au journal. */
@@ -269,6 +278,59 @@ describe('le nœud dit ce qu’il ne sait pas lire', () => {
     );
     expect(lignes.join('\n')).toContain('aucun identifiant sûr');
     expect(recus.filter((m) => m.type === 'task_reject')).toEqual([]);
+    rienNeFuit(recus, lignes);
+  });
+
+  it('UN DOUBLON ILLISIBLE D’UN TRAVAIL QUI TOURNE ICI N’EST PAS REFUSÉ — pas de double exécution', async () => {
+    // Le filet de re-livraison de la Reine re-sert une tâche restée `assigned`
+    // en comptant sur une règle du nœud : un doublon s'ignore (`runTask`). Un
+    // doublon ILLISIBLE y échappait : le refus partait pour la tâche EN COURS,
+    // que la Reine prend (`rejectTask` accepte `running`) — remise en file, et
+    // un second nœud la referait pendant que celui-ci la finit.
+    let liberer!: () => void;
+    const relache = new Promise<void>((resolve) => {
+      liberer = resolve;
+    });
+    const demarrees: string[] = [];
+    const lent: AgentAdapter = {
+      name: 'lent',
+      async run(task, ctx) {
+        demarrees.push(task.id);
+        // Libéré par le banc, ou par l'arrêt du nœud si une assertion tombe avant.
+        await Promise.race([
+          relache,
+          new Promise<void>((r) => ctx.signal.addEventListener('abort', () => r(), { once: true })),
+        ]);
+        return { success: true, diff: '', logs: '', subAgents: [] };
+      },
+    };
+    const { recus, lignes, envoyer } = await noeudFaceA(
+      { type: 'assign_task', task: TACHE, repoUrl: null },
+      lent,
+    );
+    await attendre(
+      () => (demarrees.includes(TACHE.id) ? true : undefined),
+      'l’agent de la tâche valide n’a pas démarré',
+    );
+    envoyer({ type: 'assign_task', task: TACHE, repoUrl: URL_ILLISIBLE });
+    await attendre(
+      () => lignes.find((l) => l.includes('assignation illisible (assign_task)')),
+      'aucune ligne au journal du nœud pour le doublon',
+    );
+    expect(lignes.join('\n')).toContain('ce travail tourne déjà ici, aucun refus envoyé');
+    // La tentative en cours, elle, va au bout et rend son résultat.
+    liberer();
+    await attendre(
+      () => recus.find((m) => m.type === 'task_result' && m.taskId === TACHE.id),
+      'la tâche en cours n’a rendu aucun résultat',
+      10_000,
+    );
+    // Lu APRÈS le résultat : une socket garde l'ordre, tout refus parti avant
+    // lui est arrivé.
+    expect(
+      recus.filter((m) => m.type === 'task_reject'),
+      'un refus est parti pour la tâche en cours',
+    ).toEqual([]);
     rienNeFuit(recus, lignes);
   });
 });
