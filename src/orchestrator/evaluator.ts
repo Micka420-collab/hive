@@ -305,13 +305,22 @@ function motifsDeLaPorte(porte: PorteSecurite, nodeId: string | undefined): stri
   if (s + d === 0) return [];
   // Les lockfiles illisibles viennent en tête des constats (le nœud les y
   // range) : la borne du protocole ne les fait pas tomber, et leur compte est exact.
-  const illisibles =
+  const lockfiles =
     d > 0 ? dependances.constats.filter((c) => c.genre === 'lockfile_illisible') : [];
-  const v = d - illisibles.length;
+  // La base falsifiée est à part : ce n'est pas un défaut de forme de la tête,
+  // c'est l'espace de travail du nœud altéré — un autre remède, un autre ton.
+  const falsifiees = lockfiles.filter(
+    (c) => c.genre === 'lockfile_illisible' && c.motif === 'base_falsifiee',
+  );
+  const illisibles = lockfiles.filter(
+    (c) => c.genre === 'lockfile_illisible' && c.motif !== 'base_falsifiee',
+  );
+  const v = d - lockfiles.length;
   const comptes = [
     ...(s > 0 ? [`${s} secret(s) ajouté(s)`] : []),
     ...(v > 0 ? [`${v} vulnérabilité(s) introduite(s)`] : []),
     ...(illisibles.length > 0 ? [`${illisibles.length} lockfile(s) laissé(s) illisible(s)`] : []),
+    ...(falsifiees.length > 0 ? [`${falsifiees.length} base(s) falsifiée(s)`] : []),
   ].join(', ');
   const remedes = [
     ...(s > 0 ? ['retirez chaque secret du code et lisez-le de l’environnement'] : []),
@@ -319,6 +328,11 @@ function motifsDeLaPorte(porte: PorteSecurite, nodeId: string | undefined): stri
     ...(illisibles.length > 0
       ? [
           'régénérez chaque lockfile avec son gestionnaire de paquets — un fichier ordinaire, lisible',
+        ]
+      : []),
+    ...(falsifiees.length > 0
+      ? [
+          'l’objet git du lockfile de base relu ne correspond pas à son empreinte — l’espace de travail du nœud a été altéré, repartez d’un clone sain',
         ]
       : []),
   ].join(' ; ');
@@ -335,7 +349,11 @@ function motifsDeLaPorte(porte: PorteSecurite, nodeId: string | undefined): stri
     const lus = dependances.constats.map((c) => {
       if (c.genre === 'lockfile_illisible') {
         const comment =
-          c.motif === 'mal_forme' ? 'mal formé' : 'remplacé par autre chose qu’un fichier';
+          c.motif === 'mal_forme'
+            ? 'mal formé'
+            : c.motif === 'base_falsifiee'
+              ? 'base falsifiée dans l’espace de travail — objet git ne correspondant pas à son empreinte'
+              : 'remplacé par autre chose qu’un fichier';
         return `${c.fichier} illisible (${comment})`;
       }
       const precisions = [...c.alias, ...(c.gravite ? [c.gravite] : [])];
@@ -593,6 +611,16 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
         `le nœud ${bac.nodeId} n’a pas de bac à sable : le code d’un agent ne tourne pas ` +
           'sur l’hôte nu — installez podman, docker ou bubblewrap (HIVE_ISOLEMENT=auto ' +
           'les trouve au démarrage du nœud), ou apportez la CI GitHub',
+      );
+    }
+    // Base falsifiée : l'agent a forgé l'objet git du `package.json` de base
+    // (`base-verifiee.ts`). Aucune validation n'est fiable, et le motif le dit —
+    // jamais un vert sur un manifeste que la production a maquillé.
+    if (bac && missingValidation.some((key) => bac.details[key].raison === 'base_falsifiee')) {
+      preuvesAbsentes.push(
+        `la base relue dans l’espace de travail du nœud ${bac.nodeId} est falsifiée : l’objet ` +
+          'git du package.json de base ne correspond pas à son empreinte — les scripts déclarés ' +
+          'ne sont pas fiables, aucune validation n’a tourné ; repartez d’un clone sain',
       );
     }
     // Une panne du bac en cours de route n'est pas un verdict sur la
