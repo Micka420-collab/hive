@@ -146,9 +146,15 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   {
     categorie: 'securite',
     motif:
-      /^tests\/(security-invariants|engagement-projet|suppression-projet|mission-rejouable|missions-rejouables-[^/]+|connecteurs-[^/]+|shadow-bench|banc-ombre-ruche|configuration-inerte[^/]*|join-porte|retention-journal|livraison-locale[^/]*)\.test\.tsx?$/,
+      /^tests\/(security-invariants|engagement-projet|suppression-projet|mission-rejouable|missions-rejouables-[^/]+|connecteurs-[^/]+|shadow-bench|banc-ombre-ruche|configuration-inerte[^/]*|join-porte|retention-journal|livraison-locale[^/]*|porte-securite[^/]*)\.test\.tsx?$/,
     pourquoi:
-      'les bancs qui verrouillent les gardes (routes, effacement, rejeux, connecteurs, banc d’ombre, configuration inerte, adhésion, rétention, poussée) : les affaiblir retire le garde-fou',
+      'les bancs qui verrouillent les gardes (routes, effacement, rejeux, connecteurs, banc d’ombre, configuration inerte, adhésion, rétention, poussée, porte de sécurité) : les affaiblir retire le garde-fou',
+  },
+  {
+    categorie: 'securite',
+    motif: /^src\/(shared|node-client)\/porte-securite\.ts$/,
+    pourquoi:
+      'la porte de sécurité : les secrets et les dépendances vulnérables qu’une production AJOUTE, jugés avant la livraison et caviardés au nœud — l’affaiblir laisserait partir une clé, ou la compterait verte sans outil',
   },
   {
     categorie: 'securite',
