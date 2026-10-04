@@ -479,6 +479,64 @@ describe('Chambre à l’écran', () => {
     expect(dom.textContent).toMatch(/fabrique proposée|forge proposal/i);
   });
 
+  it('réquisition d’ACTION (G12) : l’échéance s’affiche, Accorder dit le relais au Worker', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        requisitions: [
+          {
+            id: 'req-action',
+            nodeId: NODE_ID,
+            genre: 'action',
+            libelle: 'git push (« git push origin main »)',
+            detail: null,
+            statut: 'ouverte',
+            creeA: 1,
+            closA: null,
+            // Servie par GET /api/requisitions (jointure requisitions_echeances).
+            expiresAt: Date.now() + 5 * 60_000,
+          },
+        ],
+      }),
+    );
+    const dom = await monter();
+    expect(dom.textContent).toContain('Action irréversible');
+    const badge = dom.querySelector('[data-testid="ch-req-echeance"]');
+    expect(badge, 'le compte à rebours de l’échéance est visible').toBeTruthy();
+    expect(badge!.textContent).toMatch(/expire dans \d+ min/);
+    const accorder = [...dom.querySelectorAll('button')].find((b) =>
+      (b.textContent ?? '').includes('Accorder'),
+    ) as HTMLButtonElement;
+    await cliquer(accorder);
+    await act(async () => {});
+    // Le POST repondre a déjà relayé la décision au Worker suspendu : ni
+    // modal de clé, ni atelier, ni fabrique — l'écran DIT le relais.
+    expect(repondreRequisition).toHaveBeenCalledWith('req-action', 'accordee');
+    expect(demarrerAtelier).not.toHaveBeenCalled();
+    expect(ouvrirFabrique).not.toHaveBeenCalled();
+    expect(dom.textContent).toMatch(/relayée à l’ouvrière|relayed to the worker/);
+  });
+
+  it('réquisition sans échéance : aucun badge — pas de faux compte à rebours', async () => {
+    vi.mocked(fetchChambre).mockResolvedValue(
+      poste({
+        requisitions: [
+          {
+            id: 'req-bin-sans',
+            nodeId: NODE_ID,
+            genre: 'binaire',
+            libelle: 'Binaire claude',
+            detail: null,
+            statut: 'ouverte',
+            creeA: 1,
+            closA: null,
+          },
+        ],
+      }),
+    );
+    const dom = await monter();
+    expect(dom.querySelector('[data-testid="ch-req-echeance"]')).toBeNull();
+  });
+
   it('Accorder binaire affiche un hint nommé', async () => {
     vi.mocked(fetchChambre).mockResolvedValue(
       poste({

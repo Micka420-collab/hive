@@ -4,6 +4,7 @@
 
 import type { PresenceFichier } from '../shared/presence.js';
 import type { Effort } from '../shared/effort.js';
+import type { ActionProposee, DecisionAction } from '../shared/politique-actions.js';
 import type { ExecutionUsage, SubAgent, Task, UsageFournisseur } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
 import { createClineAdapter } from './cline.js';
@@ -110,6 +111,26 @@ export interface AdapterContext {
    * surtout pour ce que cela ne protège pas).
    */
   bac?: BacExecution;
+  /**
+   * Les règles `permissions.allow` compilées depuis les déclarations du dépôt
+   * de BASE (`reglesAutorisationDepot`, G12) : les scripts de validation
+   * déclarés et l'installation du lockfile. L'adaptateur les injecte dans ses
+   * réglages imposés (Claude Code : `--settings`). Absent ou vide : rien
+   * d'ajouté — l'agent garde le seul mode de permission de sa famille.
+   */
+  permissionsAllow?: readonly string[];
+  /**
+   * Décision d'approbation d'une action proposée par le CLI (G12,
+   * `--permission-prompt-tool` via le pont MCP). Le nœud classe l'action
+   * (politique-actions.ts) selon le niveau d'autonomie du projet ; une classe
+   * irréversible ouvre une réquisition dans la Chambre et ATTEND la décision
+   * humaine (ou son expiration). Comme `delegate` : une capacité bornée,
+   * jamais le socket ni SQLite. Absente : le pont répond deny (fermé).
+   * `echeanceRun` (ms epoch) : l'instant où le délai dur de l'adaptateur
+   * tuera le CLI — l'attente d'une décision s'y borne, et le hub en déduit
+   * une échéance de Chambre qui précède la mort du processus.
+   */
+  decideAction?: (action: ActionProposee, echeanceRun?: number) => Promise<DecisionAction>;
   /**
    * `'relecture'` : la tâche est une contre-expertise — l'agent LIT une
    * production, il n'a rien à écrire. Un adaptateur peut alors réduire ses

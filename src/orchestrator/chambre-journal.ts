@@ -25,7 +25,19 @@ export function resumerEvenementChambre(
   const motif = typeof payload.motif === 'string' ? payload.motif : null;
   const error = typeof payload.error === 'string' ? payload.error : null;
   const taskId = typeof payload.taskId === 'string' ? payload.taskId : null;
+  const libelle = typeof payload.libelle === 'string' ? payload.libelle : null;
 
+  // L'escalade d'une réquisition expirée (G12) : la timeline dit QUOI n'a pas
+  // été tranché, et pourquoi la ligne existe — jamais un simple type brut.
+  if (type === 'requisition_expiree') {
+    return {
+      resume: libelle ?? (lang === 'en' ? 'Requisition expired' : 'Réquisition expirée'),
+      detail:
+        motif ??
+        (lang === 'en' ? 'no decision before the deadline' : 'aucune décision à l’échéance'),
+      badge: lang === 'en' ? 'EXPIRED' : 'EXPIRÉ',
+    };
+  }
   if (outil && chemin) {
     return {
       resume: chemin,

@@ -64,6 +64,13 @@ import {
   requisitionDepuisEchecInfra,
   type RequisitionDepuisInfra,
 } from '../shared/requisition-infra.js';
+import {
+  classerActionProposee,
+  decisionActionParNiveau,
+  type ActionProposee,
+  type DecisionAction,
+  type NiveauAutonomie,
+} from '../shared/politique-actions.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
 import type { BacExecution } from './isolement.js';
@@ -77,9 +84,29 @@ import type {
 import { capturerExecutionUsage, executionUsageDepuis } from './execution-usage.js';
 import { VALIDATION_KEYS } from '../shared/validations-bac.js';
 import type { ValidationsBac } from '../shared/validations-bac.js';
-import { validerProduction } from './validations-bac.js';
+import { reglesAutorisationDeBase, validerProduction } from './validations-bac.js';
 
 const MAX_PENDING_DELEGATIONS = 32;
+/**
+ * L'attente MAXIMALE d'une décision d'action (G12) quand l'ack du hub n'a PAS
+ * porté d'échéance (hub plus ancien) : le plafond de la Chambre (dix minutes)
+ * plus une marge de transport. Un hub muet — tombé, déconnecté — ne doit pas
+ * suspendre l'outil de décision du CLI pour toujours : passé ce filet, le
+ * nœud répond deny et le dit. Avec un `expiresAt` dans l'ack, le filet se
+ * cale dessus (`GRACE_RELAIS_ECHEANCE_MS`) au lieu de ce délai figé.
+ */
+const ACTION_DECISION_MAX_MS = 12 * 60_000;
+/** L'accusé d'ouverture d'une réquisition d'action : le même filet que la délégation. */
+const ACTION_ACK_TIMEOUT_MS = 15_000;
+/**
+ * Marge (G12, revue) entre la décision et la MORT du CLI : le délai dur des
+ * adaptateurs tue le processus entier, et une décision qui arriverait après
+ * ne servirait personne. Le budget transmis au hub ET le filet local la
+ * retranchent de l'échéance du run — sous cette marge, on ne demande rien.
+ */
+export const MARGE_DECISION_ACTION_MS = 30_000;
+/** Le délai laissé au hub pour RELAYER sa propre expiration avant le filet local. */
+const GRACE_RELAIS_ECHEANCE_MS = 15_000;
 const MAX_ACCEPTED_DELEGATIONS = 128;
 const DELEGATION_RESPONSE_TIMEOUT_MS = 15_000;
 /**
@@ -401,7 +428,28 @@ export class HiveNodeClient {
     genre: string;
     libelle: string;
     detail?: string;
+    /** Le niveau d'autonomie reçu à l'assignation (G12) — repris tel quel. */
+    autonomie: NiveauAutonomie;
+    /** Les règles compilées depuis la base (G12) — recalculables, mais figées. */
+    permissionsAllow: readonly string[];
   } | null = null;
+  /**
+   * Réquisitions d'ACTION en vol (G12) : la tâche TOURNE pendant que la Chambre
+   * décide — rien à voir avec `attenteRequisition`, où la tâche est terminée en
+   * échec infra. Deux cartes : l'accusé (requestId → id du store + échéance),
+   * puis la décision (id → accordee/refusee/expiree).
+   *
+   * PERTE ASSUMÉE À LA RECONNEXION : le hub n'émet `requisition_result` qu'à
+   * l'instant de la décision, sur le socket du moment — un nœud déconnecté à
+   * cet instant ne la reçoit jamais (aucun rejeu). Le filet local tranche
+   * alors `indisponible` → deny dit au CLI. Re-corréler la décision après
+   * reconnexion est un chantier nommé, pas un comportement implicite.
+   */
+  private readonly pendingActionAcks = new Map<string, (id: string, expiresAt?: number) => void>();
+  private readonly pendingActionDecisions = new Map<
+    string,
+    (statut: 'accordee' | 'refusee' | 'expiree') => void
+  >();
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectDelay = 1_000;
   private closed = false;
@@ -567,6 +615,167 @@ export class HiveNodeClient {
       libelle,
       ...(detail ? { detail } : {}),
       ...(taskId ? { taskId } : {}),
+    });
+  }
+
+  /**
+   * Décide une action proposée par le CLI (G12, `--permission-prompt-tool`
+   * relayé par le pont MCP). PUR dans sa décision — `politique-actions.ts`
+   * classe, le niveau d'autonomie du projet tranche le défaut — et VISIBLE
+   * dans ses effets : chaque issue (autorisée, refusée, réquisition, échéance)
+   * laisse une ligne au journal de la tâche — sauf l'allow de la classe
+   * `toujours` (lectures), dont le volume noierait le journal. Jamais d'allow
+   * implicite. `echeanceRun` (ms epoch) : l'instant où le délai dur de
+   * l'adaptateur tuera le CLI — l'attente d'une décision s'y borne.
+   */
+  private async deciderActionProposee(
+    taskId: string,
+    action: ActionProposee,
+    cwd: string,
+    niveau: NiveauAutonomie,
+    signal: AbortSignal,
+    echeanceRun?: number,
+  ): Promise<DecisionAction> {
+    const caviardeur = this.caviardeurDuNoeud();
+    const classement = classerActionProposee(action, cwd);
+    const suite = decisionActionParNiveau(classement.classe, niveau);
+    const libelle = caviardeur.texte(classement.libelle).slice(0, LIMITS.requisitionLibelle);
+    const progres = (log: string): void => {
+      this.send({ type: 'task_update', taskId, status: 'running', log });
+    };
+    if (suite === 'autoriser') {
+      // Fait enregistré là où il se produit : l'auto-allow d'une commande
+      // hors liste est une décision, elle se lit dans le journal de la tâche.
+      if (classement.classe !== 'toujours') {
+        progres(
+          `▶ action autorisée (classe ${classement.classe}, autonomie ${niveau}) : ${libelle}`,
+        );
+      }
+      return { behavior: 'allow', updatedInput: action.input };
+    }
+    if (suite === 'refuser') {
+      const message =
+        `action refusée par la politique Hive (classe ${classement.classe}, ` +
+        `autonomie ${niveau}) : ${libelle} — hors de la liste d'autorisation du dépôt ; ` +
+        `une décision humaine se demande via la Chambre (niveau gouverne ou plein)`;
+      progres(`⛔ ${message}`);
+      return { behavior: 'deny', message };
+    }
+    // Réquisition dans la Chambre : le CLI reste suspendu sur SA décision —
+    // l'échéance effective (min du TTL de la Reine et du budget restant du
+    // run) garantit une réponse avant la mort du CLI, et le filet local
+    // couvre un hub devenu muet.
+    progres(`⏸ Décision demandée à la Chambre : ${libelle}`);
+    const detail = caviardeur
+      .texte(`${action.toolName} ${JSON.stringify(action.input)}`)
+      .slice(0, LIMITS.requisitionDetail);
+    const statut = await this.attendreDecisionAction(taskId, libelle, detail, signal, echeanceRun);
+    if (statut === 'accordee') {
+      progres(`▶ Action accordée depuis la Chambre : ${libelle}`);
+      return { behavior: 'allow', updatedInput: action.input };
+    }
+    // Chaque issue porte SON motif : une expiration décidée par la Reine
+    // n'est pas un hub injoignable, et un run à bout de budget n'est ni l'un
+    // ni l'autre — le journal doit dire lequel des trois est arrivé.
+    const motif =
+      statut === 'refusee'
+        ? 'réquisition refusée depuis la Chambre'
+        : statut === 'expiree'
+          ? 'réquisition expirée par la Reine — aucune décision humaine à l’échéance'
+          : statut === 'hors_delai'
+            ? 'décision impossible — budget du run CLI épuisé avant toute échéance de la Chambre'
+            : 'décision indisponible — hub injoignable (ou tâche annulée), aucune expiration décidée';
+    progres(`⛔ ${motif} : ${libelle}`);
+    return { behavior: 'deny', message: `${motif} : ${libelle}` };
+  }
+
+  /**
+   * Ouvre la réquisition d'ACTION et attend sa décision, tâche EN VOL. La
+   * corrélation passe par `requestId` (rendu tel quel dans l'ack) puis par
+   * l'identifiant du store (`requisition_result`). Ne lève jamais : toute
+   * panne de transport devient `indisponible`, que l'appelant lit en deny.
+   * `echeanceRun` borne tout : le budget transmis au hub (qui raccourcit son
+   * TTL) comme le filet local — une décision rendue après la mort du CLI ne
+   * sert personne.
+   */
+  private attendreDecisionAction(
+    taskId: string,
+    libelle: string,
+    detail: string,
+    signal: AbortSignal,
+    echeanceRun?: number,
+  ): Promise<'accordee' | 'refusee' | 'expiree' | 'indisponible' | 'hors_delai'> {
+    // Déjà annulée : l'écouteur `abort` ne tirerait plus — on n'ouvre rien.
+    if (signal.aborted || !this.nodeId || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return Promise.resolve('indisponible');
+    }
+    const budgetMs =
+      echeanceRun === undefined
+        ? null
+        : Math.floor(echeanceRun - Date.now() - MARGE_DECISION_ACTION_MS);
+    if (budgetMs !== null && budgetMs <= 0) {
+      // Action proposée trop tard dans le run : le CLI mourra avant toute
+      // décision — ouvrir une réquisition qu'aucune réponse ne peut plus
+      // atteindre fabriquerait une case morte dans la Chambre.
+      return Promise.resolve('hors_delai');
+    }
+    const requestId = randomUUID();
+    return new Promise((resolve) => {
+      let reqId: string | null = null;
+      let ackTimer: NodeJS.Timeout | null = null;
+      let decideTimer: NodeJS.Timeout | null = null;
+      let fini = false;
+      const finir = (
+        statut: 'accordee' | 'refusee' | 'expiree' | 'indisponible' | 'hors_delai',
+      ): void => {
+        if (fini) return;
+        fini = true;
+        this.pendingActionAcks.delete(requestId);
+        if (reqId) this.pendingActionDecisions.delete(reqId);
+        if (ackTimer) clearTimeout(ackTimer);
+        if (decideTimer) clearTimeout(decideTimer);
+        signal.removeEventListener('abort', onAbort);
+        resolve(statut);
+      };
+      // Tâche annulée pendant l'attente : la décision n'a plus de destinataire.
+      const onAbort = (): void => finir('indisponible');
+      signal.addEventListener('abort', onAbort, { once: true });
+      // L'accusé d'abord : sans lui, pas d'identifiant à attendre.
+      ackTimer = setTimeout(() => {
+        if (!reqId) finir('indisponible');
+      }, ACTION_ACK_TIMEOUT_MS);
+      ackTimer.unref?.();
+      this.pendingActionAcks.set(requestId, (id, expiresAt) => {
+        reqId = id;
+        if (ackTimer) clearTimeout(ackTimer);
+        this.pendingActionDecisions.set(id, finir);
+        // Filet local : l'échéance appartient à la Reine — l'ack la transmet
+        // et le filet s'y cale (plus la grâce de relais) ; sans elle (hub
+        // plus ancien), le plafond figé. Dans tous les cas, jamais au-delà du
+        // budget du run. Un filet qui tire, c'est un hub qui n'a PAS relayé
+        // son expiration : `indisponible`, pas `expiree`.
+        const filet =
+          expiresAt !== undefined
+            ? Math.max(0, expiresAt - Date.now()) + GRACE_RELAIS_ECHEANCE_MS
+            : ACTION_DECISION_MAX_MS;
+        // La borne budget garde la grâce de relais : la marge de trente
+        // secondes retranchée du budget la couvre — le filet reste donc
+        // toujours AVANT la mort du CLI, et toujours APRÈS l'échéance du hub.
+        decideTimer = setTimeout(
+          () => finir('indisponible'),
+          budgetMs === null ? filet : Math.min(filet, budgetMs + GRACE_RELAIS_ECHEANCE_MS),
+        );
+        decideTimer.unref?.();
+      });
+      this.send({
+        type: 'requisition_open',
+        genre: 'action',
+        libelle,
+        ...(detail ? { detail } : {}),
+        taskId,
+        requestId,
+        ...(budgetMs !== null ? { budgetMs } : {}),
+      });
     });
   }
 
@@ -1011,6 +1220,8 @@ export class HiveNodeClient {
           msg.delegationRootTaskId,
           msg.effort,
           msg.prolonger === true,
+          // Absent (hub plus ancien) : la lecture FERMÉE — comme `off`.
+          msg.autonomie ?? 'off',
         );
         break;
       case 'assign_merge':
@@ -1074,16 +1285,33 @@ export class HiveNodeClient {
         this.resolveDelegationResult({ ok: true, ...result });
         break;
       }
-      case 'requisition_ack':
+      case 'requisition_ack': {
         this.log(`réquisition ouverte (${msg.id.slice(0, 8)}…) — ${msg.genre} : ${msg.libelle}`);
+        if (msg.requestId) {
+          const attendue = this.pendingActionAcks.get(msg.requestId);
+          if (attendue) {
+            this.pendingActionAcks.delete(msg.requestId);
+            attendue(msg.id, msg.expiresAt);
+          }
+        }
         break;
-      case 'requisition_result':
+      }
+      case 'requisition_result': {
         this.log(`réquisition ${msg.id.slice(0, 8)}… : ${msg.statut}`);
+        // Une décision d'ACTION en vol (G12) se résout ici, tâche toujours en
+        // cours — jamais confondue avec la pause infra d'`attenteRequisition`.
+        const decision = this.pendingActionDecisions.get(msg.id);
+        if (decision) {
+          this.pendingActionDecisions.delete(msg.id);
+          decision(msg.statut);
+          break;
+        }
         if (this.attenteRequisition) {
           if (msg.statut === 'accordee') void this.reprendreApresRequisition();
           else void this.abandonnerApresRequisition(msg.statut);
         }
         break;
+      }
       default:
         break; // state/event : réservés au dashboard
     }
@@ -1315,6 +1543,7 @@ export class HiveNodeClient {
     delegationRootTaskId?: string,
     effort?: Effort,
     prolonger = false,
+    autonomie: NiveauAutonomie = 'off',
   ): Promise<void> {
     // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
     // fait pas confiance au hub (anti path-traversal si le hub était compromis).
@@ -1432,12 +1661,29 @@ export class HiveNodeClient {
       const taskForAgent = hiveContext
         ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }
         : task;
+      // La politique d'actions (G12) : les règles d'autorisation compilées
+      // depuis le commit de BASE — AVANT l'agent, qui ne peut donc pas les
+      // réécrire — et la capacité de décision reliée au niveau d'autonomie.
+      const permissionsAllow = await reglesAutorisationDeBase(
+        workspace.depot && workspace.baseSha
+          ? { depot: workspace.depot, baseSha: workspace.baseSha }
+          : null,
+      );
+      if (permissionsAllow.length > 0) {
+        this.send({
+          type: 'task_update',
+          taskId: task.id,
+          status: 'running',
+          log: `politique d'actions : ${permissionsAllow.length} règles compilées depuis la base (${autonomie})`,
+        });
+      }
       budgetTimer = this.startDelegationBudget(delegationBudget, ctrl, () => {
         budgetExceeded = true;
       });
       usageBefore = capturerExecutionUsage();
+      const cwdTache = workspace.cwd;
       const rawResult = await this.adapter.run(taskForAgent, {
-        cwd: workspace.cwd,
+        cwd: cwdTache,
         env: workspace.env,
         attempt: task.attempts + 1,
         signal: ctrl.signal,
@@ -1452,6 +1698,16 @@ export class HiveNodeClient {
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
         rendezVous: this.rendezVous,
+        ...(permissionsAllow.length > 0 ? { permissionsAllow } : {}),
+        decideAction: (action, echeanceRun) =>
+          this.deciderActionProposee(
+            task.id,
+            action,
+            cwdTache,
+            autonomie,
+            ctrl.signal,
+            echeanceRun,
+          ),
         onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
       });
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
@@ -1490,6 +1746,8 @@ export class HiveNodeClient {
             genre: req.genre,
             libelle: req.libelle,
             detail: req.detail,
+            autonomie,
+            permissionsAllow,
           };
           this.ouvrirRequisition(req.genre, req.libelle, req.detail, task.id);
           this.send({
@@ -1622,6 +1880,8 @@ export class HiveNodeClient {
       genre,
       libelle,
       detail,
+      autonomie,
+      permissionsAllow,
     } = attente;
 
     if (genre === 'binaire') {
@@ -1667,8 +1927,9 @@ export class HiveNodeClient {
         budgetExceeded = true;
       });
       usageBefore = capturerExecutionUsage();
+      const cwdTache = workspace.cwd;
       const rawResult = await this.adapter.run(taskForAgent, {
-        cwd: workspace.cwd,
+        cwd: cwdTache,
         env: workspace.env,
         attempt: task.attempts + 1,
         signal: ctrl.signal,
@@ -1680,6 +1941,17 @@ export class HiveNodeClient {
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
         rendezVous: this.rendezVous,
+        // La politique d'actions (G12) reprend telle qu'à l'assignation.
+        ...(permissionsAllow.length > 0 ? { permissionsAllow } : {}),
+        decideAction: (action, echeanceRun) =>
+          this.deciderActionProposee(
+            task.id,
+            action,
+            cwdTache,
+            autonomie,
+            ctrl.signal,
+            echeanceRun,
+          ),
         onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
       });
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
