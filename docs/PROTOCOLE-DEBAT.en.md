@@ -138,9 +138,18 @@ Gardiennes inspect it (`clean`, `suspect`, `hollow`).
 - **Anonymity:** the reviewer does not know WHO produced. Its instructions
   (`consigneDeCritique`) receive only the task title and the diff: neither
   the producer's family nor its model, nor its logs (where its CLI names
-  itself), not even "another model". Humans keep the family: the announcement
-  (`contre_expertise`), the verdict (`contre_expertise_verdict`) and the
-  Evaluator's evidence name producer and reviewer.
+  itself), not even "another model". Its context carries neither the
+  Cerveau's episodes (Hive writes the failure as the CLI states it, « codex :
+  échec — … » included), nor Hive Mind memories (they fall back on a
+  production's logs), nor the experience graph; it keeps the rules only a
+  human writes (invariants, lessons, decisions, maps). Humans keep the family:
+  the announcement (`contre_expertise`), the verdict
+  (`contre_expertise_verdict`) and the Evaluator's evidence name producer and
+  reviewer. What escapes Hive: the diff's content (a style, a signature
+  written in a file), the task title, a human rule that would name a family —
+  and inference: in a two-family hive the reviewer knows the other one
+  produced, all the more when Hive reviews itself, its `AGENTS.md` (served as
+  the repository's instructions) describing the cross-review.
 - **The verdict:** the reviewer answers `valide` or `conteste`, then one
   objection per line (`OBJECTIONS_MAX` at most, 300 characters each), in its
   **final answer** — never read from its logs —, and **ends** with a

@@ -12,15 +12,19 @@
 // L'invariant : RIEN de ce que la Reine envoie au relecteur — le message
 // `assign_task` ENTIER, consigne, contexte de la ruche, métadonnées de la
 // tâche — ne nomme la famille ni le modèle du producteur, pour chaque famille
-// connue, relecture de secours comprise. Ce que le nœud y ajoute (dossier
+// connue, relecture de secours comprise, et pour une production reprise après
+// un échec quand le Cerveau et le Hive Mind en parlent : Hive écrit l'échec
+// d'un CLI dans le corps d'un épisode (« codex : échec — … »), et un souvenir
+// retombe sur les logs d'une production. Ce que le nœud y ajoute (dossier
 // `tasks/<id de la relecture>`, branche `hive/<id>`, environnement épuré) ne
 // dérive que de ce message et de lui-même. Les HUMAINS, eux, gardent la
 // famille : l'annonce, le verdict et la preuve de l'Evaluator la nomment.
 //
 // Chaque cas échoue sur le train d'avant (b91637ff) : la consigne y nomme le
-// producteur, et ses logs y voyagent.
+// producteur, et ses logs y voyagent ; le dernier échoue sur 4633e2da : le
+// Cerveau sert l'épisode, le Hive Mind le souvenir.
 
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -63,8 +67,13 @@ afterEach(async () => {
   dir = null;
 });
 
-async function ruche(): Promise<HiveServer> {
+/** Une ruche ; `notes` : le dossier `cerveau` à côté de sa base, écrit à la main. */
+async function ruche(notes: Record<string, string> = {}): Promise<HiveServer> {
   dir = mkdtempSync(path.join(os.tmpdir(), 'hive-relecture-anonyme-'));
+  mkdirSync(path.join(dir, 'cerveau'));
+  for (const [nom, texte] of Object.entries(notes)) {
+    writeFileSync(path.join(dir, 'cerveau', nom), texte, 'utf8');
+  }
   server = await createServer({
     port: 0,
     host: '127.0.0.1',
@@ -199,6 +208,80 @@ describe('le relecteur ne sait pas qui a produit — les humains, si', () => {
     },
     30_000,
   );
+
+  it('UNE PRODUCTION REPRISE APRÈS UN ÉCHEC, Cerveau réel non vide : l’épisode que Hive a écrit de son échec ne parvient pas au relecteur — la règle humaine, si', async () => {
+    // Une règle écrite à la main : le relecteur la garde.
+    const srv = await ruche({
+      'temps-constant.md': [
+        '---',
+        'genre: invariant',
+        'titre: Jeton comparé en temps constant',
+        'regle: TOUJOURS-TEMPS-CONSTANT',
+        '---',
+        'Un jeton se compare avec timingSafeEqual.',
+        '',
+      ].join('\n'),
+    });
+    const producteur = await noeud(srv, 'producteur', 'codex');
+    const projet = srv.store.createProject({ name: 'P' });
+    const t = srv.store.createTask({ projectId: projet.id, title: 'Garde du jeton', prompt: 'p' });
+    srv.store.patchTask(t.id, { status: 'ready' });
+
+    // 1re tentative : l'échec tel que Hive l'écrit pour Codex (`flux-codex.ts`).
+    expect((await attendre(() => producteur.recues[0]))?.task?.id).toBe(t.id);
+    producteur.rendre(t.id, {
+      success: false,
+      logs:
+        "codex : échec — tour conclu sans que rien ne s'écrive (1 correctif(s) en échec, " +
+        "aucun appliqué, aucune commande réussie) : le bac de Codex n'a rien laissé faire",
+    });
+    const episode = await attendre(() => evenements(srv, 'cerveau_episode')[0]);
+    expect(episode, 'l’échec n’a pas été versé au Cerveau').toMatchObject({ agentType: 'codex' });
+    const corps = readdirSync(path.join(dir!, 'cerveau'))
+      .map((f) => readFileSync(path.join(dir!, 'cerveau', f), 'utf8'))
+      .join('\n');
+    expect(corps, 'le corps de l’épisode nomme bien la famille').toContain('codex : échec');
+
+    // 2e tentative, chez le même nœud — l'autre famille n'arrive qu'ensuite :
+    // elle réussit, et part en relecture chez l'autre famille.
+    expect((await attendre(() => producteur.recues[1]))?.task?.id).toBe(t.id);
+    const relecteur = await noeud(srv, 'relecteur', 'claude-code');
+    producteur.rendre(t.id, {
+      diff: 'diff --git a/src/auth.ts b/src/auth.ts\n+  if (jeton === undefined) return false;',
+      logs: 'ok',
+    });
+    const relecture = await relectureRecue(relecteur);
+    aveugle(relecture, 'codex');
+    expect(
+      JSON.stringify(relecture),
+      'la règle du projet, écrite par un humain, parvient toujours au relecteur',
+    ).toContain('TOUJOURS-TEMPS-CONSTANT');
+  }, 30_000);
+
+  it('UN SOUVENIR retombé sur les logs d’une production (narration, modèle) ne parvient pas au relecteur', async () => {
+    const srv = await ruche();
+    const producteur = await noeud(srv, 'producteur', 'codex');
+    const relecteur = await noeud(srv, 'relecteur', 'claude-code');
+    const projet = srv.store.createProject({ name: 'P' });
+    // Retenu, au même titre : sans texte final déclaré, `proposerSouvenir`
+    // retombe sur les logs — la narration « ┊ codex : », la ligne `init`.
+    srv.store.recordMemory({
+      projectId: projet.id,
+      taskId: 'tache-passee',
+      title: 'Garde du jeton',
+      content: `p — ┊ codex : tour terminé — modèle ${MODELE}`,
+    });
+    const t = srv.store.createTask({ projectId: projet.id, title: 'Garde du jeton', prompt: 'p' });
+    srv.store.patchTask(t.id, { status: 'ready' });
+    expect((await attendre(() => producteur.recues[0]))?.task?.id).toBe(t.id);
+    // Le même souvenir parvient à une production : le canal est réel.
+    expect(JSON.stringify(producteur.recues[0])).toContain(MODELE);
+    producteur.rendre(t.id, {
+      diff: 'diff --git a/src/auth.ts b/src/auth.ts\n+  if (jeton === undefined) return false;',
+      logs: 'ok',
+    });
+    aveugle(await relectureRecue(relecteur), 'codex');
+  }, 30_000);
 
   it('LA RELECTURE DE SECOURS, recomposée depuis le résultat rangé, est aveugle elle aussi', async () => {
     const srv = await ruche();

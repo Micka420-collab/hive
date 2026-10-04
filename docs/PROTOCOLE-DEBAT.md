@@ -142,9 +142,19 @@ Gardiennes l'inspectent (`clean`, `suspect`, `hollow`).
 - **L'anonymat :** le relecteur ne sait pas QUI a produit. Sa consigne
   (`consigneDeCritique`) ne reçoit que le titre de la tâche et le diff : ni la
   famille ni le modèle du producteur, ni ses logs (où son CLI se nomme), pas
-  même « un autre modèle ». Les humains, eux, gardent la famille : l'annonce
-  (`contre_expertise`), le verdict (`contre_expertise_verdict`) et la preuve de
-  l'Evaluator nomment producteur et relecteur.
+  même « un autre modèle ». Son contexte ne porte ni les épisodes du Cerveau
+  (Hive y écrit l'échec tel que le CLI le dit, « codex : échec — … » compris),
+  ni les souvenirs du Hive Mind (ils retombent sur les logs d'une production),
+  ni le graphe d'expérience ; il garde les règles que seul un humain écrit
+  (invariants, leçons, décisions, cartes). Les humains, eux, gardent la
+  famille : l'annonce (`contre_expertise`), le verdict
+  (`contre_expertise_verdict`) et la preuve de l'Evaluator nomment producteur
+  et relecteur. Ce qui échappe à Hive : le contenu du diff (un style, une
+  signature écrite dans un fichier), le titre de la tâche, une règle humaine
+  qui nommerait une famille — et la déduction : dans une ruche de deux
+  familles, le relecteur sait que l'autre a produit, a fortiori quand Hive se
+  relit lui-même, son `AGENTS.md` (servi comme consignes du dépôt) décrivant la
+  relecture croisée.
 - **Le verdict :** le relecteur répond `valide` ou `conteste`, puis une
   objection par ligne (`OBJECTIONS_MAX` au plus, 300 caractères chacune), dans
   sa **réponse finale** — jamais lue dans ses logs —, et **termine** par une
