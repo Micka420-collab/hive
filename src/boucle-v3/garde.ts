@@ -146,9 +146,21 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   {
     categorie: 'securite',
     motif:
-      /^tests\/(security-invariants|engagement-projet|suppression-projet|mission-rejouable|missions-rejouables-[^/]+|connecteurs-[^/]+|shadow-bench|banc-ombre-ruche|configuration-inerte[^/]*|join-porte|retention-journal|livraison-locale[^/]*)\.test\.tsx?$/,
+      /^tests\/(security-invariants|engagement-projet|suppression-projet|mission-rejouable|missions-rejouables-[^/]+|connecteurs-[^/]+|shadow-bench|banc-ombre-ruche|configuration-inerte[^/]*|join-porte|retention-journal|livraison-locale[^/]*|porte-securite[^/]*)\.test\.tsx?$/,
     pourquoi:
-      'les bancs qui verrouillent les gardes (routes, effacement, rejeux, connecteurs, banc d’ombre, configuration inerte, adhésion, rétention, poussée) : les affaiblir retire le garde-fou',
+      'les bancs qui verrouillent les gardes (routes, effacement, rejeux, connecteurs, banc d’ombre, configuration inerte, adhésion, rétention, poussée, porte de sécurité) : les affaiblir retire le garde-fou',
+  },
+  {
+    categorie: 'securite',
+    motif: /^src\/(shared|node-client)\/porte-securite[^/]*\.ts$/,
+    pourquoi:
+      'la porte de sécurité : les secrets et les dépendances vulnérables qu’une production AJOUTE, jugés avant la livraison et caviardés au nœud, et ce qui en part à osv.dev — l’affaiblir laisserait partir une clé ou un paquet privé, ou la compterait verte sans outil',
+  },
+  {
+    categorie: 'securite',
+    motif: /^tests\/fixtures\/(faux-outils-porte|verrous-porte)\.ts$/,
+    pourquoi:
+      'les faux outils de la porte de sécurité et les lockfiles mesurés sur les vrais : un faux plus complaisant que l’outil réel (sans préfiltre, sans confiance, sans échec global sur un lockfile cassé) rendrait verts des bancs que les vrais outils feraient rougir',
   },
   {
     categorie: 'securite',

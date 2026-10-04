@@ -164,6 +164,19 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['tests/join-porte.test.ts', 'securite'],
     ['tests/retention-journal.test.ts', 'securite'],
     ['tests/livraison-locale.test.ts', 'securite'],
+    // La porte de sécurité (G10) et ses bancs : l'affaiblir laisserait partir
+    // une clé, ou compterait verte une porte qu'aucun outil n'a passée.
+    ['src/shared/porte-securite.ts', 'securite'],
+    ['src/node-client/porte-securite.ts', 'securite'],
+    ['src/shared/porte-securite-dependances.ts', 'securite'],
+    ['tests/porte-securite.test.ts', 'securite'],
+    ['tests/porte-securite-noeud.test.ts', 'securite'],
+    ['tests/porte-securite-bout-en-bout.test.ts', 'securite'],
+    ['tests/porte-securite-dependances.test.ts', 'securite'],
+    // Les faux outils et les lockfiles mesurés : un faux complaisant ferait
+    // passer les bancs ci-dessus pour de mauvaises raisons.
+    ['tests/fixtures/faux-outils-porte.ts', 'securite'],
+    ['tests/fixtures/verrous-porte.ts', 'securite'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');

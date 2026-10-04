@@ -148,8 +148,10 @@ export function valeursSecretes(env: Readonly<Record<string, string | undefined>
  *   · ligne par ligne, pour une valeur sur plusieurs lignes — les morceaux en
  *     direct se coupent ENTRE les lignes, une clé PEM peut donc chevaucher
  *     deux morceaux (les lignes trop courtes tombent sous `VALEUR_SECRETE_MIN`).
+ *     Et `Caviardeur.diff` réécrit les lignes AJOUTÉES une à une : une clé PEM
+ *     que la porte de sécurité a trouvée n'y est caviardée que par ses lignes.
  */
-function formesDuSecret(valeur: string): string[] {
+export function formesDuSecret(valeur: string): string[] {
   const echappee = JSON.stringify(valeur).slice(1, -1);
   const lignes = valeur.includes('\n') ? valeur.split(/\r?\n/).map((l) => l.trim()) : [];
   return [...new Set([valeur, echappee, ...lignes])];
@@ -207,7 +209,11 @@ export function creerCaviardeur(valeurs: readonly string[]): Caviardeur {
     texte: (s) => bords(s).replace(SECRET_DANS_TEXTE, SECRET_CAVIARDE),
     reponse: (s) => bords(s).replace(JETONS_REELS, SECRET_CAVIARDE),
     code,
-    diff: (s) => lignesAjoutees(s, code),
+    diff: (s) => {
+      const lignes = s.split('\n');
+      for (const { rang, texte } of lireDiff(s).ajoutees) lignes[rang] = '+' + code(texte);
+      return lignes.join('\n');
+    },
   };
 }
 
@@ -269,41 +275,127 @@ function finMasquee(morceau: string, secrets: readonly string[]): string {
   return morceau;
 }
 
-const EN_TETE_DE_HUNK = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/;
+const EN_TETE_DE_HUNK = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/;
+
+/** Un fichier d'un diff unifié, tel que ses en-têtes `---`/`+++` le nomment ; `null` : /dev/null. */
+export interface FichierDuDiff {
+  readonly avant: string | null;
+  readonly apres: string | null;
+}
+
+/** Une ligne AJOUTÉE : où elle est dans le diff, et où elle sera dans le fichier. */
+export interface LigneAjoutee {
+  /** Son rang dans `diff.split('\n')` — de quoi la réécrire en place. */
+  readonly rang: number;
+  /** Le fichier d'après (`+++ b/…`) ; `null` pour un hunk sans en-tête lisible. */
+  readonly fichier: string | null;
+  /** Son numéro dans le fichier d'après, en base 1. */
+  readonly numero: number;
+  /** Son texte, sans le `+`. */
+  readonly texte: string;
+}
 
 /**
- * Applique `f` aux lignes AJOUTÉES des hunks d'un diff unifié, et à rien
- * d'autre. Les hunks sont suivis par leurs COMPTES (`@@ -a,n +b,m @@`), pas
- * par le premier caractère : dans un hunk, `--- x` est une ligne retirée
- * (« -- x ») et `+++ y` une ligne ajoutée (« ++ y ») ; hors hunk, ce sont les
- * en-têtes de fichier, qu'il ne faut pas toucher.
+ * Les fichiers d'un diff unifié et ses lignes AJOUTÉES — le seul lecteur de
+ * ce que le diff apporte au dépôt.
+ *
+ * DEUX LECTEURS, UNE SEULE NOTION DE « LIGNE AJOUTÉE » : `Caviardeur.diff` y
+ * réécrit les jetons, et la porte de sécurité du nœud (`porte-securite.ts`)
+ * y cherche les secrets. Deux parcours séparés finiraient par ne plus voir
+ * les mêmes lignes — et la porte jugerait un autre diff que celui qui part.
+ *
+ * Les hunks sont suivis par leurs COMPTES (`@@ -a,n +b,m @@`), pas par le
+ * premier caractère : dans un hunk, `--- x` est une ligne retirée (« -- x »)
+ * et `+++ y` une ligne ajoutée (« ++ y ») ; hors hunk, ce sont les en-têtes
+ * de fichier, qui ne sont jamais des lignes ajoutées.
  */
-function lignesAjoutees(diff: string, f: (ligne: string) => string): string {
+export function lireDiff(diff: string): {
+  fichiers: FichierDuDiff[];
+  ajoutees: LigneAjoutee[];
+} {
+  const fichiers: FichierDuDiff[] = [];
+  const ajoutees: LigneAjoutee[] = [];
   let ancien = 0;
   let nouveau = 0;
-  return diff
-    .split('\n')
-    .map((ligne) => {
-      if (ancien <= 0 && nouveau <= 0) {
+  let numero = 0;
+  let avant: string | null = null;
+  let fichier: string | null = null;
+  diff.split('\n').forEach((ligne, rang) => {
+    if (ancien <= 0 && nouveau <= 0) {
+      if (ligne.startsWith('diff --git ')) fichier = null;
+      else if (ligne.startsWith('--- ')) avant = cheminDEnTete(ligne.slice(4));
+      else if (ligne.startsWith('+++ ')) {
+        fichier = cheminDEnTete(ligne.slice(4));
+        fichiers.push({ avant, apres: fichier });
+        avant = null;
+      } else {
         const hunk = EN_TETE_DE_HUNK.exec(ligne);
         if (hunk) {
           ancien = hunk[1] === undefined ? 1 : Number(hunk[1]);
-          nouveau = hunk[2] === undefined ? 1 : Number(hunk[2]);
+          numero = Number(hunk[2]);
+          nouveau = hunk[3] === undefined ? 1 : Number(hunk[3]);
         }
-        return ligne;
       }
-      const tete = ligne[0];
-      if (tete === '+') {
-        nouveau--;
-        return '+' + f(ligne.slice(1));
+      return;
+    }
+    const tete = ligne[0];
+    if (tete === '+') {
+      nouveau--;
+      ajoutees.push({ rang, fichier, numero: numero++, texte: ligne.slice(1) });
+    } else if (tete === '-') ancien--;
+    else if (tete === ' ' || ligne === '') {
+      ancien--;
+      nouveau--;
+      numero++;
+    }
+    // `\ No newline at end of file` : ne compte pour aucun côté.
+  });
+  return { fichiers, ajoutees };
+}
+
+/** Échappements C de git dans un chemin cité (`core.quotePath`). */
+const ECHAPPEMENTS_GIT: Readonly<Record<string, number>> = {
+  a: 7,
+  b: 8,
+  t: 9,
+  n: 10,
+  v: 11,
+  f: 12,
+  r: 13,
+  '"': 34,
+  '\\': 92,
+};
+
+/**
+ * Le chemin d'un en-tête `--- a/x` ou `+++ b/x`, sans préfixe ; `null` pour
+ * /dev/null. git CITE un chemin qui porte un accent, une tabulation ou un
+ * guillemet (`"b/r\303\251sum\303\251.md"`) : les octets échappés sont
+ * rendus, sans quoi un dossier accentué ne serait jamais retrouvé sur disque.
+ * Et il suffixe d'une tabulation un chemin qui porte une espace (mesuré).
+ */
+function cheminDEnTete(brut: string): string | null {
+  let chemin = brut.split('\t')[0] ?? '';
+  if (chemin.length >= 2 && chemin.startsWith('"') && chemin.endsWith('"')) {
+    const corps = chemin.slice(1, -1);
+    const octets: number[] = [];
+    const encodeur = new TextEncoder();
+    for (let i = 0; i < corps.length; i++) {
+      const c = corps[i] ?? '';
+      if (c !== '\\') {
+        octets.push(...encodeur.encode(c));
+        continue;
       }
-      if (tete === '-') ancien--;
-      else if (tete === ' ' || ligne === '') {
-        ancien--;
-        nouveau--;
+      const octal = /^[0-7]{3}/.exec(corps.slice(i + 1));
+      if (octal) {
+        octets.push(parseInt(octal[0], 8));
+        i += 3;
+      } else {
+        const suite = corps[i + 1] ?? '';
+        octets.push(ECHAPPEMENTS_GIT[suite] ?? suite.charCodeAt(0));
+        i += 1;
       }
-      // `\ No newline at end of file` : ne compte pour aucun côté.
-      return ligne;
-    })
-    .join('\n');
+    }
+    chemin = new TextDecoder().decode(new Uint8Array(octets));
+  }
+  return chemin === '/dev/null' ? null : chemin.replace(/^[ab]\//, '');
 }

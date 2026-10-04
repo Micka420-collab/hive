@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024.18-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-8336%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-8492%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -269,6 +269,59 @@ keeps the first engine whose preflight passes (image present, agent runnable)
 and says why the others were skipped. Every container carries its node's label:
 restarted after a hard stop, the node removes the ones it left behind.
 
+**The security gate.** On every result that carries a diff — successful or
+failed — the node passes what the production **adds** to two pinned tools,
+invoked and never linked.
+
+- **Secrets**: Betterleaks (MIT), on the diff's added lines only, with its
+  **high**-confidence rules (`--confidence high`: the generic rules read
+  healthy code as passwords) and without its prefilter (a lockfile, an `.svg`,
+  a `go.sum` are read). It runs nothing of the production. The value,
+  redacted by the tool (`--redact`), is re-read by the node and replaced with
+  `[secret]` in the diff, the logs and the final text — only in a token form
+  (16 characters or more, no whitespace): the gate never rewrites a line on
+  the sole faith of a finding.
+- **Dependencies**: osv-scanner (Apache-2.0), for a successful production that
+  touches a dependency file it reads (npm, PyPI, Cargo, Go, NuGet, Maven and
+  Gradle, RubyGems, Composer, Pub, Hex, CRAN, Conan lockfiles…). Each file is
+  read offline, one at a time; only vulnerabilities **introduced** relative to
+  the base count; a lockfile the production leaves unreadable is a finding.
+- **What leaves for `api.osv.dev`** — the gate's only connection: the ecosystem,
+  name and version of the packages the production **introduces** whose
+  lockfile names a known public source (registry.npmjs.org, PyPI, crates.io,
+  rubygems.org, packagist.org, pub.dev, hex.pm, CRAN), and the base versions of
+  those same packages. Never a commit, a path, a package from a private
+  registry the lockfile names, nor an unchanged package. `pnpm-lock.yaml`,
+  `bun.lock` and `yarn.lock` (berry) do not name their registry: nothing
+  leaves from them. **Limit**: `go.mod`, NuGet, Maven and Conan do not name
+  theirs either — a private package there is indistinguishable from a public
+  one, and its name leaves. Introduced packages that do not leave are never
+  counted green: the verdict says how many. Behind an outbound proxy,
+  `HTTPS_PROXY` and `NO_PROXY` are passed to that query only; `hive doctor`
+  checks that api.osv.dev is reachable, sending nothing.
+- **The verdict**: a finding, and the Evaluator asks for a correction — a
+  verdict that blocks delivery — citing the rule and the line, or the advisory
+  and its CVE, never the value. Not verified (tool missing, osv.dev
+  unreachable…), the gate is **never counted green** and its reason is said.
+  Under `strict` polyethism it turns the production from `accepted` into
+  `human_review_required`, and that is all: delivery already required a human
+  approval, which this verdict does not block. What changes: the Evaluator no
+  longer accepts on its own (no memory kept in the Hive Mind without a human,
+  no production "judged" in the workers' quality), and the approving human
+  reads why.
+- **Limit, said**: the agent's LIVE output goes to the dashboards while it
+  works, before the gate. With Claude Code, the content of a file the agent
+  writes (Write or Edit tools) is in that stream: a key Hive does not
+  recognize by its format (`ghp_…`, `sk-…`…) or by its value (a credential
+  passed to the agent) is relayed as is. The gate protects what is stored —
+  diff, logs, final text — not that ephemeral stream. Named follow-up: redact
+  the live stream with Betterleaks' rules.
+
+The sandbox image pins betterleaks 1.9.0 and osv-scanner 2.6.0 by version and
+SHA-256; under bubblewrap or without a sandbox they are the host's, resolved to
+their absolute path (a relative PATH entry is never read), and `hive doctor`
+says what the gate will find.
+
 Inside the sandbox the agent gets an ephemeral HOME: a `claude login` or
 `codex login` session does not reach it. Hive forwards the headless credentials
 **by name** — `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) or
@@ -314,7 +367,7 @@ task is refused before the agent runs, with the reason.
 | `npm run demo`                                  | Full demo (orchestrator + 2 nodes + project)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `npm run dev`                                   | Orchestrator only                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `npm run node`                                  | A member node                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `npm run cli -- doctor`                         | **The doctor** — 14 failure causes, each with the fixing command                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `npm run cli -- doctor`                         | **The doctor** — 15 failure causes, each with the fixing command                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `npm run preuve:v2-alpha -- --racine . --oui`   | **The V2 Alpha proof** — one real mission handed to a real agent, judged criterion by criterion once settled (review returned, no Evaluator retry pending); `--workers 3` requires the swarm (3 Workers from 2 families, one of them Claude Code or Codex, the only adapters that can delegate; independent tasks in parallel, a delegation whose child a real agent returns (it may run on its parent's own Worker: the Queen cannot pin it), cross-family review) and reports the retry after an objection and the Evaluator without requiring them; `--exige-bac` requires a container sandbox on every node that ran the mission, delegated children and reviews included; `--depot <url>` (an https GitHub repo, and `HIVE_GITHUB_TOKEN` on the Queen, both checked before spending) delivers every production as a PR, delegated children included (nothing is created without `--oui`: it spends the agents' credits) |
 | `npm run boucle:v3 -- --racine . --mission "…"` | **The Hive → Hive loop (V3)** — Hive gives itself a mission on its own repository: architecture, an implementation reviewed by another family, the sensitive-change gate, QA of that exact production, then a PR (never main) carrying its risk report; a production touching security, permissions, secrets, deployment, billing, self-execution or the gate itself — or that no other family reviewed — stops BEFORE QA (exit 75) until a human approves it in the Miellerie with an owner or administrator account (the hive token does not approve), then `--reprendre <project>`; never merges, nothing is created without `--oui`                                                                                                                                                                                                                                                                                      |
 | `npm run cli -- livrer-local <project>`         | **Deliver without GitHub** — the mission committed to `hive/mission-<project>-<n>` (`--pousser` pushes it)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
