@@ -246,6 +246,15 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['tests/assignation-illisible.test.ts', 'securite'],
     ['tests/porte-securite-faux-outils.test.ts', 'securite'],
     ['tests/porte-securite-reseau.test.ts', 'securite'],
+    // G15 — l'avis du relecteur : la grille et le schéma qui décident de ce
+    // qu'un verdict accepte, l'anonymat de la relecture, leurs bancs et les
+    // sorties de CLI enregistrées qu'ils rejouent.
+    ['src/shared/critique-structuree.ts', 'permissions'],
+    ['tests/critique-structuree.test.ts', 'permissions'],
+    ['tests/contre-expertise.test.ts', 'permissions'],
+    ['tests/avis-structure.test.ts', 'permissions'],
+    ['tests/relecture-anonyme.test.ts', 'permissions'],
+    ['tests/fixtures/avis-structure/claude-relecture.stream.jsonl', 'permissions'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');
