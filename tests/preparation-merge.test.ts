@@ -171,6 +171,22 @@ describe('la préparation dans un vrai merge', () => {
     expect(res.logs).toMatch(/n’est PAS/);
   }, 60_000);
 
+  it('des tests ARRÊTÉS au délai disent « interrompue », pas « échec (code null) »', async () => {
+    // Arrêtée, une commande n'a pas de code : le journal imprimait « ✘ échec
+    // (code null) », qu'on lit comme une suite rouge. Le refus de livrer reste
+    // le même — c'est le mot qui doit dire que personne ne l'a laissée finir.
+    const res = await runMerge({
+      repoDir,
+      diffs: [{ taskId: 't1', diff: patch }],
+      testCommand: ['node', '-e', 'setTimeout(() => {}, 60_000)'],
+      timeoutMs: 300,
+    });
+    expect(res.testsRun).toBe(true);
+    expect(res.testsPassed).toBe(false);
+    expect(res.logs).toMatch(/tests : ✘ interrompue \(délai dépassé\)/);
+    expect(res.logs).not.toMatch(/code null/);
+  }, 60_000);
+
   it('sans préparation demandée, rien ne change', async () => {
     const res = await runMerge({
       repoDir,

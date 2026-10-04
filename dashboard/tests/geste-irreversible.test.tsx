@@ -337,8 +337,93 @@ describe('CE QUE LA GARDE FAIT PENDANT QUE ÇA TRAVAILLE', () => {
   });
 });
 
+describe('LE NOM À RETAPER — le geste qui emporte tout', () => {
+  /** Tape dans le champ de la rangée armée, comme un clavier : React lit l'événement `input`. */
+  async function taper(texte: string): Promise<void> {
+    const champ = vue().querySelector('input');
+    expect(champ, 'la rangée armée doit porter un champ de saisie').toBeTruthy();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(
+        Object.getPrototypeOf(champ) as object,
+        'value',
+      )?.set;
+      setter?.call(champ, texte);
+      (champ as HTMLInputElement).dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  }
+  const confirmation = (): HTMLButtonElement =>
+    boutons().find((b) => b.textContent?.trim() === 'Supprimer') as HTMLButtonElement;
+
+  it('la confirmation reste INERTE tant que le nom n’est pas retapé À L’IDENTIQUE', async () => {
+    // Deux clics bien placés, la main les enchaîne sans que l'œil ait relu.
+    // Retaper le nom exige de l'avoir lu — et « presque le nom » (une casse,
+    // un espace) n'est pas le nom : une ligne voisine porte souvent un nom
+    // voisin.
+    let coups = 0;
+    await monter(
+      <GesteIrreversible
+        libelle="Supprimer…"
+        question="Supprimer « Site vitrine » ?"
+        confirmer="Supprimer"
+        saisie="Site vitrine"
+        onConfirmer={() => coups++}
+      />,
+    );
+    await cliquer('Supprimer…');
+    expect(confirmation().disabled, 'armé sans rien taper, la confirmation doit être inerte').toBe(
+      true,
+    );
+    for (const presque of ['site vitrine', 'Site vitrine ', 'Site vitrin']) {
+      await taper(presque);
+      expect(confirmation().disabled, `« ${presque} » a ouvert la confirmation`).toBe(true);
+    }
+    await taper('Site vitrine');
+    expect(confirmation().disabled).toBe(false);
+    await cliquer('Supprimer');
+    expect(coups).toBe(1);
+  });
+
+  it('ce qui a été tapé ne survit ni à l’annulation, ni à la confirmation', async () => {
+    // Un nom resté dans le champ réarmerait la suppression d'UN clic la fois
+    // suivante — exactement ce que la saisie existe pour empêcher.
+    let coups = 0;
+    await monter(
+      <GesteIrreversible
+        libelle="Supprimer…"
+        question="Supprimer « P » ?"
+        confirmer="Supprimer"
+        saisie="P"
+        onConfirmer={() => coups++}
+      />,
+    );
+    await cliquer('Supprimer…');
+    await taper('P');
+    await cliquer('Annuler');
+    await cliquer('Supprimer…');
+    expect(confirmation().disabled, 'l’annulation a gardé le nom tapé').toBe(true);
+    await taper('P');
+    await cliquer('Supprimer');
+    await cliquer('Supprimer…');
+    expect(confirmation().disabled, 'la confirmation a gardé le nom tapé').toBe(true);
+    expect(coups).toBe(1);
+  });
+
+  it('sans `saisie`, pas de champ : les autres gestes restent à deux clics', async () => {
+    await monter(
+      <GesteIrreversible
+        libelle="✕"
+        question="Retirer Léa du projet ?"
+        confirmer="Retirer"
+        onConfirmer={() => undefined}
+      />,
+    );
+    await cliquer('✕');
+    expect(vue().querySelector('input')).toBeNull();
+  });
+});
+
 describe('LES APPELANTS — ce que le composant ne peut pas garantir seul', () => {
-  // Ces trois-là sont des gardes de SOURCE, et elles le sont à dessein : le
+  // Ces bancs-là sont des gardes de SOURCE, et elles le sont à dessein : le
   // composant est juste, mais rien ne force un appelant à s'en servir. Le jour
   // où quelqu'un rebranche un `onClick` direct sur `retirerMembre`, la garde
   // disparaît sans qu'aucun test de rendu ne bouge.
@@ -348,13 +433,14 @@ describe('LES APPELANTS — ce que le composant ne peut pas garantir seul', () =
       .replace(/\/\*[\s\S]*?\*\//g, '')
       .replace(/^\s*(?:\/\/|\*).*$/gm, '');
 
-  it('les trois gestes irréversibles passent TOUS par la garde', async () => {
+  it('les quatre gestes irréversibles passent TOUS par la garde', async () => {
     const PROJETS = sansCommentaires('../src/views/Projets.tsx');
     const INTENDANCE = sansCommentaires('../src/views/Intendance.tsx');
 
     for (const [source, appel, ou] of [
       [PROJETS, 'retirerMembre(', 'Projets'],
       [PROJETS, 'revoquer(l.id)', 'Projets'],
+      [PROJETS, 'supprimerProjet(', 'Projets'],
       [INTENDANCE, 'revoquerNoeud(', 'Intendance'],
     ] as const) {
       const i = source.indexOf(appel);
@@ -375,6 +461,17 @@ describe('LES APPELANTS — ce que le composant ne peut pas garantir seul', () =
     expect(INTENDANCE.slice(Math.max(0, i - 400), i)).toMatch(/onClick=\{/);
   });
 
+  it('supprimer un projet exige de RETAPER son nom — le seul geste qui emporte tout', () => {
+    // Les trois autres coupent UNE chose ; celui-ci efface un projet entier.
+    // Sans `saisie`, il redeviendrait un geste à deux clics comme les autres.
+    const PROJETS = sansCommentaires('../src/views/Projets.tsx');
+    const geste = [...PROJETS.matchAll(/<GesteIrreversible[\s\S]{0,800}?\/>/g)].find((g) =>
+      g[0].includes('supprimerProjet('),
+    );
+    expect(geste, 'la suppression de projet ne passe par aucun geste gardé').toBeTruthy();
+    expect(geste?.[0]).toMatch(/saisie=\{nom\}/);
+  });
+
   it('la question de chaque appelant NOMME sa cible', () => {
     // Une question figée (« Êtes-vous sûr ? ») ne rattraperait pas une ligne
     // qui a glissé sous le curseur — c'est précisément ce contre quoi tout ce
@@ -382,7 +479,7 @@ describe('LES APPELANTS — ce que le composant ne peut pas garantir seul', () =
     const gestes = ['../src/views/Projets.tsx', '../src/views/Intendance.tsx'].flatMap((f) => [
       ...sansCommentaires(f).matchAll(/<GesteIrreversible[\s\S]{0,800}?\/>/g),
     ]);
-    expect(gestes.length, 'trois gestes gardés attendus').toBe(3);
+    expect(gestes.length, 'quatre gestes gardés attendus').toBe(4);
     for (const g of gestes) {
       expect(g[0], 'chaque geste doit poser une question').toMatch(/question=\{/);
       expect(g[0], 'la question doit interpoler le nom de sa cible').toMatch(/\$\{nom\}/);

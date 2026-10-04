@@ -42,10 +42,27 @@ import type { ViewProps } from '../dashboard/src/views/shared';
 import type { StateSnapshot, Task } from '../src/shared/types';
 import type { Memory } from '../dashboard/src/api';
 
-vi.mock('../dashboard/src/api', async (importOriginal) => ({
-  ...(await importOriginal<Record<string, unknown>>()),
-  fetchMemories: vi.fn(() => Promise.resolve({ total: 0, memories: [] })),
-}));
+vi.mock('../dashboard/src/api', async (importOriginal) => {
+  // La vue porte aussi le graphe d'expérience (son propre banc :
+  // graphe-experience-ecran.test.tsx). Ici il répond VIDE et sans réseau : ce
+  // banc éprouve Hive Mind, et une bande d'erreur venue du graphe se lirait
+  // comme la sienne.
+  const { compterExperience } = await import('../src/shared/graphe-experience');
+  const lecture = { evenements: 0, depuis: null, tronquee: false, notesSansDate: 0 };
+  return {
+    ...(await importOriginal<Record<string, unknown>>()),
+    fetchMemories: vi.fn(() => Promise.resolve({ total: 0, memories: [] })),
+    fetchExperience: vi.fn(() =>
+      Promise.resolve({
+        portee: 'projet',
+        reglage: 'projet',
+        lecture,
+        comptes: compterExperience({ noeuds: [], aretes: [], lecture }),
+        noeuds: [],
+      }),
+    ),
+  };
+});
 
 import { fetchMemories } from '../dashboard/src/api';
 import Memoire from '../dashboard/src/views/Memoire';

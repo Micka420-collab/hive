@@ -54,6 +54,9 @@ import Miellerie from '../dashboard/src/views/Miellerie';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+/** La clé du repli local des revues (dashboard/src/views/shared.tsx). */
+const REVIEW_KEY = 'hive.review';
+
 let racine: Root | null = null;
 let conteneur: HTMLElement | null = null;
 
@@ -315,6 +318,32 @@ describe('la Miellerie — les quatre survivantes du balayage', () => {
     expect(vi.mocked(runMerge)).toHaveBeenCalledWith('p1', { taskIds: undefined });
     expect(dom.textContent).toContain('Fusion en cours…');
     expect(dom.textContent, 'en coulant, l’attente se dit').toContain('Le nœud coule le miel');
+  });
+
+  it('UNE OMBRE DU BANC n’entre ni dans la file de revue, ni dans la coulée', async () => {
+    // L'instantané marque l'ombre (`Task.ombre`) ; le serveur refuse son id à
+    // `merge/run` (« tâche hors projet »). Dans la sélection, elle bloquait
+    // la coulée dès qu'une autre production était rejetée.
+    const ombre = {
+      ...tache('o-1', 'Ombre — La tâche à couler', 'p1', 3_000),
+      ombre: true as const,
+    };
+    localStorage.setItem(REVIEW_KEY, JSON.stringify({ 't-2': 'rejected' }));
+    const dom = await monter(
+      instantane(
+        [{ id: 'p1', name: 'Rucher' }],
+        [
+          tache('t-1', 'La tâche à couler', 'p1', 1_000),
+          tache('t-2', 'La tâche rejetée', 'p1', 2_000),
+          ombre,
+        ],
+      ),
+    );
+    expect(dom.textContent, 'l’ombre est dans la file de revue').not.toContain('Ombre —');
+    cliquer(bouton(dom, 'Couler le miel'));
+    cliquer(bouton(dom, 'Confirmer la coulée ?'));
+    await act(async () => {});
+    expect(vi.mocked(runMerge)).toHaveBeenCalledWith('p1', { taskIds: ['t-1'] });
   });
 });
 

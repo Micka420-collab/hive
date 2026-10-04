@@ -17,6 +17,7 @@ import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import { PAQUETS } from '../src/shared/connexion-agent.js';
 import { OUTILS } from '../src/shared/catalogue-outils.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-de-pose-assez-long-pour-passer';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -65,31 +66,18 @@ afterEach(async () => {
 const poser = (nodeId: string, outilId: string, h: Record<string, string> = adminHeaders) =>
   fetch(`${base}/api/nodes/${nodeId}/outils/${outilId}/poser`, { method: 'POST', headers: h });
 
-/** Inscrit un faux nœud et rend son socket, une fois l'accusé reçu. */
-function inscrire(nodeId: string): Promise<WebSocket> {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
-    ouverts.push(ws);
-    ws.on('open', () => {
-      ws.send(
-        JSON.stringify({
-          type: 'register',
-          token: TOKEN,
-          nodeId,
-          name: nodeId,
-          ownerName: 'testeur',
-          agentType: 'shell',
-          maxConcurrency: 1,
-        }),
-      );
-    });
-    ws.on('message', (d) => {
-      const m = JSON.parse(d.toString()) as { type: string };
-      if (m.type === 'registered') resolve(ws);
-    });
-    ws.on('close', (c) => reject(new Error(`socket fermé : ${String(c)}`)));
-    ws.on('error', reject);
+/** Inscrit un faux nœud (qui bat, `aide/faux-noeud`) et rend son socket, une fois l'accusé reçu. */
+async function inscrire(nodeId: string): Promise<WebSocket> {
+  const { ws } = await brancherFauxNoeud(server.port, {
+    token: TOKEN,
+    nodeId,
+    name: nodeId,
+    ownerName: 'testeur',
+    agentType: 'shell',
+    maxConcurrency: 1,
   });
+  ouverts.push(ws);
+  return ws;
 }
 
 describe('la route refuse avant de faire quoi que ce soit', () => {

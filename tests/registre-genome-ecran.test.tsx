@@ -36,6 +36,14 @@ afterEach(() => {
   conteneur = null;
 });
 
+/** Un banc d'ombre vide : ces cas-là ne parlent que des lignes de production. */
+const sansOmbre: Registre['ombre'] = {
+  provenance: 'shadow',
+  lignes: [],
+  comparaisons: [],
+  total: 0,
+};
+
 const faits = (over: Partial<FaitsGenome> = {}): FaitsGenome => ({
   affectations: 0,
   rendus: 0,
@@ -82,6 +90,7 @@ describe('registre Genome — écran', () => {
         },
       ],
       sansModele: faits(),
+      ombre: sansOmbre,
       fenetre: { evenements: 12, depuis: 1, tronquee: false },
     });
     const cellules = [...c.querySelectorAll('[data-testid="genome-ligne"] td')].map(
@@ -123,6 +132,7 @@ describe('registre Genome — écran', () => {
         },
       ],
       sansModele: faits(),
+      ombre: sansOmbre,
       fenetre: { evenements: 9, depuis: 1, tronquee: false },
     });
     const cellules = [...c.querySelectorAll('[data-testid="genome-ligne"] td')];
@@ -153,6 +163,7 @@ describe('registre Genome — écran', () => {
         },
       ],
       sansModele: faits(),
+      ombre: sansOmbre,
       fenetre: { evenements: 6, depuis: 1, tronquee: false },
     });
     const cellules = [...c.querySelectorAll('[data-testid="genome-ligne"] td')];
@@ -170,6 +181,7 @@ describe('registre Genome — écran', () => {
     const c = monter({
       lignes: [],
       sansModele: faits({ affectations: 4, rendus: 4 }),
+      ombre: sansOmbre,
       fenetre: { evenements: 5_000, depuis: 1, tronquee: true },
     });
 

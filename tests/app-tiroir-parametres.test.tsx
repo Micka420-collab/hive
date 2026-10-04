@@ -178,16 +178,22 @@ describe('le tiroir de navigation — un dialogue modal tant qu’il est ouvert'
     const dom = await monter();
     await cliquer(burger(dom));
     const cases = [...barre(dom).querySelectorAll<HTMLElement>('.mc-nav-cell')];
-    const derniere = cases.at(-1)!;
-    expect(derniere.getAttribute('data-vue'), 'Paramètres ferme la barre').toBe('parametres');
-    derniere.focus();
+    expect(cases.at(-1)?.getAttribute('data-vue'), 'Paramètres ferme les cases').toBe('parametres');
+    // Le dernier arrêt n'est pas une case : le compagnon habite la barre, sous
+    // les Paramètres, et son bouton (ses réglages) se tabule aussi.
+    const dernier = [...barre(dom).querySelectorAll<HTMLElement>('button')].at(-1)!;
+    expect(
+      dernier.closest('[data-testid="compagnon"]'),
+      'le compagnon ferme la barre',
+    ).toBeTruthy();
+    dernier.focus();
     await frapper({ key: 'Tab' });
-    expect(document.activeElement, 'Tab depuis la dernière case repart de la première').toBe(
+    expect(document.activeElement, 'Tab depuis le dernier arrêt repart de la première case').toBe(
       cases[0],
     );
     await frapper({ key: 'Tab', shiftKey: true });
-    expect(document.activeElement, 'Maj+Tab depuis la première repart de la dernière').toBe(
-      derniere,
+    expect(document.activeElement, 'Maj+Tab depuis la première case repart du dernier').toBe(
+      dernier,
     );
   });
 

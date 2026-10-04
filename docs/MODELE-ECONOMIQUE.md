@@ -223,6 +223,6 @@ Le compteur d'heures **côté hébergeur**, l'alignement Stripe → abonnement, 
 Ce qui reste **à toi**, pas au code :
 
 1. **Compte Stripe** — produits, webhook, clés. Hive n'encaisse rien tant qu'elles ne sont pas posées.
-2. **Domaine + VPS** — DNS vers tes serveurs, `Caddyfile.cloud` avec ton hostname.
+2. **Domaine + VPS** — DNS vers tes serveurs, `HIVE_DOMAIN` dans `.env` (le Caddyfile livré le lit).
 3. **Checkout depuis le tableau de bord** — aujourd'hui le client paie sur Stripe, le webhook active le plan.
 4. **Provisionnement automatique de machines** — le fournisseur livré est encore manuel (billet + instructions).

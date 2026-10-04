@@ -11,8 +11,9 @@ non-obvious caveats are captured below.
 
 ### Node version
 
-- Node **>=24** is required (`engines` field; `better-sqlite3` prebuilt binaries and
-  several APIs depend on it). The update script installs Node 24 via `nvm` and sets
+- Node **>=24.18.0** is required (`engines` field): older Node 24 releases ship
+  npm < 11.16, which ignores `allowScripts` and tries to compile `better-sqlite3`
+  (silently dropped without python3); several APIs also depend on Node 24. The update script installs Node 24 via `nvm` and sets
   it as the default, so fresh shells already resolve to it.
 - Gotcha: a system `node` at `/exec-daemon/node` (v22) sits early on `PATH`. It is
   shadowed by nvm's default only because `~/.bashrc` sources `nvm.sh`. If a shell

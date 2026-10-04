@@ -67,8 +67,8 @@ describe('l’origine d’une connexion WebSocket', () => {
    * Ouvre une socket avec (ou sans) `Origin` et rend ce qui arrive en premier.
    *
    * `'ouverte'` n'est PAS l'absence de refus : le refus arrive lui aussi après
-   * la poignée de main, sous forme de fermeture. Il faut donc laisser au
-   * serveur le temps de refuser, sinon ce banc rendrait « ouverte » pour tout.
+   * la poignée de main, sous forme de fermeture. « Ouverte » attend donc la
+   * réponse à un ping, sinon ce banc rendrait « ouverte » pour tout.
    */
   const ouvrir = (origin: string | null): Promise<'ouverte' | number> =>
     new Promise((resolve, reject) => {
@@ -85,8 +85,13 @@ describe('l’origine d’une connexion WebSocket', () => {
         resolve(v);
         ws.close();
       };
-      // Laisser 300 ms au refus : il vient APRÈS l'ouverture.
-      ws.on('open', () => setTimeout(() => fini('ouverte'), 300));
+      // Le refus vient APRÈS l'ouverture : « ouverte » se PROUVE par un
+      // aller-retour. La Reine écrit sa trame de fermeture dès la connexion,
+      // avant de lire notre ping : si elle refuse, la fermeture arrive
+      // d'abord — quelle que soit la charge. (Un délai fixe de 300 ms rendait
+      // « ouverte » sous une suite chargée, couverture comprise.)
+      ws.on('open', () => ws.ping());
+      ws.on('pong', () => fini('ouverte'));
       ws.on('close', (code) => fini(code));
       ws.on('error', () => {
         /* une fermeture suit */

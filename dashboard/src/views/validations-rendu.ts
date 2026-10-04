@@ -10,11 +10,12 @@
 // pas un vert de la CI, et le relecteur doit pouvoir le savoir d'un coup d'œil.
 //
 // La Reine range des FAITS TYPÉS (état, raison, script, code, durée), jamais
-// des phrases : ce module les dit dans la langue de l'écran. Pur, et sans autre
-// dépendance que les types — rien ne le tire vers le DOM.
+// des phrases : ce module les dit dans la langue de l'écran. Pur : du module
+// partagé, il ne tire que des types et les mots des pannes (`DIRE_PANNE`, que
+// l'Evaluator dit aussi) — rien ne le tire vers le DOM.
 
 import type { ValidationProvenance } from '../../../src/orchestrator/evaluator';
-import type { DetailControle } from '../../../src/shared/validations-bac';
+import { DIRE_PANNE, type DetailControle } from '../../../src/shared/validations-bac';
 import { formatDuree } from '../ui';
 
 /** Traduire, tel que `useT` le rend : `t(fr, en)`. */
@@ -121,6 +122,21 @@ export function texteControle(detail: DetailControle, t: Traduire): string {
         `${commande} → ${code} : un outil du script est introuvable dans le bac, verdict inconnu — outil que ce bac n’a pas, ou dépendance que la production a retirée`,
         `${commande} → ${code}: a tool the script needs is missing from the sandbox, verdict unknown — a tool this sandbox lacks, or a dependency the production removed`,
       );
+    case 'environnement': {
+      // `controleDepuis` exige la panne avec cette raison : l'absence n'est
+      // que le repli du typage, dit sans remède plutôt qu'avec un faux.
+      if (!detail.panne) {
+        return t(
+          `${commande} → ${code} : le bac est tombé en panne pendant l’exécution, verdict inconnu`,
+          `${commande} → ${code}: the sandbox failed while it ran, verdict unknown`,
+        );
+      }
+      const { nom, remede } = DIRE_PANNE[detail.panne];
+      return t(
+        `${commande} → ${code} : le bac est tombé en panne pendant l’exécution (${nom[0]}), verdict inconnu — ${remede[0]}`,
+        `${commande} → ${code}: the sandbox failed while it ran (${nom[1]}), verdict unknown — ${remede[1]}`,
+      );
+    }
     case 'interrompue':
       return t(
         'les validations ont été interrompues par une erreur du nœud',

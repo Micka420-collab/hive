@@ -1,9 +1,16 @@
 # Hive Cloud — TLS devant la Queen.
 #
-# Remplace hive.example.com par TON domaine, et pointe le DNS vers ce serveur.
-# Caddy obtient le certificat Let's Encrypt tout seul.
+# Le domaine n'est PAS écrit ici : c'est `HIVE_DOMAIN`, dans `.env`, que
+# `docker-compose.cloud.yml` passe à Caddy (et refuse de démarrer sans). Ce
+# fichier reste donc tel que le dépôt le livre, et `git pull` le met à jour sans
+# conflit. Pointez le DNS de ce domaine vers le serveur : Caddy obtient le
+# certificat Let's Encrypt tout seul.
+#
+# Un nom local (`localhost`, `*.localhost`, `*.internal`, une IP privée) reçoit
+# à la place un certificat de l'autorité interne de Caddy — c'est ce que la CI
+# exerce, sur ce fichier-ci et pas sur une copie.
 
-hive.example.com {
+{$HIVE_DOMAIN} {
 	encode gzip
 	reverse_proxy ruche:7777
 }

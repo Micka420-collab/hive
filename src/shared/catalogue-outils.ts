@@ -102,8 +102,9 @@ function executant(over: Partial<Capacites> = {}): Capacites {
     productionReelle: true,
     sousAgents: false,
     presences: false,
-    // `runCommand` (adapters/exec.ts) transmet `signal: ctx.signal` à `spawn` :
-    // tout adaptateur qui passe par lui honore l'annulation. Mesuré, pas supposé.
+    // `runCommand` (adapters/exec.ts) arrête l'ARBRE de l'agent sur `ctx.signal`
+    // (`lancerArbre`) : tout adaptateur qui passe par lui honore l'annulation,
+    // descendance comprise. Mesuré, pas supposé (`tests/arbre-processus.test.ts`).
     annulation: true,
     modeleChoisi: false,
     ...over,

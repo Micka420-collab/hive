@@ -9,6 +9,7 @@ import { Scheduler } from '../src/orchestrator/scheduler.js';
 import { HiveStore } from '../src/orchestrator/store.js';
 import type { NodeProfile } from '../src/orchestrator/store.js';
 import type { Task, TaskResult } from '../src/shared/types.js';
+import type { Effort } from '../src/shared/effort.js';
 
 function profile(name: string, agentType = 'shell'): NodeProfile {
   return { name, ownerName: 'test', agentType, maxConcurrency: 2 };
@@ -129,6 +130,94 @@ describe('Drone Wars : câblage scheduler', () => {
     const [course] = scheduler.listRaces();
     expect(course?.modeleParDrone, 'des modèles déclarés doivent apparaître').toBeDefined();
     expect(Object.keys(course?.modeleParDrone ?? {}).sort()).toEqual([...started.drones].sort());
+  });
+
+  /**
+   * Deux drones Claude Code : n0 déclare `low` et `high`, n1 seulement `low`.
+   * Le vécu (genre « autre », celui de la tâche) fait élire `high` quand il est
+   * offert — huit « appliquer » — et condamne le défaut du CLI — huit
+   * « refaire » : n1, sans `high`, part donc à `low`. Chaque drone a SON bras.
+   */
+  function courseAEfforts(): {
+    task: Task;
+    envoyes: Record<string, string | undefined>;
+    s: Scheduler;
+    drones: string[];
+  } {
+    const { task, nodes } = setup(2, ['claude-code', 'claude-code']);
+    const efforts: Effort[][] = [['low', 'high'], ['low']];
+    nodes.forEach((id, i) => {
+      const n = store.getNode(id)!;
+      store.registerNode({
+        nodeId: id,
+        name: n.name,
+        ownerName: n.ownerName,
+        agentType: n.agentType,
+        maxConcurrency: n.maxConcurrency,
+        modeles: ['opus'],
+        efforts: efforts[i],
+      });
+    });
+    const p = store.createProject({ name: 'vecu' });
+    const juger = (effort: Effort | null, suite: 'appliquer' | 'refaire', i: number): void => {
+      const t = store.createTask({ projectId: p.id, title: 'critique', prompt: 'x' }).id;
+      store.poserModeleAiguillage(t, 'opus', 1_000 + i, { harness: 'claude-code', effort });
+      store.enregistrerContreVisite({
+        productionTaskId: t,
+        suite,
+        raison: '',
+        visiteurNodeId: 'v',
+        visiteurAgent: 'codex',
+        now: 2_000 + i,
+      });
+      store.patchTask(t, { status: 'done' });
+    };
+    for (let i = 0; i < 8; i++) juger('high', 'appliquer', i);
+    for (let i = 0; i < 8; i++) juger(null, 'refaire', 100 + i);
+    const envoyes: Record<string, string | undefined> = {};
+    const s = new Scheduler(store, {
+      onAssign: (nodeId, _task, _modele, effort) => {
+        envoyes[nodeId] = effort;
+      },
+    });
+    const started = s.startRace(task.id, 2);
+    if (!started.ok) throw new Error('course non lancée');
+    return { task, envoyes, s, drones: nodes };
+  }
+
+  it('CHAQUE DRONE REÇOIT SON EFFORT — journalisé, et rangé pour le primaire', () => {
+    const { task, envoyes, drones } = courseAEfforts();
+    const [n0, n1] = drones as [string, string];
+    expect(envoyes).toEqual({ [n0]: 'high', [n1]: 'low' });
+    expect(store.lastEventFor('drone_race_started', task.id)?.payload.efforts).toEqual({
+      [n0]: 'high',
+      [n1]: 'low',
+    });
+    const primaire = store.getTask(task.id)!.assignedNodeId;
+    expect(store.effortAiguillageDe(task.id)).toBe(primaire === n0 ? 'high' : 'low');
+  });
+
+  it('L’EFFORT RANGÉ SUIT LE PROMU PUIS LE VAINQUEUR — le verdict jugera le bras qui a produit', () => {
+    const { task, s, drones } = courseAEfforts();
+    const primaire = store.getTask(task.id)!.assignedNodeId!;
+    const autre = drones.find((d) => d !== primaire)!;
+    const effortDe = (id: string) => (id === drones[0] ? 'high' : 'low');
+
+    s.handleTaskResult(primaire, result(task.id, false));
+    expect(store.getTask(task.id)!.assignedNodeId, 'promu').toBe(autre);
+    expect(store.effortAiguillageDe(task.id), 'le promu porte son effort').toBe(effortDe(autre));
+
+    s.handleTaskResult(autre, result(task.id));
+    expect(store.getTask(task.id)!.status).toBe('done');
+    expect(store.effortAiguillageDe(task.id), 'le vainqueur aussi').toBe(effortDe(autre));
+  });
+
+  it('UN DRONE QUI GAGNE SANS ÊTRE PRIMAIRE RANGE SON PROPRE EFFORT', () => {
+    const { task, s, drones } = courseAEfforts();
+    const primaire = store.getTask(task.id)!.assignedNodeId!;
+    const autre = drones.find((d) => d !== primaire)!;
+    s.handleTaskResult(autre, result(task.id));
+    expect(store.effortAiguillageDe(task.id)).toBe(autre === drones[0] ? 'high' : 'low');
   });
 
   it('la victoire reste retrouvable dans le journal après la course (lastEventFor)', () => {

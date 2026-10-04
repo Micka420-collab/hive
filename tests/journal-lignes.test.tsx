@@ -235,6 +235,21 @@ describe('une correction de l’Evaluator ne se lit pas comme un échec', () => 
     expect(ligne(dom)).toContain('a delivery is already open');
   });
 
+  it('SOUS UNE ENVELOPPE COÛT ÉPUISÉE, LA LIGNE DIT LE BUDGET — pas le code brut', async () => {
+    // #496 : la correction est une dépense neuve, refusée sous une racine dont
+    // la dépense déclarée a atteint l'enveloppe. La raison vient de la table
+    // que la War Room partage (`direRaisonRefus`).
+    const dom = await monter(
+      evenement('evaluator_retry_skipped', {
+        taskId: 'tache-deleguee',
+        resultId: 5,
+        reason: 'root_cost_budget_exhausted',
+      }),
+    );
+    expect(ligne(dom)).toContain('le budget coût de la racine déléguée est épuisé');
+    expect(ligne(dom), 'le code brut est affiché').not.toContain('root_cost_budget_exhausted');
+  });
+
   it('UN REJET SUR UNE TÂCHE ÉCHOUÉE NE LA DIT PAS « PAS TERMINÉE »', async () => {
     // Un humain rejette une tâche en échec : la correction de l'Evaluator ne
     // part pas (`task_not_done`), parce que c'est le retry ordinaire qui la
@@ -438,6 +453,131 @@ describe('les lignes de la contre-revue disent où elle en est', () => {
       { taskId: 'prod-1234abcd', relecteur: 'codex', conteste: false },
       'en',
       'codex approves prod-123',
+    ],
+  ];
+  for (const [nom, type, payload, lang, attendu] of cas) {
+    it(`${nom.toUpperCase()} (${lang})`, async () => {
+      setLang(lang);
+      const dom = await monter(evenement(type, payload));
+      expect(ligne(dom)).toBe(attendu);
+    });
+  }
+});
+
+// La rétention du journal se raconte. Sans ligne à elle, la passe s'affichait
+// en type brut ; et le plafond — le seul motif qui prive une tâche encore
+// ouverte de ses preuves — ne se distinguait pas d'un élagage de routine.
+describe('une passe de rétention dit ce qu’elle a retiré — et nomme le plafond à part', () => {
+  const passe = (parMotif: Record<string, number>): HiveEvent =>
+    evenement('journal_elagage', { supprimes: 1, restants: 1, parMotif, parType: {} });
+  const routine = { trace: 500, orpheline: 3, echue: 2, plafond_close: 0, plafond_vivante: 0 };
+
+  it('UNE PASSE DE ROUTINE : traces et preuves de tâches closes ou disparues', async () => {
+    const dom = await monter(passe(routine));
+    expect(ligne(dom)).toBe(
+      'journal élagué : 500 trace(s), 5 preuve(s) de tâches closes ou disparues',
+    );
+  });
+
+  it('LE PLAFOND EST NOMMÉ, AVEC LES PREUVES DE TÂCHES ENCORE OUVERTES', async () => {
+    const dom = await monter(passe({ ...routine, plafond_close: 7, plafond_vivante: 4 }));
+    expect(ligne(dom)).toBe(
+      'journal élagué : 500 trace(s), 5 preuve(s) de tâches closes ou disparues — plafond atteint : 11 preuve(s) retirée(s), dont 4 de tâches encore ouvertes',
+    );
+  });
+
+  it('LA COUPE D’UN DOSSIER ENCORE ACTIF SE DIT À PART', async () => {
+    const dom = await monter(passe({ ...routine, plafond_vivante: 1, plafond_coupe: 3 }));
+    expect(ligne(dom)).toBe(
+      'journal élagué : 500 trace(s), 5 preuve(s) de tâches closes ou disparues — plafond atteint : 4 preuve(s) retirée(s), dont 1 de tâches encore ouvertes, 3 coupée(s) dans des dossiers encore actifs',
+    );
+  });
+
+  it('EN ANGLAIS AUSSI, et un compte absent vaut zéro — jamais « undefined »', async () => {
+    setLang('en');
+    const dom = await monter(passe({ trace: 2, plafond_vivante: 1 }));
+    expect(ligne(dom)).toBe(
+      'journal pruned: 2 trace(s), 0 proof(s) of closed or deleted tasks — cap reached: 1 proof(s) removed, 1 of them from still-open tasks',
+    );
+  });
+});
+
+describe('la suppression d’un projet se lit au journal', () => {
+  // C'est le SEUL fait qui reste d'un projet supprimé : son propre journal est
+  // parti avec lui. Une ligne muette (le type brut) effacerait donc la dernière
+  // trace lisible — le nom, et ce qui est parti.
+  it('LE NOM ET LES TÂCHES EFFACÉES SONT DITS', async () => {
+    setLang('fr');
+    const dom = await monter(
+      evenement('project_deleted', {
+        projectId: 'p-1',
+        name: 'Site vitrine',
+        annulees: 0,
+        effaces: { projects: 1, tasks: 3, events: 12 },
+      }),
+    );
+    expect(ligne(dom)).toBe('projet « Site vitrine » supprimé (3 tâche(s) effacée(s))');
+  });
+
+  it('un bilan illisible ne fait dire AUCUN chiffre — un bilan sans tâches dit zéro', async () => {
+    setLang('en');
+    const sans = await monter(evenement('project_deleted', { projectId: 'p-1', name: 'Site' }));
+    expect(ligne(sans)).toBe('project “Site” deleted');
+    await act(async () => racine?.unmount());
+    conteneur?.remove();
+    // Les tables vides sont omises du bilan : `tasks` absent = aucune tâche.
+    const vide = await monter(
+      evenement('project_deleted', { projectId: 'p-1', name: 'Site', effaces: { projects: 1 } }),
+    );
+    expect(ligne(vide)).toBe('project “Site” deleted (0 task(s) erased)');
+  });
+});
+
+describe('les décisions se lisent comme des décisions — jamais par leur type brut', () => {
+  // Ces lignes nourrissent aussi le fil des décisions de l'accueil
+  // (`ligneDuJournal`) : un type brut y serait une décision illisible.
+  const cas: Array<[string, string, Record<string, unknown>, 'fr' | 'en', string]> = [
+    [
+      'le modèle commandé',
+      'task_assigned',
+      { taskId: 'tache-1234abcd', nodeId: 'noeud-5678efgh', modele: 'opus', categorie: 'code' },
+      'fr',
+      'tache-12 → nœud noeud-56 · modèle opus (code)',
+    ],
+    [
+      'une affectation sans modèle reste courte',
+      'task_assigned',
+      { taskId: 'tache-1234abcd', nodeId: 'noeud-5678efgh' },
+      'fr',
+      'tache-12 → nœud noeud-56',
+    ],
+    [
+      'le verdict humain',
+      'task_reviewed',
+      { taskId: 'tache-1234abcd', state: 'approved' },
+      'fr',
+      'revue humaine : approuvée (tache-12)',
+    ],
+    [
+      'une revue effacée',
+      'task_reviewed',
+      { taskId: 'tache-1234abcd', state: null },
+      'en',
+      'human review cleared (tache-12)',
+    ],
+    [
+      'un verdict passé outre',
+      'evaluator_overridden',
+      { taskId: 'tache-1234abcd', decision: 'human_review_required', geste: 'livrer' },
+      'fr',
+      'verdict de l’Evaluator (human_review_required) passé outre pour livrer (tache-12)',
+    ],
+    [
+      'un Conseil tranché sans piste',
+      'council_decided',
+      { sessionId: 's1', propositionId: null, titre: null },
+      'fr',
+      'Conseil tranché : aucune piste retenue',
     ],
   ];
   for (const [nom, type, payload, lang, attendu] of cas) {

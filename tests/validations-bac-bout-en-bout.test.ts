@@ -115,6 +115,15 @@ const agentDuBanc: AgentAdapter = {
     // « Casser » écrit une valeur que les tests refusent — mais un VRAI diff :
     // sans diff, il n'y a rien à valider. « Échouer » écrit aussi, puis
     // échoue : l'échec est déjà le verdict.
+    // « Épuiser » simule le tueur d'OOM : le module abat le test comme le
+    // noyau le ferait — « Killed », code 137 —, sans qu'aucun test n'échoue.
+    if (task.title.startsWith('Épuiser')) {
+      writeFileSync(
+        path.join(ctx.cwd, 'src', 'feature.js'),
+        "console.log('Killed');\nprocess.exit(137);\nmodule.exports = { secure: true };\n",
+      );
+      return { success: true, diff: '', logs: 'feature.js réécrit', subAgents: [] };
+    }
     const secure = task.title.startsWith('Sécuriser') ? 'true' : "'presque'";
     // « Casser » imprime aussi, au chargement, un secret du nœud (son jeton
     // de ruche) : ce que ferait un test qui affiche un fichier où l'agent
@@ -354,6 +363,43 @@ describe('validations du bac — du nœud producteur jusqu’à l’Evaluator', 
       expect(echouee.preuves, 'l’échec est déjà le verdict').toHaveLength(0);
     },
     120_000,
+  );
+
+  // G11a : une panne du bac (ici l'OOM, 137 + « Killed ») pendant les tests
+  // n'est pas un verdict. Avant ce lot, elle rendait `failed`, donc
+  // `correction_required` : la correction repartait, et le Genome comptait
+  // une correction au modèle pour une panne de la machine.
+  it.runIf(process.platform !== 'win32')(
+    'UNE PANNE DU BAC PENDANT LES TESTS : missing/environnement — ni correction, ni faute au modèle',
+    async () => {
+      const { s, produire } = await demarrer(fauxBac(dossiers));
+
+      const epuisee = await produire('Épuiser feature.js');
+
+      expect(epuisee.preuves[0]?.payload).toMatchObject({
+        resultId: epuisee.resultat?.resultId,
+        validation: { tests: 'missing', lint: 'passed' },
+        details: { tests: { raison: 'environnement', panne: 'memoire', code: 137 } },
+      });
+      expect(epuisee.evaluation.decision).toBe('additional_test_required');
+      expect(epuisee.evaluation.reasons.join(' · ')).toContain(
+        'le bac du nœud noeud-bac est tombé en panne pendant tests (mémoire épuisée)',
+      );
+      const base = `http://127.0.0.1:${s.port}`;
+      const headers = { 'x-hive-token': JETON, 'content-type': 'application/json' };
+      const relance = await fetch(`${base}/api/tasks/${epuisee.tacheId}/evaluation/retry`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ resultId: epuisee.resultat?.resultId }),
+      });
+      expect(relance.status).toBe(409);
+      expect(await relance.json()).toMatchObject({ code: 'retry_not_recommended' });
+      const genome = (await (await fetch(`${base}/api/genome`, { headers })).json()) as {
+        sansModele: { rendus: number; corrections: number };
+      };
+      expect(genome.sansModele).toMatchObject({ rendus: 1, corrections: 0 });
+    },
+    60_000,
   );
 
   it('UN NŒUD SANS BAC NE LANCE RIEN — il le range, et l’Evaluator dit comment en obtenir un', async () => {

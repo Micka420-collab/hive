@@ -24,6 +24,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-appartenance-livraison-long';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -31,10 +32,8 @@ const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
 let server: HiveServer | null = null;
 const dirs: string[] = [];
 const sockets: WebSocket[] = [];
-const battements: NodeJS.Timeout[] = [];
 
 afterEach(async () => {
-  for (const c of battements.splice(0)) clearInterval(c);
   for (const ws of sockets.splice(0)) ws.close();
   await server?.stop();
   server = null;
@@ -83,30 +82,12 @@ interface Noeud {
 /** Un nœud authentifié (token maître), qui bat et retient ses messages. */
 async function noeud(srv: HiveServer, nodeId: string): Promise<Noeud> {
   const recus: Record<string, unknown>[] = [];
-  const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-  sockets.push(ws);
-  ws.on('message', (d) => recus.push(JSON.parse(d.toString()) as Record<string, unknown>));
-  await new Promise<void>((r, j) => {
-    ws.once('open', () => r());
-    ws.once('error', j);
-  });
-  ws.send(
-    JSON.stringify({
-      type: 'register',
-      token: TOKEN,
-      name: nodeId,
-      ownerName: 't',
-      agentType: 'shell',
-      maxConcurrency: 1,
-      nodeId,
-    }),
+  const { ws } = await brancherFauxNoeud<{ type: string } & Record<string, unknown>>(
+    srv.port,
+    { token: TOKEN, name: nodeId, ownerName: 't', agentType: 'shell', maxConcurrency: 1, nodeId },
+    (m) => recus.push(m),
   );
-  const coeur = setInterval(() => {
-    if (ws.readyState === WebSocket.OPEN)
-      ws.send(JSON.stringify({ type: 'heartbeat', running: 0 }));
-  }, 300);
-  battements.push(coeur);
-  await attendre(() => recus.some((m) => m.type === 'registered'));
+  sockets.push(ws);
   return { ws, recus };
 }
 

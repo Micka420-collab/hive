@@ -6,6 +6,7 @@ import { Component, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { KeyboardEvent, ReactNode, RefObject } from 'react';
 import type { TaskStatus } from '../../src/shared/types';
+import type { SommeDeclaree } from '../../src/shared/declaration-fournisseur';
 import type { BandeThermo, Domaine } from './api';
 import { useLang, useT } from './i18n';
 import type { Translate, UiLang } from './i18n';
@@ -422,6 +423,30 @@ export function direJetons(jetons: number, lang: 'fr' | 'en'): string {
   return new Intl.NumberFormat(lang === 'fr' ? 'fr-FR' : 'en-US').format(jetons);
 }
 
+/**
+ * Une somme DÉCLARÉE par les CLI des agents, dite avec sa couverture.
+ *
+ * C'est la seule forme sous laquelle un coût déclaré devient un chiffre de
+ * tête : « ≥ » dès qu'une tentative s'est tue, et « 3/5 tentatives
+ * déclarées » à côté — jamais un total nu qu'on lirait comme une facture, et
+ * jamais extrapolé à la tentative muette. Sans aucune déclaration :
+ * « inconnu », sans couverture à dire.
+ */
+export function direSommeDeclaree(
+  s: SommeDeclaree | 'inconnu',
+  rendu: (v: number) => string,
+  t: Translate,
+): { valeur: string; couverture: string | null } {
+  if (s === 'inconnu') return { valeur: t('inconnu', 'unknown'), couverture: null };
+  return {
+    valeur: `${s.declarees < s.tentatives ? '≥ ' : ''}${rendu(s.total)}`,
+    couverture: t(
+      `${s.declarees}/${s.tentatives} tentative(s) déclarée(s)`,
+      `${s.declarees}/${s.tentatives} attempt(s) declared`,
+    ),
+  };
+}
+
 /** Montant déclaré, en dollars US — jusqu'à quatre décimales pour les petits coûts. */
 export function direUsd(montant: number, lang: 'fr' | 'en'): string {
   return new Intl.NumberFormat(lang === 'fr' ? 'fr-FR' : 'en-US', {
@@ -524,6 +549,16 @@ export function formatDuree(ms: number): string {
 // On ne pose pas non plus de minuterie de désarmement : l'état armé ne
 // RESSEMBLE pas à l'état au repos (une question, deux boutons), donc personne
 // ne peut le prendre pour l'autre en revenant plus tard.
+//
+// ─── LE NOM À RETAPER, POUR LE GESTE QUI EMPORTE TOUT ────────────────────────
+//
+// Supprimer un projet efface des mois de travail d'un coup, sans retour. Deux
+// clics bien placés n'y suffisent pas : la main les enchaîne sans que l'œil ait
+// relu. `saisie` exige donc de RETAPER le nom de la cible — l'œil doit l'avoir
+// lu pour que la main l'écrive, et une ligne qui aurait glissé sous le curseur
+// porte un autre nom. La confirmation reste inerte tant que le texte n'est pas
+// exactement celui-là. Réservé à ce geste-là : partout ailleurs, la question
+// qui nomme sa cible suffit, et une saisie de plus apprendrait à taper sans lire.
 
 export function GesteIrreversible({
   libelle,
@@ -532,6 +567,7 @@ export function GesteIrreversible({
   confirmer,
   onConfirmer,
   disabled = false,
+  saisie,
 }: {
   /** Ce que montre le bouton au repos — « ✕ » ou un verbe. */
   libelle: string;
@@ -543,9 +579,17 @@ export function GesteIrreversible({
   confirmer: string;
   onConfirmer: () => void;
   disabled?: boolean;
+  /** Le texte à retaper pour confirmer (le nom de la cible). Absent : un clic suffit. */
+  saisie?: string;
 }) {
   const t = useT();
   const [arme, setArme] = useState(false);
+  const [tape, setTape] = useState('');
+  const desarmer = () => {
+    setArme(false);
+    setTape('');
+  };
+  const retape = saisie === undefined || tape === saisie;
 
   if (!arme) {
     return (
@@ -564,18 +608,27 @@ export function GesteIrreversible({
   return (
     <span className="geste-irr" role="group" aria-label={question}>
       <span className="geste-irr-q">{question}</span>
-      <button
-        className="btn ghost geste-irr-non"
-        disabled={disabled}
-        onClick={() => setArme(false)}
-      >
+      {saisie !== undefined && (
+        <input
+          className="geste-irr-saisie"
+          type="text"
+          value={tape}
+          placeholder={saisie}
+          disabled={disabled}
+          autoComplete="off"
+          spellCheck={false}
+          aria-label={t(`Tapez « ${saisie} » pour confirmer`, `Type “${saisie}” to confirm`)}
+          onChange={(e) => setTape(e.target.value)}
+        />
+      )}
+      <button className="btn ghost geste-irr-non" disabled={disabled} onClick={desarmer}>
         {t('Annuler', 'Cancel')}
       </button>
       <button
         className="btn geste-irr-oui"
-        disabled={disabled}
+        disabled={disabled || !retape}
         onClick={() => {
-          setArme(false);
+          desarmer();
           onConfirmer();
         }}
       >

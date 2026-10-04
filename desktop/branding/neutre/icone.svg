@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Thème « neutre » : une alvéole ouverte sur un cœur de miel.
+       Tuile aux marges d'Apple (824 px dans 1024) : la même source sert
+       l'icône macOS, Windows et Linux. -->
+  <defs>
+    <linearGradient id="tuile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="{{panneau}}"/>
+      <stop offset="1" stop-color="{{fond}}"/>
+    </linearGradient>
+    <linearGradient id="miel" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="{{miel}}"/>
+      <stop offset="1" stop-color="{{mielFonce}}"/>
+    </linearGradient>
+    <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="{{miel}}" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="{{miel}}" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#tuile)"/>
+  <rect x="100.5" y="100.5" width="823" height="823" rx="185.5" fill="none" stroke="{{bordure}}" stroke-width="3"/>
+  <circle cx="512" cy="512" r="300" fill="url(#halo)"/>
+  <!-- L'alvéole : hexagone pointe en haut, ouvert à droite. -->
+  <path d="M686 412 V612 L512 712 L338 612 V412 L512 312 L620 374"
+        fill="none" stroke="{{texte}}" stroke-width="40" stroke-linecap="round" stroke-linejoin="round" opacity="0.92"/>
+  <!-- Le cœur de miel. -->
+  <path d="M512 430 L583 471 V553 L512 594 L441 553 V471 Z" fill="url(#miel)"/>
+</svg>

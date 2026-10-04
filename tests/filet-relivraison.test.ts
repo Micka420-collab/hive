@@ -40,6 +40,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-filet-suffisamment-long-pour-passer';
 
@@ -59,10 +60,8 @@ describe('le filet de re-livraison espace ses tentatives', () => {
   let server: HiveServer | null = null;
   let dir: string | null = null;
   const sockets: WebSocket[] = [];
-  const battements: NodeJS.Timeout[] = [];
 
   afterEach(async () => {
-    for (const c of battements.splice(0)) clearInterval(c);
     for (const ws of sockets.splice(0)) ws.close();
     await server?.stop();
     server = null;
@@ -103,34 +102,23 @@ describe('le filet de re-livraison espace ses tentatives', () => {
    */
   async function noeudMuet(srv: HiveServer): Promise<number[]> {
     const recues: number[] = [];
-    const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-    sockets.push(ws);
-    ws.on('message', (d) => {
-      const m = JSON.parse(d.toString()) as { type: string };
-      if (m.type === 'assign_task') recues.push(Date.now());
-    });
-    await new Promise<void>((r, j) => {
-      ws.once('open', () => r());
-      ws.once('error', j);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    const { ws } = await brancherFauxNoeud<{ type: string }>(
+      srv.port,
+      {
         token: TOKEN,
         name: 'muet',
         ownerName: 't',
         agentType: 'shell',
         maxConcurrency: 1,
         nodeId: 'muet',
-      }),
+      },
+      (m) => {
+        if (m.type === 'assign_task') recues.push(Date.now());
+      },
     );
-    // Le battement : il prouve la vie du nœud sans rien dire de la tâche.
-    const coeur = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'heartbeat', running: 1 }));
-      }
-    }, 500);
-    battements.push(coeur);
+    // Le battement (`aide/faux-noeud`, au rythme du vrai client) prouve la
+    // vie du nœud sans rien dire de la tâche.
+    sockets.push(ws);
     return recues;
   }
 

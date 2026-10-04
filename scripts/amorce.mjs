@@ -49,18 +49,30 @@ import path from 'node:path';
  * nomme pas Node. `tests/amorce.test.mjs` confronte les trois énoncés de cette
  * même exigence : ici, `engines.node`, et `NODE_MINIMUM` du médecin.
  */
-export const NODE_MINIMAL = 24;
+export const NODE_MINIMAL = '24.18.0';
 
 /**
- * Le numéro majeur d'une version de Node, ou `null` si la chaîne est illisible.
+ * `true` si la version est sous le plancher, `false` sinon, `null` si la
+ * chaîne est illisible.
+ *
+ * Le MINEUR compte : Node 24.0 à 24.17 embarquent un npm (11.3 à 11.13) qui
+ * ignore `allowScripts` et tente de compiler `better-sqlite3` — sans python3,
+ * la dépendance tombe en silence. Le détail est sur `NODE_MINIMUM`, dans
+ * `src/shared/doctor.ts`.
  *
  * `null` ne bloque PAS : refuser de démarrer parce qu'on n'a pas su lire un
  * numéro de version serait transformer une incertitude en panne. On préfère
  * essayer et échouer plus loin, sur la vraie cause.
  */
-export function majeure(version) {
-  const m = /^v?(\d+)\./.exec(String(version));
-  return m === null ? null : Number(m[1]);
+export function sousLePlancher(version) {
+  const lire = (v) => /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(v))?.slice(1).map(Number) ?? null;
+  const vus = lire(version);
+  if (vus === null) return null;
+  const exiges = lire(NODE_MINIMAL);
+  for (const [i, exige] of exiges.entries()) {
+    if (vus[i] !== exige) return vus[i] < exige;
+  }
+  return false;
 }
 
 /**
@@ -87,12 +99,11 @@ export function verdict(etat) {
   const morceaux = [];
   let arret = false;
 
-  const maj = majeure(etat.versionNode);
-  if (maj !== null && maj < NODE_MINIMAL) {
+  if (sousLePlancher(etat.versionNode) === true) {
     morceaux.push(
       [
         '',
-        `  ⚠  Node est trop ancien : ${etat.versionNode} — la ruche en exige ${String(NODE_MINIMAL)} ou plus.`,
+        `  ⚠  Node est trop ancien : ${etat.versionNode} — la ruche en exige ${NODE_MINIMAL} ou plus.`,
         '',
         "     La Reine, le nœud et l'installeur s'appuient sur des fonctions qui",
         "     n'existent pas avant. On continue quand même — « npm run cli -- doctor »",
