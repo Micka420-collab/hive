@@ -128,19 +128,19 @@ const agentDuBanc: AgentAdapter = {
   },
 };
 
+/** Ce que ce banc lit de `GET /api/tasks/:id/evaluation`. */
+interface EvaluationLue {
+  decision: string;
+  retryRecommended: boolean;
+  reasons: string[];
+  evidence: { securite: Record<string, Record<string, unknown>>; securiteNodeId?: string };
+}
+
 async function demarrer(polyethisme?: 'strict'): Promise<{
   s: HiveServer;
-  produire: (title: string) => Promise<{
-    tacheId: string;
-    diff: string;
-    evaluation: {
-      decision: string;
-      retryRecommended: boolean;
-      reasons: string[];
-      evidence: { securite: Record<string, Record<string, unknown>>; securiteNodeId?: string };
-    };
-    brut: string;
-  }>;
+  produire: (
+    title: string,
+  ) => Promise<{ tacheId: string; diff: string; evaluation: EvaluationLue; brut: string }>;
 }> {
   const racine = mkdtempSync(path.join(os.tmpdir(), 'hive-porte-e2e-'));
   dossiers.push(racine);
@@ -201,7 +201,7 @@ async function demarrer(polyethisme?: 'strict'): Promise<{
     return {
       tacheId: tache.id,
       diff: s.store.resultsForTask(tache.id).at(-1)?.diff ?? '',
-      evaluation: JSON.parse(brut) as Awaited<ReturnType<typeof produire>>['evaluation'],
+      evaluation: JSON.parse(brut) as EvaluationLue,
       brut,
     };
   };
