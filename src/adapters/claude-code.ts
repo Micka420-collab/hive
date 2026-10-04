@@ -4,11 +4,12 @@
 // Les clés API de l'agent restent locales au nœud : rien n'est transmis au hub
 // (contrainte §5.1). Le diff est calculé par le workspace git du nœud, pas par stdout.
 
+import { usdDeMicros } from '../shared/arret-budgetaire.js';
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { EFFORTS, type Effort } from '../shared/effort.js';
-import { lancerStatut, type LanceurStatut } from '../node-client/agent-detect.js';
-import { assertRealExecutionAllowed, runCommandStreaming } from './exec.js';
+import { lancerStatut, versionAuMoins, type LanceurStatut } from '../node-client/agent-detect.js';
+import { assertRealExecutionAllowed, runCommand, runCommandStreaming } from './exec.js';
 import {
   CONSIGNES_CLAUDE,
   configurationDuDepot,
@@ -17,6 +18,9 @@ import {
 } from './consignes-depot.js';
 import {
   createDelegationBridge,
+  HIVE_APPROVE_TOOL,
+  HIVE_DELEGATE_TOOL,
+  HIVE_WAIT_TOOL,
   resultatSansPont,
   writeClaudeConsignes,
   writeClaudeMcpConfig,
@@ -26,7 +30,7 @@ import { createDeclarationFournisseurTracker } from './fournisseur-parser.js';
 import { createPresenceTracker } from './presence-parser.js';
 import { createSubAgentTracker } from './subagent-parser.js';
 import { texteFinalStreamJson } from './texte-final.js';
-import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
+import type { AdapterContext, AdapterResult, AgentAdapter, VerdictPlafond } from './index.js';
 
 const CLAUDE_TIMEOUT_MS = 15 * 60_000;
 
@@ -46,6 +50,23 @@ const CLAUDE_TIMEOUT_MS = 15 * 60_000;
  * `.gitmodules`, `.git/commondir`…) — autant de lignes dans le diff livré.
  */
 export const REGLAGES_IMPOSES = JSON.stringify({ disableAllHooks: true });
+
+/**
+ * Les réglages imposés, ENRICHIS du `permissions.allow` compilé (G12) quand le
+ * dépôt déclare des validations : hors du read-only set, chaque commande shell
+ * exige une entrée `--allowedTools` ou une règle `permissions.allow`
+ * (code.claude.com/docs/en/headless) — sans elle, le Worker rendait son diff
+ * SANS avoir lancé le `npm test` déclaré. La liste vient du commit de BASE du
+ * clone (`reglesAutorisationDeBase`), jamais de l'arbre que l'agent réécrit.
+ * `disableAllHooks` survit à la fusion : c'est le même objet, pas un override.
+ */
+export function reglagesImposes(permissionsAllow: readonly string[] = []): string {
+  if (permissionsAllow.length === 0) return REGLAGES_IMPOSES;
+  return JSON.stringify({
+    disableAllHooks: true,
+    permissions: { allow: [...permissionsAllow] },
+  });
+}
 
 /**
  * Les arguments de `claude -p`, avec le modèle de l'Aiguillage en option s'il y
@@ -97,6 +118,10 @@ export const REGLAGES_IMPOSES = JSON.stringify({ disableAllHooks: true });
  * `claude --help` documente (« low, medium, high, xhigh, max », relevé sur
  * 2.1.283 — `EFFORTS`), absent quand l'Aiguillage n'en a commandé aucun.
  *
+ * `--max-budget-usd <usd>` : le plafond de CETTE tentative, en dollars, que
+ * la Reine a calculé en micro-USD (`AssignTaskMsg.plafondCoutMicros`) — absent
+ * hors délégation, et sur un CLI qui ne le tiendrait pas (`verdictPlafondClaude`).
+ *
  * `--model <nom>` va AVANT le `--` : c'est une OPTION, et tout ce qui suit `--`
  * est du texte de prompt (cf. l'injection démontrée dans `prompt-argv.ts`). Le
  * prompt reste donc en TOUT DERNIER, derrière `--`. Un nom de modèle n'est pas un
@@ -110,26 +135,48 @@ export function argvClaude(
   mcpServerName = 'hive',
   consignesPath?: string,
   effort?: Effort,
+  permissionsAllow?: readonly string[],
+  approbation = false,
+  plafondCoutMicros?: number,
 ): string[] {
   const drapeauxModele = [
     ...(modele ? ['--model', modele] : []),
     ...(effort ? ['--effort', effort] : []),
+    ...(plafondCoutMicros !== undefined
+      ? ['--max-budget-usd', usdDeMicros(plafondCoutMicros)]
+      : []),
   ];
   const drapeauxPermission = ['--permission-mode', 'acceptEdits'];
   const drapeauxDepot = [
     '--setting-sources',
     'user',
     '--settings',
-    REGLAGES_IMPOSES,
+    reglagesImposes(permissionsAllow),
     '--strict-mcp-config',
   ];
   const drapeauxConsignes = consignesPath ? ['--append-system-prompt-file', consignesPath] : [];
+  // `--permission-prompt-tool` SEULEMENT quand le pont porte la capacité de
+  // décision (`approbation`) : le drapeau pointe un outil MCP, et le poser
+  // sans serveur derrière transformerait chaque demande en impasse.
+  //
+  // L'outil de décision n'entre PAS dans `--allowedTools` : le drapeau suffit
+  // au CLI (code.claude.com/docs/en/headless), et l'y lister l'exposerait au
+  // MODÈLE — qui pourrait alors « s'approuver » lui-même en appelant l'outil
+  // directement, hors de toute action réellement proposée. Codex est l'inverse
+  // assumé : là-bas c'est le modèle qui demande (enabled_tools, codex.ts).
+  const outilsHive = [
+    `mcp__${mcpServerName}__${HIVE_DELEGATE_TOOL}`,
+    `mcp__${mcpServerName}__${HIVE_WAIT_TOOL}`,
+  ];
   const drapeauxMcp = mcpConfigPath
     ? [
         '--mcp-config',
         mcpConfigPath,
         '--allowedTools',
-        `mcp__${mcpServerName}__hive_delegate,mcp__${mcpServerName}__hive_wait_for_delegation_result`,
+        outilsHive.join(','),
+        ...(approbation
+          ? ['--permission-prompt-tool', `mcp__${mcpServerName}__${HIVE_APPROVE_TOOL}`]
+          : []),
       ]
     : [];
   return [
@@ -195,17 +242,102 @@ export async function sonderEffortsClaude(lancer: LanceurStatut = lancerStatut):
   return r?.code === 0 ? effortsDeLAide(r.sortie) : [];
 }
 
+// ─── LE PLAFOND DANS LA BOUCLE DE L'AGENT ────────────────────────────────────
+
+/**
+ * La première version de Claude Code dont `--max-budget-usd` TIENT, sous-agents
+ * compris : « Spend from subagents counts toward the cap. […] Once spend
+ * reaches the cap, spawning another subagent fails […] the cap-enforcement
+ * behaviors require Claude Code v2.1.217 or later » (code.claude.com/docs/en/
+ * cli-reference).
+ *
+ * CHOIX ASSUMÉ en dessous : l'option y existe, et la boucle principale s'y
+ * arrêterait sans doute, mais la documentation ne lie le plafond qu'à cette
+ * version — et ses sous-agents natifs dépenseraient au-delà. Hive ne passe pas
+ * un plafond qui fuirait par eux : il le dit, avec la mise à jour à faire.
+ * L'image du bac conteneur épingle une version au-dessus
+ * (`docker/agents/package.json`, garde de test).
+ */
+export const VERSION_PLAFOND_CLAUDE: readonly [number, number, number] = [2, 1, 217];
+
+/** Le délai de `claude --version` : une sortie immédiate, sauf bac qui démarre. */
+const VERSION_MAX_MS = 30_000;
+
+/**
+ * Combien de temps une version lue reste crue. Un `claude update` — ou la mise
+ * à jour automatique du CLI — se voit donc au plus tard après ce délai, sans
+ * relancer le nœud ; une lecture ratée, elle, ne se garde pas du tout.
+ */
+const VERSION_TTL_MS = 10 * 60_000;
+
+/**
+ * La version du Claude Code qui TOURNERA : `claude --version`, qui n'appelle
+ * aucun modèle, lancé comme l'agent le sera (`runCommand`) — dans le bac
+ * conteneur, c'est le binaire de l'image ; sous bubblewrap ou sans bac, celui
+ * de l'hôte. `null` : illisible (sortie en échec, délai, format inconnu).
+ */
+async function versionClaudeLancee(ctx: AdapterContext): Promise<string | null> {
+  const r = await runCommand(
+    'claude',
+    ['--version'],
+    { ...ctx, onProgress: () => undefined },
+    VERSION_MAX_MS,
+  );
+  return r.success ? (/\b(\d+\.\d+\.\d+)\b/.exec(r.logs)?.[1] ?? null) : null;
+}
+
+/**
+ * Ce que la version du CLI lancé dit du plafond : tenu, ou pourquoi pas — avec
+ * la marche à suivre, que le journal de la tâche reprend tel quel.
+ */
+export function verdictPlafondClaude(version: string | null): VerdictPlafond {
+  if (version !== null && versionAuMoins(version, VERSION_PLAFOND_CLAUDE)) return { tenu: true };
+  const seuil = VERSION_PLAFOND_CLAUDE.join('.');
+  return {
+    tenu: false,
+    motif:
+      version === null
+        ? 'version de Claude Code illisible (`claude --version` en échec) — vérifiez son ' +
+          'installation, puis mettez-le à jour : `claude update`'
+        : `Claude Code ${version} : --max-budget-usd n’est tenu, sous-agents compris, qu’à ` +
+          `partir de ${seuil} — mettez-le à jour : \`claude update\``,
+  };
+}
+
 export function createClaudeCodeAdapter(
   token = process.env.HIVE_TOKEN ?? DEFAULT_TOKEN,
 ): AgentAdapter {
   // Un agent réel modifie de vrais fichiers : mêmes exigences que le shell réel.
   assertRealExecutionAllowed("L'adaptateur claude-code", token);
+  // La dernière version lue du CLI lancé, et quand : relue passé
+  // `VERSION_TTL_MS`, pour qu'une mise à jour se voie sans relancer le nœud.
+  let versionLue: { version: string; lueA: number } | undefined;
   return {
     name: 'claude-code',
     effortsDocumentes: () => sonderEffortsClaude(),
+    // Interrogé par le nœud AVANT le minuteur de durée de l'enfant : la sonde
+    // (un bac qui démarre peut la faire attendre) ne se paie pas sur son budget.
+    async plafondCout(ctx: AdapterContext): Promise<VerdictPlafond> {
+      const maintenant = Date.now();
+      if (!versionLue || maintenant - versionLue.lueA >= VERSION_TTL_MS) {
+        const version = await versionClaudeLancee(ctx);
+        versionLue = version === null ? undefined : { version, lueA: maintenant };
+      }
+      return verdictPlafondClaude(versionLue?.version ?? null);
+    },
     async run(task: Task, ctx: AdapterContext): Promise<AdapterResult> {
-      ctx.onProgress({ log: 'claude -p (stream-json) démarré' });
       const tracker = createSubAgentTracker();
+      // Annulée avant le départ : rien ne se prépare (pont, config MCP) et
+      // rien ne se lance — le suivi, vide, dit qu'aucun sous-agent n'a couru.
+      if (ctx.signal?.aborted) {
+        return {
+          success: false,
+          diff: '',
+          logs: '[claude-code] tâche annulée avant le départ',
+          subAgents: tracker.list(),
+        };
+      }
+      ctx.onProgress({ log: 'claude -p (stream-json) démarré' });
       const presence = createPresenceTracker();
       // La ligne `result` finale porte le coût et le temps modèle déclarés.
       const declaration = createDeclarationFournisseurTracker('claude-code');
@@ -216,7 +348,18 @@ export function createClaudeCodeAdapter(
         // un contexte partiel n'entre pas dans le pont pour y échouer en panne
         // d'« infrastructure » (`capacités de délégation absentes`).
         if (ctx.delegate && ctx.waitForDelegationResult && ctx.rendezVous) {
-          bridge = await createDelegationBridge(ctx, task.id);
+          // L'échéance du run — l'instant où `runCommandStreaming` tuera le
+          // processus (posée ici, à quelques instants du spawn près) : le
+          // nœud borne l'attente d'une décision d'action à ce qui reste à
+          // vivre au CLI, et la Chambre raccourcit son TTL d'autant.
+          const echeanceRun = Date.now() + CLAUDE_TIMEOUT_MS;
+          const decideAction = ctx.decideAction;
+          bridge = await createDelegationBridge(
+            decideAction
+              ? { ...ctx, decideAction: (action) => decideAction(action, echeanceRun) }
+              : ctx,
+            task.id,
+          );
           writeClaudeMcpConfig(bridge);
         }
         // Les consignes du dépôt voyagent dans le dossier du pont, que le bac
@@ -234,6 +377,16 @@ export function createClaudeCodeAdapter(
         if (note) ctx.onProgress({ log: note });
         const liens = noteLiensNonSuivis(ctx.cwd, CONSIGNES_CLAUDE);
         if (liens) ctx.onProgress({ log: liens });
+        // Le plafond de cette tentative : le nœud ne le pose que tenu par ce
+        // CLI (`plafondCout`), et le journal de la tâche le dit.
+        const plafond = ctx.plafondCoutMicros;
+        if (plafond !== undefined) {
+          ctx.onProgress({
+            log:
+              `plafond de dépense de cette tentative : ${usdDeMicros(plafond)} USD ` +
+              '(--max-budget-usd) — le reste de la réservation de l’enfant ; coût estimé par le CLI',
+          });
+        }
         // --verbose est requis par Claude Code pour stream-json en mode -p.
         //
         // LE PROMPT EST EN DERNIER, DERRIÈRE `--`, ET CE N'EST PAS COSMÉTIQUE :
@@ -252,6 +405,11 @@ export function createClaudeCodeAdapter(
             bridge?.mcpServerName,
             consignesPath,
             ctx.effort,
+            ctx.permissionsAllow,
+            // La décision ne se promet au CLI que si le pont existe ET que le
+            // nœud a fourni la capacité : les deux moitiés d'un même canal.
+            bridge !== undefined && ctx.decideAction !== undefined,
+            plafond,
           ),
           ctx,
           (line) => {
@@ -272,7 +430,20 @@ export function createClaudeCodeAdapter(
         );
         // La liste finale accompagne le résultat (dernier état des sous-agents).
         const fournisseur = declaration.declaration();
-        return { ...result, subAgents: tracker.list(), ...(fournisseur ? { fournisseur } : {}) };
+        const arret = declaration.arret();
+        return {
+          ...result,
+          subAgents: tracker.list(),
+          ...(fournisseur ? { fournisseur } : {}),
+          // Un arrêt sur le plafond PASSÉ, déclaré par le CLI : la borne, jamais
+          // une panne — même si le texte de l'échec croisait un motif
+          // d'infrastructure (`INFRA_FAILURE_RE`), le `subtype` l'emporte et la
+          // tâche n'est pas réaffectée. Le nœud ouvre ses logs sur la ligne qui
+          // le dit au parent (`ligneArretBudgetaire`).
+          ...(arret && plafond !== undefined && !result.success
+            ? { arretBudgetaire: arret, infra: false }
+            : {}),
+        };
       } catch (error) {
         return resultatSansPont(error, tracker.list());
       } finally {

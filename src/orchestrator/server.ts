@@ -179,11 +179,18 @@ import type {
   MergeDiffInput,
   MergeResultMsg,
   ServerMessage,
+  TaskResultMsg,
 } from '../shared/protocol.js';
 import { RefusDemarrage, direManques, manquesDeDemarrage } from '../shared/amorce.js';
 import { DEFAULT_TOKEN } from '../shared/types.js';
+import {
+  arreteeParSonBudget,
+  usdDeMicros,
+  type ArretBudgetaire,
+} from '../shared/arret-budgetaire.js';
 import type { HiveEvent, HiveNode, Project, Task } from '../shared/types.js';
 import type { Effort } from '../shared/effort.js';
+import { NIVEAU_RESEAU_DEFAUT, NIVEAUX_RESEAU, type NiveauReseau } from '../shared/reseau.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
 import type { CompteTache, Devis, Pesee } from './balance.js';
 import { blocCritique, bornerCritique, leconsDesEchecs } from './brood.js';
@@ -213,10 +220,27 @@ import {
   corpsPr,
   depotDepuisUrl,
   fusionner,
+  historiqueBase,
   lireFaitsPr,
   livrer,
   nomBranche,
+  relancerJob,
 } from './livraison.js';
+import {
+  COMMITS_BASE_LUS,
+  DELAI_CALME_MS,
+  DELAI_CI_EN_COURS_MS,
+  LOT_GARDE,
+  PERIODE_GARDE_MS,
+  deciderGarde,
+  direGeste,
+  gardeActiveDepuisEnv,
+  gesteAutonome,
+  jugerInstables,
+  plafondGardeDepuisEnv,
+  reculGarde,
+  relanceAutorisee,
+} from './garde-pr.js';
 import {
   comparaisonDuRejeu,
   creerRejeu,
@@ -262,6 +286,22 @@ import {
   tentativeAutorisee,
 } from './comptes.js';
 import type { Compteur, Role } from './comptes.js';
+import { analyserCron, prochaineEcheance } from './cron.js';
+import {
+  CONCURRENCES,
+  contexteDeWebhook,
+  DECLENCHEURS,
+  lireEtatCi,
+  MAX_CONSIGNE,
+  MAX_NOM_ROUTINE,
+  MoteurRoutines,
+  RATTRAPAGES,
+  ROUTINES_RUNS_CONSERVES,
+  tirerSecretRoutine,
+  validerRoutine,
+  vueRoutine,
+} from './routines.js';
+import type { CorpsRoutine, Routine, VerdictAutorite } from './routines.js';
 import {
   ETATS,
   PLANS,
@@ -275,7 +315,7 @@ import {
 } from './abonnement.js';
 import type { Abonnement, EtatAbonnement } from './abonnement.js';
 import { antecedentsDuVecu, categoriser, type Categorie } from './aiguillage.js';
-import { budgetCoutEpuise, reserveRacine } from './delegation.js';
+import { budgetCoutEpuise, plafondCoutTentative, reserveRacine } from './delegation.js';
 import { LIMITES_DELEGATION_DEFAUT } from '../shared/limites-delegation.js';
 import { lireConsigneRoutage, type ConsigneRoutage } from '../shared/consigne-routage.js';
 import {
@@ -334,7 +374,8 @@ import {
 } from './horizon.js';
 import { expliquerRefusBapteme } from './bapteme.js';
 import { METIERS, expliquerRefusMetier } from './metier.js';
-import { expliquerRefusRequisition } from './requisition.js';
+import { estNiveauAutonomie } from '../shared/politique-actions.js';
+import { expliquerRefusRequisition, estStatutRequisition } from './requisition.js';
 import {
   FOURNISSEURS_CLE,
   estEnvQueenAutorisee,
@@ -421,6 +462,13 @@ import {
 import type { Candidat, Production } from '../shared/contre-expertise.js';
 import { constatBloquant } from '../shared/critique-structuree.js';
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
+import { creerCaviardeur, valeursSecretes } from '../shared/caviardage.js';
+import {
+  ancrerDansLeDiff,
+  COMMENTAIRE_FICHIER_MAX,
+  COMMENTAIRE_TEXTE_MAX,
+  COMMENTAIRES_PAR_PRODUCTION_MAX,
+} from '../shared/commentaire-revue.js';
 import { buildHiveContext, verdictSouvenir } from './hive-mind.js';
 import { buildMergePlan } from './honeycomb.js';
 import { tally, signatureOf } from './parliament.js';
@@ -445,7 +493,7 @@ import { buildTimeline } from './replay.js';
 import { detectConflicts } from './sting-detector.js';
 import { Scheduler } from './scheduler.js';
 import { ETAT_LIVRAISON_EN_COURS, ETAT_LIVRAISON_RELAYEE, HiveStore } from './store.js';
-import type { LivraisonRangee, RepriseLivraison, SessionRangee } from './store.js';
+import type { GardePr, LivraisonRangee, SessionRangee } from './store.js';
 import { direArretBrutal, prendreVerrouReine } from './verrou-reine.js';
 import type { VerrouReine } from './verrou-reine.js';
 import {
@@ -627,6 +675,18 @@ export const PRESENCES_RETENTION_MS = 60 * 60_000;
 export const REQUISITIONS_RETENTION_MS = 30 * 24 * 60 * 60_000;
 
 /**
+ * Échéance d'une réquisition d'ACTION (G12) : dix minutes — le PLAFOND de la
+ * Chambre. Le Worker reste suspendu sur son `--permission-prompt-tool`
+ * pendant qu'elle décide ; une échéance plus longue que ce qui reste à vivre
+ * au CLI (délai dur sur le processus entier) transformerait chaque silence
+ * humain en échec opaque de l'agent au lieu d'un refus dit — d'où le
+ * `budgetMs` de `requisition_open`, qui RACCOURCIT ce plafond quand l'action
+ * arrive tard dans le run. À l'échéance : statut `expiree`, deny au nœud,
+ * escalade au journal.
+ */
+export const REQUISITION_ACTION_TTL_MS = 10 * 60_000;
+
+/**
  * Journal des connecteurs externes : 90 jours. Une trace d'audit d'appels
  * extérieurs (qui a approuvé quoi, quel webhook a été poussé) doit survivre
  * assez longtemps pour répondre « que s'est-il passé la semaine dernière ? »,
@@ -647,6 +707,7 @@ const TYPES_RELAYES_CONNECTEURS: ReadonlySet<string> = new Set([
   'task_reviewed',
   'task_failed',
   'delivery_merged',
+  'garde_pr_alerte',
 ]);
 
 /** Horizon ledger — faits/hypothèses datés ; élagage comme le journal. */
@@ -908,6 +969,14 @@ const BUDGET_CERVEAU = 3_000;
  */
 export const BUDGET_CRITIQUE = 2_000;
 /**
+ * La part d'une critique qui porte des commentaires ANCRÉS (une demande de
+ * changements, G06). Un humain a désigné fichier et lignes pour CETTE
+ * correction : c'est sa raison d'être, et huit commentaires avec leur extrait
+ * ne tiennent pas dans `BUDGET_CRITIQUE`. Toujours servie APRÈS le Cerveau, et
+ * dans le même décompte : la Couveuse et Hive Mind prennent ce qui reste.
+ */
+export const BUDGET_CRITIQUE_COMMENTEE = 5_000;
+/**
  * Ce que le graphe d'expérience peut prendre du contexte (`blocExperience`,
  * shared/graphe-experience.ts) : trois contextes similaires d'une ligne JSON
  * chacun. Servi AVANT Hive Mind — voir `construireHiveContext` — et c'est
@@ -997,6 +1066,15 @@ export interface ServerConfig {
   wsVieMs?: number;
   /** Périodicité du tick du scheduler (ms). */
   tickMs?: number;
+  /** Périodicité du tour des Routines (ms). Défaut : 30 s — la minute du cron, à moitié. */
+  routinesTickMs?: number;
+  /**
+   * Échéance (ms) d'une réquisition d'ACTION (G12) avant expiration + escalade.
+   * Défaut : `REQUISITION_ACTION_TTL_MS`. Paramétrable pour la même raison que
+   * `relivraisonMinMs` — un banc qui observe l'expiration ne peut pas attendre
+   * dix minutes par tour.
+   */
+  requisitionActionTtlMs?: number;
   /**
    * Espacement minimum entre deux re-livraisons d'une MÊME tâche muette.
    *
@@ -1196,7 +1274,15 @@ export interface HiveServer {
   /** Port réellement écouté (utile avec port 0 dans les tests). */
   port: number;
   url: string;
+  /** Le moteur des Routines : les bancs le font tourner à l'instant qu'ils choisissent. */
+  routines: MoteurRoutines;
   stop: () => Promise<void>;
+  /**
+   * Le garde de PR (garde-pr.ts). `passe` joue UNE passe maintenant — la
+   * minuterie en joue une par minute ; un banc l'appelle pour ne rien attendre.
+   * Rend le nombre de PR sondées.
+   */
+  gardePr: { passe: (now?: number) => Promise<number> };
 }
 
 export async function createServer(config: ServerConfig): Promise<HiveServer> {
@@ -1322,6 +1408,10 @@ async function monterReine(
   // eux reçoivent une reprise ou une suite de mission — un nœud plus ancien
   // perdrait `prolonger` et travaillerait loin de la branche de la PR.
   const nodesQuiProlongent = new Set<string>();
+  // Les nœuds dont l'adaptateur tient un plafond de coût dans la boucle de son
+  // agent (`register.plafondCout`) : seuls eux reçoivent `plafondCoutMicros`,
+  // et seuls eux sont crus quand ils disent leur agent arrêté dessus.
+  const nodesQuiPlafonnent = new Set<string>();
   /** Chantiers partis vers un nœud et pas encore rendus. */
   const pendingChantiers = new Map<
     string,
@@ -1890,13 +1980,17 @@ async function monterReine(
       reason === 'root_cost_budget_exhausted'
         ? `budget coût de la racine épuisé (${LIMITES_DELEGATION_DEFAUT.maxCostMicros} µUSD de ` +
           'dépense déclarée) — plus aucune sous-tâche sous cette racine : termine avec ce que tu as'
-        : reason === 'no_working_agent'
-          ? 'aucun agent fonctionnel ne l’a exécutée — refais ce travail toi-même ou délègue autrement'
-          : typeof reason === 'string' && reason.length > 0
-            ? reason
-            : issue === 'annulee'
-              ? 'annulée'
-              : 'échouée';
+        : reason === 'reservation_depensee'
+          ? `réservation de coût de cette sous-tâche dépensée (${String(fait.depense ?? '?')}) — ` +
+            'redélègue sous un NOUVEL childTaskId avec une réservation plus large, ou fais ce ' +
+            'travail toi-même'
+          : reason === 'no_working_agent'
+            ? 'aucun agent fonctionnel ne l’a exécutée — refais ce travail toi-même ou délègue autrement'
+            : typeof reason === 'string' && reason.length > 0
+              ? reason
+              : issue === 'annulee'
+                ? 'annulée'
+                : 'échouée';
     send(socket, {
       type: 'delegation_result',
       parentTaskId: lien.parentTaskId,
@@ -2508,21 +2602,33 @@ async function monterReine(
    * retry efface la revue sans rien journaliser, et la raison d'un rejet déjà
    * traité ne doit pas s'afficher sous la production suivante.
    */
-  const raisonDeRevueCourante = (taskId: string): string | null => {
+  const revueHumaineCourante = (
+    taskId: string,
+  ): { raison: string | null; soumission: string | null } | null => {
     const courant = store.getTaskReview(taskId)?.state ?? null;
     if (courant === null) return null;
     const dernier = store.lastEventFor('task_reviewed', taskId);
-    const raison = dernier?.payload.raison;
-    return dernier?.payload.state === courant && typeof raison === 'string' && raison !== ''
-      ? raison
-      : null;
+    if (dernier?.payload.state !== courant) return null;
+    const { raison, changements } = dernier.payload;
+    const soumission =
+      typeof changements === 'object' && changements !== null
+        ? (changements as Record<string, unknown>).soumission
+        : undefined;
+    return {
+      raison: typeof raison === 'string' && raison !== '' ? raison : null,
+      soumission: typeof soumission === 'string' ? soumission : null,
+    };
   };
+  const raisonDeRevueCourante = (taskId: string): string | null =>
+    revueHumaineCourante(taskId)?.raison ?? null;
 
   /**
    * La critique à figer au moment d'une correction : les objections de la
    * contre-revue du résultat exact (ses constats bloquants compris), ses
    * remarques non bloquantes, les motifs de l'Evaluator et, pour un rejet
-   * humain, la raison de l'humain. Les TROIS portes de retry passent par ici —
+   * humain, la raison de l'humain — et, pour une demande de changements, les
+   * commentaires ancrés que CET envoi a emportés (`soumission` du dernier
+   * `task_reviewed`, jamais ceux posés depuis). Les TROIS portes de retry passent par ici —
    * une porte qui l'oublierait renverrait l'ouvrière refaire la même
    * production.
    */
@@ -2531,14 +2637,27 @@ async function monterReine(
     evaluation: EvaluationResult,
     source: SourceCritique,
   ): CritiqueReprise => {
-    const note =
-      evaluation.evidence.humanReview === 'rejected' ? raisonDeRevueCourante(taskId) : null;
+    const revue =
+      evaluation.evidence.humanReview === 'rejected' ? revueHumaineCourante(taskId) : null;
+    const note = revue?.raison ?? null;
+    const commentaires = revue?.soumission
+      ? store
+          .commentairesSoumis(taskId, revue.soumission)
+          .map(({ fichier, ligneDebut, ligneFin, texte, extrait }) => ({
+            fichier,
+            ligneDebut,
+            ligneFin,
+            texte,
+            ...(extrait ? { extrait } : {}),
+          }))
+      : [];
     const remarques = evaluation.evidence.crossReview.findings.filter((c) => !constatBloquant(c));
     return {
       source,
       objections: [...evaluation.evidence.crossReview.objections],
       raisons: evaluation.reasons,
       ...(note ? { noteHumaine: note } : {}),
+      ...(commentaires.length > 0 ? { commentaires } : {}),
       ...(remarques.length > 0 ? { remarques } : {}),
     };
   };
@@ -2761,7 +2880,7 @@ async function monterReine(
      * du Cerveau. Absente quand il n'y avait rien à transmettre.
      */
     critique?:
-      | { etat: 'jointe'; figee: CritiqueReprise; objections: number }
+      | { etat: 'jointe'; figee: CritiqueReprise; objections: number; commentaires: number }
       | { etat: 'perdue'; figee: CritiqueReprise };
     refusCerveau?: string;
     /**
@@ -2810,7 +2929,7 @@ async function monterReine(
       ? blocCritique(
           enCours.critique,
           { tentative: task.attempts + 1, visee: enCours.visee },
-          part(BUDGET_CRITIQUE),
+          part(enCours.critique.commentaires ? BUDGET_CRITIQUE_COMMENTEE : BUDGET_CRITIQUE),
         )
       : null;
     const blocDeCritique = retenir(critique?.bloc ?? '');
@@ -2887,7 +3006,12 @@ async function monterReine(
       ...(enCours && critique
         ? {
             critique: critique.bloc
-              ? { etat: 'jointe', figee: enCours.critique, objections: critique.objections }
+              ? {
+                  etat: 'jointe',
+                  figee: enCours.critique,
+                  objections: critique.objections,
+                  commentaires: critique.commentaires,
+                }
               : { etat: 'perdue', figee: enCours.critique },
           }
         : {}),
@@ -3089,6 +3213,74 @@ async function monterReine(
   };
 
   /**
+   * Le plafond de coût de la tentative de `taskId` — celle qui part, ou celle
+   * dont le résultat revient —, recalculé des faits rangés : un enfant délégué
+   * Hive hors course, sa réservation moins le coût déclaré de ses tentatives
+   * TERMINÉES. La ligne de dépense de la tentative en vol est encore ouverte,
+   * donc hors de la somme : à l'envoi comme au retour, le même nombre — et une
+   * re-livraison (`muettes`) rend le même plafond que l'envoi qu'elle remplace.
+   * `undefined` : aucun plafond — racine, revue, drone, ou réservation déjà
+   * dépensée (le planificateur clôt alors l'enfant avant tout envoi,
+   * `reservationDepensee`).
+   *
+   * La course n'en reçoit pas : chaque drone aurait le même reste, la course
+   * le dépenserait autant de fois qu'elle a de drones, et son arbitrage lit
+   * l'échec d'un drone en reprise (suite nommée). L'enveloppe de la racine
+   * tient toujours, après chaque tentative rendue.
+   */
+  const plafondDe = (taskId: string): number | undefined => {
+    const lien = store.getDelegation(taskId);
+    if (!lien || lien.origine !== 'hive' || scheduler.getRace(taskId)) return undefined;
+    const plafond = plafondCoutTentative(lien.costMicros, store.depenseDeclareeEnfant(taskId));
+    return plafond >= 1 ? plafond : undefined;
+  };
+
+  /**
+   * Un arrêt budgétaire que dit un nœud n'est CRU que s'il est celui de la
+   * tentative que la Reine a plafonnée : un nœud qui tient un plafond, une
+   * tentative en échec, un coût DÉCLARÉ arrivé sur le plafond de cette
+   * tentative (`plafondDe`). Sinon un seul message clorait n'importe quelle
+   * tâche sans reprise : il reste un échec ordinaire, et la tâche suit son
+   * cours.
+   *
+   * Le CLI ne s'arrête qu'une fois sa dépense ARRIVÉE au plafond (au plus une
+   * réponse au-delà) : un coût déclaré en dessous n'est pas cet arrêt-là. Le
+   * `- 1` absorbe l'arrondi — le coût voyage en dollars flottants, le plafond
+   * en micro-USD entiers.
+   */
+  const arretCru = (nodeId: string, msg: TaskResultMsg): ArretBudgetaire | undefined => {
+    if (!msg.arretBudgetaire || msg.success || !nodesQuiPlafonnent.has(nodeId)) return undefined;
+    const plafond = plafondDe(msg.taskId);
+    const cout = msg.fournisseur?.coutUsd;
+    if (plafond === undefined || cout === undefined) return undefined;
+    return Math.round(cout * 1_000_000) >= plafond - 1 ? msg.arretBudgetaire : undefined;
+  };
+
+  const delegationDe = (
+    taskId: string,
+    nodeId: string,
+  ): Pick<AssignTaskMsg, 'delegationBudget' | 'delegationRootTaskId' | 'plafondCoutMicros'> => {
+    const delegation = store.getDelegation(taskId);
+    if (!delegation) return {};
+    const plafond = nodesQuiPlafonnent.has(nodeId) ? plafondDe(taskId) : undefined;
+    return {
+      delegationBudget: {
+        durationMs: delegation.durationMs,
+        costMicros: delegation.costMicros,
+        resourceUnits: delegation.resourceUnits,
+      },
+      delegationRootTaskId: delegation.rootTaskId,
+      ...(plafond !== undefined ? { plafondCoutMicros: plafond } : {}),
+    };
+  };
+
+  /** Le niveau d'autonomie réglé pour un projet — `off` sans réglage (G12). */
+  const autonomieDuProjet = (projectId: string): NiveauAutonomie => {
+    const brut = store.getEssaim(projectId)?.niveau;
+    return estNiveauAutonomie(brut) ? brut : 'off';
+  };
+
+  /**
    * Envoie une tâche à un nœud PRÉCIS.
    *
    * ─── POURQUOI CE GESTE EST NOMMÉ PLUTÔT QU'ANONYME ─────────────────────────
@@ -3102,22 +3294,6 @@ async function monterReine(
    * contexte du Cerveau et le journal des refus. Deux portes, c'est une porte
    * qu'on oublie de garder.
    */
-  const delegationDe = (
-    taskId: string,
-  ): Pick<AssignTaskMsg, 'delegationBudget' | 'delegationRootTaskId'> => {
-    const delegation = store.getDelegation(taskId);
-    return delegation
-      ? {
-          delegationBudget: {
-            durationMs: delegation.durationMs,
-            costMicros: delegation.costMicros,
-            resourceUnits: delegation.resourceUnits,
-          },
-          delegationRootTaskId: delegation.rootTaskId,
-        }
-      : {};
-  };
-
   const envoyerTache = (nodeId: string, task: Task, modele?: string, effort?: Effort): void => {
     const ws = nodeSockets.get(nodeId);
     // Socket absent ou fermé : le close/reap réaffectera la tâche, rien à faire ici.
@@ -3131,7 +3307,23 @@ async function monterReine(
         task,
         cadre.length,
       );
-      const delegation = delegationDe(task.id);
+      const delegation = delegationDe(task.id, nodeId);
+      // Un plafond que ce nœud ne tiendra pas se DIT, une fois, à l'envoi :
+      // Codex, Cursor, Cline, shell, ou un nœud d'avant ce contrat le
+      // perdraient sans trace. Une ligne du journal de la tâche, pas une erreur.
+      const nonTenu = nodesQuiPlafonnent.has(nodeId) ? undefined : plafondDe(task.id);
+      if (nonTenu !== undefined) {
+        const noeud = store.getNode(nodeId);
+        emitEvent('task_progress', {
+          taskId: task.id,
+          nodeId,
+          log:
+            `plafond de ${usdDeMicros(nonTenu)} USD non tenu : l’ouvrière ` +
+            `${noeud?.name ?? nodeId} (${noeud?.agentType ?? '?'}) ne déclare tenir aucun plafond ` +
+            'de coût dans la boucle de son agent — seule l’enveloppe de la racine le borne, ' +
+            'après chaque tentative rendue',
+        });
+      }
       // Le Cerveau a refusé : ses invariants ne tenaient pas dans le budget,
       // donc cette ouvrière travaille sans les contraintes de sûreté du
       // projet. C'est précisément le genre de fait qu'un `''` silencieux
@@ -3170,6 +3362,14 @@ async function monterReine(
           objections: critique.objections,
           objectionsFigees: critique.figee.objections.length,
           noteHumaine: critique.figee.noteHumaine !== undefined,
+          // Même paire que les objections : lus / figés. L'écart, c'est la
+          // queue des commentaires de l'humain tombée au budget.
+          ...(critique.figee.commentaires
+            ? {
+                commentaires: critique.commentaires,
+                commentairesFiges: critique.figee.commentaires.length,
+              }
+            : {}),
         });
       } else if (critique?.etat === 'perdue') {
         emitEvent('critique_refus', {
@@ -3237,6 +3437,13 @@ async function monterReine(
         // Une reprise travaille sur la branche de sa PR (`task.branch`, posée
         // par le Scheduler depuis la lignée) : le nœud la clone.
         ...(store.repriseDe(task.id) ? { prolonger: true as const } : {}),
+        // Le réseau que le projet permet à ses agents — toujours dit, défaut
+        // compris : un nœud ne devine pas le réglage d'un projet.
+        reseau: store.niveauReseau(task.projectId),
+        // Le niveau d'autonomie du projet (G12) : le nœud y cale la décision
+        // par défaut d'une action proposée. Toujours envoyé — l'absence est
+        // réservée à un hub plus ancien, que le nœud lit comme `off`.
+        autonomie: autonomieDuProjet(task.projectId),
       });
 
       // ─── L'HORLOGE DU CHANTIER : ce qu'on ANNONCE, écrit au moment où on
@@ -3625,6 +3832,14 @@ async function monterReine(
     };
   };
 
+  /**
+   * Le caviardeur de ce qu'un OPÉRATEUR écrit pour une ouvrière (raison d'un
+   * verdict, commentaire ancré) : les valeurs des variables d'identification
+   * de l'env Queen, le jeton de ruche, et les motifs de jetons connus. Ce
+   * texte part dans le contexte d'un agent et reste au journal.
+   */
+  const caviardeurReine = creerCaviardeur([...valeursSecretes(process.env), config.token]);
+
   // ─── La revue humaine, chemin CANONIQUE unique ──────────────────────────────
   //
   // Un verdict humain — approuvé ouvre la livraison autonome, rejeté relance la
@@ -3649,13 +3864,31 @@ async function monterReine(
   //     a cliqué. Un clic ne dit pas POURQUOI : aucune `raison` — une raison
   //     fabriquée entrait dans la critique de la tentative suivante, l'épisode
   //     du Cerveau et l'écran de critique comme si un humain l'avait écrite.
+  //
+  // ─── LA DEMANDE DE CHANGEMENTS (G06) ───────────────────────────────────────
+  //
+  // Un REJET, au sens de tout ce qui lit la revue (Evaluator, livraison,
+  // Balance, War Room, boucle v3) : la production n'est pas acceptée. Ce qui
+  // la distingue est écrit au fait, dans `task_reviewed.changements` — l'envoi
+  // (`soumission`) qui a emporté les commentaires ancrés, et leur nombre. La
+  // critique de la correction relit CES commentaires-là (`critiquePourRetry`).
+  // Un troisième état de revue aurait dû être appris par chacun de ces
+  // lecteurs, et celui qui l'aurait oublié aurait laissé livrer une
+  // production dont l'humain demandait qu'on la change.
   const appliquerRevueHumaine = (
     task: Task,
     state: 'approved' | 'rejected' | null,
     provenance: { parUserId: string | null } | { source: 'slack'; par: string },
-    opts: { clientId?: string; raison?: string } = {},
+    opts: {
+      clientId?: string;
+      raison?: string;
+      changements?: { soumission: string; commentaires: number };
+    } = {},
   ): { retry: ReturnType<Scheduler['retryFromEvaluator']> | null } => {
     store.setTaskReview(task.id, state);
+    // La raison est une donnée d'opérateur qui part dans le contexte d'une
+    // ouvrière et dans le journal : une clé collée par erreur n'y entre pas.
+    const raison = opts.raison ? caviardeurReine.texte(opts.raison) : '';
     emitEvent('task_reviewed', {
       taskId: task.id,
       state,
@@ -3663,7 +3896,8 @@ async function monterReine(
         ? { source: provenance.source, par: provenance.par, parUserId: null }
         : { parUserId: provenance.parUserId }),
       ...(opts.clientId ? { clientId: opts.clientId } : {}),
-      ...(opts.raison ? { raison: opts.raison } : {}),
+      ...(raison ? { raison } : {}),
+      ...(opts.changements ? { changements: opts.changements } : {}),
     });
     // Approuvée, la production entre au Hive Mind ; rejetée, elle en sort et
     // son épisode s'écrit avec la raison de l'humain. AVANT la relance, qui
@@ -3852,13 +4086,41 @@ async function monterReine(
         etat,
       };
     }
+    if (event.type === 'garde_pr_alerte') {
+      // Le garde de PR a vu une CI rouge qu'il ne corrige pas lui-même
+      // (autonomie, runner de l'hôte, plafond) : un humain doit décider.
+      const pr = typeof p.pr === 'number' ? ` #${p.pr}` : '';
+      return {
+        kind: 'blocage',
+        projectId: task.projectId,
+        titre: `CI rouge sur la pull request${pr} — ${task.title}`,
+        corps: typeof p.detail === 'string' ? p.detail : 'CI rouge.',
+        taskId,
+      };
+    }
     if (event.type !== 'task_failed') return null;
-    const raison = typeof p.reason === 'string' ? p.reason : 'échec';
+    // Un arrêt budgétaire n'est pas un échec de l'agent : le message le dit
+    // tel, avec la suite à donner.
+    if (arreteeParSonBudget(p)) {
+      const borne =
+        p.reason === 'reservation_depensee'
+          ? 'réservation de coût dépensée par ses tentatives précédentes — la Reine ne l’a pas relancée'
+          : 'plafond de coût atteint dans la boucle de l’agent';
+      return {
+        kind: 'blocage',
+        projectId: task.projectId,
+        titre: `Tâche arrêtée par son budget — ${task.title}`,
+        corps:
+          `Motif : ${borne}. Suite : la tâche parente peut la redéléguer sous un nouvel ` +
+          'identifiant, avec une réservation plus large.',
+        taskId,
+      };
+    }
     return {
       kind: 'blocage',
       projectId: task.projectId,
       titre: `Tâche en échec — ${task.title}`,
-      corps: `Motif : ${raison}`,
+      corps: `Motif : ${typeof p.reason === 'string' ? p.reason : 'échec'}`,
       taskId,
     };
   };
@@ -5094,10 +5356,7 @@ async function monterReine(
   app.get('/api/requisitions', async (req, reply) => {
     if (!authorized(req)) return reject(reply);
     const q = req.query as { statut?: string; nodeId?: string };
-    const statut =
-      q.statut === 'ouverte' || q.statut === 'accordee' || q.statut === 'refusee'
-        ? q.statut
-        : undefined;
+    const statut = estStatutRequisition(q.statut) ? q.statut : undefined;
     const rows = store.listerRequisitions({
       ...(typeof q.nodeId === 'string' ? { nodeId: q.nodeId } : {}),
       ...(statut ? { statut } : {}),
@@ -8062,6 +8321,60 @@ async function monterReine(
     },
   );
 
+  // ─── Le réseau des agents (shared/reseau.ts, node-client/proxy-egress.ts) ───
+
+  /**
+   * Le réseau des agents d'un projet : le niveau en vigueur (le défaut quand
+   * personne ne l'a réglé, et l'écran le dit), qui l'a posé, et les niveaux
+   * possibles — pour que l'écran les propose sans les deviner.
+   */
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/reseau',
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      const r = store.getReseauProjet(req.params.projectId);
+      return {
+        niveau: r?.niveau ?? NIVEAU_RESEAU_DEFAUT,
+        regle: r !== null,
+        definiPar: r?.definiPar ?? null,
+        updatedAt: r?.updatedAt ?? null,
+        niveaux: NIVEAUX_RESEAU,
+        defaut: NIVEAU_RESEAU_DEFAUT,
+      };
+    },
+  );
+
+  /**
+   * Règle le réseau des agents d'un projet — un RÉGLAGE (propriétaire ou
+   * administrateur ; le jeton sur un orphelin), comme les Garde-Fous : il
+   * décide de ce que les agents du projet peuvent joindre, donc de ce qui
+   * peut sortir des machines de l'essaim. Pris en compte à la PROCHAINE
+   * assignation ; une tâche en vol garde le réseau qu'elle a reçu.
+   */
+  app.put<{ Params: { projectId: string }; Body: { niveau: NiveauReseau } }>(
+    '/api/projects/:projectId/reseau',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['niveau'],
+          properties: { niveau: { type: 'string', enum: [...NIVEAUX_RESEAU] } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      store.setReseauProjet(req.params.projectId, req.body.niveau, 'humain');
+      return reply.code(200).send({ niveau: req.body.niveau, regle: true });
+    },
+  );
+
   // ─── Le banc d'ombre (shadow-bench.ts) ──────────────────────────────────────
 
   /**
@@ -8893,6 +9206,332 @@ async function monterReine(
     );
     return { applique: true, etat: suivant.etat, heures: d.heures };
   });
+
+  // ─── Les ROUTINES : du travail planifié ou déclenché (ADR 0014) ────────────
+  //
+  // La décision, et ce qu'elle ne change PAS : la ruche ne se remet toujours
+  // pas au travail sur la foi d'un webhook QUELCONQUE. Elle le fait sur la foi
+  // d'une routine, que quelqu'un qui répond du projet a créée — ce geste-là
+  // autorise la dépense à l'avance, et la routine part avec l'autorité de SON
+  // compte, relue à chaque déclenchement (`autoriteRoutine`).
+  //
+  // Les portes, toutes classées dans tests/engagement-projet.test.ts :
+  //   · LIRE la liste : la porte des lectures ;
+  //   · CRÉER, mettre en pause, supprimer, régénérer la clé : un RÉGLAGE —
+  //     décider de ce que le projet dépensera sans qu'on le lui redemande,
+  //     comme le plafond ou le banc d'ombre ;
+  //   · LANCER MAINTENANT : un ENGAGEMENT, comme poser une tâche à la main ;
+  //   · le WEBHOOK : ni jeton ni compte — la signature HMAC de la clé propre
+  //     à la routine, révocable, jamais le jeton de ruche.
+
+  /** Le compte (ou le jeton) dont la routine porte l'autorité en répond-il encore ? */
+  const autoriteRoutine = (r: Routine): VerdictAutorite => {
+    const projet = store.getProject(r.projectId);
+    if (!projet) return 'projet_absent';
+    if (r.creePar === null) return ouvertAuJetonDeRuche(projet) ? 'permis' : 'autorite_perdue';
+    if (!store.getUserById(r.creePar)) return 'autorite_perdue';
+    const brut = store.getRole(r.creePar);
+    const role: Role = ROLES.includes(brut as Role) ? (brut as Role) : 'membre';
+    const lecteur = { userId: r.creePar, voitTout: peut(role, 'voir_tous_les_projets') };
+    return peut(role, 'regler_autonomie') && peutRegler(projet, lecteur)
+      ? 'permis'
+      : 'autorite_perdue';
+  };
+
+  const moteurRoutines = new MoteurRoutines({
+    store,
+    emettre: emitEvent,
+    autorite: autoriteRoutine,
+    apresLancement: () => {
+      scheduler.tick();
+      stateDirty = true;
+    },
+    ...(jetonGithub
+      ? {
+          lireCi: (r: Routine, projet: Project) => {
+            const depot = projet.repoUrl ? fullNameDepuisUrl(projet.repoUrl) : null;
+            if (!depot) return Promise.reject(new Error('le projet n’a plus de dépôt GitHub'));
+            return lireEtatCi(
+              {
+                jeton: jetonGithub,
+                ...(apiGithub ? { api: apiGithub } : {}),
+                ...(config.githubFetcher ? { fetcheur: config.githubFetcher } : {}),
+              },
+              depot,
+              r.branche ?? 'main',
+            );
+          },
+        }
+      : {}),
+  });
+
+  /** La routine d'un projet, ou rien : celle d'un AUTRE projet a la forme de l'inexistence. */
+  const routineDuProjet = (projectId: string, routineId: string): Routine | undefined => {
+    const r = store.getRoutine(routineId);
+    return r && r.projectId === projectId ? r : undefined;
+  };
+
+  const vueDe = (r: Routine) =>
+    vueRoutine(
+      r,
+      store.runsDeRoutine(r.id, 10),
+      r.creePar === null ? null : (store.getUserById(r.creePar)?.displayName ?? null),
+    );
+
+  const PARAMS_ROUTINE = {
+    type: 'object',
+    required: ['projectId', 'routineId'],
+    properties: {
+      projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+      routineId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+    },
+  } as const;
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/routines',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      return {
+        routines: store.listRoutines(req.params.projectId).map(vueDe),
+        // Dit, pas deviné : sans jeton GitHub, « CI rouge » ne peut rien lire.
+        ciDisponible: jetonGithub !== '',
+      };
+    },
+  );
+
+  app.post<{ Params: { projectId: string }; Body: CorpsRoutine }>(
+    '/api/projects/:projectId/routines',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['nom', 'consigne', 'declencheur'],
+          additionalProperties: false,
+          properties: {
+            nom: { type: 'string', minLength: 1, maxLength: MAX_NOM_ROUTINE },
+            consigne: { type: 'string', minLength: 1, maxLength: MAX_CONSIGNE },
+            declencheur: { type: 'string', enum: [...DECLENCHEURS] },
+            expression: { type: 'string', minLength: 1, maxLength: 120 },
+            fuseau: { type: 'string', minLength: 1, maxLength: 64 },
+            branche: { type: 'string', minLength: 1, maxLength: 200 },
+            plage: {
+              type: ['object', 'null'],
+              required: ['jours', 'debut', 'fin'],
+              additionalProperties: false,
+              properties: {
+                jours: { type: 'array', maxItems: 7, items: { type: 'integer' } },
+                debut: { type: 'string', maxLength: 5 },
+                fin: { type: 'string', maxLength: 5 },
+              },
+            },
+            concurrence: { type: 'string', enum: [...CONCURRENCES] },
+            rattrapage: { type: 'string', enum: [...RATTRAPAGES] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      const projet = store.getProject(req.params.projectId);
+      if (!projet) return reply.code(404).send({ error: 'projet inconnu' });
+      const now = Date.now();
+      const v = validerRoutine(req.body, {
+        projectId: projet.id,
+        // LE COMPTE QUI CRÉE EN RÉPOND. `authorizedUser` d'abord : un compte
+        // qui présente AUSSI le jeton reste un compte, et la routine est à lui.
+        creePar: authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null,
+        repoGithub: projet.repoUrl !== null && fullNameDepuisUrl(projet.repoUrl) !== null,
+        now,
+      });
+      if (!v.ok) return reply.code(400).send({ error: v.motif });
+      store.creerRoutine(v.routine);
+      emitEvent('routine_created', {
+        routineId: v.routine.id,
+        projectId: projet.id,
+        declencheur: v.routine.declencheur,
+      });
+      return reply.code(201).send({
+        routine: vueDe(v.routine),
+        // REMISE UNE FOIS : aucune lecture ne la rendra plus. Perdue, elle se
+        // régénère (`/secret`) — ce qui révoque l'ancienne.
+        ...(v.routine.secret ? { secret: v.routine.secret } : {}),
+      });
+    },
+  );
+
+  app.put<{ Params: { projectId: string; routineId: string }; Body: { actif: boolean } }>(
+    '/api/projects/:projectId/routines/:routineId',
+    {
+      schema: {
+        params: PARAMS_ROUTINE,
+        body: {
+          type: 'object',
+          required: ['actif'],
+          additionalProperties: false,
+          properties: { actif: { type: 'boolean' } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      const r = routineDuProjet(req.params.projectId, req.params.routineId);
+      if (!r) return reply.code(404).send({ error: 'routine inconnue' });
+      const now = Date.now();
+      if (req.body.actif && !r.actif) {
+        // Reprendre ne rend pas l'autorité perdue : la routine part au nom de
+        // son créateur, et s'il ne répond plus du projet, elle se recrée.
+        const autorite = autoriteRoutine(r);
+        if (autorite !== 'permis') {
+          return reply.code(409).send({
+            code: autorite,
+            error:
+              'le compte qui a créé cette routine ne répond plus du projet : supprimez-la et recréez-la',
+          });
+        }
+        // Le curseur repart de MAINTENANT : une pause n'est pas une panne, et
+        // ses créneaux ne se rattrapent pas.
+        const prochaineA =
+          r.expression === null
+            ? null
+            : prochaineEcheance(analyserCron(r.expression), r.fuseau, now);
+        store.majRoutine(r.id, { actif: true, prochaineA, derniereErreur: null }, now);
+      } else if (!req.body.actif && r.actif) {
+        store.majRoutine(r.id, { actif: false }, now);
+      }
+      emitEvent(req.body.actif ? 'routine_resumed' : 'routine_paused', {
+        routineId: r.id,
+        projectId: r.projectId,
+      });
+      return { routine: vueDe(store.getRoutine(r.id) ?? r) };
+    },
+  );
+
+  app.delete<{ Params: { projectId: string; routineId: string } }>(
+    '/api/projects/:projectId/routines/:routineId',
+    { schema: { params: PARAMS_ROUTINE } },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      // IDEMPOTENT : supprimer ce qui n'est plus là rend `supprimee: false`,
+      // pas une erreur — un double clic ne doit pas afficher une panne.
+      const r = routineDuProjet(req.params.projectId, req.params.routineId);
+      const supprimee = r ? store.supprimerRoutine(r.id) : false;
+      if (supprimee) {
+        emitEvent('routine_deleted', { routineId: req.params.routineId, projectId: r!.projectId });
+      }
+      return { supprimee };
+    },
+  );
+
+  app.post<{ Params: { projectId: string; routineId: string } }>(
+    '/api/projects/:projectId/routines/:routineId/secret',
+    { schema: { params: PARAMS_ROUTINE } },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      const r = routineDuProjet(req.params.projectId, req.params.routineId);
+      if (!r) return reply.code(404).send({ error: 'routine inconnue' });
+      if (r.declencheur !== 'webhook') {
+        return reply.code(400).send({ error: 'seule une routine « webhook » a une clé' });
+      }
+      // Remplacer la clé RÉVOQUE l'ancienne dans le même geste : il n'existe
+      // aucune fenêtre où les deux signent.
+      const secret = tirerSecretRoutine();
+      store.majRoutine(r.id, { secret }, Date.now());
+      emitEvent('routine_secret_rotated', { routineId: r.id, projectId: r.projectId });
+      return { secret };
+    },
+  );
+
+  app.post<{ Params: { projectId: string; routineId: string } }>(
+    '/api/projects/:projectId/routines/:routineId/declencher',
+    { schema: { params: PARAMS_ROUTINE } },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
+      const r = routineDuProjet(req.params.projectId, req.params.routineId);
+      if (!r) return reply.code(404).send({ error: 'routine inconnue' });
+      const now = Date.now();
+      const issue = moteurRoutines.declencher(
+        r,
+        { source: 'manuel', cle: null, instant: now },
+        now,
+      );
+      return issue.statut === 'doublon'
+        ? { statut: issue.statut }
+        : { statut: issue.statut, motif: issue.run.motif, taches: issue.run.taches };
+    },
+  );
+
+  /**
+   * Le webhook d'une routine — sur le modèle de celui de l'abonnement.
+   *
+   * La SIGNATURE authentifie (`t=<s>,v1=<hmac>`, fenêtre de cinq minutes :
+   * `verifierSignature`), sur le corps BRUT et avec la clé de CETTE routine.
+   * Une routine inconnue, d'un autre projet ou sans clé rend exactement le
+   * même 401 qu'une signature fausse : la route ne dit pas ce qui existe.
+   *
+   * LA DÉDUPLICATION : `x-hive-delivery` (ou `x-github-delivery`) nomme la
+   * livraison ; rejouée, elle rend 200 `doublon` sans rien refaire — un
+   * émetteur qui retente après un délai d'attente ne double pas la mission.
+   * Sans identifiant, la signature elle-même en tient lieu : elle porte son
+   * horodatage, donc deux envois distincts ne la partagent pas.
+   */
+  app.post<{ Params: { projectId: string; routineId: string } }>(
+    '/api/projects/:projectId/routines/:routineId/webhook',
+    async (req, reply) => {
+      const brut = (req as { rawBody?: string }).rawBody ?? '';
+      const entete = String(req.headers['x-hive-signature'] ?? '');
+      const now = Date.now();
+      const r = routineDuProjet(String(req.params.projectId), String(req.params.routineId));
+      const secret = r?.declencheur === 'webhook' ? (r.secret ?? '') : '';
+      const v = verifierSignature({ charge: brut, entete, secret, now });
+      if (!r || !v.valide) {
+        app.log.warn({ motif: v.motif }, 'webhook de routine refusé');
+        return reply.code(401).send({ error: 'signature refusée' });
+      }
+      const livraison = String(
+        req.headers['x-hive-delivery'] ?? req.headers['x-github-delivery'] ?? '',
+      ).slice(0, 200);
+      const cle = livraison !== '' ? `webhook:${livraison}` : `signature:${entete.slice(0, 200)}`;
+      const issue = moteurRoutines.declencher(
+        r,
+        { source: 'webhook', cle, instant: now, contexte: contexteDeWebhook(req.body) },
+        now,
+      );
+      if (issue.statut === 'doublon') return { doublon: true };
+      return reply.code(202).send({ statut: issue.statut, run: issue.run.id });
+    },
+  );
+
+  const routinesTimer = setInterval(() => {
+    moteurRoutines.tick(Date.now()).catch((err: unknown) => {
+      console.error(
+        `[hive] erreur des routines : ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  }, config.routinesTickMs ?? 30_000);
+  routinesTimer.unref();
 
   // ─── L'administration des comptes ─────────────────────────────────────────
   //
@@ -12391,6 +13030,254 @@ async function monterReine(
     },
   );
 
+  // ─── REVUE LIGNE PAR LIGNE (G06, shared/commentaire-revue.ts) ─────────────
+  //
+  // Un commentaire ancre ce que l'humain veut voir changé sur une plage de
+  // lignes d'un fichier du diff de la DERNIÈRE production. Il reste en
+  // attente, partagé entre opérateurs (événement `revue_commentaire`, relu par
+  // la Miellerie), jusqu'à « demander des changements » : UN envoi emporte
+  // tous les commentaires en attente de la production dans UNE correction —
+  // la tentative suivante de la tâche, que l'Aiguillage confie au même Worker
+  // ou à une autre famille, et qui repasse par l'Evaluator et la relecture
+  // croisée comme toute correction.
+  //
+  // MÊME PORTE que le verdict (`decisionTache`) : un commentaire est le début
+  // d'une décision sur le sort du travail. Le TEXTE ne quitte la Reine que
+  // par la lecture gardée ci-dessous et par la critique de la correction —
+  // jamais par l'événement, diffusé à tous les écrans.
+  const refuserNonTerminale = (reply: FastifyReply, task: Task): FastifyReply =>
+    reply.code(409).send({
+      code: 'task_not_terminal',
+      error: `tâche ${task.status} — revue possible seulement après terminaison`,
+    });
+  const refuserResultatPerime = (reply: FastifyReply, dernier: number | null): FastifyReply =>
+    reply.code(409).send({
+      code: 'resultat_perime',
+      error: 'une production plus récente est arrivée — rechargez le diff avant de commenter',
+      resultId: dernier,
+    });
+  const schemaTache = {
+    type: 'object',
+    required: ['taskId'],
+    properties: { taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+  } as const;
+
+  app.get<{ Params: { taskId: string } }>(
+    '/api/tasks/:taskId/commentaires-revue',
+    { schema: { params: schemaTache } },
+    async (req, reply) => {
+      const task = store.getTask(req.params.taskId);
+      const lecture = lectureProjetPermise(req, task?.projectId ?? '');
+      if (lecture === 'anonyme') return reject(reply);
+      if (lecture !== 'permis' || !task) return refuserTache(reply, 'absent');
+      return {
+        taskId: task.id,
+        resultId: store.dernierResultatDe(task.id),
+        max: COMMENTAIRES_PAR_PRODUCTION_MAX,
+        commentaires: store.commentairesRevue(task.id),
+      };
+    },
+  );
+
+  app.post<{
+    Params: { taskId: string };
+    Body: {
+      resultId: number;
+      fichier: string;
+      ligneDebut: number;
+      ligneFin: number;
+      texte: string;
+    };
+  }>(
+    '/api/tasks/:taskId/commentaires-revue',
+    {
+      schema: {
+        params: schemaTache,
+        body: {
+          type: 'object',
+          required: ['resultId', 'fichier', 'ligneDebut', 'ligneFin', 'texte'],
+          additionalProperties: false,
+          properties: {
+            // La production commentée : un commentaire posé sur un diff que
+            // l'écran montrait AVANT une nouvelle tentative viserait des
+            // lignes qui n'existent plus (409 `resultat_perime`).
+            resultId: { type: 'integer', minimum: 1 },
+            fichier: { type: 'string', minLength: 1, maxLength: COMMENTAIRE_FICHIER_MAX },
+            ligneDebut: { type: 'integer', minimum: 1 },
+            ligneFin: { type: 'integer', minimum: 1 },
+            texte: { type: 'string', minLength: 1, maxLength: COMMENTAIRE_TEXTE_MAX },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const task = decisionTache(req, reply, req.params.taskId);
+      if (!task) return reply;
+      if (task.status !== 'done' && task.status !== 'failed')
+        return refuserNonTerminale(reply, task);
+      const dernier = store.dernierResultatDe(task.id);
+      if (dernier !== req.body.resultId) return refuserResultatPerime(reply, dernier);
+      const texte = req.body.texte.trim();
+      if (texte === '') {
+        return reply.code(400).send({ code: 'commentaire_vide', error: 'commentaire vide' });
+      }
+      const production = store.resultsForTask(task.id).find((r) => r.resultId === dernier);
+      const ancre = ancrerDansLeDiff(production?.diff ?? '', req.body);
+      if (!ancre.ok) {
+        return reply.code(400).send({ code: 'ancre_invalide', error: ancre.motif });
+      }
+      const auteur = authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null;
+      const commentaire = {
+        id: `com-${randomUUID()}`.slice(0, LIMITS.id),
+        taskId: task.id,
+        resultId: req.body.resultId,
+        fichier: req.body.fichier,
+        ligneDebut: req.body.ligneDebut,
+        ligneFin: req.body.ligneFin,
+        texte: caviardeurReine.texte(texte),
+        extrait: ancre.extrait,
+        auteur,
+        creeA: Date.now(),
+      };
+      if (store.ajouterCommentaireRevue(commentaire, COMMENTAIRES_PAR_PRODUCTION_MAX) === 'plein') {
+        return reply.code(409).send({
+          code: 'commentaires_pleins',
+          error: `déjà ${COMMENTAIRES_PAR_PRODUCTION_MAX} commentaires en attente sur cette production — demandez les changements ou retirez-en un`,
+        });
+      }
+      emitEvent('revue_commentaire', {
+        taskId: task.id,
+        commentaireId: commentaire.id,
+        resultId: commentaire.resultId,
+        action: 'ajoute',
+        ...(auteur ? { par: auteur } : {}),
+      });
+      return reply.code(201).send({ ...commentaire, soumission: null, soumisA: null });
+    },
+  );
+
+  app.delete<{ Params: { taskId: string; commentaireId: string } }>(
+    '/api/tasks/:taskId/commentaires-revue/:commentaireId',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['taskId', 'commentaireId'],
+          properties: {
+            taskId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+            commentaireId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const task = decisionTache(req, reply, req.params.taskId);
+      if (!task) return reply;
+      const issue = store.retirerCommentaireRevue(task.id, req.params.commentaireId);
+      if (issue === 'inconnu') return reply.code(404).send({ error: 'commentaire inconnu' });
+      if (issue === 'soumis') {
+        return reply.code(409).send({
+          code: 'commentaire_soumis',
+          error: 'ce commentaire est parti avec une demande de changements — il reste à l’histoire',
+        });
+      }
+      const par = authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null;
+      emitEvent('revue_commentaire', {
+        taskId: task.id,
+        commentaireId: req.params.commentaireId,
+        action: 'retire',
+        ...(par ? { par } : {}),
+      });
+      return { ok: true };
+    },
+  );
+
+  // Le verdict « demander des changements ». Un rejet (`appliquerRevueHumaine`)
+  // qui emporte les commentaires en attente de la production ; sans aucun
+  // commentaire, un RÉSUMÉ est exigé — « changez » sans dire quoi renverrait
+  // l'ouvrière refaire la même production.
+  app.post<{
+    Params: { taskId: string };
+    Body: {
+      resultId: number;
+      resume?: string;
+      expectedUpdatedAt?: number | null;
+      clientId?: string;
+    };
+  }>(
+    '/api/tasks/:taskId/demande-changements',
+    {
+      schema: {
+        params: schemaTache,
+        body: {
+          type: 'object',
+          required: ['resultId'],
+          additionalProperties: false,
+          properties: {
+            resultId: { type: 'integer', minimum: 1 },
+            resume: { type: 'string', maxLength: MAX_RAISON_REVUE },
+            // Mêmes contrats que `/review` : compare-and-set opt-in, écho d'onglet.
+            expectedUpdatedAt: { type: ['integer', 'null'] },
+            clientId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const task = decisionTache(req, reply, req.params.taskId);
+      if (!task) return reply;
+      if (task.status !== 'done' && task.status !== 'failed')
+        return refuserNonTerminale(reply, task);
+      const dernier = store.dernierResultatDe(task.id);
+      if (dernier !== req.body.resultId) return refuserResultatPerime(reply, dernier);
+      if (req.body.expectedUpdatedAt !== undefined) {
+        const current = store.getTaskReview(task.id);
+        const currentTs = current?.updatedAt ?? null;
+        if (currentTs !== req.body.expectedUpdatedAt) {
+          return reply.code(409).send({
+            code: 'review_conflict',
+            error: 'verdict modifié par un autre opérateur — rechargez la revue',
+            currentState: current?.state ?? null,
+            currentUpdatedAt: currentTs,
+          });
+        }
+      }
+      const resume = req.body.resume?.trim() ?? '';
+      const enAttente = store
+        .commentairesRevue(task.id)
+        .filter((c) => c.resultId === dernier && c.soumission === null).length;
+      if (enAttente === 0 && resume === '') {
+        return reply.code(400).send({
+          code: 'changements_sans_contenu',
+          error:
+            'aucun commentaire sur cette production : écrivez un résumé de ce qu’il faut changer, ou commentez des lignes du diff',
+        });
+      }
+      // Tout est synchrone d'ici à la réponse : aucun commentaire ne peut
+      // arriver entre le compte ci-dessus et l'envoi qui les emporte.
+      const soumission = `chg-${randomUUID()}`.slice(0, LIMITS.id);
+      const commentaires = store.soumettreCommentairesRevue(task.id, dernier, soumission);
+      const changements = { soumission, commentaires };
+      const { retry } = appliquerRevueHumaine(
+        task,
+        'rejected',
+        { parUserId: compteQuiRegle(req, task.projectId) },
+        {
+          ...(req.body.clientId ? { clientId: req.body.clientId } : {}),
+          ...(resume ? { raison: resume } : {}),
+          changements,
+        },
+      );
+      return {
+        taskId: task.id,
+        state: 'rejected',
+        changements,
+        updatedAt: store.getTaskReview(task.id)?.updatedAt ?? null,
+        ...(retry ? { retry } : {}),
+      };
+    },
+  );
+
   // La critique d'une tâche, pour la Miellerie : la raison du verdict humain
   // courant et ce que la tentative en cours a reçu en reprenant — les deux
   // relus dans le journal, là où ils ont été écrits. Lecture seule.
@@ -12852,6 +13739,9 @@ async function monterReine(
   //     C'est un GESTE, comme prendre une issue et comme fusionner. La ruche ne
   //     se remet pas au travail toute seule sur la foi d'un webhook : ce serait
   //     la seule dépense qu'aucun humain n'aurait demandée.
+  //     Une ROUTINE (ADR 0014) n'y fait pas exception : c'est une dépense
+  //     qu'un humain a demandée À L'AVANCE, en la créant, et qui part avec
+  //     l'autorité de son compte — pas une reprise sur la foi d'un webhook.
 
   /** Les faits d'une livraison, lus chez GitHub et repliés en un état. */
   const etatDeLivraison = async (l: {
@@ -12865,13 +13755,31 @@ async function monterReine(
     etat: EtatLivraison;
     faits: FaitsPr;
   }> => {
-    const faits = await lireFaitsPr(
-      { jeton: jetonGithub, ...(apiGithub ? { api: apiGithub } : {}) },
-      l.depot,
-      l.pr,
-    );
+    const faits = await lireFaitsPr(optionsGithub(), l.depot, l.pr);
     return { taskId: l.taskId, depot: l.depot, pr: l.pr, etat: etatLivraison(faits), faits };
   };
+
+  /**
+   * Les options des appels GitHub de la livraison et du garde : le jeton, l'API
+   * (Enterprise) et le fetcheur injecté des bancs. Un seul endroit, pour que
+   * lire, reprendre et relancer parlent au MÊME GitHub — un banc qui injecte
+   * un faux ne doit pas voir une moitié des appels partir sur le vrai.
+   */
+  function optionsGithub(): { jeton: string; api?: string; fetcheur?: Fetcheur } {
+    return {
+      jeton: jetonGithub,
+      ...(apiGithub ? { api: apiGithub } : {}),
+      ...(config.githubFetcher ? { fetcheur: config.githubFetcher } : {}),
+    };
+  }
+
+  /**
+   * Le plafond de reprises d'une PR entre deux CI vertes, réglé par l'hôte
+   * (`HIVE_GARDE_PR_PLAFOND`, 1 à 10, défaut 3). Le MÊME pour le garde et pour
+   * le bouton « reprendre » : deux plafonds diraient deux choses différentes
+   * de la même PR, et le bouton refuserait ce que le garde vient de faire.
+   */
+  const plafondReprises = plafondGardeDepuisEnv(process.env);
 
   // ─── LA LIGNÉE D'UNE REPRISE, ET SES DEUX BORNES ────────────────────────────
   //
@@ -12882,9 +13790,12 @@ async function monterReine(
   //   · UNE reprise en vol à la fois. Deux reprises partiraient de la même
   //     tête ; la seconde livrée trouverait la branche avancée par la
   //     première, et travaillerait sur des faits périmés.
-  //   · un PLAFOND par livraison (`MAX_REPRISES_PAR_LIVRAISON`), réussies
-  //     ou non : une production que trois reprises n'ont pas réparée
-  //     attend un humain, pas une quatrième tentative.
+  //   · un PLAFOND par livraison (`plafondReprises`), réussies ou non : une
+  //     production que trois reprises n'ont pas réparée attend un humain, pas
+  //     une quatrième tentative. Compté DEPUIS LA DERNIÈRE CI VERTE que le
+  //     garde de PR a vue (`gardes_pr.vertA`, 0 s'il n'en a jamais vu) : une
+  //     PR réparée qui recasse plus tard sur un autre sujet a un problème
+  //     neuf, pas un crédit épuisé.
   //
   // Lues du store seul, sans GitHub : la liste s'en sert pour ne pas offrir
   // un bouton que la route refuserait (`reprenable`), la route pour refuser.
@@ -12929,7 +13840,7 @@ async function monterReine(
   const bornesDeReprise = (
     rangee: LivraisonRangee,
   ):
-    | { origine: string; reprises: RepriseLivraison[] }
+    | { origine: string; reprises: number }
     | { refus: Record<string, unknown> & { code: string; error: string } } => {
     const origine = store.repriseDe(rangee.taskId)?.origine ?? rangee.taskId;
     const reprises = store.reprisesDeLivraison(origine);
@@ -12944,18 +13855,20 @@ async function monterReine(
         },
       };
     }
-    if (reprises.length >= MAX_REPRISES_PAR_LIVRAISON) {
+    const vertA = store.getGardePr(rangee.depot, rangee.pr)?.vertA ?? 0;
+    const depuisLeVert = reprises.filter((r) => r.creeA > vertA).length;
+    if (depuisLeVert >= plafondReprises) {
       return {
         refus: {
           code: 'plafond_reprises',
-          error: `cette livraison a déjà été reprise ${reprises.length} fois (plafond : ${MAX_REPRISES_PAR_LIVRAISON})`,
+          error: `cette livraison a déjà été reprise ${depuisLeVert} fois depuis sa dernière CI verte (plafond : ${plafondReprises})`,
           conseil:
             `Corrigez à la main sur la branche ${rangee.branche}, ou fermez la pull request : ` +
             'la ruche ne sait pas réparer cette production.',
         },
       };
     }
-    return { origine, reprises };
+    return { origine, reprises: depuisLeVert };
   };
 
   /** `reprenable` d'une ligne de la liste, et pourquoi pas (`bornesDeReprise`). */
@@ -13031,6 +13944,8 @@ async function monterReine(
             // une reprise déjà en vol, ni un plafond atteint : le bouton
             // n'offre pas ce que la route refuserait — il dit pourquoi.
             ...repriseOfferte(l, vue.etat),
+            // Ce que le garde de PR a vu et fait de cette PR.
+            garde: vueGarde(l),
           });
         } catch (e) {
           // Une PR illisible (supprimée, dépôt transféré) ne doit pas rendre
@@ -13107,107 +14022,415 @@ async function monterReine(
           .send({ error: err.message ?? 'échec GitHub', conseil: err.conseil });
       }
 
-      if (!demandeDuTravail(vue.etat)) {
-        return reply
-          .code(409)
-          .send({ error: `Rien à reprendre. ${direEtat(vue.etat)}`, etat: vue.etat });
-      }
-      if (!reprenableSurLaBranche(vue.etat)) {
-        return reply.code(409).send({
+      const ouverte = ouvrirReprise(rangee, vue, 'humain');
+      if (!ouverte.ok) return reply.code(ouverte.statut).send(ouverte.corps);
+      return reply.code(201).send({
+        tache: ouverte.tache,
+        etat: vue.etat,
+        dit: direEtat(vue.etat),
+        branche: rangee.branche,
+        reprise: ouverte.reprise,
+        plafond: plafondReprises,
+      });
+    },
+  );
+
+  /**
+   * Ouvre UNE reprise d'une livraison dont les faits viennent d'être lus —
+   * le geste du bouton « reprendre » ET celui du garde de PR, qui n'a aucun
+   * chemin d'écriture à lui : même refus, même brief, même lignée, même
+   * branche. Deux copies divergeraient, et c'est la copie automatique qui
+   * finirait par ouvrir ce que le bouton refuse.
+   *
+   * `dansTransaction` : ce que l'appelant veut rendre ATOMIQUE avec la
+   * naissance de la tâche (le garde y range la tête traitée — sans quoi un
+   * arrêt entre les deux lui ferait rouvrir une reprise sur la même tête).
+   */
+  function ouvrirReprise(
+    rangee: LivraisonRangee,
+    vue: { pr: number; etat: EtatLivraison; faits: FaitsPr },
+    par: 'humain' | 'garde',
+    dansTransaction?: () => void,
+  ):
+    | { ok: true; tache: Task; reprise: number }
+    | { ok: false; statut: number; corps: Record<string, unknown> & { error: string } } {
+    if (!demandeDuTravail(vue.etat)) {
+      return {
+        ok: false,
+        statut: 409,
+        corps: { error: `Rien à reprendre. ${direEtat(vue.etat)}`, etat: vue.etat },
+      };
+    }
+    if (!reprenableSurLaBranche(vue.etat)) {
+      return {
+        ok: false,
+        statut: 409,
+        corps: {
           code: 'conflit_hors_reprise',
           error: direEtat(vue.etat),
           etat: vue.etat,
           conseil: CONSEIL_CONFLIT,
-        });
-      }
+        },
+      };
+    }
 
-      const bornes = bornesDeReprise(rangee);
-      if ('refus' in bornes) return reply.code(409).send(bornes.refus);
-      const { origine, reprises } = bornes;
-      // La tête LUE maintenant, et la branche que la ruche a rangée : c'est
-      // elle que l'ouvrière clonera, jamais un nom lu dans un texte de GitHub.
-      const tete = vue.faits.commitSha ?? '';
-      if (!tete || (vue.faits.branche !== undefined && vue.faits.branche !== rangee.branche)) {
-        return reply.code(409).send({
+    const bornes = bornesDeReprise(rangee);
+    if ('refus' in bornes) return { ok: false, statut: 409, corps: bornes.refus };
+    const { origine, reprises } = bornes;
+    // La tête LUE maintenant, et la branche que la ruche a rangée : c'est
+    // elle que l'ouvrière clonera, jamais un nom lu dans un texte de GitHub.
+    const tete = vue.faits.commitSha ?? '';
+    if (!tete || (vue.faits.branche !== undefined && vue.faits.branche !== rangee.branche)) {
+      return {
+        ok: false,
+        statut: 409,
+        corps: {
           code: 'branche_inattendue',
           error: `la pull request #${vue.pr} ne porte plus la branche ${rangee.branche}`,
           conseil: 'La ruche ne prolonge que la branche qu’elle a livrée pour cette PR.',
-        });
-      }
+        },
+      };
+    }
 
-      const tacheOrigine = store.getTask(rangee.taskId);
-      const brief = briefDeRetour({
-        faits: vue.faits,
-        etat: vue.etat,
-        tache: tacheOrigine?.title ?? rangee.taskId,
-      });
-      if (brief === '') {
-        return reply
-          .code(422)
-          .send({ error: 'Les faits de cette pull request ne tiennent pas dans une consigne.' });
-      }
+    const tacheOrigine = store.getTask(rangee.taskId);
+    const brief = briefDeRetour({
+      faits: vue.faits,
+      etat: vue.etat,
+      tache: tacheOrigine?.title ?? rangee.taskId,
+    });
+    if (brief === '') {
+      return {
+        ok: false,
+        statut: 422,
+        corps: { error: 'Les faits de cette pull request ne tiennent pas dans une consigne.' },
+      };
+    }
 
-      // UNE SEULE TÂCHE, pas un découpage. Une reprise est ciblée par nature :
-      // la faire passer par la Queen Bee dépenserait un appel de modèle pour
-      // redécouper ce que la CI a déjà nommé précisément.
-      //
-      // La tâche, sa lignée et son issue naissent dans UNE transaction : une
-      // tâche sans lignée partirait sur une branche neuve et rouvrirait une
-      // seconde PR — exactement le défaut que la lignée ferme.
-      const issue = store.issueDeTache(rangee.taskId);
-      const tache = store.enTransaction(() => {
-        const t = store.createTask({
-          id: `r${vue.pr}-${Date.now().toString(36)}`,
-          projectId: req.params.projectId,
-          title: `Reprise PR #${vue.pr} — ${vue.etat}`,
-          prompt: brief,
-          dependsOn: [],
-        });
-        store.inscrireReprise({
-          taskId: t.id,
-          origine,
-          parent: rangee.taskId,
-          projectId: req.params.projectId,
-          depot: rangee.depot,
-          pr: vue.pr,
-          branche: rangee.branche,
-          tete,
-        });
-        // LE LIEN VERS L'ISSUE SUIT LA REPRISE. La PR est la même, et son
-        // « Closes #N » aussi ; mais la reprise est une tâche à part entière,
-        // relue et journalisée : sans le lien, rien ne dirait qu'elle répond
-        // à la même demande.
-        if (issue) {
-          store.lierTacheIssue({
-            taskId: t.id,
-            projectId: req.params.projectId,
-            depot: issue.depot,
-            numero: issue.numero,
-          });
-        }
-        return t;
+    // UNE SEULE TÂCHE, pas un découpage. Une reprise est ciblée par nature :
+    // la faire passer par la Queen Bee dépenserait un appel de modèle pour
+    // redécouper ce que la CI a déjà nommé précisément.
+    //
+    // La tâche, sa lignée et son issue naissent dans UNE transaction : une
+    // tâche sans lignée partirait sur une branche neuve et rouvrirait une
+    // seconde PR — exactement le défaut que la lignée ferme.
+    const issue = store.issueDeTache(rangee.taskId);
+    const tache = store.enTransaction(() => {
+      const t = store.createTask({
+        id: `r${vue.pr}-${Date.now().toString(36)}`,
+        projectId: rangee.projectId,
+        title: `Reprise PR #${vue.pr} — ${vue.etat}`,
+        prompt: brief,
+        dependsOn: [],
       });
-      emitEvent('livraison_reprise', {
-        projectId: req.params.projectId,
-        taskId: tache.id,
+      store.inscrireReprise({
+        taskId: t.id,
         origine,
         parent: rangee.taskId,
+        projectId: rangee.projectId,
+        depot: rangee.depot,
         pr: vue.pr,
         branche: rangee.branche,
-        etat: vue.etat,
+        tete,
       });
-      scheduler.tick();
-      stateDirty = true;
-      return reply.code(201).send({
-        tache,
-        etat: vue.etat,
-        dit: direEtat(vue.etat),
-        branche: rangee.branche,
-        reprise: reprises.length + 1,
-        plafond: MAX_REPRISES_PAR_LIVRAISON,
-      });
-    },
-  );
+      // LE LIEN VERS L'ISSUE SUIT LA REPRISE. La PR est la même, et son
+      // « Closes #N » aussi ; mais la reprise est une tâche à part entière,
+      // relue et journalisée : sans le lien, rien ne dirait qu'elle répond
+      // à la même demande.
+      if (issue) {
+        store.lierTacheIssue({
+          taskId: t.id,
+          projectId: rangee.projectId,
+          depot: issue.depot,
+          numero: issue.numero,
+        });
+      }
+      dansTransaction?.();
+      return t;
+    });
+    // Effets APRÈS le commit (#468) : l'événement, le tick, la diffusion.
+    emitEvent('livraison_reprise', {
+      projectId: rangee.projectId,
+      taskId: tache.id,
+      origine,
+      parent: rangee.taskId,
+      pr: vue.pr,
+      branche: rangee.branche,
+      etat: vue.etat,
+      par,
+    });
+    scheduler.tick();
+    stateDirty = true;
+    return { ok: true, tache, reprise: reprises + 1 };
+  }
+
+  // ─── LE GARDE DE PR : la boucle après livraison (garde-pr.ts) ──────────────
+  //
+  // Les deux routes ci-dessus attendent qu'un humain regarde. Le garde sonde
+  // les PR que la ruche a ouvertes et, quand leur CI casse sur une tête
+  // neuve, fait ce que le niveau d'autonomie du projet autorise : prévenir
+  // (`off`, `propose`, ou runner de l'hôte éteint), relancer un job prouvé
+  // instable, ou ouvrir la reprise (`gouverne`, `plein`) — par `ouvrirReprise`,
+  // exactement comme le bouton. Il ne fusionne jamais.
+  //
+  // SÉQUENTIEL et BORNÉ (`LOT_GARDE` PR par passe, chacune à son échéance) :
+  // la limite secondaire de GitHub vise les rafales. Un 403/429 met TOUT le
+  // garde en pause (la limite vise le jeton, pas une PR), avec un recul qui
+  // double. Éteint sans jeton GitHub, ou par `HIVE_GARDE_PR=off`.
+
+  const gardeActive = gardeActiveDepuisEnv(process.env);
+  let gardePauseJusqua = 0;
+  let gardePauses = 0;
+  let gardeEnVol = false;
+
+  /** Le niveau d'autonomie d'un projet, relu — une valeur inconnue vaut `off`. */
+  const niveauDe = (projectId: string): NiveauAutonomie => {
+    const brut = store.getEssaim(projectId)?.niveau ?? 'off';
+    return NIVEAUX.includes(brut as NiveauAutonomie) ? (brut as NiveauAutonomie) : 'off';
+  };
+
+  /**
+   * Prévient l'opérateur : un événement du journal, relayé aux connecteurs
+   * comme un BLOCAGE (`evenementConnecteurDepuisEvent`). Le texte GitHub
+   * (noms de contrôles) est aplati et borné — il part vers Slack ou un webhook.
+   */
+  const alerterGarde = (
+    rangee: LivraisonRangee,
+    tete: string,
+    motif: string,
+    detail: string,
+    echecs: readonly { nom: string }[],
+  ): void => {
+    emitEvent('garde_pr_alerte', {
+      projectId: rangee.projectId,
+      taskId: rangee.taskId,
+      depot: rangee.depot,
+      pr: rangee.pr,
+      tete,
+      motif,
+      detail: champSurUneLigne(detail, 300),
+      controles: echecs.slice(0, 10).map((c) => champSurUneLigne(c.nom, 120)),
+    });
+  };
+
+  /** Sonde UNE PR et fait ce qu'il faut. Rend la mémoire à poser. */
+  const garderUnePr = async (rangee: LivraisonRangee, now: number): Promise<GardePr> => {
+    const avant = store.getGardePr(rangee.depot, rangee.pr);
+    const memoire: GardePr = avant ?? {
+      depot: rangee.depot,
+      pr: rangee.pr,
+      projectId: rangee.projectId,
+      statut: 'veille',
+      teteTraitee: '',
+      teteRelancee: '',
+      vertA: 0,
+      geste: '',
+      dit: '',
+      echecs: 0,
+      prochainA: 0,
+      majA: now,
+    };
+    const poser = (geste: string, dit: string, delai: number, maj: Partial<GardePr> = {}) => ({
+      ...memoire,
+      projectId: rangee.projectId,
+      geste,
+      dit,
+      echecs: 0,
+      prochainA: now + delai,
+      majA: now,
+      ...maj,
+    });
+
+    const vue = await etatDeLivraison(rangee);
+    const decision = deciderGarde(vue, memoire);
+    switch (decision.geste) {
+      case 'retirer':
+        emitEvent('garde_pr_retire', {
+          projectId: rangee.projectId,
+          taskId: rangee.taskId,
+          pr: rangee.pr,
+          etat: decision.etat,
+        });
+        return poser('retiree', direGeste('retiree'), 0, { statut: 'retiree' });
+      case 'vert':
+        // `vertA` n'avance qu'à la TRANSITION vers le vert : c'est elle qui
+        // remet le compteur à zéro, et la réécrire à chaque sondage vert ne
+        // changerait rien qu'un `majA` ne dise déjà.
+        return poser('vert', direGeste('vert'), DELAI_CALME_MS, {
+          vertA: memoire.geste === 'vert' ? memoire.vertA : now,
+        });
+      case 'attendre':
+        // Déjà traitée : le geste qui a TRAITÉ la tête (reprise, alerte) reste
+        // affiché — le remplacer par « déjà traité » effacerait ce qui a été
+        // fait au moment même où quelqu'un vient voir pourquoi.
+        if (decision.raison === 'deja_traitee' && memoire.geste !== '') {
+          return poser(memoire.geste, memoire.dit, DELAI_CALME_MS);
+        }
+        return poser(
+          decision.raison,
+          direGeste(decision.raison),
+          decision.raison === 'ci_en_cours' ? DELAI_CI_EN_COURS_MS : DELAI_CALME_MS,
+        );
+      case 'agir':
+        break;
+    }
+
+    const { tete, echecs, instables } = decision;
+    const niveau = niveauDe(rangee.projectId);
+
+    // ─── Les jobs instables, PROUVÉS sur la base, relancés une fois ─────────
+    const base = vue.faits.base ?? '';
+    let refusee = '';
+    if (instables.length > 0 && base !== '' && relanceAutorisee(niveau)) {
+      const historique = await historiqueBase(
+        optionsGithub(),
+        rangee.depot,
+        base,
+        instables.map((c) => c.nom),
+        COMMITS_BASE_LUS,
+      );
+      const preuves = jugerInstables(instables, historique);
+      if (preuves) {
+        // Une relance REFUSÉE (jeton sans droit sur Actions, job expiré) ne
+        // met pas le garde en pause comme une lecture refusée : elle ne dit
+        // rien de la limite du jeton. La tête est marquée relancée — on ne
+        // retentera pas — et l'échec part vers la correction, qui le dit.
+        try {
+          for (const p of preuves) await relancerJob(optionsGithub(), rangee.depot, p.jobId);
+        } catch (e) {
+          refusee = `Relance refusée par GitHub : ${e instanceof Error ? e.message : 'échec'}.`;
+          memoire.teteRelancee = tete;
+        }
+      }
+      if (preuves && refusee === '') {
+        // La PREUVE est journalisée avec la relance : quiconque se demande
+        // pourquoi la ruche a rejoué un job rouge au lieu de le corriger lit
+        // ici les passages de la base qui l'ont convaincue.
+        emitEvent('garde_pr_relance', {
+          projectId: rangee.projectId,
+          taskId: rangee.taskId,
+          depot: rangee.depot,
+          pr: rangee.pr,
+          tete,
+          base,
+          preuves: preuves.map((p) => ({
+            nom: champSurUneLigne(p.nom, 120),
+            jobId: p.jobId,
+            base: p.base,
+          })),
+        });
+        return poser(
+          'relance',
+          direGeste('relance', `(${preuves.length} job(s))`),
+          DELAI_CI_EN_COURS_MS,
+          { teteRelancee: tete },
+        );
+      }
+    }
+
+    // ─── Corriger, ou prévenir ──────────────────────────────────────────────
+    const autorise = gesteAutonome(niveau, modeRunnerDepuisEnv() === 'on');
+    if (autorise.geste === 'notifier') {
+      const detail = [
+        autorise.motif === 'runner_eteint'
+          ? `Autonomie « ${niveau} » : la reprise attend HIVE_RUNNER=on (commutateur de l’hôte).`
+          : `Autonomie « ${niveau} » : la ruche prévient, un humain décide de reprendre.`,
+        refusee,
+      ]
+        .filter(Boolean)
+        .join(' ');
+      alerterGarde(rangee, tete, autorise.motif, detail, echecs);
+      return poser('alerte', direGeste('alerte', detail), DELAI_CALME_MS, { teteTraitee: tete });
+    }
+
+    const reprise = poser('reprise', direGeste('reprise', refusee), DELAI_CALME_MS, {
+      teteTraitee: tete,
+    });
+    const ouverte = ouvrirReprise(rangee, vue, 'garde', () => store.poserGardePr(reprise));
+    if (ouverte.ok) return reprise;
+    if (ouverte.corps.code === 'reprise_en_vol') {
+      // La tête n'est PAS marquée traitée : la reprise en vol va la faire
+      // avancer ; si elle échoue sans rien pousser, le garde repassera et
+      // agira sur cette même tête — l'échec n'a pas encore été traité.
+      return poser('reprise_en_vol', direGeste('reprise_en_vol'), DELAI_CALME_MS);
+    }
+    // Refusée (plafond, branche changée, brief trop long, conflit) : la ruche
+    // ne corrige pas seule, et le DIT — une CI rouge ne reste jamais muette.
+    const refus = ouverte.corps.error;
+    const code = typeof ouverte.corps.code === 'string' ? ouverte.corps.code : 'refus';
+    alerterGarde(rangee, tete, code, refus, echecs);
+    return poser('alerte', direGeste('alerte', champSurUneLigne(refus, 300)), DELAI_CALME_MS, {
+      teteTraitee: tete,
+    });
+  };
+
+  /**
+   * UNE passe du garde : les PR échues, une à une. Exposée au banc
+   * (`HiveServer.gardePr`) pour qu'un test la joue sans attendre la minuterie.
+   * Rend le nombre de PR sondées.
+   */
+  const passeGardePr = async (now = Date.now()): Promise<number> => {
+    if (!gardeActive || !jetonGithub || gardeEnVol || now < gardePauseJusqua) return 0;
+    gardeEnVol = true;
+    let sondees = 0;
+    try {
+      for (const rangee of store.livraisonsAGarder(now, LOT_GARDE)) {
+        sondees++;
+        try {
+          store.poserGardePr(await garderUnePr(rangee, now));
+          gardePauses = 0;
+        } catch (e) {
+          const err = e as { statut?: number; message?: string };
+          const avant = store.getGardePr(rangee.depot, rangee.pr);
+          const echecs = (avant?.echecs ?? 0) + 1;
+          store.poserGardePr({
+            depot: rangee.depot,
+            pr: rangee.pr,
+            projectId: rangee.projectId,
+            statut: 'veille',
+            teteTraitee: avant?.teteTraitee ?? '',
+            teteRelancee: avant?.teteRelancee ?? '',
+            vertA: avant?.vertA ?? 0,
+            geste: 'illisible',
+            dit: direGeste('illisible', champSurUneLigne(err.message ?? 'échec GitHub', 200)),
+            echecs,
+            prochainA: now + reculGarde(echecs),
+            majA: now,
+          });
+          // Un refus de GitHub vise le JETON : on arrête la passe et on se
+          // tait tout entier, plutôt que d'aggraver la limite secondaire.
+          if (err.statut === 403 || err.statut === 429) {
+            gardePauses++;
+            gardePauseJusqua = now + reculGarde(gardePauses);
+            break;
+          }
+        }
+      }
+    } finally {
+      gardeEnVol = false;
+    }
+    return sondees;
+  };
+
+  /**
+   * Ce que l'écran montre du garde pour une ligne de livraison : son dernier
+   * geste, sa phrase, et le compteur de reprises depuis la dernière CI verte
+   * face au plafond — exactement ce que `bornesDeReprise` compte.
+   */
+  const vueGarde = (l: LivraisonRangee): Record<string, unknown> => {
+    const g = store.getGardePr(l.depot, l.pr);
+    const origine = store.repriseDe(l.taskId)?.origine ?? l.taskId;
+    const vertA = g?.vertA ?? 0;
+    const tentatives = store.reprisesDeLivraison(origine).filter((r) => r.creeA > vertA).length;
+    return {
+      actif: gardeActive && jetonGithub !== '',
+      statut: g?.statut ?? 'veille',
+      geste: g?.geste ?? '',
+      dit: g?.dit ?? '',
+      tentatives,
+      plafond: plafondReprises,
+      verifieA: g?.majA ?? null,
+    };
+  };
 
   // ─── Les issues comme source de travail ────────────────────────────────────
   //
@@ -14744,6 +15967,8 @@ async function monterReine(
             else nodesQuiPoussent.delete(node.id);
             if (msg.prolonge === true) nodesQuiProlongent.add(node.id);
             else nodesQuiProlongent.delete(node.id);
+            if (msg.plafondCout === true) nodesQuiPlafonnent.add(node.id);
+            else nodesQuiPlafonnent.delete(node.id);
             send(ws, { type: 'registered', nodeId: node.id, ruche: empreinteRuche });
             // Réconciliation : requalifier les tâches que le nœud ne fait plus
             // tourner (crash/redémarrage), et demander l'abandon de ses zombies
@@ -14807,6 +16032,8 @@ async function monterReine(
             // Le modèle de CETTE tentative se lit avant : un échec la remet en
             // file, et la réassignation qui suit réécrit l'Aiguillage.
             const modeleTentative = scheduler.modeleCommande(msg.taskId, nodeId);
+            // Lu AVANT le résultat, qui clôt la ligne de dépense de la tentative.
+            const arretBudgetaire = arretCru(nodeId, msg);
             const pris = scheduler.handleTaskResult(nodeId, {
               taskId: msg.taskId,
               success: msg.success,
@@ -14818,6 +16045,7 @@ async function monterReine(
               ...(msg.fournisseur ? { fournisseur: msg.fournisseur } : {}),
               ...(msg.finalText !== undefined ? { finalText: msg.finalText } : {}),
               ...(msg.validations ? { validations: msg.validations } : {}),
+              ...(arretBudgetaire ? { arretBudgetaire } : {}),
             });
             if (!pris) {
               send(ws, {
@@ -14836,7 +16064,10 @@ async function monterReine(
             // gonflerait le compteur de récurrences d'une panne qui n'a pas eu
             // lieu deux fois, et le seuil de consolidation deviendrait faux.
             // (Une OMBRE du banc n'y entre pas : `verserEpisode` la refuse.)
-            if (pris && !msg.success) {
+            //
+            // Un arrêt budgétaire non plus : la borne a tenu, le projet n'a
+            // rien raté — compté, il deviendrait une « panne récurrente ».
+            if (pris && !msg.success && !arretBudgetaire) {
               noterEchec(msg.taskId, nodeId, modeleTentative, msg.logs ?? '', msg.finalText);
             }
             if (pris) {
@@ -14859,13 +16090,20 @@ async function monterReine(
                 // doit pas réveiller le Worker parent avec un résultat
                 // intermédiaire : le graphe conserve le fait, l'adaptateur
                 // attend la production finale.
+                //
+                // Et seulement quand CE résultat a clos l'enfant (`tasks.result`,
+                // posé par le résultat qui le termine — la règle du rejeu,
+                // `delegate_task`). Un enfant que la Reine a clos aussitôt sans
+                // le relancer — réservation dépensée — a déjà dit pourquoi à son
+                // parent (`prevenirParentSansResultat`) : relayer ici la
+                // tentative ordinaire écraserait ce motif, et la suite à donner.
                 const child = store.getTask(msg.taskId);
                 const parent = store.getTask(delegation.parentTaskId);
                 const parentNodeId = parent?.assignedNodeId;
                 const parentSocket = parentNodeId ? nodeSockets.get(parentNodeId) : undefined;
                 if (
                   result &&
-                  child &&
+                  child?.result &&
                   (child.status === 'done' || child.status === 'failed') &&
                   parentSocket
                 ) {
@@ -15188,12 +16426,26 @@ async function monterReine(
             break;
           }
           case 'requisition_open': {
+            const maintenant = Date.now();
+            // Seul le genre `action` (G12) porte une échéance : le Worker est
+            // SUSPENDU sur cette décision, et son CLI n'attend pas sans fin.
+            // Le TTL est une politique de la Chambre (plafond, décidé ici) ;
+            // le `budgetMs` du nœud — ce qui reste à vivre à son run CLI — ne
+            // peut que la RACCOURCIR : une échéance posée après la mort du
+            // CLI ferait de chaque silence humain une case morte.
+            const ttlAction = config.requisitionActionTtlMs ?? REQUISITION_ACTION_TTL_MS;
+            const echeance =
+              msg.genre === 'action'
+                ? maintenant + Math.min(ttlAction, msg.budgetMs ?? ttlAction)
+                : null;
             const v = store.ouvrirRequisition(
               nodeId,
               msg.genre,
               msg.libelle,
               msg.detail ?? null,
               msg.taskId ?? null,
+              maintenant,
+              echeance,
             );
             if (!v.ok) {
               send(ws, {
@@ -15207,12 +16459,17 @@ async function monterReine(
               nodeId,
               genre: v.genre,
               libelle: v.libelle,
+              ...(msg.taskId ? { taskId: msg.taskId } : {}),
             });
             send(ws, {
               type: 'requisition_ack',
               id: v.id,
               genre: v.genre,
               libelle: v.libelle,
+              ...(msg.requestId ? { requestId: msg.requestId } : {}),
+              // L'échéance effective repart au nœud : son filet local s'y
+              // cale au lieu d'un délai figé (revue G12).
+              ...(echeance !== null ? { expiresAt: echeance } : {}),
             });
             stateDirty = true;
             break;
@@ -15423,6 +16680,7 @@ async function monterReine(
         nodeOnShift.delete(nodeId);
         nodesQuiPoussent.delete(nodeId);
         nodesQuiProlongent.delete(nodeId);
+        nodesQuiPlafonnent.delete(nodeId);
         scheduler.nodeDisconnected(nodeId, 'ws_closed');
         // Un merge, un chantier ou une pose confiés à ce nœud : une issue
         // visible tout de suite (sinon leur résultat resterait `null` ou
@@ -15579,10 +16837,10 @@ async function monterReine(
           contextesRelivres.set(task.id, hiveContext);
         }
         derniereRelivraison.set(task.id, maintenant);
-        const delegation = delegationDe(task.id);
         for (const nodeId of ouvertes) {
           const ws = nodeSockets.get(nodeId);
           if (ws) {
+            const delegation = delegationDe(task.id, nodeId);
             // Une re-livraison doit reprendre exactement le modèle commandé
             // lors de l'assignation initiale. Une course garde un modèle par
             // drone ; une tâche ordinaire garde le dernier modèle élu dans le
@@ -15606,6 +16864,10 @@ async function monterReine(
               ...delegation,
               ...(store.relectureDe(task.id) ? { relecture: true as const } : {}),
               ...(store.repriseDe(task.id) ? { prolonger: true as const } : {}),
+              reseau: store.niveauReseau(task.projectId),
+              // Reconstruit champ par champ : omettre l'autonomie ici ferait
+              // décider la re-livraison comme `off` sous un projet `gouverne`.
+              autonomie: autonomieDuProjet(task.projectId),
             });
           }
         }
@@ -15709,6 +16971,24 @@ async function monterReine(
     etape('pruneLivraisons', () => store.pruneLivraisons(LIVRAISONS_RETENTION));
     // Présences Rayon orphelines (outil jamais refermé / nœud parti).
     etape('prunePresences', () => store.prunePresences(PRESENCES_RETENTION_MS));
+    // Réquisitions d'ACTION échues (G12) : l'absence de décision EST une
+    // décision — statut `expiree`, deny relayé au Worker suspendu, et
+    // escalade au journal (`requisition_expiree` → Chambre + cockpit).
+    etape('expirerRequisitions', () => {
+      for (const echue of store.expirerRequisitions(maintenant)) {
+        emitEvent('requisition_expiree', {
+          id: echue.id,
+          nodeId: echue.nodeId,
+          genre: echue.genre,
+          libelle: echue.libelle,
+          ...(echue.taskId ? { taskId: echue.taskId } : {}),
+          motif: 'échéance dépassée sans décision humaine',
+        });
+        const ws = nodeSockets.get(echue.nodeId);
+        if (ws) send(ws, { type: 'requisition_result', id: echue.id, statut: 'expiree' });
+        stateDirty = true;
+      }
+    });
     // Réquisitions closes trop vieilles (les ouvertes restent).
     etape('pruneRequisitions', () => store.pruneRequisitions(REQUISITIONS_RETENTION_MS));
     // Le journal des connecteurs externes : 90 jours, comme le registre Horizon.
@@ -15738,6 +17018,9 @@ async function monterReine(
     // La lignée d'une reprise ne survit pas à sa tâche : borne référentielle,
     // câblée avec la table (règle 3), APRÈS `pruneTasks`.
     etape('pruneReprisesLivraison', () => store.pruneReprisesLivraison());
+    // La mémoire du garde de PR ne survit pas aux livraisons de sa PR : borne
+    // référentielle câblée avec la table (règle 3), APRÈS `pruneLivraisons`.
+    etape('pruneGardesPr', () => store.pruneGardesPr());
     // Idem pour le lien relecture→production. Câblé ICI, dans le même
     // changement que la table — c'est la règle 3, et les trois bornes
     // oubliées quelques lignes plus bas disent ce qu'il en coûte de la
@@ -15767,6 +17050,9 @@ async function monterReine(
     // Les missions rejouables : orphelines, puis au-delà du plafond par
     // projet — sauf celles qu'un rejeu rangé compare encore.
     etape('pruneMissions', () => store.pruneMissions(MISSIONS_PAR_PROJET));
+    // Les routines : l'historique des runs, borné par routine. Les curseurs
+    // vivent sur la routine — élaguer ne relance rien (voir le schéma).
+    etape('pruneRoutines', () => store.pruneRoutines(ROUTINES_RUNS_CONSERVES));
     // ─── LE JOURNAL A UN SEUL PROPRIÉTAIRE DE RÉTENTION ────────────────────
     //
     // Fenêtre pour les traces, vie de la tâche pour les preuves, plafond en
@@ -15932,10 +17218,22 @@ async function monterReine(
     }
   }
 
+  // Le garde de PR (garde-pr.ts) : une passe par minute, qui ne lit que les
+  // PR échues. `unref` : il n'empêche jamais le processus de s'arrêter. Une
+  // passe qui lève ne tue pas la ruche — elle le dit, et la suivante réessaie.
+  const gardeTimer = setInterval(() => {
+    passeGardePr().catch((err: unknown) => {
+      console.error(`[hive] garde de PR : ${err instanceof Error ? err.message : err}`);
+    });
+  }, PERIODE_GARDE_MS);
+  gardeTimer.unref();
+
   const stop = async (): Promise<void> => {
+    clearInterval(gardeTimer);
     clearInterval(tickTimer);
     clearInterval(flushTimer);
     clearInterval(elagageTimer);
+    clearInterval(routinesTimer);
     // Coupe le Socket Mode Slack et sa reconnexion AVANT de fermer le reste :
     // un socket laissé ouvert relancerait une connexion pendant l'arrêt.
     hubConnecteurs.fermer();
@@ -15955,6 +17253,8 @@ async function monterReine(
     config,
     port,
     url: `http://${config.host}:${port}`,
+    routines: moteurRoutines,
     stop,
+    gardePr: { passe: passeGardePr },
   };
 }

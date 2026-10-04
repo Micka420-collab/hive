@@ -56,12 +56,14 @@ import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import {
   ORDRE_DE_LANCEMENT,
+  PREPARATIONS_PAR_LOCKFILE,
   VALIDATION_KEYS,
   controleApresLancement,
   declareDesDependances,
   extraitDe,
   planDeValidation,
   preparationDepuisLockfile,
+  reglesAutorisationDepot,
   scriptsDe,
 } from '../shared/validations-bac.js';
 import type {
@@ -141,6 +143,37 @@ function manifeste(texte: string | null): unknown {
   } catch {
     return null;
   }
+}
+
+/**
+ * Les règles d'autorisation compilées depuis le commit de BASE du clone —
+ * `reglesAutorisationDepot` (pur) alimenté par les trois mêmes gestes impurs
+ * que `validerProduction` : le `package.json` de la base (`cat-file blob`,
+ * jamais l'arbre que l'agent réécrit), et la présence d'un lockfile À LA BASE
+ * (même raison : un lockfile posé par l'agent n'autorise pas son installation).
+ *
+ * Calculées AVANT l'agent (G12) : elles entrent dans le `--settings` imposé de
+ * Claude Code pour que le `npm test` déclaré tourne sans rien demander. Ne
+ * lève jamais — sans dépôt ou sans manifeste lisible, aucune règle.
+ */
+export async function reglesAutorisationDeBase(
+  depot: { depot: DepotEpingle; baseSha: string } | null,
+): Promise<string[]> {
+  if (!depot) return [];
+  const base = manifeste(await fichierDeBase(depot.depot, depot.baseSha, 'package.json'));
+  if (base === null) return [];
+  const lockfiles = new Set<string>();
+  // Les lockfiles ne servent qu'à la règle d'installation : sans dépendances
+  // déclarées, aucune sonde git n'est payée.
+  if (declareDesDependances(base)) {
+    for (const { fichier } of PREPARATIONS_PAR_LOCKFILE) {
+      if ((await fichierDeBase(depot.depot, depot.baseSha, fichier)) !== null) {
+        lockfiles.add(fichier);
+        break;
+      }
+    }
+  }
+  return reglesAutorisationDepot(base, (fichier) => lockfiles.has(fichier));
 }
 
 /**

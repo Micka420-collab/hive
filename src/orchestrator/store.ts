@@ -11,6 +11,7 @@ import type { OutilConstate } from '../shared/protocol.js';
 import { LIMITE_TACHES_INSTANTANE, NIVEAUX_ISOLEMENT } from '../shared/types.js';
 import type { Partage } from '../shared/partage.js';
 import type { AntecedentFige } from '../shared/mission-rejouable.js';
+import type { CommentaireRevue } from '../shared/commentaire-revue.js';
 import type { GenreSauvegarde, Sauvegarde, SauvegardeResume } from '../shared/sauvegardes.js';
 import { libelleEtape } from '../shared/sauvegardes.js';
 import { CORPUS_AIGUILLAGE, type ElectionEnVol } from './aiguillage.js';
@@ -63,6 +64,7 @@ import {
   type PresenceFichier,
 } from '../shared/presence.js';
 import {
+  estStatutRequisition,
   validerGenreRequisition,
   validerLibelleRequisition,
   type GenreRequisition,
@@ -84,6 +86,7 @@ import {
   type MotifRefusHorizon,
 } from './horizon.js';
 import { validerMotifPerso, type MotifPersoRefus } from './motifs.js';
+import type { PlageHoraire, Routine, RunRoutine } from './routines.js';
 import { rankMemoriesHybrid, suiteSouvenir } from './hive-mind.js';
 import type {
   IssueSouvenir,
@@ -103,6 +106,7 @@ import {
   type VerdictDelegation,
 } from './delegation.js';
 import { lireConsigneRoutage, type ConsigneRoutage } from '../shared/consigne-routage.js';
+import { NIVEAU_RESEAU_DEFAUT, estNiveauReseau, type NiveauReseau } from '../shared/reseau.js';
 import type {
   HiveEvent,
   HiveNode,
@@ -248,6 +252,30 @@ const TACHES_DU_BANC_SQL = `
   UNION ALL
   SELECT ce.relectureTaskId AS id, o.tacheOmbre
     FROM contre_expertises ce JOIN taches_ombre o ON o.tacheOmbre = ce.productionTaskId`;
+
+/**
+ * Les productions ARRÊTÉES SUR LEUR PLAFOND, en SQL : le `resultId` de chaque
+ * `task_failed` qui porte `arretBudgetaire` (scheduler.ts) — une ligne
+ * `results` en `success = 0` qui n'est PAS un échec : l'agent s'est arrêté sur
+ * sa borne. Les lecteurs d'échecs par RÉSULTAT — leçons croisées de l'essaim,
+ * phéromones, dérive — l'écartent comme ils écartent le banc : comptée, la
+ * même ligne d'arrêt sur trois nœuds devenait une « leçon systémique », et
+ * l'essaim autonome ouvrait un correctif du code en boucle.
+ *
+ * Le fait vit au journal, avec sa tâche (une preuve, `TYPES_PREUVE`) :
+ * élagué, la production retomberait en échec ordinaire — elle aurait alors
+ * quitté la fenêtre de ces lecteurs (les derniers échecs, la demi-vie des
+ * phéromones). Même compromis que le texte final, relu au même journal
+ * (`textesFinauxPour`). `resultId IS NOT NULL` : un NULL dans un `NOT IN`
+ * écarterait toutes les lignes ; une clôture de la Reine
+ * (`reservation_depensee`) n'en nomme aucun, et sa dernière tentative reste
+ * l'échec ordinaire qu'elle était.
+ */
+const ARRETS_BUDGETAIRES_SQL = `
+  SELECT json_extract(payload, '$.resultId') FROM events
+   WHERE type = 'task_failed' AND json_valid(payload)
+     AND json_extract(payload, '$.arretBudgetaire') IS NOT NULL
+     AND json_extract(payload, '$.resultId') IS NOT NULL`;
 
 /**
  * Une mission (#512) est le travail du PROJET : le banc d'ombre (#501) — une
@@ -482,6 +510,28 @@ CREATE TABLE IF NOT EXISTS garde_fous (
   updatedAt INTEGER NOT NULL
 );
 
+-- Le RÉSEAU des agents d'un projet (src/shared/reseau.ts) : integrations,
+-- dependances ou ouvert — ce que le proxy du nœud laisse sortir du bac.
+--
+-- UNE INTENTION HUMAINE, pas un calcul (règle 1) : posée par le propriétaire
+-- du projet (ou un administrateur), jamais par la ruche. Une ruche qui
+-- pourrait ouvrir le réseau de ses propres agents ne serait pas gouvernée.
+--
+-- Ligne ABSENTE = « dependances », le défaut : les projets d'avant ce réglage
+-- le reçoivent sans migration ni colonne (règle 2). La TABLE est latérale pour
+-- la même raison que « garde_fous ».
+--
+-- BORNE STRUCTURELLE (règle 3) : une ligne par projet. Pas d'élagueur — en
+-- effacer une rendrait au défaut un projet que son propriétaire avait fermé
+-- (integrations) ou ouvert, sans que personne le sache.
+CREATE TABLE IF NOT EXISTS reseaux_projets (
+  projectId TEXT PRIMARY KEY REFERENCES projects(id),
+  niveau    TEXT NOT NULL,
+  version   INTEGER NOT NULL DEFAULT 1,
+  definiPar TEXT,
+  updatedAt INTEGER NOT NULL
+);
+
 -- Les abonnements — l'etat d'un droit, jamais un moyen de paiement.
 --
 -- CE QUI N'ENTRE JAMAIS ICI : numero de carte, IBAN, adresse de facturation,
@@ -703,6 +753,43 @@ CREATE TABLE IF NOT EXISTS reprises_livraison (
   creeA     INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_reprises_livraison_origine ON reprises_livraison(origine);
+
+-- ─── Le garde de PR : ce qu'il a déjà fait sur chaque pull request livrée ───
+-- Le garde (garde-pr.ts) sonde les PR que la ruche a ouvertes et agit quand
+-- leur CI casse. Il doit se SOUVENIR de trois faits que GitHub ne rend pas :
+--
+-- teteTraitee  : la tête (SHA) sur laquelle il a déjà agi. Sans elle, chaque
+--                sondage relancerait une ouvrière sur le même échec ;
+-- teteRelancee : la tête sur laquelle il a déjà relancé des jobs instables —
+--                une seule relance par tête ;
+-- vertA        : la dernière fois qu'il a vu la CI verte. Le plafond de
+--                reprises se compte DEPUIS là (reprises_livraison.creeA).
+--
+-- Ce sont des faits DATÉS sur ce que le garde a fait ou vu, pas un état de PR
+-- rangé (règle 1) : l'état d'une livraison reste dérivé à la lecture. Les
+-- autres colonnes servent la cadence (prochainA, echecs) et l'écran (geste,
+-- dit, majA).
+--
+-- Une ligne par PR (depot, pr) : la clé survit aux relais d'une reprise, qui
+-- change la ligne vivante de « livraisons » sans changer la PR.
+-- Table LATÉRALE (règle 2). BORNE D'ÉLAGAGE (règle 3), dans le MÊME
+-- changement : « pruneGardesPr », référentielle — une garde ne survit pas à
+-- la dernière livraison rangée de sa PR.
+CREATE TABLE IF NOT EXISTS gardes_pr (
+  depot        TEXT NOT NULL,
+  pr           INTEGER NOT NULL,
+  projectId    TEXT NOT NULL,
+  statut       TEXT NOT NULL,
+  teteTraitee  TEXT NOT NULL DEFAULT '',
+  teteRelancee TEXT NOT NULL DEFAULT '',
+  vertA        INTEGER NOT NULL DEFAULT 0,
+  geste        TEXT NOT NULL DEFAULT '',
+  dit          TEXT NOT NULL DEFAULT '',
+  echecs       INTEGER NOT NULL DEFAULT 0,
+  prochainA    INTEGER NOT NULL DEFAULT 0,
+  majA         INTEGER NOT NULL,
+  PRIMARY KEY (depot, pr)
+);
 
 -- ─── D'où vient une tâche : l'issue qui l'a demandée ────────────────────────
 -- Table LATÉRALE, et pas une colonne de plus sur « tasks » : la très grande
@@ -1255,6 +1342,40 @@ CREATE TABLE IF NOT EXISTS reviews (
   updatedAt INTEGER NOT NULL
 );
 
+-- Les commentaires de revue ANCRÉS (G06, shared/commentaire-revue.ts) : une
+-- plage de lignes d'un fichier du diff d'UNE production, et ce que l'humain y
+-- veut voir changé. Partagés entre opérateurs comme les verdicts.
+--
+-- Une table LATÉRALE, pas une colonne de « reviews » (règle 2 : aucun ALTER) :
+-- un verdict est un état par tâche, un commentaire en est plusieurs par
+-- production. « soumission » NULL = en attente ; posée par « demander des
+-- changements », elle nomme l'envoi qui l'a emporté dans la correction — la
+-- critique figée relit CES lignes-là, jamais celles posées depuis.
+--
+-- « texte » est caviardé à l'entrée (les secrets de la Reine n'y entrent pas) ;
+-- « extrait » = les lignes commentées, relues du diff à l'ancrage : la
+-- production peut perdre son diff (pruneResults), le commentaire garde de
+-- quoi être compris.
+--
+-- BORNE (règle 3) : au plus COMMENTAIRES_PAR_PRODUCTION_MAX en attente par
+-- production, des productions bornées par maxAttempts, et cascade de
+-- pruneTasks comme « reviews » — le commentaire part avec sa tâche.
+CREATE TABLE IF NOT EXISTS commentaires_revue (
+  id         TEXT PRIMARY KEY,
+  taskId     TEXT NOT NULL,
+  resultId   INTEGER NOT NULL,
+  fichier    TEXT NOT NULL,
+  ligneDebut INTEGER NOT NULL,
+  ligneFin   INTEGER NOT NULL,
+  texte      TEXT NOT NULL,
+  extrait    TEXT NOT NULL DEFAULT '',
+  auteur     TEXT,
+  creeA      INTEGER NOT NULL,
+  soumission TEXT,
+  soumisA    INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_commentaires_revue_tache ON commentaires_revue(taskId);
+
 -- Timeline de code : chaque étape réussie (ou sauvegarde manuelle) garde son
 -- patch. TABLE LATÉRALE (règle 2) — pas de migration sur results. Le patch est
 -- COPIÉ ici pour survivre à pruneResults qui vide results.diff au-delà de 5 000.
@@ -1426,6 +1547,17 @@ CREATE TABLE IF NOT EXISTS requisitions (
   closA   INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_requisitions_statut ON requisitions(statut);
+
+-- Échéance d'une réquisition d'ACTION (G12). TABLE LATÉRALE (règle 2 : aucune
+-- migration, aucune colonne ajoutée à requisitions) — ligne ABSENTE = pas
+-- d'échéance = comportement d'avant : la réquisition attend l'humain sans
+-- limite. Seul le genre « action » en reçoit une : un Worker suspendu sur son
+-- outil de décision ne peut pas attendre plus que le délai de son CLI.
+-- Élagage : les lignes partent avec leur réquisition (pruneRequisitions).
+CREATE TABLE IF NOT EXISTS requisitions_echeances (
+  id        TEXT PRIMARY KEY REFERENCES requisitions(id),
+  expiresAt INTEGER NOT NULL
+);
 
 -- Fabrique (ADR 0010 lot 8) : propositions d'outil dans le dépôt.
 -- Chantier seulement après statut mergee + script déclaré.
@@ -1615,6 +1747,75 @@ CREATE TABLE IF NOT EXISTS missions_taches (
 );
 CREATE INDEX IF NOT EXISTS idx_missions_taches_tache ON missions_taches(taskId);
 
+-- ─── Les ROUTINES (src/orchestrator/routines.ts, ADR 0014) ──────────────────
+--
+-- Deux tables NEUVES et LATÉRALES : une base d'avant les gagne vides à
+-- l'ouverture, et n'y perd rien.
+--
+-- routines : ce qu'une routine lance (consigne), QUAND (déclencheur, fuseau,
+-- plage d'heures ouvrées), et ses politiques. creePar est le compte dont
+-- elle porte l'autorité (NULL : le jeton de ruche, sur un projet orphelin) —
+-- relue à CHAQUE déclenchement, jamais présumée. Les curseurs vivent sur la
+-- ligne et non dans l'historique des runs : prochaineA (le prochain
+-- créneau cron non traité) et dernierSha (le dernier commit rouge de la
+-- branche déjà signalé). Élaguer l'historique ne peut donc JAMAIS relancer un
+-- créneau ou un commit déjà traité. secret : la clé HMAC du webhook de la
+-- routine, tirée au sort, remise une fois, remplacée pour la révoquer.
+--
+-- routines_runs : UNE ligne par déclenchement reçu, quelle qu'en soit l'issue
+-- (lancé, fusionné, sauté, manqué, ignoré hors heures, refusé) — un
+-- déclencheur qui ne produit rien doit quand même le DIRE. L'index unique
+-- partiel (routineId, cle) est la déduplication : une livraison de webhook
+-- rejouée (même identifiant) ne s'écrit pas deux fois.
+--
+-- Pas de REFERENCES, à dessein (comme missions) : les deux tables sont
+-- dans EFFACEMENT_PROJET, et l'élagueur retire les runs orphelins.
+--
+-- BORNE D'ÉLAGAGE (règle 3), dans le MÊME changement : pruneRoutines — les
+-- runs dont la routine a disparu, puis au-delà de ROUTINES_RUNS_CONSERVES
+-- par routine, les plus anciens d'abord. La déduplication des webhooks n'en
+-- souffre pas : une livraison élaguée a un horodatage signé hors de la
+-- fenêtre de cinq minutes bien avant de sortir de l'historique.
+CREATE TABLE IF NOT EXISTS routines (
+  id             TEXT PRIMARY KEY,
+  projectId      TEXT NOT NULL,
+  nom            TEXT NOT NULL,
+  consigne       TEXT NOT NULL,
+  declencheur    TEXT NOT NULL,
+  expression     TEXT,
+  fuseau         TEXT NOT NULL DEFAULT 'UTC',
+  branche        TEXT,
+  plage          TEXT,
+  concurrence    TEXT NOT NULL,
+  rattrapage     TEXT NOT NULL,
+  actif          INTEGER NOT NULL DEFAULT 1,
+  creePar        TEXT,
+  secret         TEXT,
+  prochaineA     INTEGER,
+  dernierSha     TEXT,
+  sondeeA        INTEGER,
+  derniereErreur TEXT,
+  creeA          INTEGER NOT NULL,
+  majA           INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_routines_projet ON routines(projectId, creeA);
+
+CREATE TABLE IF NOT EXISTS routines_runs (
+  id           TEXT PRIMARY KEY,
+  routineId    TEXT NOT NULL,
+  projectId    TEXT NOT NULL,
+  source       TEXT NOT NULL,
+  cle          TEXT,
+  statut       TEXT NOT NULL,
+  motif        TEXT NOT NULL DEFAULT '',
+  taches       TEXT NOT NULL DEFAULT '[]',
+  fusionneDans TEXT,
+  creeA        INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_routines_runs_cle
+  ON routines_runs(routineId, cle) WHERE cle IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_routines_runs_routine ON routines_runs(routineId, creeA DESC);
+
 -- L'empreinte PUBLIQUE de la ruche (shared/empreinte-ruche.ts) : UNE ligne,
 -- tirée au sort au premier démarrage, jamais réécrite. Rangée ici parce
 -- qu'elle doit survivre aux redémarrages (sinon les membres de la ruche lui
@@ -1625,6 +1826,42 @@ CREATE TABLE IF NOT EXISTS identite_ruche (
   empreinte TEXT NOT NULL
 );
 `;
+
+interface LigneRoutine {
+  id: string;
+  projectId: string;
+  nom: string;
+  consigne: string;
+  declencheur: string;
+  expression: string | null;
+  fuseau: string;
+  branche: string | null;
+  plage: string | null;
+  concurrence: string;
+  rattrapage: string;
+  actif: number;
+  creePar: string | null;
+  secret: string | null;
+  prochaineA: number | null;
+  dernierSha: string | null;
+  sondeeA: number | null;
+  derniereErreur: string | null;
+  creeA: number;
+  majA: number;
+}
+
+interface LigneRunRoutine {
+  id: string;
+  routineId: string;
+  projectId: string;
+  source: string;
+  cle: string | null;
+  statut: string;
+  motif: string;
+  taches: string;
+  fusionneDans: string | null;
+  creeA: number;
+}
 
 interface ProjectRow {
   id: string;
@@ -1858,6 +2095,28 @@ export interface RepriseLivraison {
   branche: string;
   tete: string;
   creeA: number;
+}
+
+/**
+ * La mémoire du garde de PR pour une pull request (table `gardes_pr`).
+ * `statut` : `veille` tant qu'il sonde, `retiree` quand la PR est close.
+ */
+export interface GardePr {
+  depot: string;
+  pr: number;
+  projectId: string;
+  statut: 'veille' | 'retiree';
+  teteTraitee: string;
+  teteRelancee: string;
+  vertA: number;
+  /** Le dernier geste du garde (`vert`, `reprise`, `alerte`…) — pour l'écran. */
+  geste: string;
+  /** Sa phrase pour l'humain. */
+  dit: string;
+  /** Lectures GitHub échouées d'affilée (recul). */
+  echecs: number;
+  prochainA: number;
+  majA: number;
 }
 
 /** Une session de Conseil telle qu'elle est rangée. */
@@ -2298,13 +2557,18 @@ const JOURNAL_DU_PROJET = `json_extract(${CHARGE_LISIBLE}, '$.projectId') = @p
          WHERE j.key IN (${CLES_DE_TACHE}) AND j.value IN (${TACHES_DU_PROJET})
       )
       OR (
-        type IN ('requisition_ouverte', 'requisition_reponse')
+        type IN ('requisition_ouverte', 'requisition_reponse', 'requisition_expiree')
         AND json_extract(${CHARGE_LISIBLE}, '$.id') IN (
           SELECT id FROM requisitions WHERE taskId IN (${TACHES_DU_PROJET})
         )
       )`;
 const EFFACEMENT_PROJET = [
   ['events', JOURNAL_DU_PROJET],
+  // L'échéance AVANT sa réquisition : `foreign_keys = ON`, la fille d'abord.
+  [
+    'requisitions_echeances',
+    `id IN (SELECT id FROM requisitions WHERE taskId IN (${TACHES_DU_PROJET}))`,
+  ],
   ['requisitions', `taskId IN (${TACHES_DU_PROJET})`],
   ['presences_rayon', `taskId IN (${TACHES_DU_PROJET})`],
   ['conseil_avis', `sessionId IN (${SEANCES_DU_PROJET})`],
@@ -2320,6 +2584,7 @@ const EFFACEMENT_PROJET = [
   ['depenses_delegation', `taskId IN (${TACHES_DU_PROJET}) OR rootTaskId IN (${TACHES_DU_PROJET})`],
   ['results', `taskId IN (${TACHES_DU_PROJET})`],
   ['reviews', `taskId IN (${TACHES_DU_PROJET})`],
+  ['commentaires_revue', `taskId IN (${TACHES_DU_PROJET})`],
   [
     'task_delegations',
     `childTaskId IN (${TACHES_DU_PROJET}) OR parentTaskId IN (${TACHES_DU_PROJET})
@@ -2338,6 +2603,8 @@ const EFFACEMENT_PROJET = [
   ['taches_issue', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
   ['livraisons', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
   ['reprises_livraison', `projectId = @p OR taskId IN (${TACHES_DU_PROJET})`],
+  // La mémoire du garde de PR : clé (depot, pr), rangée avec son projet.
+  ['gardes_pr', 'projectId = @p'],
   // Les missions rejouables (#512) : l'appartenance d'abord (elle relit
   // `missions`), puis les instantanés — plan, prompts, titres —, même quand un
   // rejeu d'un AUTRE projet les compare encore : supprimer n'est pas archiver,
@@ -2349,6 +2616,10 @@ const EFFACEMENT_PROJET = [
     `missionId IN (SELECT id FROM missions WHERE projectId = @p) OR taskId IN (${TACHES_DU_PROJET})`,
   ],
   ['missions', 'projectId = @p'],
+  // Les routines (ADR 0014) : l'historique d'abord, puis la routine — une
+  // routine qui survivrait à son projet se déclencherait sur un fantôme.
+  ['routines_runs', 'projectId = @p'],
+  ['routines', 'projectId = @p'],
   ['rejeux', 'projectId = @p'],
   ['rejeux_actions', 'projectId = @p'],
   ['taches_ombre', `projectId = @p OR tacheOmbre IN (${TACHES_DU_PROJET})`],
@@ -2362,6 +2633,7 @@ const EFFACEMENT_PROJET = [
   ['project_members', 'projectId = @p'],
   ['essaim', 'projectId = @p'],
   ['garde_fous', 'projectId = @p'],
+  ['reseaux_projets', 'projectId = @p'],
   ['abonnements', 'projectId = @p'],
   ['connecteurs_projet', 'projectId = @p'],
   ['connecteurs_journal', 'projectId = @p'],
@@ -3130,6 +3402,8 @@ export class HiveStore {
     detail: string | null = null,
     taskId: string | null = null,
     now = Date.now(),
+    /** Échéance absolue (ms epoch) — genre `action` seulement ; `null` : aucune. */
+    expiresAt: number | null = null,
   ):
     | { ok: true; id: string; genre: GenreRequisition; libelle: string }
     | { ok: false; motif: MotifRefusRequisition } {
@@ -3148,7 +3422,64 @@ export class HiveStore {
           'VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)',
       )
       .run(id, nodeId, g.genre, l.libelle, detailClean, taskClean, 'ouverte', now);
+    if (expiresAt !== null && Number.isSafeInteger(expiresAt) && expiresAt > 0) {
+      this.db
+        .prepare('INSERT INTO requisitions_echeances (id, expiresAt) VALUES (?, ?)')
+        .run(id, expiresAt);
+    }
     return { ok: true, id, genre: g.genre, libelle: l.libelle };
+  }
+
+  /**
+   * Passe `expiree` les réquisitions OUVERTES dont l'échéance est dépassée, et
+   * rend ce qu'il faut pour l'escalade : l'événement de journal et le
+   * `requisition_result` au nœud qui attend. La transition est la même clôture
+   * que `repondreRequisition` (statut + closA) — une réquisition expirée est
+   * CLOSE, donc élaguée par `pruneRequisitions` comme les autres.
+   */
+  expirerRequisitions(now = Date.now()): Array<{
+    id: string;
+    nodeId: string;
+    genre: GenreRequisition;
+    libelle: string;
+    taskId: string | null;
+  }> {
+    const rows = this.db
+      .prepare(
+        `SELECT r.id, r.nodeId, r.genre, r.libelle, r.taskId
+         FROM requisitions r JOIN requisitions_echeances e ON e.id = r.id
+         WHERE r.statut = 'ouverte' AND e.expiresAt <= ?`,
+      )
+      .all(now) as Array<{
+      id: string;
+      nodeId: string;
+      genre: string;
+      libelle: string;
+      taskId: string | null;
+    }>;
+    const echues: Array<{
+      id: string;
+      nodeId: string;
+      genre: GenreRequisition;
+      libelle: string;
+      taskId: string | null;
+    }> = [];
+    const clore = this.db.prepare(
+      "UPDATE requisitions SET statut = 'expiree', closA = ? WHERE id = ? AND statut = 'ouverte'",
+    );
+    for (const r of rows) {
+      const g = validerGenreRequisition(r.genre);
+      if (!g.ok) continue;
+      clore.run(now, r.id);
+      echues.push({
+        id: r.id,
+        nodeId: r.nodeId,
+        genre: g.genre,
+        libelle: r.libelle,
+        taskId: r.taskId,
+      });
+    }
+    return echues;
   }
 
   lireRequisition(id: string): {
@@ -3182,7 +3513,7 @@ export class HiveStore {
     if (!row) return null;
     const g = validerGenreRequisition(row.genre);
     if (!g.ok) return null;
-    if (row.statut !== 'ouverte' && row.statut !== 'accordee' && row.statut !== 'refusee') {
+    if (!estStatutRequisition(row.statut)) {
       return null;
     }
     return {
@@ -3208,19 +3539,24 @@ export class HiveStore {
     statut: StatutRequisition;
     creeA: number;
     closA: number | null;
+    /** Échéance (genre `action`, G12) — `null` : aucune, la réquisition attend. */
+    expiresAt: number | null;
   }> {
+    // L'échéance voyage AVEC la réquisition (jointure latérale) : la Chambre
+    // affiche le compte à rebours sans seconde requête.
     let sql =
-      'SELECT id, nodeId, genre, libelle, detail, taskId, statut, creeA, closA FROM requisitions WHERE 1=1';
+      'SELECT r.id, r.nodeId, r.genre, r.libelle, r.detail, r.taskId, r.statut, r.creeA, r.closA, e.expiresAt' +
+      ' FROM requisitions r LEFT JOIN requisitions_echeances e ON e.id = r.id WHERE 1=1';
     const args: unknown[] = [];
     if (opts?.nodeId) {
-      sql += ' AND nodeId = ?';
+      sql += ' AND r.nodeId = ?';
       args.push(opts.nodeId);
     }
     if (opts?.statut) {
-      sql += ' AND statut = ?';
+      sql += ' AND r.statut = ?';
       args.push(opts.statut);
     }
-    sql += ' ORDER BY creeA DESC LIMIT 200';
+    sql += ' ORDER BY r.creeA DESC LIMIT 200';
     const rows = this.db.prepare(sql).all(...args) as Array<{
       id: string;
       nodeId: string;
@@ -3231,6 +3567,7 @@ export class HiveStore {
       statut: string;
       creeA: number;
       closA: number | null;
+      expiresAt: number | null;
     }>;
     const out: Array<{
       id: string;
@@ -3242,11 +3579,12 @@ export class HiveStore {
       statut: StatutRequisition;
       creeA: number;
       closA: number | null;
+      expiresAt: number | null;
     }> = [];
     for (const r of rows) {
       const g = validerGenreRequisition(r.genre);
       if (!g.ok) continue;
-      if (r.statut !== 'ouverte' && r.statut !== 'accordee' && r.statut !== 'refusee') continue;
+      if (!estStatutRequisition(r.statut)) continue;
       out.push({
         id: r.id,
         nodeId: r.nodeId,
@@ -3257,6 +3595,7 @@ export class HiveStore {
         statut: r.statut,
         creeA: r.creeA,
         closA: r.closA,
+        expiresAt: r.expiresAt,
       });
     }
     return out;
@@ -3279,11 +3618,24 @@ export class HiveStore {
   /** Élage les réquisitions closes trop anciennes (les ouvertes restent). */
   pruneRequisitions(retentionMs: number, now = Date.now()): number {
     const cutoff = now - retentionMs;
-    return this.db
+    // L'échéance part AVANT sa réquisition (clé étrangère), puis les
+    // orphelines éventuelles — borne référentielle câblée avec la table.
+    this.db
+      .prepare(
+        `DELETE FROM requisitions_echeances WHERE id IN (
+           SELECT id FROM requisitions WHERE statut != 'ouverte' AND closA IS NOT NULL AND closA < ?
+         )`,
+      )
+      .run(cutoff);
+    const changes = this.db
       .prepare(
         "DELETE FROM requisitions WHERE statut != 'ouverte' AND closA IS NOT NULL AND closA < ?",
       )
       .run(cutoff).changes;
+    this.db
+      .prepare('DELETE FROM requisitions_echeances WHERE id NOT IN (SELECT id FROM requisitions)')
+      .run();
+    return changes;
   }
 
   // ─── Fabrique (ADR 0010 lot 8) ─────────────────────────────────────────────
@@ -4022,16 +4374,29 @@ export class HiveStore {
    * tant qu'il vole — la dépense se dit alors « au moins », jamais moins.
    */
   depenseDeclareeRacine(rootTaskId: string): DepenseDeclaree {
+    return this.depenseDeclaree('rootTaskId', rootTaskId);
+  }
+
+  /**
+   * La dépense déclarée d'UN enfant délégué, sous la même règle : ce que ses
+   * tentatives terminées ont coûté — celle qu'on envoie ne l'est pas encore.
+   * C'est ce que la réservation de l'enfant a déjà payé (`plafondCoutTentative`).
+   */
+  depenseDeclareeEnfant(taskId: string): DepenseDeclaree {
+    return this.depenseDeclaree('taskId', taskId);
+  }
+
+  private depenseDeclaree(colonne: 'rootTaskId' | 'taskId', id: string): DepenseDeclaree {
     const ligne = this.db
       .prepare(
         `SELECT COUNT(*) AS tentatives, COUNT(d.coutMicros) AS declarees,
                 COALESCE(SUM(d.coutMicros), 0) AS micros
            FROM depenses_delegation d LEFT JOIN tasks t ON t.id = d.taskId
-          WHERE d.rootTaskId = ?
+          WHERE d.${colonne} = ?
             AND NOT (d.resultId IS NULL AND t.assignedNodeId = d.nodeId
                      AND t.status IN ('assigned', 'running'))`,
       )
-      .get(rootTaskId) as { tentatives: number; declarees: number; micros: number };
+      .get(id) as { tentatives: number; declarees: number; micros: number };
     if (ligne.tentatives === 0) return { ...AUCUNE_DEPENSE };
     return {
       micros: ligne.micros,
@@ -4341,6 +4706,7 @@ export class HiveStore {
         const lot = condamnees.slice(i, i + LOT);
         const trous = lot.map(() => '?').join(', ');
         this.db.prepare(`DELETE FROM reviews WHERE taskId IN (${trous})`).run(...lot);
+        this.db.prepare(`DELETE FROM commentaires_revue WHERE taskId IN (${trous})`).run(...lot);
         this.db.prepare(`DELETE FROM task_delegations WHERE childTaskId IN (${trous})`).run(...lot);
         this.db.prepare(`DELETE FROM consignes_routage WHERE taskId IN (${trous})`).run(...lot);
         // L'annonce de durée RÉFÉRENCE sa tâche (`foreign_keys = ON`) : oubliée
@@ -5006,11 +5372,14 @@ export class HiveStore {
   ): Array<{ taskId: string; nodeId: string; success: boolean; createdAt: number }> {
     // Une ombre n'y dépose rien, ni ses relectures (`TACHES_DU_BANC_SQL`) :
     // les phéromones départagent les nœuds, et le banc ne touche à aucun
-    // poids du routing (décision de shadow-bench.ts).
+    // poids du routing (décision de shadow-bench.ts). Un arrêt sur plafond non
+    // plus (`ARRETS_BUDGETAIRES_SQL`) : ni réussite, ni échec du nœud sur ce
+    // domaine — compté, il y déposait −6.
     const rows = this.db
       .prepare(
         `SELECT taskId, nodeId, success, createdAt FROM results
           WHERE taskId NOT IN (SELECT id FROM (${TACHES_DU_BANC_SQL}))
+            AND id NOT IN (${ARRETS_BUDGETAIRES_SQL})
           ORDER BY createdAt DESC, id DESC LIMIT ?`,
       )
       .all(Math.max(1, Math.min(limit, 2000))) as {
@@ -5259,6 +5628,10 @@ export class HiveStore {
    * lignes — jamais le contenu. `pruneResults` vide `diff` au-dela de 5 000
    * resultats : les productions anciennes comptent alors 0/0, ce qui les sort
    * de la mesure d'entropie au lieu de la fausser.
+   *
+   * Un arrêt sur plafond n'y entre pas (`ARRETS_BUDGETAIRES_SQL`) : ni
+   * production, ni échec — ses lignes, toutes de la même signature, faisaient
+   * tomber la diversité des causes d'échec, et la ruche autonome en HALTE.
    */
   listProductionsPourDerive(limit = 400): Array<{
     verdict: string;
@@ -5274,6 +5647,7 @@ export class HiveStore {
                 r.logs AS logs, r.success AS success, r.createdAt AS createdAt
            FROM results r
            LEFT JOIN gardiennes g ON g.resultId = r.id
+          WHERE r.id NOT IN (${ARRETS_BUDGETAIRES_SQL})
           ORDER BY r.id DESC LIMIT ?`,
       )
       .all(limit)
@@ -5704,6 +6078,49 @@ export class HiveStore {
   }
 
   /**
+   * Pose le RÉSEAU des agents d'un projet — geste humain (motif `setGardeFou`),
+   * écrasé en place. Le niveau est typé À L'ÉCRITURE : seul un niveau connu entre.
+   */
+  setReseauProjet(
+    projectId: string,
+    niveau: NiveauReseau,
+    definiPar: string | null = null,
+    now = Date.now(),
+  ): void {
+    this.db
+      .prepare(
+        `INSERT INTO reseaux_projets (projectId, niveau, version, definiPar, updatedAt)
+         VALUES (?, ?, 1, ?, ?)
+         ON CONFLICT(projectId) DO UPDATE SET
+           niveau = excluded.niveau,
+           definiPar = excluded.definiPar,
+           updatedAt = excluded.updatedAt`,
+      )
+      .run(projectId, niveau, definiPar, now);
+  }
+
+  /**
+   * Le réseau réglé d'un projet, ou `null` s'il n'a jamais été réglé. Un niveau
+   * illisible en base (écrit par une version future) se lit comme ABSENT, et
+   * donc comme le défaut — jamais comme `ouvert`.
+   */
+  getReseauProjet(
+    projectId: string,
+  ): { niveau: NiveauReseau; definiPar: string | null; updatedAt: number } | null {
+    const row = this.db
+      .prepare('SELECT niveau, definiPar, updatedAt FROM reseaux_projets WHERE projectId = ?')
+      .get(projectId) as
+      { niveau: string; definiPar: string | null; updatedAt: number } | undefined;
+    if (!row || !estNiveauReseau(row.niveau)) return null;
+    return { niveau: row.niveau, definiPar: row.definiPar, updatedAt: row.updatedAt };
+  }
+
+  /** Le niveau qu'une assignation porte : le réglage, sinon le défaut. */
+  niveauReseau(projectId: string): NiveauReseau {
+    return this.getReseauProjet(projectId)?.niveau ?? NIVEAU_RESEAU_DEFAUT;
+  }
+
+  /**
    * Le consentement Garde-Fous d'un projet. `null` si aucune ligne — donc
    * INACTIF par absence (l'opt-in demandé : pas de ligne ⇒ l'agent n'existe pas).
    * Les bornes reviennent en TEXTE BRUT : les valider et les normaliser
@@ -5753,7 +6170,8 @@ export class HiveStore {
 
   /**
    * Échecs récents, tous projets et tous nœuds confondus — la matière des
-   * leçons croisées.
+   * leçons croisées. Un arrêt sur plafond n'en est pas un
+   * (`ARRETS_BUDGETAIRES_SQL`).
    *
    * BORNÉ par `limit` et servi par l'index couvrant existant : c'est un
    * parcours arrière de clé primaire, pas un dépliage de `results`.
@@ -5769,6 +6187,7 @@ export class HiveStore {
       .prepare(
         `SELECT id, nodeId, taskId, logs, createdAt FROM results
          WHERE success = 0 AND taskId NOT IN (SELECT tacheOmbre FROM taches_ombre)
+           AND id NOT IN (${ARRETS_BUDGETAIRES_SQL})
          ORDER BY id DESC LIMIT ?`,
       )
       .all(limit) as Array<{
@@ -7384,6 +7803,83 @@ export class HiveStore {
       .all(origine) as RepriseLivraison[];
   }
 
+  // ─── Le garde de PR (garde-pr.ts) ──────────────────────────────────────────
+
+  /** La mémoire du garde pour une PR, ou `null` s'il ne l'a jamais sondée. */
+  getGardePr(depot: string, pr: number): GardePr | null {
+    return (
+      (this.db.prepare('SELECT * FROM gardes_pr WHERE depot = ? AND pr = ?').get(depot, pr) as
+        GardePr | undefined) ?? null
+    );
+  }
+
+  /**
+   * Pose la mémoire du garde pour une PR (insertion ou remplacement entier).
+   * L'appelant relit la ligne, change ce qui doit changer et la repose : une
+   * seule forme d'écriture, pas une mise à jour par colonne qui oublierait
+   * `majA` ou `prochainA`.
+   */
+  poserGardePr(g: GardePr): void {
+    this.db
+      .prepare(
+        `INSERT INTO gardes_pr
+           (depot, pr, projectId, statut, teteTraitee, teteRelancee, vertA, geste, dit,
+            echecs, prochainA, majA)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(depot, pr) DO UPDATE SET
+           projectId = excluded.projectId, statut = excluded.statut,
+           teteTraitee = excluded.teteTraitee, teteRelancee = excluded.teteRelancee,
+           vertA = excluded.vertA, geste = excluded.geste, dit = excluded.dit,
+           echecs = excluded.echecs, prochainA = excluded.prochainA, majA = excluded.majA`,
+      )
+      .run(
+        g.depot,
+        g.pr,
+        g.projectId,
+        g.statut,
+        g.teteTraitee,
+        g.teteRelancee,
+        g.vertA,
+        g.geste,
+        g.dit,
+        g.echecs,
+        g.prochainA,
+        g.majA,
+      );
+  }
+
+  /**
+   * Les livraisons que le garde doit sonder MAINTENANT : la ligne vivante
+   * (`ouverte`, un vrai numéro de PR) de chaque PR qu'il n'a pas retirée et
+   * dont l'échéance est passée — la plus en retard d'abord, bornée à `limite`.
+   *
+   * La ruche n'ouvre une ligne `ouverte` que pour une PR qu'ELLE a créée : le
+   * garde ne voit donc jamais une PR étrangère, par construction.
+   */
+  livraisonsAGarder(now: number, limite: number): LivraisonRangee[] {
+    return this.db
+      .prepare(
+        `SELECT l.* FROM livraisons l
+           LEFT JOIN gardes_pr g ON g.depot = l.depot AND g.pr = l.pr
+          WHERE l.etat = 'ouverte' AND l.pr > 0
+            AND (g.statut IS NULL OR g.statut <> 'retiree')
+            AND COALESCE(g.prochainA, 0) <= ?
+          ORDER BY COALESCE(g.prochainA, 0) ASC, l.creeA ASC, l.taskId ASC
+          LIMIT ?`,
+      )
+      .all(now, Math.max(1, Math.min(50, limite))) as LivraisonRangee[];
+  }
+
+  /** Borne référentielle : une garde ne survit pas aux livraisons de sa PR. */
+  pruneGardesPr(): number {
+    return this.db
+      .prepare(
+        `DELETE FROM gardes_pr WHERE NOT EXISTS
+           (SELECT 1 FROM livraisons l WHERE l.depot = gardes_pr.depot AND l.pr = gardes_pr.pr)`,
+      )
+      .run().changes;
+  }
+
   /** Borne référentielle : la lignée ne survit pas à la tâche de reprise. */
   pruneReprisesLivraison(): number {
     return this.db
@@ -8747,6 +9243,85 @@ export class HiveStore {
     return row ?? null;
   }
 
+  // ─── Commentaires de revue ancrés (G06, shared/commentaire-revue.ts) ───────
+
+  /**
+   * Range un commentaire EN ATTENTE, ou `plein` quand sa production en porte
+   * déjà `max` : compter et écrire dans la même transaction, sans quoi deux
+   * opérateurs simultanés passeraient chacun la borne d'un cran.
+   */
+  ajouterCommentaireRevue(
+    c: Omit<CommentaireRevue, 'soumission' | 'soumisA'>,
+    max: number,
+  ): 'ajoute' | 'plein' {
+    return this.enTransaction(() => {
+      const { n } = this.db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM commentaires_revue
+            WHERE taskId = ? AND resultId = ? AND soumission IS NULL`,
+        )
+        .get(c.taskId, c.resultId) as { n: number };
+      if (n >= max) return 'plein';
+      this.db
+        .prepare(
+          `INSERT INTO commentaires_revue
+             (id, taskId, resultId, fichier, ligneDebut, ligneFin, texte, extrait, auteur, creeA)
+           VALUES (@id, @taskId, @resultId, @fichier, @ligneDebut, @ligneFin, @texte, @extrait,
+                   @auteur, @creeA)`,
+        )
+        .run(c);
+      return 'ajoute';
+    });
+  }
+
+  /** Les commentaires d'une tâche, toutes productions confondues, dans l'ordre de pose. */
+  commentairesRevue(taskId: string): CommentaireRevue[] {
+    return this.db
+      .prepare('SELECT * FROM commentaires_revue WHERE taskId = ? ORDER BY creeA, rowid')
+      .all(taskId) as CommentaireRevue[];
+  }
+
+  /** Les commentaires qu'un envoi « demander des changements » a emportés. */
+  commentairesSoumis(taskId: string, soumission: string): CommentaireRevue[] {
+    return this.db
+      .prepare(
+        'SELECT * FROM commentaires_revue WHERE taskId = ? AND soumission = ? ORDER BY creeA, rowid',
+      )
+      .all(taskId, soumission) as CommentaireRevue[];
+  }
+
+  /**
+   * Retire un commentaire EN ATTENTE. Un commentaire soumis est l'histoire
+   * d'une correction déjà demandée : il ne se retire pas (`soumis`).
+   */
+  retirerCommentaireRevue(taskId: string, id: string): 'retire' | 'inconnu' | 'soumis' {
+    const row = this.db
+      .prepare('SELECT soumission FROM commentaires_revue WHERE id = ? AND taskId = ?')
+      .get(id, taskId) as { soumission: string | null } | undefined;
+    if (!row) return 'inconnu';
+    if (row.soumission !== null) return 'soumis';
+    this.db.prepare('DELETE FROM commentaires_revue WHERE id = ?').run(id);
+    return 'retire';
+  }
+
+  /**
+   * Emporte les commentaires en attente d'une production dans l'envoi
+   * `soumission` — une seule instruction : tous ou aucun. Rend leur nombre.
+   */
+  soumettreCommentairesRevue(
+    taskId: string,
+    resultId: number,
+    soumission: string,
+    now = Date.now(),
+  ): number {
+    return this.db
+      .prepare(
+        `UPDATE commentaires_revue SET soumission = ?, soumisA = ?
+          WHERE taskId = ? AND resultId = ? AND soumission IS NULL`,
+      )
+      .run(soumission, now, taskId, resultId).changes;
+  }
+
   // ─── Les missions rejouables (src/shared/mission-rejouable.ts) ─────────────
 
   /** La mission OUVERTE d'un projet (il n'y en a jamais qu'une), ou `null`. */
@@ -9184,6 +9759,195 @@ export class HiveStore {
            )`,
         )
         .run(Math.max(1, parProjet) * 10).changes;
+      return n;
+    });
+  }
+
+  // ─── Les routines (ADR 0014) ────────────────────────────────────────────────
+  //
+  // Le magasin RANGE et RELIT ; il ne décide rien. Quand une routine part,
+  // quelle politique s'applique et qui en répond : `routines.ts`.
+
+  private routineDeLigne(l: LigneRoutine): Routine {
+    let plage: PlageHoraire | null;
+    try {
+      plage = l.plage ? (JSON.parse(l.plage) as PlageHoraire) : null;
+    } catch {
+      // Une plage illisible n'ouvre pas la routine à toute heure : elle la
+      // ferme (jours vides), et `routines.ts` le dit à la place d'un run.
+      plage = { jours: [], debut: '00:00', fin: '00:00' };
+    }
+    return {
+      id: l.id,
+      projectId: l.projectId,
+      nom: l.nom,
+      consigne: l.consigne,
+      declencheur: l.declencheur as Routine['declencheur'],
+      expression: l.expression,
+      fuseau: l.fuseau,
+      branche: l.branche,
+      plage,
+      concurrence: l.concurrence as Routine['concurrence'],
+      rattrapage: l.rattrapage as Routine['rattrapage'],
+      actif: l.actif === 1,
+      creePar: l.creePar,
+      secret: l.secret,
+      prochaineA: l.prochaineA,
+      dernierSha: l.dernierSha,
+      sondeeA: l.sondeeA,
+      derniereErreur: l.derniereErreur,
+      creeA: l.creeA,
+      majA: l.majA,
+    };
+  }
+
+  creerRoutine(r: Routine): void {
+    this.db
+      .prepare(
+        `INSERT INTO routines (id, projectId, nom, consigne, declencheur, expression, fuseau,
+           branche, plage, concurrence, rattrapage, actif, creePar, secret, prochaineA,
+           dernierSha, sondeeA, derniereErreur, creeA, majA)
+         VALUES (@id, @projectId, @nom, @consigne, @declencheur, @expression, @fuseau, @branche,
+           @plage, @concurrence, @rattrapage, @actif, @creePar, @secret, @prochaineA,
+           @dernierSha, @sondeeA, @derniereErreur, @creeA, @majA)`,
+      )
+      .run({ ...r, plage: r.plage ? JSON.stringify(r.plage) : null, actif: r.actif ? 1 : 0 });
+  }
+
+  getRoutine(id: string): Routine | undefined {
+    const l = this.db.prepare('SELECT * FROM routines WHERE id = ?').get(id) as
+      LigneRoutine | undefined;
+    return l ? this.routineDeLigne(l) : undefined;
+  }
+
+  listRoutines(projectId?: string): Routine[] {
+    const lignes = (
+      projectId === undefined
+        ? this.db.prepare('SELECT * FROM routines ORDER BY creeA, id').all()
+        : this.db
+            .prepare('SELECT * FROM routines WHERE projectId = ? ORDER BY creeA, id')
+            .all(projectId)
+    ) as LigneRoutine[];
+    return lignes.map((l) => this.routineDeLigne(l));
+  }
+
+  /** Change les champs VIVANTS d'une routine ; sa définition ne bouge pas. */
+  majRoutine(
+    id: string,
+    champs: Partial<
+      Pick<Routine, 'actif' | 'secret' | 'prochaineA' | 'dernierSha' | 'sondeeA' | 'derniereErreur'>
+    >,
+    now: number,
+  ): void {
+    const cles = Object.keys(champs) as (keyof typeof champs)[];
+    if (cles.length === 0) return;
+    const valeurs: Record<string, unknown> = { id, majA: now };
+    for (const k of cles) valeurs[k] = k === 'actif' ? (champs.actif ? 1 : 0) : (champs[k] ?? null);
+    this.db
+      .prepare(
+        `UPDATE routines SET ${cles.map((k) => `${k} = @${k}`).join(', ')}, majA = @majA WHERE id = @id`,
+      )
+      .run(valeurs);
+  }
+
+  /** Supprime une routine ET son historique. `false` : elle n'existait pas. */
+  supprimerRoutine(id: string): boolean {
+    return this.enTransaction(() => {
+      this.db.prepare('DELETE FROM routines_runs WHERE routineId = ?').run(id);
+      return this.db.prepare('DELETE FROM routines WHERE id = ?').run(id).changes > 0;
+    });
+  }
+
+  private runDeLigne(l: LigneRunRoutine): RunRoutine {
+    let taches: string[] = [];
+    try {
+      const lu: unknown = JSON.parse(l.taches);
+      if (Array.isArray(lu)) taches = lu.filter((t): t is string => typeof t === 'string');
+    } catch {
+      taches = [];
+    }
+    return {
+      id: l.id,
+      routineId: l.routineId,
+      projectId: l.projectId,
+      source: l.source as RunRoutine['source'],
+      cle: l.cle,
+      statut: l.statut as RunRoutine['statut'],
+      motif: l.motif,
+      taches,
+      fusionneDans: l.fusionneDans,
+      creeA: l.creeA,
+    };
+  }
+
+  /** Range un run. `false` : cette clé est déjà rangée (livraison rejouée). */
+  ajouterRunRoutine(run: RunRoutine): boolean {
+    return (
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO routines_runs
+             (id, routineId, projectId, source, cle, statut, motif, taches, fusionneDans, creeA)
+           VALUES (@id, @routineId, @projectId, @source, @cle, @statut, @motif, @taches,
+             @fusionneDans, @creeA)`,
+        )
+        .run({ ...run, taches: JSON.stringify(run.taches) }).changes > 0
+    );
+  }
+
+  /** La clé est-elle déjà rangée pour cette routine ? */
+  runRoutineConnu(routineId: string, cle: string): boolean {
+    return (
+      this.db
+        .prepare('SELECT 1 FROM routines_runs WHERE routineId = ? AND cle = ?')
+        .get(routineId, cle) !== undefined
+    );
+  }
+
+  /** Les derniers runs d'une routine, le plus récent d'abord. */
+  runsDeRoutine(routineId: string, limite: number): RunRoutine[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM routines_runs WHERE routineId = ?
+            ORDER BY creeA DESC, rowid DESC LIMIT ?`,
+        )
+        .all(routineId, Math.max(1, limite)) as LigneRunRoutine[]
+    ).map((l) => this.runDeLigne(l));
+  }
+
+  /** Le dernier run qui a LANCÉ du travail — celui qu'une fusion rejoint. */
+  dernierRunLance(routineId: string): RunRoutine | undefined {
+    const l = this.db
+      .prepare(
+        `SELECT * FROM routines_runs WHERE routineId = ? AND statut = 'lancee'
+          ORDER BY creeA DESC, rowid DESC LIMIT 1`,
+      )
+      .get(routineId) as LigneRunRoutine | undefined;
+    return l ? this.runDeLigne(l) : undefined;
+  }
+
+  /**
+   * La borne de l'historique des routines (règle 3) : les runs dont la routine
+   * a disparu, puis, par routine, tout ce qui dépasse les `parRoutine` plus
+   * récents. Les curseurs vivent sur la routine : rien ici ne peut relancer un
+   * créneau ou un commit déjà traité (voir le schéma).
+   */
+  pruneRoutines(parRoutine: number): number {
+    return this.enTransaction(() => {
+      let n = this.db
+        .prepare('DELETE FROM routines_runs WHERE routineId NOT IN (SELECT id FROM routines)')
+        .run().changes;
+      n += this.db
+        .prepare(
+          `DELETE FROM routines_runs WHERE rowid IN (
+             SELECT rowid FROM (
+               SELECT rowid, ROW_NUMBER() OVER (
+                 PARTITION BY routineId ORDER BY creeA DESC, rowid DESC) AS rang
+                 FROM routines_runs
+             ) WHERE rang > ?
+           )`,
+        )
+        .run(Math.max(1, parRoutine)).changes;
       return n;
     });
   }

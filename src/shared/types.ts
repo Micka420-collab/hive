@@ -6,6 +6,7 @@ import type { PlateformeNoeud } from './machine.js';
 import type { OutilConstate } from './protocol.js';
 import type { ValidationsBac } from './validations-bac.js';
 import type { Effort } from './effort.js';
+import type { ArretBudgetaire } from './arret-budgetaire.js';
 
 /** Cycle de vie : pending → ready (dépendances done) → assigned → running → done | failed. */
 export type TaskStatus = 'pending' | 'ready' | 'assigned' | 'running' | 'done' | 'failed';
@@ -99,6 +100,12 @@ export interface TaskResultSummary {
   durationMs: number;
   /** Mesure locale du processus Worker, absente sur les anciens résultats. */
   usage?: ExecutionUsage;
+  /**
+   * Cette tentative — la dernière — s'est arrêtée dans la boucle de son agent,
+   * sur le plafond que la Reine lui avait passé : la tâche a fini sur sa borne,
+   * pas sur un échec (`arreteeParSonBudget`, shared/arret-budgetaire.ts).
+   */
+  arretBudgetaire?: ArretBudgetaire;
 }
 
 /**
@@ -120,9 +127,12 @@ export interface ExecutionUsage {
  * les appels au modèle, modèles exacts, jetons. Hive ne l'estime jamais : un
  * champ absent veut dire « non déclaré », et l'interface le dit « inconnu ».
  *
- * `coutUsd` est le montant rapporté par le CLI (Claude Code : `total_cost_usd`,
- * calculé par le CLI au tarif public). Sur un abonnement, ce n'est pas une
- * facture : c'est la valeur déclarée, et elle est présentée comme telle.
+ * `coutUsd` est le montant rapporté par le CLI (Claude Code : `total_cost_usd`).
+ * C'est l'ESTIMATION du CLI, pas une facture : il la calcule de son côté sur
+ * une table de prix embarquée à sa construction — « client-side estimates, not
+ * authoritative billing data » (code.claude.com/docs/en/agent-sdk/cost-tracking).
+ * Hive la relaie sans l'estimer à son tour, et l'écran la dit telle
+ * (`NOTE_COUT_DECLARE`, dashboard/src/ui.tsx).
  */
 export interface UsageFournisseur {
   /** L'agent dont le CLI a fait la déclaration. */
@@ -187,6 +197,13 @@ export interface TaskResult {
    * au `resultId`, et `resultsForTask` ne les relit pas.
    */
   validations?: ValidationsBac;
+  /**
+   * La tentative s'est arrêtée sur le plafond que Hive lui avait passé — à la
+   * réception seulement, et seulement quand la Reine le croit (`arretCru`,
+   * server.ts : la tentative qu'elle a plafonnée, en échec, au coût déclaré
+   * arrivé sur ce plafond).
+   */
+  arretBudgetaire?: ArretBudgetaire;
 }
 
 /** Entrée du journal d'événements — base du futur Time-Lapse Replay (palier 3). */

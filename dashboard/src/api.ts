@@ -18,6 +18,7 @@ import type {
 } from '../../src/shared/types';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
 import type { Constat } from '../../src/shared/critique-structuree.js';
+import type { CommentaireRevue } from '../../src/shared/commentaire-revue.js';
 import type {
   DecisionConseil,
   Desaccord,
@@ -1481,6 +1482,37 @@ export function reglerGardeFou(
   });
 }
 
+// ─── Le réseau des agents d'un projet (shared/reseau.ts) ─────────────────────
+
+/** Un niveau de réseau. Miroir de `NiveauReseau` (shared/reseau.ts). */
+export type NiveauReseauUi = 'integrations' | 'dependances' | 'ouvert';
+
+/** Ce que le GET `/reseau` rend. Miroir de la RÉPONSE du server. */
+export interface EtatReseauUi {
+  niveau: NiveauReseauUi;
+  /** Faux : personne ne l'a réglé, le niveau affiché est le défaut. */
+  regle: boolean;
+  definiPar: string | null;
+  updatedAt: number | null;
+  niveaux: NiveauReseauUi[];
+  defaut: NiveauReseauUi;
+}
+
+export function fetchReseauProjet(projectId: string): Promise<EtatReseauUi> {
+  return api<EtatReseauUi>(`/api/projects/${encodeURIComponent(projectId)}/reseau`);
+}
+
+/** Règle le réseau des agents — propriétaire ou administrateur ; prochaine assignation. */
+export function reglerReseauProjet(
+  projectId: string,
+  niveau: NiveauReseauUi,
+): Promise<{ niveau: NiveauReseauUi; regle: true }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/reseau`, {
+    method: 'PUT',
+    body: JSON.stringify({ niveau }),
+  });
+}
+
 // ─── Le banc d'ombre : comparer deux modèles sur la même petite tâche ───────
 
 /** Pourquoi une tâche tirée au sort n'a pas eu d'ombre. Miroir de `MotifRefusOmbre`. */
@@ -1835,12 +1867,77 @@ export function postReview(
   });
 }
 
+// ─── Revue ligne par ligne (G06, shared/commentaire-revue.ts) ─────────────
+
+/** Les commentaires ancrés d'une tâche, toutes productions confondues. */
+export function fetchCommentairesRevue(taskId: string): Promise<{
+  taskId: string;
+  resultId: number | null;
+  max: number;
+  commentaires: CommentaireRevue[];
+}> {
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/commentaires-revue`);
+}
+
+/** Pose un commentaire EN ATTENTE sur des lignes de la production `resultId`. */
+export function posterCommentaireRevue(
+  taskId: string,
+  corps: { resultId: number; fichier: string; ligneDebut: number; ligneFin: number; texte: string },
+): Promise<CommentaireRevue> {
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/commentaires-revue`, {
+    method: 'POST',
+    body: JSON.stringify(corps),
+  });
+}
+
+/** Retire un commentaire encore en attente (un commentaire envoyé reste à l'histoire). */
+export function retirerCommentaireRevue(taskId: string, id: string): Promise<{ ok: true }> {
+  return api(
+    `/api/tasks/${encodeURIComponent(taskId)}/commentaires-revue/${encodeURIComponent(id)}`,
+    // Sans corps : un DELETE annoncé JSON mais vide, Fastify le refuse (400).
+    { method: 'DELETE', headers: { 'content-type': 'text/plain' } },
+  );
+}
+
+/**
+ * « Demander des changements » : un rejet qui emporte tous les commentaires en
+ * attente de la production dans UNE correction. Sans commentaire, `resume`
+ * est exigé (400 `changements_sans_contenu`).
+ */
+export function demanderChangements(
+  taskId: string,
+  resultId: number,
+  resume: string,
+  clientId?: string,
+): Promise<{
+  state: 'rejected';
+  changements: { soumission: string; commentaires: number };
+  retry?: { ok: boolean; reason?: string };
+}> {
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/demande-changements`, {
+    method: 'POST',
+    body: JSON.stringify({
+      resultId,
+      ...(resume.trim() ? { resume: resume.trim() } : {}),
+      ...(clientId ? { clientId } : {}),
+    }),
+  });
+}
+
 /** La critique figée d'une correction (voir `blocCritique`, brood.ts). */
 export interface CritiqueReprise {
   source: 'contre_revue' | 'revue_humaine' | 'evaluator';
   objections: string[];
   raisons: string[];
   noteHumaine?: string;
+  /** Les commentaires ancrés d'une demande de changements (G06). */
+  commentaires?: {
+    fichier: string;
+    ligneDebut: number;
+    ligneFin: number;
+    texte: string;
+    extrait?: string;
+  }[];
   /** Les constats non bloquants (mineur, info) de la contre-revue, s'il y en avait. */
   remarques?: Constat[];
 }
@@ -2295,6 +2392,20 @@ export interface LivraisonVue {
   nonReprenable?: string;
   /** Présent quand la pull request n'a pas pu être lue — le dire vaut mieux. */
   illisible?: string;
+  /**
+   * Le garde de PR : ce qu'il a vu et fait de cette PR (dernier geste, sa
+   * phrase), et les reprises depuis la dernière CI verte face au plafond.
+   * `actif: false` : pas de jeton GitHub, ou `HIVE_GARDE_PR=off`.
+   */
+  garde?: {
+    actif: boolean;
+    statut: string;
+    geste: string;
+    dit: string;
+    tentatives: number;
+    plafond: number;
+    verifieA: number | null;
+  };
 }
 
 /** Ce que deviennent les pull requests ouvertes par la ruche. */
@@ -2343,6 +2454,129 @@ export function fetchMissions(
   projectId: string,
 ): Promise<{ missions: MissionVue[]; rejeu: RejeuVue | null }> {
   return api(`/api/projects/${encodeURIComponent(projectId)}/missions`);
+}
+
+// ─── Les Routines (ADR 0014) ────────────────────────────────────────────────
+//
+// Formes miroir de `vueRoutine` (src/orchestrator/routines.ts). La clé d'un
+// webhook n'est JAMAIS dans une lecture : elle n'arrive qu'à la création et à
+// la régénération, une fois.
+
+export type DeclencheurRoutine = 'cron' | 'webhook' | 'ci_rouge';
+export type ConcurrenceRoutine = 'coalesce_if_active' | 'always_enqueue' | 'skip_if_active';
+export type RattrapageRoutine = 'skip_missed' | 'enqueue_missed_with_cap';
+export type StatutRunRoutine =
+  'lancee' | 'fusionnee' | 'sautee' | 'manquee' | 'ignoree' | 'refusee';
+
+export interface RunRoutineVue {
+  id: string;
+  source: 'cron' | 'rattrapage' | 'webhook' | 'ci_rouge' | 'manuel';
+  statut: StatutRunRoutine;
+  motif: string;
+  taches: string[];
+  fusionneDans: string | null;
+  creeA: number;
+}
+
+export interface RoutineVue {
+  id: string;
+  nom: string;
+  consigne: string;
+  declencheur: DeclencheurRoutine;
+  expression: string | null;
+  fuseau: string;
+  branche: string | null;
+  plage: { jours: number[]; debut: string; fin: string } | null;
+  concurrence: ConcurrenceRoutine;
+  rattrapage: RattrapageRoutine;
+  actif: boolean;
+  autorite: 'jeton' | 'compte';
+  auteur: string | null;
+  prochaineA: number | null;
+  derniereErreur: string | null;
+  webhook: string | null;
+  creeA: number;
+  runs: RunRoutineVue[];
+}
+
+export interface NouvelleRoutine {
+  nom: string;
+  consigne: string;
+  declencheur: DeclencheurRoutine;
+  expression?: string;
+  fuseau?: string;
+  branche?: string;
+  plage?: { jours: number[]; debut: string; fin: string } | null;
+  concurrence?: ConcurrenceRoutine;
+  rattrapage?: RattrapageRoutine;
+}
+
+export function fetchRoutines(
+  projectId: string,
+): Promise<{ routines: RoutineVue[]; ciDisponible: boolean }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/routines`);
+}
+
+/** Crée une routine. `secret` : la clé du webhook, remise cette fois-ci seulement. */
+export function creerRoutine(
+  projectId: string,
+  routine: NouvelleRoutine,
+): Promise<{ routine: RoutineVue; secret?: string }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/routines`, {
+    method: 'POST',
+    body: JSON.stringify(routine),
+  });
+}
+
+export function reglerRoutine(
+  projectId: string,
+  routineId: string,
+  actif: boolean,
+): Promise<{ routine: RoutineVue }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/routines/${encodeURIComponent(routineId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ actif }),
+    },
+  );
+}
+
+export function supprimerRoutine(
+  projectId: string,
+  routineId: string,
+): Promise<{ supprimee: boolean }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/routines/${encodeURIComponent(routineId)}`,
+    {
+      method: 'DELETE',
+    },
+  );
+}
+
+export function declencherRoutine(
+  projectId: string,
+  routineId: string,
+): Promise<{ statut: StatutRunRoutine | 'doublon'; motif?: string; taches?: string[] }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/routines/${encodeURIComponent(routineId)}/declencher`,
+    {
+      method: 'POST',
+    },
+  );
+}
+
+/** Régénère la clé du webhook — l'ancienne est révoquée dans le même geste. */
+export function regenererCleRoutine(
+  projectId: string,
+  routineId: string,
+): Promise<{ secret: string }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/routines/${encodeURIComponent(routineId)}/secret`,
+    {
+      method: 'POST',
+    },
+  );
 }
 
 /** Rejoue une mission dans un projet neuf ; ses actions irréversibles sont simulées. */
@@ -3274,9 +3508,11 @@ export interface RequisitionPoste {
   genre: string;
   libelle: string;
   detail: string | null;
-  statut: 'ouverte' | 'accordee' | 'refusee';
+  statut: 'ouverte' | 'accordee' | 'refusee' | 'expiree';
   creeA: number;
   closA: number | null;
+  /** Échéance (ms epoch) d'une réquisition d'ACTION (G12) ; absente sinon. */
+  expiresAt?: number | null;
   bapteme?: string | null;
 }
 

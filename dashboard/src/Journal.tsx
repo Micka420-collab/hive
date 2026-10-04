@@ -1,5 +1,6 @@
 // Journal d'événements : flux temps réel, coloré et à icônes.
 
+import { arreteeParSonBudget } from '../../src/shared/arret-budgetaire';
 import type { HiveEvent } from '../../src/shared/types';
 import { VALIDATION_KEYS } from '../../src/shared/validations-bac';
 import { useT } from './i18n';
@@ -220,20 +221,27 @@ const EVENTS: Record<string, Meta> = {
     icon: '✍',
     cls: 'info',
     text: (p, t) =>
-      p.state === 'approved'
+      // Une demande de changements (G06) est un rejet qui emporte des
+      // commentaires ancrés : le dire, avec leur nombre.
+      p.state === 'rejected' && typeof p.changements === 'object' && p.changements !== null
         ? t(
-            `revue humaine : approuvée (${short(p.taskId)})`,
-            `human review: approved (${short(p.taskId)})`,
+            `revue humaine : changements demandés, ${String((p.changements as Record<string, unknown>).commentaires ?? 0)} commentaire(s) de lignes (${short(p.taskId)})`,
+            `human review: changes requested, ${String((p.changements as Record<string, unknown>).commentaires ?? 0)} line comment(s) (${short(p.taskId)})`,
           )
-        : p.state === 'rejected'
+        : p.state === 'approved'
           ? t(
-              `revue humaine : rejetée (${short(p.taskId)})`,
-              `human review: rejected (${short(p.taskId)})`,
+              `revue humaine : approuvée (${short(p.taskId)})`,
+              `human review: approved (${short(p.taskId)})`,
             )
-          : t(
-              `revue humaine effacée (${short(p.taskId)})`,
-              `human review cleared (${short(p.taskId)})`,
-            ),
+          : p.state === 'rejected'
+            ? t(
+                `revue humaine : rejetée (${short(p.taskId)})`,
+                `human review: rejected (${short(p.taskId)})`,
+              )
+            : t(
+                `revue humaine effacée (${short(p.taskId)})`,
+                `human review cleared (${short(p.taskId)})`,
+              ),
   },
   // Un humain passe outre l'Evaluator pour livrer ou fusionner. La raison vit
   // dans le payload ; la ligne dit le geste et le verdict contourné.
@@ -271,10 +279,11 @@ const EVENTS: Record<string, Meta> = {
     text: (p, t) => {
       const ms = cout(p.durationMs);
       const base = t(`échouée (${short(p.taskId)})`, `failed (${short(p.taskId)})`);
-      // « coût : X » plutôt qu'un participe accordé : la durée est formatée
+      // « durée : X » plutôt qu'un participe accordé : la durée est formatée
       // (« 1 h », « 4 h 12 min », « 340 ms ») et aucun accord français ne tient
-      // sur toutes ces formes.
-      return ms === null ? base : `${base} — ${t(`coût : ${ms}`, `cost: ${ms}`)}`;
+      // sur toutes ces formes. Pas « coût » : depuis que la ruche compte des
+      // dollars, le mot se lisait comme une dépense.
+      return ms === null ? base : `${base} — ${t(`durée : ${ms}`, `duration: ${ms}`)}`;
     },
   },
   task_cancelled: {
@@ -419,6 +428,20 @@ const EVENTS: Record<string, Meta> = {
         `en attente (${short(p.taskId)}) : aucune ouvrière en ligne ne respecte la consigne de l’opérateur`,
         `waiting (${short(p.taskId)}): no online worker satisfies the operator’s constraint`,
       ),
+  },
+  revue_commentaire: {
+    icon: '✎',
+    cls: 'info',
+    text: (p, t) =>
+      p.action === 'retire'
+        ? t(
+            `commentaire de revue retiré (${short(p.taskId)})`,
+            `review comment removed (${short(p.taskId)})`,
+          )
+        : t(
+            `commentaire de revue posé sur des lignes (${short(p.taskId)})`,
+            `review comment added on lines (${short(p.taskId)})`,
+          ),
   },
   routage_consigne: {
     icon: '⚑',
@@ -580,9 +603,15 @@ const EVENTS: Record<string, Meta> = {
             ? t('la contre-revue', 'the counter-review')
             : t('l’Evaluator', 'the Evaluator');
       const note =
-        p.noteHumaine === true
+        (p.noteHumaine === true
           ? t(', avec la raison de l’humain', ', with the human’s reason')
-          : '';
+          : '') +
+        (typeof p.commentaires === 'number'
+          ? t(
+              `, ${p.commentaires} commentaire(s) de lignes sur ${String(p.commentairesFiges ?? p.commentaires)}`,
+              `, ${p.commentaires} line comment(s) of ${String(p.commentairesFiges ?? p.commentaires)}`,
+            )
+          : '');
       // `objections` = ce que l'ouvrière a LU ; `objectionsFigees` = ce que
       // la correction avait relevé. L'écart, c'est la queue tombée au budget.
       const figees = typeof p.objectionsFigees === 'number' ? p.objectionsFigees : null;
@@ -945,6 +974,34 @@ const EVENTS: Record<string, Meta> = {
 };
 
 /**
+ * Un ARRÊT BUDGÉTAIRE ferme la tâche sans être un échec de l'agent : sa propre
+ * ligne, plutôt que le ✘ d'un travail raté — la borne qui a tenu, et la suite
+ * à donner. Arrêtée dans sa boucle, ou close par la Reine avant d'être relancée
+ * quand ses tentatives avaient dépensé sa réservation.
+ */
+const ARRET_BUDGETAIRE: Meta = {
+  icon: '¤',
+  cls: 'warn',
+  text: (p, t) => {
+    const id = short(p.taskId);
+    const borne =
+      p.reason === 'reservation_depensee'
+        ? t(
+            `réservation de coût dépensée, non relancée (${id})`,
+            `cost reservation spent, not relaunched (${id})`,
+          )
+        : t(
+            `arrêtée sur son plafond de coût dans la boucle de l’agent (${id})`,
+            `stopped at its cost cap inside the agent loop (${id})`,
+          );
+    return `${borne} — ${t(
+      'ni échec, ni panne : à redéléguer sous un nouvel identifiant, avec une réservation plus large',
+      'neither a failure nor an outage: re-delegate it under a new id, with a larger reservation',
+    )}`;
+  },
+};
+
+/**
  * La ligne d'un événement, telle que le Journal la dit — icône, classe et
  * texte bilingue reconstruit depuis les champs typés du payload. Exportée
  * pour que le fil des décisions de l'accueil parle EXACTEMENT comme le
@@ -954,7 +1011,10 @@ export function ligneDuJournal(
   ev: HiveEvent,
   t: Translate,
 ): { icon: string; cls: string; text: string } {
-  const meta = EVENTS[ev.type];
+  const meta =
+    ev.type === 'task_failed' && arreteeParSonBudget(ev.payload)
+      ? ARRET_BUDGETAIRE
+      : EVENTS[ev.type];
   if (!meta) return { icon: '•', cls: 'muted', text: ev.type };
   return { icon: meta.icon, cls: meta.cls, text: meta.text(ev.payload, t) };
 }

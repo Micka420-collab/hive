@@ -36,6 +36,11 @@ export interface Controle {
   /** `queued`, `in_progress`, `completed`. */
   statut: string;
   url: string;
+  /**
+   * Le job GitHub Actions derrière ce contrôle, quand c'en est un : seul un
+   * job Actions se relance par l'API (garde de PR, jobs instables).
+   */
+  jobId?: number;
 }
 
 /** Ce qu'on retient d'une revue humaine. */
@@ -59,6 +64,8 @@ export interface FaitsPr {
   commitSha?: string;
   /** Branche de la tête réellement lue, quand GitHub l'a fourni. */
   branche?: string;
+  /** Branche de BASE de la pull request, quand GitHub l'a fournie. */
+  base?: string;
   controles: Controle[];
   revues: Revue[];
 }
@@ -155,14 +162,16 @@ export function reprenableSurLaBranche(etat: EtatLivraison): boolean {
 }
 
 /**
- * Combien de reprises une livraison admet, TOUTES comptées sur sa première
- * livraison (la lignée, pas le numéro de PR) — réussies ou non.
+ * Combien de reprises une livraison admet PAR DÉFAUT, comptées sur sa première
+ * livraison (la lignée, pas le numéro de PR) — réussies ou non — depuis la
+ * dernière CI verte que le garde de PR a vue (`orchestrator/garde-pr.ts`).
  *
  * Au-delà, ce n'est plus une correction qui manque, c'est une production que
  * la ruche ne sait pas réparer : une quatrième reprise dépenserait une
- * tentative de plus sur la même PR, et une garde automatique (G05) boucle-
+ * tentative de plus sur la même PR, et le garde automatique boucle-
  * rait. Trois, comme le plafond par défaut de Sculptor et le
- * `MAX_RETRIES_PER_HEAD` d'Open SWE.
+ * `MAX_RETRIES_PER_HEAD` d'Open SWE. L'hôte le règle de 1 à 10
+ * (`HIVE_GARDE_PR_PLAFOND`) ; le bouton et le garde lisent le même.
  */
 export const MAX_REPRISES_PAR_LIVRAISON = 3;
 

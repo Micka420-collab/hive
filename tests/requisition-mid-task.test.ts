@@ -348,6 +348,12 @@ describe('réquisition mid-task — boucle B/C/D', () => {
       if (rejet === undefined) await new Promise((r) => setTimeout(r, 60));
     }
     expect(rejet, 'la tâche doit être réaffectée').toMatchObject({ infra: true });
+    // Et le refus DIT ce que l'agent a dit : il part sans les logs, et
+    // « agent indisponible (auth/quota) » seul ne laissait rien à lire à
+    // l'opérateur (Hive 0.5.0 : l'ouvrière Codex réaffectée sans un mot).
+    expect(rejet).toMatchObject({
+      reason: 'agent indisponible : API Error: 429 rate_limit_error',
+    });
     expect(
       server.store.listerRequisitions({ statut: 'ouverte' }).filter((r) => r.taskId === taskId),
     ).toEqual([]);

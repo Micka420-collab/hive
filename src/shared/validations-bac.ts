@@ -300,6 +300,45 @@ export function planDeValidation(
 }
 
 /**
+ * Les règles `permissions.allow` COMPILÉES depuis les déclarations du dépôt —
+ * la moitié « autorisation » de la politique d'actions (G12).
+ *
+ * La liste DÉCOULE LITTÉRALEMENT du dépôt : les scripts de validation que le
+ * `package.json` du commit de BASE déclare (jamais l'arbre de travail — l'agent
+ * ne s'auto-autorise pas en réécrivant le juge, même frontière que
+ * `declaration_reecrite`), plus l'installation que son lockfile fixe. Hive
+ * n'invente aucune commande : un dépôt sans script `test` n'autorise pas
+ * `npm run test`, et un dépôt sans lockfile n'autorise aucune installation.
+ *
+ * La syntaxe est celle des règles de permission de Claude Code
+ * (code.claude.com/docs/en/permissions) : `Bash(npm run test)` exact, plus la
+ * forme préfixe `Bash(npm run test:*)` pour la même commande suivie
+ * d'arguments (`npm run test -- --filter`). Les autres familles d'adaptateurs
+ * dérivent leurs globs de la même liste.
+ */
+export function reglesAutorisationDepot(
+  manifesteBase: unknown,
+  lockfilePresent: (fichier: string) => boolean = () => false,
+): string[] {
+  const base = scriptsDe(manifesteBase);
+  const plan = planDeValidation(base, base);
+  const regles: string[] = [];
+  for (const cle of VALIDATION_KEYS) {
+    const etape = plan[cle];
+    // `planDeValidation(base, base)` applique déjà les gardes du bac :
+    // `non_declare`, `sans_manifeste` et le `test` par défaut de `npm init`
+    // (qui échoue exprès) ne produisent aucune règle.
+    if (etape.genre !== 'lancer') continue;
+    regles.push(`Bash(npm run ${etape.script})`, `Bash(npm run ${etape.script}:*)`);
+  }
+  if (declareDesDependances(manifesteBase)) {
+    const preparation = preparationDepuisLockfile(lockfilePresent);
+    if (preparation) regles.push(`Bash(${preparation.join(' ')})`);
+  }
+  return regles;
+}
+
+/**
  * L'installation que le LOCKFILE déclare, quand les dépendances manquent.
  *
  * Une installation reproduit ce qu'un fichier du dépôt fixe — jamais ce qu'une

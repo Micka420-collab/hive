@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024.18-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-8336%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-8665%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -149,7 +149,9 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
     relectrices, revue humaine, durée — sans note ni classement
     ([#454](https://github.com/Micka420-collab/hive/pull/454)) ;
   - le coût et le temps modèle **déclarés par le CLI de l'agent** (Claude
-    Code), avec leur couverture — « inconnu » quand rien n'est déclaré
+    Code), avec leur couverture — « inconnu » quand rien n'est déclaré ; ce
+    coût est l'**estimation du CLI**, calculée sur sa table de prix embarquée,
+    pas une facture
     ([#455](https://github.com/Micka420-collab/hive/pull/455),
     [#456](https://github.com/Micka420-collab/hive/pull/456)) ; Codex, lancé
     en `codex exec --json`, déclare ses **jetons** d'entrée et de sortie, et
@@ -431,9 +433,16 @@ le preflight échoue.
 
 Avec **podman**, **docker** ou **bubblewrap**, l'agent ne voit que le répertoire
 de sa tâche lorsque le fournisseur et l’image ont passé le preflight. **Le
-réseau reste ouvert** : un agent de codage doit joindre l'API de son modèle.
-Sans moteur de conteneurs, posez `HIVE_ISOLEMENT=exige` — le nœud refusera de
-travailler à découvert. Ce que la CI prouve, système par système et bac par bac
+réseau sortant est filtré** hors du bac par un proxy du nœud : l'API du modèle
+de l'agent, puis, selon le réglage du projet dans Mission Control
+(`intégrations`, `dépendances` par défaut, `ouvert`), les registres que le
+dépôt déclare et son hôte git — jamais le réseau local ni les métadonnées de
+nuage. Les clés de Claude Code et de Codex restent au nœud : le bac n'en voit
+que des leurres, que le proxy remplace vers l'API. Chaque refus apparaît au
+journal de la tâche. Sans bac, ou avec un moteur dans une machine virtuelle,
+le réseau n'est pas filtré, et chaque tâche le dit. Posez
+`HIVE_ISOLEMENT=exige` — le nœud refusera de travailler sans bac ni réseau
+filtré. Ce que la CI prouve, système par système et bac par bac
 (Linux, macOS, Windows × sans bac, bubblewrap, Podman, Docker) :
 [docs/INSTALLATION.md](docs/INSTALLATION.md), « Systèmes et bacs à sable ».
 
@@ -515,6 +524,7 @@ de la tâche le dit ; si l'écartement échoue, la tâche est refusée avant l'a
 | **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**       | Chaque partie en détail, avec ses arbitrages             |
 | **[docs/FEATURES.en.md](docs/FEATURES.en.md)**               | The same, in English                                     |
 | **[docs/BANC-OMBRE.md](docs/BANC-OMBRE.md)**                 | Comparer deux modèles sur une même tâche, sans livrer    |
+| **[docs/ROUTINES.md](docs/ROUTINES.md)**                     | Missions planifiées, sur webhook signé ou CI rouge       |
 | **[docs/ERREURS.md](docs/ERREURS.md)**                       | Le journal des erreurs — par leçon, avec les règles      |
 | **[docs/ETAPES.md](docs/ETAPES.md)**                         | L'état réel du projet face à ses propres promesses       |
 | **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)**   | Quotas, abonnements, ce qui est facturé                  |

@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024.18-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-8336%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-8665%20passing-F6C445?labelColor=17130C)
 ![License](https://img.shields.io/badge/license-MIT-F6C445?labelColor=17130C)
 
 [🇫🇷 Français](README.md) · 🇬🇧 English · [🌐 Site](https://micka420-collab.github.io/hive/?lang=en) · [📚 Documentation](#-documentation)
@@ -257,9 +257,16 @@ still stops everything.
 - **Never a merge without human review.**
 
 With **podman**, **docker** or **bubblewrap**, the agent only sees its own task
-directory. **The network stays open**: a coding agent must reach its model's
-API. Without a container engine, set `HIVE_ISOLEMENT=exige` — the node will
-refuse to work in the open. What CI proves, per OS and per sandbox (Linux,
+directory. **Outbound network is filtered** outside the sandbox by a node
+proxy: the agent's model API, then, depending on the project setting in
+Mission Control (`integrations`, `dependances` by default, `ouvert`), the
+registries the repository declares and its git host — never the local network
+or cloud metadata. Claude Code and Codex keys stay on the node: the sandbox
+only sees decoys, which the proxy swaps for the real key towards the API. Each
+refusal shows in the task log. Without a sandbox, or with an engine inside a
+virtual machine, the network is not filtered, and each task says so. Set
+`HIVE_ISOLEMENT=exige` — the node will refuse to work without a sandbox and a
+filtered network. What CI proves, per OS and per sandbox (Linux,
 macOS, Windows × no sandbox, bubblewrap, Podman, Docker):
 [docs/INSTALLATION.md](docs/INSTALLATION.md), “Systèmes et bacs à sable” (FR).
 
@@ -332,6 +339,7 @@ task is refused before the agent runs, with the reason.
 | ------------------------------------------------------------ | ---------------------------------------------------------- |
 | **[docs/FEATURES.en.md](docs/FEATURES.en.md)**               | Each part in detail, with its trade-offs                   |
 | **[docs/BANC-OMBRE.md](docs/BANC-OMBRE.md)**                 | Shadow bench: two models, one task, never delivered (FR)   |
+| **[docs/ROUTINES.md](docs/ROUTINES.md)**                     | Routines: scheduled, signed-webhook or red-CI work (FR)    |
 | **[docs/APPLICATION.md](docs/APPLICATION.md)**               | The desktop app: install, update, signing (FR + EN)        |
 | **[docs/INSTALLATION.md](docs/INSTALLATION.md)**             | Install, uninstall, service, container, backups (FR)       |
 | **[docs/CLOUD.md](docs/CLOUD.md)**                           | Community free vs Cloud paid on your servers               |

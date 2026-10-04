@@ -588,3 +588,33 @@ describe('les décisions se lisent comme des décisions — jamais par leur type
     });
   }
 });
+
+describe('un arrêt budgétaire a SA ligne — ni le ✘ ni le mot « échouée »', () => {
+  it('ARRÊTÉE SUR SON PLAFOND : la borne, et la suite à donner', async () => {
+    // Le même `task_failed` sans le fait reste un échec : c'est le fait, pas
+    // le type, qui change la ligne (`arreteeParSonBudget`).
+    const dom = await monter(
+      evenement('task_failed', {
+        taskId: 'enfant-1234abcd',
+        nodeId: 'n1',
+        resultId: 7,
+        durationMs: 1_200,
+        arretBudgetaire: 'cout',
+      }),
+    );
+    expect(dom.querySelector('.journal .jrow')?.className).toContain('warn');
+    expect(dom.querySelector('.journal .jicon')?.textContent).toBe('¤');
+    expect(ligne(dom)).toBe(
+      'arrêtée sur son plafond de coût dans la boucle de l’agent (enfant-1) — ni échec, ni ' +
+        'panne : à redéléguer sous un nouvel identifiant, avec une réservation plus large',
+    );
+    act(() => racine?.unmount());
+    conteneur?.remove();
+    const echec = await monter(
+      evenement('task_failed', { taskId: 'enfant-1234abcd', nodeId: 'n1', durationMs: 1_200 }),
+    );
+    // Une durée n'est pas un coût : depuis que la ruche compte des dollars,
+    // « coût : 1.2 s » se lisait comme une dépense.
+    expect(ligne(echec)).toBe('échouée (enfant-1) — durée : 1.2 s');
+  });
+});

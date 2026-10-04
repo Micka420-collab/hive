@@ -164,6 +164,30 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['tests/join-porte.test.ts', 'securite'],
     ['tests/retention-journal.test.ts', 'securite'],
     ['tests/livraison-locale.test.ts', 'securite'],
+    // Les gardes de la vague 7 (train 6) : réseau sortant (#545), politique
+    // d'actions (#548), garde de PR (#546), revue en ligne (#547), routines
+    // (#544) — et le budget dans la boucle (#550) : son prédicat d'arrêt, que
+    // lisent les leçons de l'essaim, et les bornes de la délégation qu'il tient.
+    ['src/node-client/proxy-egress.ts', 'securite'],
+    ['src/node-client/politique-reseau.ts', 'securite'],
+    ['src/node-client/reseau-tache.ts', 'securite'],
+    ['src/shared/reseau.ts', 'securite'],
+    ['src/shared/politique-actions.ts', 'permissions'],
+    ['src/orchestrator/garde-pr.ts', 'permissions'],
+    ['src/shared/commentaire-revue.ts', 'permissions'],
+    ['src/orchestrator/routines.ts', 'auto-execution'],
+    ['src/orchestrator/cron.ts', 'auto-execution'],
+    ['src/shared/arret-budgetaire.ts', 'permissions'],
+    ['src/orchestrator/delegation.ts', 'permissions'],
+    ['src/shared/limites-delegation.ts', 'permissions'],
+    ['tests/proxy-egress.test.ts', 'securite'],
+    ['tests/requisition-action.test.ts', 'securite'],
+    ['tests/garde-pr-boucle.test.ts', 'securite'],
+    ['tests/routines-api.test.ts', 'securite'],
+    ['tests/revue-ligne.test.ts', 'securite'],
+    ['tests/reseau-projet.test.ts', 'securite'],
+    ['tests/budget-boucle.test.ts', 'securite'],
+    ['tests/budget-essaim.test.ts', 'securite'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');

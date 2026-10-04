@@ -22,7 +22,7 @@ import type { BilanEconomique, QualiteWorker } from './api';
 import { useLang, useT } from './i18n';
 import type { Translate } from './i18n';
 import { direDuree } from '../../src/shared/horloge-chantier';
-import { direSommeDeclaree, direUsd } from './ui';
+import { direSommeDeclaree, direUsd, NOTE_COUT_DECLARE } from './ui';
 import { EchecSondage, useApiPoll } from './views/shared';
 
 const pourcent = (part: number): string => `${Math.round(part * 100)} %`;
@@ -138,10 +138,7 @@ export function BilanWorker({ nodeId }: { nodeId: string }) {
                 `Qualité lue sur les ${b.qualite.bornee} résultats les plus récents.`,
                 `Quality read from the ${b.qualite.bornee} most recent results.`,
               )}{' '}
-            {t(
-              'Coût et temps modèle : ce que déclarent les CLI des agents, jamais estimés.',
-              'Cost and model time: what the agent CLIs declare, never estimated.',
-            )}
+            {t(NOTE_COUT_DECLARE.fr, NOTE_COUT_DECLARE.en)}
           </p>
         </>
       )}

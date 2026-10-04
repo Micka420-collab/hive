@@ -91,6 +91,17 @@ function depotNonFiable(execution: ExecutionCodex): string[] {
   return ['-c', `projects={${JSON.stringify(execution.depot)}={trust_level="untrusted"}}`];
 }
 
+// POLITIQUE D'ACTIONS (G12) : Codex reçoit l'outil `hive_approve_action` par le
+// même pont MCP (codexMcpOverrides, enabled_tools) — ICI il est VISIBLE du
+// modèle, et c'est voulu : Codex n'a pas d'équivalent au
+// `--permission-prompt-tool` de Claude Code (où l'outil reste hors
+// `--allowedTools`, appelé par le CLI seul) ; le seul canal est que le modèle
+// demande LUI-MÊME une décision à la Chambre. Les règles execpolicy (`-c`
+// allow/prompt/forbidden, la plus stricte l'emporte) ne sont PAS posées ici :
+// leur forme exacte doit être prouvée sur le vrai binaire (pattern fixtures
+// flux-codex), pas supposée — la politique compilée est déjà exposée à
+// l'adaptateur via `ctx.permissionsAllow`.
+
 // PAS D'EFFORT ICI, et c'est voulu : `model_reasoning_effort` (via `-c`) prend
 // des valeurs ANNONCÉES PAR CHAQUE MODÈLE (`ReasoningEffort::Custom`,
 // codex-rs/protocol/src/openai_models.rs), que `codex exec --help` (0.156.0)
@@ -136,6 +147,15 @@ function depotNonFiable(execution: ExecutionCodex): string[] {
  * `AGENTS.md`. `model_instructions_file` et `instructions`, eux, remplacent le
  * prompt de base de Codex. Le prompt n'ajoute rien à la configuration du
  * membre ni à la confiance du dépôt.
+ *
+ * ─── LA PASSERELLE DU RÉSEAU FILTRÉ ─────────────────────────────────────────
+ *
+ * `baseApi` : dans un bac filtré, l'API passe par la passerelle du nœud, qui
+ * remplace le leurre de `CODEX_API_KEY` par la vraie clé (`proxy-egress.ts`).
+ * Codex ne lit pas `OPENAI_BASE_URL` : seule sa clé de configuration
+ * `openai_base_url` déplace le fournisseur OpenAI intégré
+ * (codex-rs/core/src/config/mod.rs, `built_in_model_providers`). La base est
+ * une adresse de la boucle du bac, pas un secret.
  */
 export function argvCodex(
   prompt: string,
@@ -143,6 +163,7 @@ export function argvCodex(
   modele?: string,
   bridge?: DelegationBridge,
   consignes?: string,
+  baseApi?: string,
 ): string[] {
   return [
     'exec',
@@ -152,6 +173,7 @@ export function argvCodex(
     '--ephemeral',
     '--skip-git-repo-check',
     ...depotNonFiable(execution),
+    ...(baseApi ? ['-c', `openai_base_url=${JSON.stringify(baseApi)}`] : []),
     ...(modele ? ['--model', modele] : []),
     ...(bridge ? codexMcpOverrides(bridge) : []),
     '--',
@@ -371,7 +393,16 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
       let bridge: DelegationBridge | undefined;
       try {
         if (ctx.delegate && ctx.waitForDelegationResult && ctx.rendezVous) {
-          bridge = await createDelegationBridge(ctx, task.id);
+          // Même borne que l'adaptateur Claude : l'attente d'une décision
+          // d'action ne doit pas survivre au délai dur du run Codex.
+          const echeanceRun = Date.now() + CODEX_TIMEOUT_MS;
+          const decideAction = ctx.decideAction;
+          bridge = await createDelegationBridge(
+            decideAction
+              ? { ...ctx, decideAction: (action) => decideAction(action, echeanceRun) }
+              : ctx,
+            task.id,
+          );
         }
         // Relu sur l'hôte (`ctx.cwd`), même dans le bac : c'est le même dépôt.
         const consignes = consignesDuDepot(ctx.cwd, CONSIGNES_CODEX, MAX_CONSIGNES_CODEX);
@@ -397,7 +428,14 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
         });
         const result = await runCommandFlux(
           'codex',
-          argvCodex(task.prompt, execution, ctx.modele, bridge, consignes),
+          argvCodex(
+            task.prompt,
+            execution,
+            ctx.modele,
+            bridge,
+            consignes,
+            ctx.bac?.reseau?.variables.OPENAI_BASE_URL,
+          ),
           ctx,
           flux,
           CODEX_TIMEOUT_MS,

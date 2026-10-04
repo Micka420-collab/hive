@@ -14,9 +14,12 @@ import { estPlateforme } from './machine.js';
 import { estEmpreinte } from './empreinte-ruche.js';
 import { validationsBacDepuis } from './validations-bac.js';
 import { estEffort, estListeEfforts, type Effort } from './effort.js';
+import { estNiveauReseau, type NiveauReseau } from './reseau.js';
+import { estNiveauAutonomie, type NiveauAutonomie } from './politique-actions.js';
 import type { ValidationsBac } from './validations-bac.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
+import { estArretBudgetaire, type ArretBudgetaire } from './arret-budgetaire.js';
 import { NIVEAUX_ISOLEMENT } from './types.js';
 import type {
   ExecutionUsage,
@@ -211,6 +214,15 @@ export interface RegisterMsg {
    * correction fausse. Le hub ne confie donc une reprise qu'à qui le déclare.
    */
   prolonge?: boolean;
+  /**
+   * L'adaptateur du nœud sait tenir un plafond de coût DANS LA BOUCLE de son
+   * agent (`AgentAdapter.plafondCout` — Claude Code : `--max-budget-usd`).
+   * Absent : il n'en tient aucun — Codex, Cursor, Cline, shell, ou un nœud
+   * d'avant ce contrat, qui perdrait `plafondCoutMicros` sans le dire. La Reine
+   * ne passe un plafond qu'à qui le déclare, et journalise à l'envoi celui qui
+   * ne sera pas tenu.
+   */
+  plafondCout?: boolean;
 }
 
 /** Un constat brut sur un outil, tel que le nœud le voit. */
@@ -309,6 +321,13 @@ export interface TaskResultMsg {
    * qui le lie au `resultId` exact que la Reine attribue à la réception.
    */
   validations?: ValidationsBac;
+  /**
+   * Le CLI s'est arrêté sur le plafond que la Reine avait passé à cette
+   * tentative (`AssignTaskMsg.plafondCoutMicros`) — voir `ArretBudgetaire`. La
+   * Reine ne le croit que de la tentative qu'elle a plafonnée, en échec, au
+   * coût déclaré arrivé sur ce plafond (`arretCru`, server.ts).
+   */
+  arretBudgetaire?: ArretBudgetaire;
 }
 
 /**
@@ -378,6 +397,20 @@ export interface RequisitionOpenMsg {
   detail?: string;
   /** Tâche bloquée en attente de décision humaine (mid-task, ADR 0010). */
   taskId?: string;
+  /**
+   * Corrélation CLIENT (G12) : le hub la rend telle quelle dans
+   * `requisition_ack`, pour qu'un nœud aux réquisitions concurrentes retrouve
+   * l'identifiant de LA SIENNE. Jamais persistée — l'id du store fait foi.
+   */
+  requestId?: string;
+  /**
+   * Budget RESTANT (ms) du run CLI côté nœud (G12, genre `action`) : le délai
+   * dur du CLI tue le processus entier, et une échéance de Chambre posée
+   * au-delà ferait de chaque silence humain un échec opaque. Le hub ne peut
+   * que RACCOURCIR son TTL avec ce budget, jamais l'allonger — l'échéance
+   * reste une politique de la Chambre.
+   */
+  budgetMs?: number;
 }
 
 /** Conflit signalé lors d'un merge (un diff qui ne s'applique pas proprement). */
@@ -508,6 +541,16 @@ export interface AssignTaskMsg {
   /** Budget persistant de l'enfant ; absent pour une tâche racine ou une revue. */
   delegationBudget?: DelegationBudget;
   /**
+   * Ce que CETTE tentative d'un enfant délégué peut encore dépenser, en
+   * micro-USD : sa réservation moins le coût déclaré de ses tentatives
+   * précédentes (`plafondCoutTentative`, delegation.ts). Le nœud le passe à
+   * son adaptateur, qui l'impose dans la boucle de l'agent (Claude Code :
+   * `--max-budget-usd`). Absent : aucun plafond — racine, revue, drone d'une
+   * course, nœud qui n'en tient pas (`RegisterMsg.plafondCout`). Jamais nul :
+   * une réservation dépensée n'est plus envoyée, la Reine clôt l'enfant.
+   */
+  plafondCoutMicros?: number;
+  /**
    * La tâche est une RELECTURE (contre-expertise, `store.relectureDe`) : le
    * nœud le dit à son adaptateur (`AdapterContext.role`), qui peut lancer son
    * agent sans droit d'écriture. Absent : une production.
@@ -528,6 +571,18 @@ export interface AssignTaskMsg {
    * tâche ordinaire. Le nom est revalidé par le nœud (`estBrancheDeLivraison`).
    */
   prolonger?: true;
+  /**
+   * Le réseau que le projet permet aux agents (`shared/reseau.ts`), réglé par
+   * son propriétaire. Absent (une Reine d'avant ce réglage) : le nœud applique
+   * le défaut, `dependances` — jamais `ouvert` par omission.
+   */
+  reseau?: NiveauReseau;
+  /**
+   * Le niveau d'autonomie du PROJET à l'assignation (G12) : le nœud y cale la
+   * décision par défaut d'une action proposée (politique-actions.ts). Absent
+   * (hub plus ancien) : le nœud décide comme à `off` — la lecture fermée.
+   */
+  autonomie?: NiveauAutonomie;
 }
 
 export interface CancelTaskMsg {
@@ -602,6 +657,13 @@ export interface RequisitionAckMsg {
   id: string;
   genre: string;
   libelle: string;
+  /** La corrélation de `requisition_open`, rendue telle quelle (G12). */
+  requestId?: string;
+  /**
+   * L'échéance EFFECTIVE (ms epoch) décidée par la Chambre — min(TTL,
+   * budget du nœud). Le nœud y cale son filet local au lieu d'un délai figé.
+   */
+  expiresAt?: number;
 }
 
 /** Accusé de création d'un enfant de délégation. */
@@ -641,7 +703,8 @@ export interface DelegationResultMsg {
 export interface RequisitionResultMsg {
   type: 'requisition_result';
   id: string;
-  statut: 'accordee' | 'refusee';
+  /** `expiree` (G12) : l'échéance est passée sans décision — le nœud refuse. */
+  statut: 'accordee' | 'refusee' | 'expiree';
 }
 
 /** Un diff de tâche à intégrer lors d'un merge. */
@@ -1144,6 +1207,10 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           if (typeof m.prolonge !== 'boolean') return null;
           msg.prolonge = m.prolonge;
         }
+        if (m.plafondCout !== undefined) {
+          if (typeof m.plafondCout !== 'boolean') return null;
+          msg.plafondCout = m.plafondCout;
+        }
         // Les constats d'outils : mêmes règles que les deux champs au-dessus.
         // Une liste mal formée est un client qui ment ou qui bogue, et les deux
         // se disent plutôt que de se corriger en douce.
@@ -1215,6 +1282,11 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         // elles redeviennent `missing`, ce qu'elles étaient sans rapport.
         const validations =
           m.validations === undefined ? null : validationsBacDepuis(m.validations);
+        // Un arrêt mal nommé est abandonné, comme les validations : le
+        // résultat reste un échec ordinaire, jamais une borne inventée.
+        const arretBudgetaire = estArretBudgetaire(m.arretBudgetaire)
+          ? m.arretBudgetaire
+          : undefined;
         return {
           type: 'task_result',
           taskId: m.taskId,
@@ -1227,6 +1299,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           ...(fournisseur ? { fournisseur } : {}),
           ...(finalText !== undefined ? { finalText } : {}),
           ...(validations ? { validations } : {}),
+          ...(arretBudgetaire ? { arretBudgetaire } : {}),
         };
       }
       return null;
@@ -1288,6 +1361,8 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       if (
         isStr(m.genre, LIMITS.requisitionGenre) &&
         isStr(m.libelle, LIMITS.requisitionLibelle) &&
+        (m.requestId === undefined || isId(m.requestId)) &&
+        (m.budgetMs === undefined || isInt(m.budgetMs, 1, Number.MAX_SAFE_INTEGER)) &&
         (m.detail === undefined || isStrAllowEmpty(m.detail, LIMITS.requisitionDetail)) &&
         (m.taskId === undefined || isId(m.taskId))
       ) {
@@ -1298,6 +1373,8 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         };
         if (m.detail !== undefined) msg.detail = m.detail as string;
         if (m.taskId !== undefined) msg.taskId = m.taskId as string;
+        if (m.requestId !== undefined) msg.requestId = m.requestId as string;
+        if (m.budgetMs !== undefined) msg.budgetMs = m.budgetMs as number;
         return msg;
       }
       return null;
@@ -1434,6 +1511,12 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       if (m.delegationBudget !== undefined && !isDelegationBudget(m.delegationBudget)) {
         return null;
       }
+      if (
+        m.plafondCoutMicros !== undefined &&
+        !isInt(m.plafondCoutMicros, 1, LIMITS.delegationCostMicros)
+      ) {
+        return null;
+      }
       if (m.relecture !== undefined && m.relecture !== true) return null;
       if (m.delegationRootTaskId !== undefined && !isId(m.delegationRootTaskId)) return null;
       // Prolonger exige une branche de la ruche à cloner : un hub qui
@@ -1441,7 +1524,11 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       // (`--upload-pack=…`), perd tout le message.
       if (m.prolonger !== undefined && m.prolonger !== true) return null;
       if (m.prolonger === true && !estBrancheDeLivraison(m.task.branch)) return null;
+      // Un niveau inconnu n'est pas « ouvert » : tout le message tombe.
+      if (m.reseau !== undefined && !estNiveauReseau(m.reseau)) return null;
+      if (m.autonomie !== undefined && !estNiveauAutonomie(m.autonomie)) return null;
       const msg: AssignTaskMsg = { type: 'assign_task', task: m.task };
+      if (m.reseau !== undefined) msg.reseau = m.reseau;
       if (m.relecture === true) msg.relecture = true;
       if (m.prolonger === true) msg.prolonger = true;
       if (m.repoUrl !== undefined) msg.repoUrl = (m.repoUrl as string | null) ?? null;
@@ -1457,6 +1544,8 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         };
       }
       if (m.delegationRootTaskId !== undefined) msg.delegationRootTaskId = m.delegationRootTaskId;
+      if (m.autonomie !== undefined) msg.autonomie = m.autonomie as NiveauAutonomie;
+      if (m.plafondCoutMicros !== undefined) msg.plafondCoutMicros = m.plafondCoutMicros;
       return msg;
     }
     case 'cancel_task':
@@ -1466,12 +1555,16 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
     case 'requisition_ack':
       return isId(m.id) &&
         isStr(m.genre, LIMITS.requisitionGenre) &&
-        isStr(m.libelle, LIMITS.requisitionLibelle)
+        isStr(m.libelle, LIMITS.requisitionLibelle) &&
+        (m.requestId === undefined || isId(m.requestId)) &&
+        (m.expiresAt === undefined || isInt(m.expiresAt, 1, Number.MAX_SAFE_INTEGER))
         ? {
             type: 'requisition_ack',
             id: m.id,
             genre: m.genre,
             libelle: m.libelle,
+            ...(m.requestId !== undefined ? { requestId: m.requestId } : {}),
+            ...(m.expiresAt !== undefined ? { expiresAt: m.expiresAt } : {}),
           }
         : null;
     case 'delegation_accepted':
@@ -1533,7 +1626,8 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         ? { type: 'task_output', taskId: m.taskId, nodeId: m.nodeId, sortie: m.sortie }
         : null;
     case 'requisition_result':
-      return isId(m.id) && (m.statut === 'accordee' || m.statut === 'refusee')
+      return isId(m.id) &&
+        (m.statut === 'accordee' || m.statut === 'refusee' || m.statut === 'expiree')
         ? { type: 'requisition_result', id: m.id, statut: m.statut }
         : null;
     case 'assign_merge': {

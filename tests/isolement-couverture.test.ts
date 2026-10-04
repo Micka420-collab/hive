@@ -85,6 +85,15 @@ const DEROGATIONS: Readonly<Record<string, string>> = {
     'lance les pièces de Hive (Reine, ouvrières, écran) sur la machine de ' +
     'l’hôte, à sa demande — chaque ouvrière enveloppe elle-même les agents ' +
     'qu’elle lance ; envelopper la Reine la couperait de sa base',
+  // ─── LE RELAIS DU RÉSEAU FILTRÉ ──────────────────────────────────────────────
+  //
+  // Le `spawn` de ce fichier n'est pas un appel : il vit dans `SOURCE_RELAIS`,
+  // le texte du programme que le nœud ÉCRIT pour le bac, et qui s'exécute DANS
+  // le bac, derrière l'enveloppe (`commandeDansBac`, isolement.ts). Rien ici ne
+  // lance de processus sur l'hôte.
+  'node-client/proxy-egress.ts':
+    'le spawn est dans le texte du relais écrit pour le bac — il s’exécute DANS ' +
+    'le bac, derrière envelopper(), jamais sur l’hôte',
   'shared/arbre-processus.ts':
     'la primitive qui lance un arbre de processus : elle exécute ce que ses ' +
     'appelants ont préparé et enveloppé — chacun d’eux est jugé ici sur son ' +

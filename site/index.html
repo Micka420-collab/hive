@@ -2796,7 +2796,7 @@
           </p>
 
           <div class="badges">
-            <span class="badge" data-i18n="badge.tests">8 336 tests ✓</span>
+            <span class="badge" data-i18n="badge.tests">8 665 tests ✓</span>
             <span class="badge" data-i18n="badge.tier">Palier 7 livré</span>
             <span class="badge">TypeScript strict</span>
             <span class="badge">Node ≥ 24.18</span>
@@ -3915,12 +3915,13 @@
       <p class="warn" data-i18n="sec.warn">
         <strong>Ce que l'isolement ne fait pas</strong> — avec podman, docker ou bubblewrap
         installé, l'agent ne voit que le répertoire de sa tâche : ni votre HOME, ni vos clés SSH, ni
-        vos autres projets. Le <strong>réseau reste ouvert</strong>, parce qu'un agent de codage
-        doit joindre l'API de son modèle. L'isolement l'empêche donc de <em>lire</em> votre machine,
-        pas d'<em>envoyer</em> ce qu'il a produit. Sans moteur de conteneurs, il ne reste qu'une
-        sandbox de processus : dans ce cas, ne faites tourner Hive qu'entre gens de confiance — ou
-        passez <code>HIVE_ISOLEMENT=exige</code> pour que le nœud refuse de travailler sans bac à
-        sable.
+        vos autres projets. Le <strong>réseau sortant est filtré</strong> par un proxy du nœud :
+        l'API du modèle, et selon le projet ses registres et son hôte git — ni votre réseau local,
+        ni les métadonnées de nuage, et les clés du modèle restent hors du bac. Un hôte permis
+        reçoit pourtant ce que l'agent lui envoie. Sans moteur de conteneurs, il ne reste qu'une
+        sandbox de processus, réseau non filtré : dans ce cas, ne faites tourner Hive qu'entre gens
+        de confiance — ou passez <code>HIVE_ISOLEMENT=exige</code> pour que le nœud refuse de
+        travailler sans bac à sable ni réseau filtré.
       </p>
     </section>
 
@@ -4265,7 +4266,7 @@
           'nav.features': 'Features',
           'nav.security': 'Security',
           'nav.start': 'Get started',
-          'badge.tests': '8,336 tests ✓',
+          'badge.tests': '8,665 tests ✓',
           'badge.tier': 'Tier 7 shipped',
           'hero.h1':
             'Put several AIs to work on your project, <span class="grad">at the same time</span>.',
@@ -4468,7 +4469,7 @@
           'sec.7': 'API keys stay with the member — <strong>never exfiltrated</strong>',
           'sec.8': 'Merging is always an <strong>explicit human gesture</strong>',
           'sec.warn':
-            '<strong>What isolation does not do</strong> — with podman, docker or bubblewrap installed, the agent only sees its own task directory: not your HOME, not your SSH keys, not your other projects. The <strong>network stays open</strong>, because a coding agent must reach its model\u2019s API. So isolation stops it from <em>reading</em> your machine, not from <em>sending</em> what it produced. Without a container engine only a process sandbox remains: in that case, only run Hive between people you trust \u2014 or set <code>HIVE_ISOLEMENT=exige</code> so the node refuses to work without a sandbox.',
+            '<strong>What isolation does not do</strong> — with podman, docker or bubblewrap installed, the agent only sees its own task directory: not your HOME, not your SSH keys, not your other projects. <strong>Outbound network is filtered</strong> by a node proxy: the model API, and depending on the project its registries and git host \u2014 not your local network, not cloud metadata, and the model keys stay out of the sandbox. An allowed host still receives what the agent sends it. Without a container engine only a process sandbox remains, network unfiltered: in that case, only run Hive between people you trust \u2014 or set <code>HIVE_ISOLEMENT=exige</code> so the node refuses to work without a sandbox and a filtered network.',
           'nav.community': 'Editions',
           'nav.rush': 'Rush',
           'co.kicker': 'Editions',

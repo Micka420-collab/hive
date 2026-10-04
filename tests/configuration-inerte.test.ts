@@ -238,7 +238,7 @@ describe('écartée de l’arbre pendant l’exécution, remise avant le diff', 
       expect(path.relative(ws.cwd, reserve).startsWith('..')).toBe(true);
       await ws.collectDiff();
       expect(existsSync(reserve)).toBe(false);
-      ws.cleanup();
+      await ws.cleanup();
     },
   );
 
@@ -271,7 +271,7 @@ describe('écartée de l’arbre pendant l’exécution, remise avant le diff', 
       expect(ws.configurationEcartee).toEqual([...declares].sort());
       expect(charger(agent, ws.cwd)).toEqual([]);
       await ws.collectDiff();
-      ws.cleanup();
+      await ws.cleanup();
     },
   );
 

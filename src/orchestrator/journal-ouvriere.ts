@@ -41,6 +41,10 @@ const TEXT_FIELDS = new Set([
   'reviewerNodeId',
   'relecture',
   'decision',
+  // Réquisitions (G12) : le genre et le libellé — bornés comme le reste —
+  // suffisent au journal ; le détail reste dans la table requisitions.
+  'genre',
+  'libelle',
 ]);
 
 const NUMBER_FIELDS = new Set([

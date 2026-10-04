@@ -770,11 +770,11 @@ describe('branche absente', () => {
       git(a.depot, 'symbolic-ref', 'HEAD', 'refs/heads/master');
       // Résolue, la préparation rend ce que l'agent recevrait — aujourd'hui
       // `['.git']`, et c'est ce que le message d'échec affichera.
-      const recu = prepareWorkspace(travail, tache('tete-orpheline'), a.url).then((ws) => {
+      const recu = prepareWorkspace(travail, tache('tete-orpheline'), a.url).then(async (ws) => {
         try {
           return readdirSync(ws.cwd);
         } finally {
-          ws.cleanup();
+          await ws.cleanup();
         }
       });
       await expect(recu).rejects.toThrow(/master/);
@@ -804,7 +804,7 @@ describe(
         expect(resultat.applied).toEqual(['non-suivi']);
         expect(lireTexte(dossier, 'docs/guide/nouveau.md')).toBe('# Guide\n');
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     });
 
@@ -829,7 +829,7 @@ describe(
         expect(resultat.conflicts).toEqual([]);
         expect(readFileSync(path.join(dossier, 'logo.png')).equals(logo)).toBe(true);
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     });
 
@@ -855,7 +855,7 @@ describe(
         git(ws.cwd, 'add', 'app.txt');
         expect(await ws.collectDiff()).toContain('+bonjour, ruche');
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     });
 
@@ -867,7 +867,7 @@ describe(
         git(ws.cwd, 'commit', '-q', '-a', '-m', 'l’agent committe lui-même');
         expect(await ws.collectDiff()).toContain('+bonjour, ruche');
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     });
   },
@@ -900,7 +900,7 @@ describe('changement concurrent — l’amont bouge sous l’espace de travail',
       ecrire(ws.cwd, fichiers);
       return await ws.collectDiff();
     } finally {
-      ws.cleanup();
+      await ws.cleanup();
     }
   }
 
@@ -1046,7 +1046,7 @@ describe('changement concurrent — l’amont bouge sous l’espace de travail',
         );
         expect(diff, 'le diff doit échouer').toBeInstanceOf(Error);
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     },
   );
@@ -1080,7 +1080,7 @@ describe('clone interrompu', () => {
         expect(ws.branch).toBe('hive/clone-coupe');
         expect(lireTexte(ws.cwd, 'LISEZMOI.md')).toBe('# Lourd\n');
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     },
   );
@@ -1108,7 +1108,7 @@ describe('clone interrompu', () => {
       );
       expect(existsSync(path.join(`${cwd}.tmp`, 'reste.txt'))).toBe(false);
     } finally {
-      ws.cleanup();
+      await ws.cleanup();
     }
   });
 

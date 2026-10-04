@@ -266,6 +266,26 @@ npm run cli -- livrer-local <projectId> --prolonger=1         # corriger : avanc
   prolonger effacerait leur travail. Trois prolongations au plus par branche.
   C'est la même règle que la reprise d'une pull request GitHub, qui fait
   **avancer la branche de la PR** au lieu d'en ouvrir une seconde.
+- **Le garde de PR** veille sur les pull requests que la ruche a ouvertes
+  elle-même (jamais sur une PR étrangère) : une passe par minute, séquentielle,
+  qui ne relit une PR qu'à son échéance (2 min quand la CI tourne, 10 min au
+  calme) et se met tout entière en pause, avec un recul qui double, quand
+  GitHub refuse (limite secondaire). Quand la CI casse sur une **tête neuve**,
+  il fait ce que l'autonomie du projet autorise : `off` et `propose`
+  **préviennent** (journal `garde_pr_alerte`, relayé aux connecteurs comme un
+  blocage) ; `gouverne` et `plein` **ouvrent la reprise** sur la même branche
+  — le geste du bouton « reprendre », relu par l'Evaluator et la relecture
+  croisée — si l'hôte a allumé `HIVE_RUNNER`, et préviennent sinon. Jamais
+  deux fois sur la même tête. Un job GitHub Actions n'est **relancé** tel quel
+  que s'il a réussi sur la base à ses trois derniers passages, une fois par
+  tête, et cette preuve est journalisée (`garde_pr_relance`). Les reprises
+  se comptent **depuis la dernière CI verte** que le garde a vue, pour lui
+  comme pour le bouton : plafond `HIVE_GARDE_PR_PLAFOND` (1 à 10, défaut 3).
+  Fusionnée ou fermée, la PR sort du garde. Il ne fusionne jamais.
+  `HIVE_GARDE_PR=off` l'éteint ; l'écran des livraisons montre, par PR, son
+  dernier geste et le compteur.
+
+  ![Projets → Ce que devient le travail livré : la ligne du garde, par pull request](images/garde-pr-bureau.png)
 
 ## ⟲ Missions rejouables — le Time Travel
 
@@ -519,6 +539,34 @@ curl -X POST http://localhost:7777/api/projects/<projet>/banc-ombre \
 Critères d'admission, budget, confiance et limites :
 **[BANC-OMBRE.md](BANC-OMBRE.md)**.
 
+## ⟳ Les Routines — du travail planifié ou déclenché
+
+Une **routine** lance une mission du projet sans clic : à une heure (cron à
+cinq champs, lu dans un **fuseau** — `0 9 * * 1-5` en `Europe/Paris` part à
+9 h à Paris été comme hiver), sur un **webhook signé** (HMAC, clé propre à la
+routine, livraison rejouée dédupliquée), ou quand la **CI d'une branche**
+devient rouge (un commit rouge, une mission). Des heures ouvrées peuvent la
+borner.
+
+Créer une routine **autorise la dépense à l'avance** (ADR 0014) : c'est un
+réglage du propriétaire ou d'un administrateur. La routine part avec
+l'autorité de son compte, relue à chaque déclenchement. Chaque déclenchement
+lance une tâche ordinaire (plafond, Evaluator, relecture croisée, jamais de
+fusion) ou dit pourquoi il n'a rien lancé. Un déclenchement pendant que le
+travail vole encore le **rejoint**, et une Reine éteinte deux jours ne
+rattrape qu'**un** créneau.
+
+```bash
+# ou la sous-section « Routines » d'un projet dans ⬡ Projets
+curl -X POST http://localhost:7777/api/projects/<projet>/routines \
+  -H "x-hive-token: $HIVE_TOKEN" -H 'content-type: application/json' \
+  -d '{"nom": "Dette nocturne", "consigne": "…", "declencheur": "cron",
+       "expression": "0 9 * * 1-5", "fuseau": "Europe/Paris"}'
+```
+
+Déclencheurs, politiques, webhook et Action `hive-dispatch` :
+**[ROUTINES.md](ROUTINES.md)**.
+
 ## 🕸️ Graphe d'expérience — relier ce que la ruche a vécu
 
 Le graphe **relie** des faits déjà rangés — journal, Cerveau, revues, tests —
@@ -587,6 +635,23 @@ dans un bloc de données borné, **les objections, les motifs de l'Evaluator et
 la raison de l'humain** (champ facultatif à côté du bouton « Rejeter »). La
 Miellerie affiche sous chaque tâche la critique que sa tentative a reçue.
 
+La revue se fait aussi **ligne par ligne** : un clic sur une ligne du diff
+(Maj+clic pour étendre la plage) ancre un commentaire `{fichier, lignes,
+texte}`, partagé entre opérateurs comme les verdicts ; les fichiers du diff
+sont rangés par pertinence — sources, tests, puis annexes grisées (fixtures,
+verrous, générés). Le verdict **« Demander des changements »** emporte tous
+les commentaires en attente dans **une** correction : la tentative suivante
+reçoit chaque commentaire avec son ancre et son extrait, et repasse par
+l'Evaluator et la relecture croisée. Sans commentaire, un résumé est exigé.
+
+<p align="center">
+  <img src="images/revue-ligne-formulaire.bureau.png" alt="Miellerie : un clic sur une plage de lignes du diff ouvre le formulaire de commentaire sous le fichier" width="480">
+  <img src="images/revue-ligne-formulaire.mobile.png" alt="Le même formulaire de commentaire de lignes, sur téléphone" width="160">
+</p>
+<p align="center">
+  <img src="images/revue-ligne-commentaire.bureau.png" alt="Le commentaire posé sous son fichier, et le bouton « Demander des changements (1) » prêt à emporter la correction" width="480">
+</p>
+
 Le relecteur termine par une ligne `HIVE_CRITIQUE` : des constats classés par
 **sévérité** (`bloquant`, `majeur`, `mineur`, `info`) et par **critère**
 (`correction`, `securite`, `tests`, `performance`, `lisibilite`,
@@ -654,10 +719,31 @@ n'est admis, aucune correction ne repart, et ceux en vol sont annulés — chacu
 avec sa raison, que le parent qui l'attend reçoit tout de suite — comme celui
 dont l'enfant a échoué sans rien rendre. Une tentative sans coût déclaré, ou
 interrompue avant d'avoir rendu (ouvrière perdue, annulation), n'est jamais
-comptée pour zéro : le tiroir de la tâche dit « au moins ». Un parent qui
-attend ses enfants **relâche sa place à son propre arbre** sur son ouvrière :
-un arbre ne s'interbloque plus sur un poste plein, et une autre racine ne se
-glisse pas dans cette place — `maxConcurrency` borne toujours le travail neuf.
+comptée pour zéro : le tiroir de la tâche dit « au moins ».
+
+La réservation d'un enfant est aussi **son plafond, tenu dans la boucle de son
+agent** : elle vaut au moins 1 µUSD (une seule réponse coûte déjà de l'ordre de
+13 000 à 25 000 µUSD sur le plus petit modèle), et chaque tentative reçoit ce
+qu'il en reste — la réservation moins le coût déclaré de ses tentatives
+précédentes, jamais le reste de la racine. Claude Code (≥ 2.1.217) s'arrête
+dessus (`--max-budget-usd`, au plus une réponse de dépassement, documentée).
+La tâche finit alors **arrêtée par son budget** : ni un échec de l'agent, ni
+une panne — pas de reprise, et aucun lecteur ne la compte en échec (registre
+Genome, Thermo, Waggle, Ghost, Pulse, phéromones, leçons de l'essaim, graphe
+d'expérience, écrans). Le parent lit en tête des logs la dépense, le diff
+partiel s'il y en a un, et qu'il faut redéléguer sous un **nouvel**
+identifiant d'enfant : le même rejoue l'enfant arrêté. Une réservation déjà
+dépensée par des tentatives précédentes n'est plus envoyée : la Reine clôt
+l'enfant et le dit au parent. Seuls les nœuds qui déclarent tenir un plafond le
+reçoivent ; pour les autres (Codex, Cursor, Cline, shell, nœud ancien), le
+journal de la tâche dit à l'envoi qu'il ne sera pas tenu — et un Claude Code
+d'avant 2.1.217 le dit aussi, avec `claude update`. Ce coût déclaré est
+l'estimation du CLI, pas une facture.
+
+Un parent qui attend ses enfants **relâche sa place à son propre arbre** sur
+son ouvrière : un arbre ne s'interbloque plus sur un poste plein, et une autre
+racine ne se glisse pas dans cette place — `maxConcurrency` borne toujours le
+travail neuf.
 
 `preferredAgent` / `preferredModel` ne font que **départager des ex æquo** —
 l'Aiguillage garde le dernier mot, et la raison du choix dit si la préférence a
