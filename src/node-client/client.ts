@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
+import type { Effort } from '../shared/effort.js';
 import type { AdapterProgress, AdapterResult, AgentAdapter } from '../adapters/index.js';
 import { borneTexteFinal } from '../adapters/texte-final.js';
 import {
@@ -21,12 +22,14 @@ import type { AgentType } from './agent-detect.js';
 import { binaireMcpDansBac } from './bac.js';
 import { creerCaviardeur, SECRET_CAVIARDE, valeursSecretes } from '../shared/caviardage.js';
 import type { Caviardeur } from '../shared/caviardage.js';
+import { arbresEteints, GRACE_ARRET_MS } from '../shared/arbre-processus.js';
 import { argvDe, jugerChantier } from '../shared/chantier.js';
 import { CHANTIER_EXECUTION_MS, CHANTIER_PREPARATION_MS } from '../shared/butoirs-noeud.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
 import { jugerPreparation } from '../shared/preparation.js';
 import { isOnShift, minutesUntilOpen, nightShiftFromEnv } from '../shared/night-shift.js';
 import type { NightShiftPolicy } from '../shared/night-shift.js';
+import { estOrdreArret } from '../shared/demarrage.js';
 import { plateformeDepuis } from '../shared/machine.js';
 import { laverIdentifiantsDuTexte } from '../shared/projet-public.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
@@ -52,6 +55,9 @@ import type { ExecutionUsage, IsolementDeclare, SubAgent, Task } from '../shared
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
+import { racineDeTravailParDefaut } from './identite-noeud.js';
+import { segmentSur } from '../shared/noms-windows.js';
+import { ConfigurationNonNeutralisable, noteConfigurationEcartee } from './configuration-inerte.js';
 import { motifLave } from './livraison-locale.js';
 import { pousseeConsentie } from '../shared/livraison-locale.js';
 import {
@@ -218,6 +224,14 @@ export interface NodeClientOptions {
    * et celle qui oublierait le réglage pousserait sans consentement.
    */
   pousseLivraisons?: boolean;
+  /**
+   * Appelée à CHAQUE inscription dans la ruche (reconnexions comprises), avec
+   * l'empreinte publique que la Reine a remise — `null` si elle n'en envoie
+   * pas. C'est ce qui permet à une machine qui se signale sur le réseau local
+   * (`decouverte-noeud.ts`, `Signalement`) de se dire membre de SA ruche.
+   * Une exception levée ici n'atteint jamais la boucle du nœud.
+   */
+  surInscription?: (faits: { ruche: string | null }) => void;
 }
 
 /**
@@ -230,42 +244,58 @@ export function composeAgentPrompt(hiveContext: string | undefined, prompt: stri
 }
 
 /**
- * SIGINT ET SIGTERM : LE MÊME ARRÊT, pour les deux portes du nœud (`main.ts`,
- * `join.ts`). Une seule copie : ces deux portes ont déjà divergé plus d'une fois.
+ * SIGINT, SIGTERM, SIGHUP ET L'ORDRE DE LA RUCHE : LE MÊME ARRÊT, pour les deux
+ * portes du nœud (`main.ts`, `join.ts`). Une seule copie : ces deux portes ont
+ * déjà divergé plus d'une fois.
  *
  * SIGINT n'arrive que d'un terminal (Ctrl+C) ; ce qui SUPERVISE un nœud envoie
- * SIGTERM — `npm run ruche` à l'arrêt (`scripts/ruche.mjs`, au seul pid de
- * l'ouvrière), systemd, launchd, un `kill` nu. Sans gestionnaire, SIGTERM tuait
- * le nœud net, sans `stop()`, et là où personne ne balaie son groupe l'agent en
- * cours lui SURVIVAIT, orphelin, pour une tâche que la Reine remettait déjà en
- * file ailleurs. `stop()` annule chaque tâche active, et l'annulation envoie son
- * SIGTERM à l'agent SYNCHRONEMENT (le `signal` passé à `spawn`, `exec.ts`) : il
- * part avant notre `exit`. `tests/noeud-arret-signal.test.ts` l'éprouve sur les
- * deux portes, en vrais processus.
+ * SIGTERM — `npm run ruche` à l'arrêt (`scripts/ruche.mjs`), systemd, launchd,
+ * un `kill` nu. Sans gestionnaire, SIGTERM tuait le nœud net, sans `stop()`,
+ * et l'agent en cours lui SURVIVAIT, orphelin, pour une tâche que la Reine
+ * remettait déjà en file ailleurs (#468). SIGHUP, c'est le terminal qu'on
+ * ferme : Node le laisse tuer le processus — même sous `nohup`, dont il rétablit
+ * le défaut au démarrage (mesuré) —, et les agents, chefs de leur propre groupe
+ * (`arbre-processus.ts`), ne le reçoivent plus avec lui. Il arrête donc le nœud
+ * comme les deux autres.
  *
- * CE QUE ÇA NE COUVRE PAS ENCORE, et il faut le savoir avant de s'y fier :
- *   - Windows : `kill('SIGTERM')` y est un TerminateProcess, aucun gestionnaire
- *     ne tourne ;
- *   - le mode conteneur : l'annulation atteint le client `docker run`, pas
- *     l'agent, PID 1 du conteneur sans `--init` (isolement.ts) — et `codex
- *     exec` n'écoute que SIGINT ;
- *   - les petits-enfants d'un agent, et les merges et chantiers, que `stop()`
- *     n'annule pas.
+ * L'ORDRE DE LA RUCHE (`ORDRE_ARRET`, par le canal IPC) : sous Windows,
+ * `kill('SIGTERM')` est un `TerminateProcess` — aucun gestionnaire ne tourne,
+ * et c'est ainsi que la ruche arrêtait ses ouvrières. Elle leur envoie
+ * désormais cet ordre, qui prend ce chemin-ci.
+ *
+ * `stop()` annule chaque tâche, merge et chantier : leurs ARBRES reçoivent
+ * l'arrêt aussitôt (`lancerArbre`). On leur laisse la grâce d'en finir —
+ * `docker run` relaie à son conteneur — puis le nœud sort, et ce qui tourne
+ * encore est abattu avec lui (`arbresEteints`, reprise à la sortie).
+ * `tests/noeud-arret-signal.test.ts` l'éprouve en vrais processus, petits-
+ * enfants compris : SIGTERM sur les deux portes (POSIX), l'ordre de la ruche
+ * sur les trois systèmes.
+ *
+ * CE QUE ÇA NE COUVRE PAS : un `kill -9` du nœud — voir l'en-tête
+ * d'`arbre-processus.ts`.
  *
  * `finally` : si `stop()` levait, le nœud sort QUAND MÊME — un arrêt demandé
- * qui laisserait tourner le nœud serait pire que l'orphelin.
+ * qui laisserait tourner le nœud serait pire que l'orphelin. Un second signal
+ * pendant la grâce ne l'abrège pas : Ctrl+C sous `npm run ruche` en envoie
+ * deux (le terminal, puis le lanceur).
  */
 export function arreterSurSignaux(client: Pick<HiveNodeClient, 'stop'>): void {
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    process.on(signal, () => {
-      console.log('\nDéconnexion de la ruche…');
-      try {
-        client.stop();
-      } finally {
-        process.exit(0);
-      }
-    });
-  }
+  let enCours = false;
+  const arreter = (): void => {
+    if (enCours) return;
+    enCours = true;
+    console.log('\nDéconnexion de la ruche…');
+    try {
+      client.stop();
+    } finally {
+      const sortir = (): void => process.exit(0);
+      void arbresEteints(GRACE_ARRET_MS).then(sortir, sortir);
+    }
+  };
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) process.on(signal, arreter);
+  process.on('message', (message: unknown) => {
+    if (estOrdreArret(message)) arreter();
+  });
 }
 
 export class HiveNodeClient {
@@ -318,6 +348,12 @@ export class HiveNodeClient {
   private readonly pilotes = new Map<string, PiloteExecution>();
   /** Le répertoire de chaque exécution en cours : le diff en direct s'y calcule. */
   private readonly espaces = new Map<string, Workspace>();
+  /**
+   * La racine de délégation de chaque enfant actif (`delegationRootTaskId`) ;
+   * une tâche absente d'ici est sa propre racine. Oubliée avec ses délégations
+   * quand la tâche quitte son tour (`clearDelegationsForParent`).
+   */
+  private readonly racines = new Map<string, string>();
   /** Délégations en vol : bornées pour qu'un Worker ne crée pas une file locale infinie. */
   private readonly pendingDelegations = new Map<
     string,
@@ -346,9 +382,14 @@ export class HiveNodeClient {
   >();
   /** Un enfant peut finir avant que l'adaptateur n'appelle l'attente. */
   private readonly completedDelegationResults = new Map<string, WorkerDelegationResult>();
-  /** Merges en cours (par mergeId) — anti-doublon si le hub réémet le même id. */
-  private readonly activeMerges = new Set<string>();
-  private readonly activeChantiers = new Set<string>();
+  /**
+   * Merges et chantiers en cours (par id) — anti-doublon si le hub réémet le
+   * même id, et de quoi les ANNULER : `stop()` n'arrêtait que les tâches, et
+   * la commande de test d'un merge ou le script d'un chantier survivait au
+   * nœud, descendance comprise.
+   */
+  private readonly activeMerges = new Map<string, AbortController>();
+  private readonly activeChantiers = new Map<string, AbortController>();
   private heartbeatTimer: NodeJS.Timeout | null = null;
   /** Évite de spammer la Chambre à chaque reconnexion WebSocket. */
   private requisitionCredentialEnvoyee = false;
@@ -358,6 +399,7 @@ export class HiveNodeClient {
     repoUrl: string | null;
     hiveContext?: string;
     modele?: string;
+    effort?: Effort;
     delegationBudget?: DelegationBudget;
     relecture: boolean;
     workspace: Workspace;
@@ -376,6 +418,8 @@ export class HiveNodeClient {
   /** Dernière fois que le hub a donné signe de vie (message ou pong). */
   private derniereNouvelle = 0;
   private readonly adapter: AgentAdapter;
+  /** Les efforts sondés au démarrage (`start`) ; vide : aucun déclaré. */
+  private efforts: readonly Effort[] = [];
   private readonly workRoot: string;
   /**
    * Où les ponts de délégation de ce nœud ouvrent leurs sockets : un dossier
@@ -386,9 +430,11 @@ export class HiveNodeClient {
   private readonly rendezVous = new RendezVousPont();
 
   /**
-   * Arma la seule limite d'exécution actuellement consommée côté Worker.
-   * `costMicros` et `resourceUnits` restent transportés comme faits demandés
-   * jusqu'à ce que les adaptateurs sachent les mesurer réellement.
+   * Arme la seule limite d'exécution que le Worker peut tenir pendant la
+   * tentative : la durée. Le coût, lui, n'est connu qu'à la fin — le CLI le
+   * DÉCLARE avec son résultat —, et c'est la Reine qui tient l'enveloppe coût
+   * de l'arbre (`tenirBudgetCoutRacine`). `resourceUnits` est un compte
+   * abstrait, sans mesure derrière : transporté, jamais appliqué ici.
    */
   private startDelegationBudget(
     budget: DelegationBudget | undefined,
@@ -481,7 +527,7 @@ export class HiveNodeClient {
 
   /**
    * Le diff d'une exécution EN COURS, demandé par un écran (Sandbox Live). Par
-   * le registre de la ruche (`workspace.collectDiff`, jamais le `.git` de
+   * le registre de la ruche (`workspace.diffEnCours`, jamais le `.git` de
    * l'agent), caviardé ici comme le diff d'un résultat, et borné : un écran
    * qui le demande ne reçoit jamais plus de `DIFF_DIRECT_MAX`. Un diff qu'on
    * n'a pas pu calculer le DIT (`erreur`) — un diff vide passerait pour
@@ -507,7 +553,7 @@ export class HiveNodeClient {
       return;
     }
     try {
-      const diff = this.caviardeurDuNoeud().diff(await espace.collectDiff());
+      const diff = this.caviardeurDuNoeud().diff(await espace.diffEnCours());
       repondre(diff.slice(0, DIFF_DIRECT_MAX), diff.length > DIFF_DIRECT_MAX);
     } catch (err) {
       const brut = err instanceof Error ? err.message : String(err);
@@ -531,8 +577,7 @@ export class HiveNodeClient {
   constructor(private readonly opts: NodeClientOptions) {
     this.adapter = opts.adapter ?? getAdapter(opts.agentType);
     this.nodeId = opts.nodeId ?? null;
-    this.workRoot =
-      opts.workRoot ?? path.join('.hive-work', opts.name.replace(/[^A-Za-z0-9_-]+/g, '_'));
+    this.workRoot = opts.workRoot ?? racineDeTravailParDefaut(opts.name);
   }
 
   /** Rejoint la ruche (et retente sans fin tant que stop() n'est pas appelé). */
@@ -540,7 +585,23 @@ export class HiveNodeClient {
     this.closed = false;
     this.warnIfInsecureTransport();
     this.preparerRendezVous();
-    this.connect();
+    // Les efforts se SONDENT avant la première inscription (`claude --help`,
+    // quelques centaines de ms, borné par `STATUT_MAX_MS`) : s'inscrire avant
+    // les annoncerait à la reconnexion suivante seulement. Une sonde qui échoue
+    // n'en déclare aucun — le CLI garde son défaut — et ne retient pas le nœud.
+    const sonde = this.adapter.effortsDocumentes;
+    if (!sonde) {
+      this.connect();
+      return;
+    }
+    void sonde()
+      .then(
+        (efforts) => {
+          this.efforts = efforts;
+        },
+        () => undefined,
+      )
+      .then(() => this.connect());
   }
 
   /**
@@ -590,6 +651,8 @@ export class HiveNodeClient {
     // se défait d'elle-même en concluant.
     for (const pilote of this.pilotes.values()) void pilote.arreter();
     for (const ctrl of this.active.values()) ctrl.abort();
+    for (const ctrl of this.activeMerges.values()) ctrl.abort();
+    for (const ctrl of this.activeChantiers.values()) ctrl.abort();
     this.rejectPendingDelegations('client arrêté');
     this.stopHeartbeat();
     this.arreterVeille();
@@ -792,6 +855,40 @@ export class HiveNodeClient {
     }
   }
 
+  /**
+   * Les tâches actives de ce nœud, dans l'arbre de `racine`, qui attendent un
+   * enfant délégué encore en vol : admis par la Reine (`acceptedDelegations`),
+   * résultat pas encore reçu.
+   *
+   * La même règle que la Reine (`parentsEnAttenteSousRacine`, store) : un
+   * parent dont un enfant vole ne tient pas de place POUR SON ARBRE. Sans elle,
+   * une ouvrière à deux places portait la racine et son enfant, refusait le
+   * petit-enfant (`noeud_sature`), et l'arbre attendait sa propre expiration.
+   * Pour les autres, il l'occupe : sinon chaque racine délégante laissait
+   * entrer la suivante, et `maxConcurrency` ne bornait plus rien.
+   *
+   * ─── UN ÉCART ASSUMÉ AVEC LA REINE ───────────────────────────────────────────
+   *
+   * La Reine lit le statut de l'enfant ; ce guichet, ses admissions locales. Une
+   * admission oubliée ici avant que l'enfant ne finisse — attente expirée,
+   * reconnexion, quota local — fait voir à la Reine une place que ce nœud
+   * refuse. L'écart est borné : il ne touche que les descendants de CET arbre,
+   * le refus (`noeud_sature`) ne brûle aucune tentative, et la Reine ne
+   * re-sollicite pas ce nœud pour cette tâche avant la fin du délai de refus
+   * (`recentRejections`). Le parent qui n'a plus d'admission ne peut plus
+   * attendre son enfant : il travaille, et tient sa place — le guichet a raison.
+   */
+  private parentsEnAttente(racine: string): number {
+    const parents = new Set<string>();
+    for (const [childTaskId, accepted] of this.acceptedDelegations) {
+      if (!this.active.has(accepted.parentTaskId)) continue;
+      if (this.completedDelegationResults.has(childTaskId)) continue;
+      if ((this.racines.get(accepted.parentTaskId) ?? accepted.parentTaskId) !== racine) continue;
+      parents.add(accepted.parentTaskId);
+    }
+    return parents.size;
+  }
+
   private clearAcceptedDelegation(childTaskId: string): void {
     const accepted = this.acceptedDelegations.get(childTaskId);
     if (!accepted) return;
@@ -800,11 +897,12 @@ export class HiveNodeClient {
   }
 
   /**
-   * Nettoie les enfants d'un parent qui vient de quitter son tour. Un Worker
-   * qui choisit de ne pas attendre un enfant ne doit pas laisser une entrée
-   * vivre jusqu'à la prochaine reconnexion du nœud.
+   * Nettoie les enfants d'un parent qui vient de quitter son tour — et sa
+   * racine (`racines`). Un Worker qui choisit de ne pas attendre un enfant ne
+   * doit pas laisser une entrée vivre jusqu'à la prochaine reconnexion du nœud.
    */
   private clearDelegationsForParent(parentTaskId: string): void {
+    this.racines.delete(parentTaskId);
     for (const [childTaskId, accepted] of this.acceptedDelegations) {
       if (accepted.parentTaskId !== parentTaskId) continue;
       const pending = this.pendingDelegationResults.get(childTaskId);
@@ -911,6 +1009,10 @@ export class HiveNodeClient {
         ...(this.opts.modeles && this.opts.modeles.length > 0
           ? { modeles: this.opts.modeles }
           : {}),
+        // Les efforts que le CLI installé DOCUMENTE (sondés au démarrage, jamais
+        // configurés à la main) : redits à chaque inscription, absents quand
+        // l'agent n'en a aucun.
+        ...(this.efforts.length > 0 ? { efforts: [...this.efforts] } : {}),
         // Ce que ce poste porte réellement — des CONSTATS, pas un verdict. Le
         // hub en tire sa conclusion avec son catalogue ; ici on ne fait que
         // rapporter ce qu'on a vu. Absent tant que le diagnostic n'a pas
@@ -922,6 +1024,9 @@ export class HiveNodeClient {
         // Le consentement à pousser, dit au hub pour qu'il CHOISISSE un nœud
         // consentant. La garde, elle, reste ici (`runMergeJob`).
         ...(this.pousseLivraisons() ? { pousseLivraisons: true } : {}),
+        // Ce nœud sait cloner la branche d'une PR et prolonger une mission : sans
+        // cette déclaration, le hub ne lui confie aucune reprise (`prolonge`).
+        prolonge: true,
       });
     });
 
@@ -1013,6 +1118,11 @@ export class HiveNodeClient {
         // puis les ré-adopte. Chaque pilote redit son état ENTIER — sans quoi
         // un agent en pause perdait son bouton Reprendre (`pilote-execution.ts`).
         for (const pilote of this.pilotes.values()) pilote.instantane();
+        try {
+          this.opts.surInscription?.({ ruche: msg.ruche ?? null });
+        } catch (err) {
+          this.log(`signalement réseau : ${err instanceof Error ? err.message : String(err)}`);
+        }
         break;
       case 'assign_task':
         void this.runTask(
@@ -1022,6 +1132,9 @@ export class HiveNodeClient {
           msg.modele,
           msg.delegationBudget,
           msg.relecture === true,
+          msg.delegationRootTaskId,
+          msg.effort,
+          msg.prolonger === true,
         );
         break;
       case 'assign_merge':
@@ -1330,6 +1443,9 @@ export class HiveNodeClient {
     modele?: string,
     delegationBudget?: DelegationBudget,
     relecture = false,
+    delegationRootTaskId?: string,
+    effort?: Effort,
+    prolonger = false,
   ): Promise<void> {
     // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
     // fait pas confiance au hub (anti path-traversal si le hub était compromis).
@@ -1356,7 +1472,12 @@ export class HiveNodeClient {
       return;
     }
     if (this.active.has(task.id)) return; // assignation dupliquée : déjà en cours
-    if (this.active.size >= this.opts.maxConcurrency) {
+    // Un parent qui attend son enfant délégué a RELÂCHÉ sa place — pour SON
+    // arbre seulement : la Reine ne le compte plus pour lui (`slotsOccupes`),
+    // le guichet non plus — sinon ce nœud refuserait justement l'enfant que son
+    // parent attend (`parentsEnAttente`). Toute autre tâche le voit occuper.
+    const racine = delegationRootTaskId ?? task.id;
+    if (this.active.size - this.parentsEnAttente(racine) >= this.opts.maxConcurrency) {
       // Nœud saturé : on REFUSE l'assignation (task_reject) plutôt que de la
       // marquer en échec — sinon on brûlerait une tentative sans rien exécuter,
       // ce qui pourrait faire échouer définitivement une tâche jamais lancée.
@@ -1377,6 +1498,7 @@ export class HiveNodeClient {
 
     const ctrl = new AbortController();
     this.active.set(task.id, ctrl);
+    if (delegationRootTaskId) this.racines.set(task.id, delegationRootTaskId);
     const started = Date.now();
     const caviardeur = this.caviardeurDuNoeud();
     let budgetExceeded = false;
@@ -1400,6 +1522,8 @@ export class HiveNodeClient {
           // Isole le répertoire par nœud : deux drones d'une même course sur une
           // même machine (workRoot partagé) ne se marchent pas dessus.
           this.nodeId ? this.nodeId.slice(0, 8) : '',
+          prolonger,
+          this.adapter.configurationExecutee,
         );
         this.espaces.set(task.id, workspace);
       } catch (err) {
@@ -1411,17 +1535,30 @@ export class HiveNodeClient {
         // cite l'URL du dépôt, et part à tout l'écran. La DERNIÈRE ligne :
         // celle où git dit pourquoi (`fatal: …`), dans les 120 caractères
         // d'une raison de refus.
+        //
+        // Même refus quand la configuration d'agent du dépôt n'a pas pu être
+        // écartée (`configuration-inerte.ts`) : l'agent ne tourne pas avec des
+        // hooks à moitié neutralisés, et la raison dit lesquels.
         const brut = err instanceof Error ? err.message : String(err);
         const cause = motifLave(brut.trim().split('\n').at(-1) ?? brut);
+        const raison =
+          err instanceof ConfigurationNonNeutralisable ? cause : `clone impossible : ${cause}`;
         this.send({
           type: 'task_reject',
           taskId: task.id,
-          reason: `clone impossible : ${cause}`.slice(0, LIMITS.name),
+          reason: raison.slice(0, LIMITS.name),
           infra: true,
           avantAgent: true,
         });
-        this.log(`⇄ ${task.title} : clone impossible → réaffectation (${cause})`);
+        this.log(`⇄ ${task.title} : ${raison} → réaffectation`);
         return;
+      }
+      if (workspace.configurationEcartee.length > 0) {
+        this.progresVersHub(
+          task.id,
+          ctrl,
+          caviardeur,
+        )({ log: noteConfigurationEcartee(workspace.configurationEcartee) });
       }
       // Hive Mind : le contexte reçu du hub est préfixé au prompt pour l'agent.
       // On n'altère que la copie transmise à l'adaptateur (chemins/branche du
@@ -1447,6 +1584,8 @@ export class HiveNodeClient {
         // Le modèle choisi par l'Aiguillage, s'il en a envoyé un : l'adaptateur
         // le passera à son CLI (`--model`). Absent ⇒ modèle par défaut de l'agent.
         ...(modele ? { modele } : {}),
+        // L'effort, seulement si l'Aiguillage en a commandé un.
+        ...(effort ? { effort } : {}),
         ...this.optionBacTache(task.id),
         ...(relecture ? { role: 'relecture' as const } : {}),
         delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),
@@ -1483,6 +1622,7 @@ export class HiveNodeClient {
             repoUrl,
             hiveContext,
             modele,
+            effort,
             delegationBudget,
             relecture,
             workspace,
@@ -1629,6 +1769,7 @@ export class HiveNodeClient {
       task,
       hiveContext,
       modele,
+      effort,
       delegationBudget,
       relecture,
       workspace,
@@ -1695,6 +1836,7 @@ export class HiveNodeClient {
         attempt: task.attempts + 1,
         signal: ctrl.signal,
         ...(modele ? { modele } : {}),
+        ...(effort ? { effort } : {}),
         ...this.optionBacTache(task.id),
         ...(relecture ? { role: 'relecture' as const } : {}),
         delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),
@@ -1840,7 +1982,7 @@ export class HiveNodeClient {
    */
   private depotDeLivraisons(projectId: string): string {
     const racine = path.resolve(this.workRoot, 'livraisons');
-    const depot = path.resolve(racine, `${projectId}.git`);
+    const depot = path.resolve(racine, `${segmentSur(projectId)}.git`);
     if (!depot.startsWith(racine + path.sep)) {
       throw new Error(`projet hors du répertoire des livraisons : ${projectId}`);
     }
@@ -1906,12 +2048,14 @@ export class HiveNodeClient {
       this.log(`✘ merge ${msg.mergeId.slice(0, 8)}… : ${refus.v.motif}`);
       return;
     }
-    this.activeMerges.add(msg.mergeId);
-    // mergeId est validé (ID_PATTERN) par le protocole → sûr comme composant de chemin.
+    const annulation = new AbortController();
+    this.activeMerges.set(msg.mergeId, annulation);
+    // mergeId est validé (ID_PATTERN) par le protocole → sans séparateur ni
+    // remontée ; `segmentSur` écarte les noms que Windows réserve (`aux`…).
     const dir = path.join(
       this.workRoot,
       'merges',
-      this.nodeId ? `${msg.mergeId}-${this.nodeId.slice(0, 8)}` : msg.mergeId,
+      segmentSur(this.nodeId ? `${msg.mergeId}-${this.nodeId.slice(0, 8)}` : msg.mergeId),
     );
     const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
     this.log(
@@ -1934,6 +2078,7 @@ export class HiveNodeClient {
         // code du dépôt, au même titre qu'un agent.
         ...this.optionBacTache(),
         caviarder: (texte) => caviardeur.texte(texte),
+        signal: annulation.signal,
         ...(msg.livraison
           ? {
               livraison: {
@@ -2047,16 +2192,18 @@ export class HiveNodeClient {
       }
     }
 
-    this.activeChantiers.add(msg.chantierId);
+    const annulation = new AbortController();
+    this.activeChantiers.set(msg.chantierId, annulation);
     // La sortie d'un chantier part au hub comme les logs d'une tâche : le
     // script déclaré exécute le code du dépôt. Caviardée ICI (#489), ENTIÈRE,
     // avant toute coupe — une coupe d'abord laisserait la moitié d'une clé.
     const caviardeur = this.caviardeurDuNoeud();
-    // chantierId est validé (ID_PATTERN) par le protocole → sûr en chemin.
+    // chantierId est validé (ID_PATTERN) par le protocole → sans séparateur
+    // ni remontée ; `segmentSur` écarte les noms que Windows réserve.
     const dir = path.join(
       this.workRoot,
       'chantiers',
-      this.nodeId ? `${msg.chantierId}-${this.nodeId.slice(0, 8)}` : msg.chantierId,
+      segmentSur(this.nodeId ? `${msg.chantierId}-${this.nodeId.slice(0, 8)}` : msg.chantierId),
     );
     const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
     this.log(`chantier « ${msg.nom} » : clone puis lancement`);
@@ -2098,7 +2245,14 @@ export class HiveNodeClient {
 
       const env = buildSandboxEnv(dir);
       const lancer = async (argv: string[], delaiMs: number) => {
-        const r = await runProc(argv, dir, env, delaiMs, undefined, this.optionBacTache().bac);
+        const r = await runProc(
+          argv,
+          dir,
+          env,
+          delaiMs,
+          annulation.signal,
+          this.optionBacTache().bac,
+        );
         return { ...r, output: caviardeur.texte(r.output) };
       };
       if (msg.prepareCommand && msg.prepareCommand.length > 0) {

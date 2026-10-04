@@ -146,6 +146,27 @@ describe('la CLI : livrer-local <projectId> [--pousser] [--forcer="…"] [cmd…
     });
   });
 
+  it('`--prolonger` nomme une livraison par son NUMÉRO, jamais par une branche', () => {
+    expect(decouperLivraisonArgv(['--prolonger=3', 'npm', 'test'])).toEqual({
+      pousser: false,
+      prolonger: 3,
+      reste: ['npm', 'test'],
+    });
+    expect(decouperLivraisonArgv(['--pousser', '--prolonger', '12'])).toEqual({
+      pousser: true,
+      prolonger: 12,
+      reste: [],
+    });
+    for (const mauvais of [
+      ['--prolonger'],
+      ['--prolonger=0'],
+      ['--prolonger=hive/x'],
+      ['--prolonger', '-1'],
+    ]) {
+      expect(() => decouperLivraisonArgv(mauvais), mauvais.join(' ')).toThrow(/numéro/);
+    }
+  });
+
   it('passer outre l’Evaluator sans dire pourquoi est refusé', () => {
     expect(() => decouperLivraisonArgv(['--forcer'])).toThrow(/raison/);
     expect(() => decouperLivraisonArgv(['--forcer='])).toThrow(/raison/);
@@ -192,8 +213,23 @@ describe('le transport : reconstruit, ou refusé', () => {
     expect(msg.livraison).not.toHaveProperty('branche');
   });
 
+  it('une SUITE arrive avec son numéro et sa tête, et rien d’autre', () => {
+    const suite = { n: 2, commit: 'b'.repeat(40) };
+    const msg = assign({ ...DEMANDE, suite });
+    if (msg?.type !== 'assign_merge') throw new Error('message refusé');
+    expect(msg.livraison?.suite).toEqual(suite);
+    // Et le message de commit dit quelle tête il prolonge.
+    expect(trailers(messageDeMission({ ...DEMANDE, suite }, 2, { lances: false }))).toContain(
+      `Hive-Suite: ${suite.commit}`,
+    );
+  });
+
   it('une demande mal formée fait refuser le message entier', () => {
     for (const mauvaise of [
+      { ...DEMANDE, suite: { n: 0, commit: 'b'.repeat(40) } },
+      { ...DEMANDE, suite: { n: 1, commit: 'HEAD' } },
+      { ...DEMANDE, suite: { n: 1, commit: 'b'.repeat(40), branche: 'main' } },
+      { ...DEMANDE, suite: 1 },
       { ...DEMANDE, projectId: '../x' },
       { ...DEMANDE, pousser: 'oui' },
       { ...DEMANDE, provenance: [] },

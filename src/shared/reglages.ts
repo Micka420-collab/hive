@@ -30,3 +30,32 @@ export function gardiennesDepuisEnv(env: NodeJS.ProcessEnv = process.env): Gardi
   const brut = env.HIVE_GARDIENNES;
   return brut === 'off' || brut === 'strict' ? brut : GARDIENNES_PAR_DEFAUT;
 }
+
+// ─── LA PORTÉE DE L'EXPÉRIENCE ───────────────────────────────────────────────
+
+/**
+ * D'où l'ouvrière d'un projet reçoit l'expérience des tâches voisines
+ * (`shared/graphe-experience.ts`) : de son projet seul, ou aussi des projets
+ * publics de la ruche — jamais d'un projet privé autre que le sien.
+ */
+export const PORTEES_EXPERIENCE = ['projet', 'ruche'] as const;
+export type PorteeExperience = (typeof PORTEES_EXPERIENCE)[number];
+
+/**
+ * La portée demandée par l'environnement (`HIVE_EXPERIENCE_PORTEE`).
+ *
+ * ─── L'ISOLEMENT EST LE DÉFAUT, ET UNE FAUTE DE FRAPPE Y RETOMBE ────────────
+ *
+ * Fédérer, c'est joindre au prompt d'une ouvrière du projet A des titres de
+ * tâches, des chemins de fichiers et des noms de modèles du projet B — donc
+ * les montrer à qui fait tourner A, sur sa machine. Ce n'est pas une
+ * optimisation, c'est une décision de l'HÔTE sur ce que ses projets se disent
+ * entre eux. Elle se prend donc là où l'hôte seul écrit, dans le `.env` de la
+ * Reine — aucune route ne la bascule, aucun compte, même administrateur, ne la
+ * change depuis l'écran —, et seule la valeur exacte `ruche` l'ouvre : un
+ * `rucher`, un `oui` ou un blanc de fin de ligne ne doivent jamais faire
+ * sortir l'expérience d'un projet.
+ */
+export function porteeExperienceDepuisEnv(env: NodeJS.ProcessEnv = process.env): PorteeExperience {
+  return env.HIVE_EXPERIENCE_PORTEE === 'ruche' ? 'ruche' : 'projet';
+}

@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { VERSION_BALANCE } from '../src/orchestrator/balance.js';
 import { HiveStore } from '../src/orchestrator/store.js';
 import type { TaskResult } from '../src/shared/types.js';
+import { fenetreSeule } from './aide/journal-retenu.js';
 
 function resultat(taskId: string, patch: Partial<TaskResult> = {}): TaskResult {
   return {
@@ -225,7 +226,7 @@ describe('HiveStore — budgets : l’intention humaine (la Balance, borner)', (
     const p = store.createProject({ name: 'P' });
     store.setBudget(p.id, 1_000, null, 1_000);
     // Les élagages voisins passent sans toucher au plafond.
-    store.pruneEvents(0);
+    store.pruneEvents(fenetreSeule(0));
     store.pruneMemories(0);
     store.pruneResults(0);
     expect(store.getBudget(p.id)).toMatchObject({ plafondMs: 1_000 });
@@ -298,7 +299,7 @@ describe('HiveStore — balance_ledger_cache : un CACHE, et rien d’autre', () 
     expect((store as unknown as Record<string, unknown>).pruneLedgerCache).toBeUndefined();
     store.insertResult(resultat('t1', { durationMs: 1 }));
     store.ecrireCacheGrandLivre(1, soldes);
-    store.pruneEvents(0);
+    store.pruneEvents(fenetreSeule(0));
     store.pruneMemories(0);
     store.pruneResults(0);
     expect(store.lireCacheGrandLivre()).toEqual({ filigrane: 1, soldes });

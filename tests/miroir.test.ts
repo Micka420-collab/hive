@@ -63,6 +63,26 @@ import {
 import { envGitHote } from '../src/shared/git-protege.js';
 import { TAILLE_MAX_FICHIER } from '../src/shared/rayon.js';
 
+/**
+ * Le git du BANC — celui qui fabrique les dépôts amont, jamais celui du miroir.
+ * Identité et signature posées ici : un `commit.gpgsign=true` global rendait la
+ * suite impossible à lancer pour qui signe ses commits.
+ */
+const git = (cwd: string, ...args: string[]): string =>
+  execFileSync(
+    'git',
+    [
+      '-c',
+      'user.email=banc@hive.local',
+      '-c',
+      'user.name=Banc Hive',
+      '-c',
+      'commit.gpgsign=false',
+      ...args,
+    ],
+    { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
+  );
+
 /** Le motif du refus, ou 'PASSÉ' si la lecture a abouti. */
 async function motif(p: Promise<unknown>): Promise<string> {
   try {
@@ -392,20 +412,6 @@ describe('LE MIROIR N’EXÉCUTE RIEN QUE LE DÉPÔT APPORTE — clone, fetch et
   const avant = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
 
   const pourSh = (p: string): string => p.split(path.sep).join('/');
-  const git = (cwd: string, ...args: string[]): string =>
-    execFileSync(
-      'git',
-      [
-        '-c',
-        'user.email=banc@hive.local',
-        '-c',
-        'user.name=Banc Hive',
-        '-c',
-        'commit.gpgsign=false',
-        ...args,
-      ],
-      { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] },
-    );
   const declenchees = (): string[] => readdirSync(sentinelles).sort();
 
   beforeAll(() => {
@@ -477,7 +483,7 @@ describe('LE MIROIR N’EXÉCUTE RIEN QUE LE DÉPÔT APPORTE — clone, fetch et
     git(amont, 'commit', '-q', '-am', 'suite');
     rmSync(sentinelles, { recursive: true, force: true });
     mkdirSync(sentinelles);
-    await miroir.rafraichir('p', amont, 1_000 + FENETRE_RAFRAICHISSEMENT_MS + 1);
+    await miroir.rafraichir('p', amont, 1_000 + 2 * FENETRE_RAFRAICHISSEMENT_MS);
     expect((await miroir.lire('p', 'README.md')).contenu, 'le miroir a suivi').toBe('version 2\n');
     expect(declenchees(), 'ni fetch ni reset n’ont rien lancé').toEqual([]);
   });
@@ -497,8 +503,134 @@ describe('LE MIROIR N’EXÉCUTE RIEN QUE LE DÉPÔT APPORTE — clone, fetch et
     await miroir.rafraichir('q', amont, FENETRE_RAFRAICHISSEMENT_MS + 1);
     expect(declenchees(), 'le miroir refait n’a rien lancé').toEqual([]);
     expect(readFileSync(path.join(ancien, '.git', 'info', 'attributes'), 'utf8')).toBe(
-      '* -filter\n',
+      '* -filter -text -ident -working-tree-encoding\n',
     );
     expect((await miroir.lire('q', 'donnees.txt')).contenu).toBe('octets du dépôt\n');
   });
+});
+
+describe('LE MIROIR SERT LES OCTETS DU DÉPÔT, ET SUIT SON AMONT', () => {
+  // ─── CE QUE `* -filter` SEUL LAISSAIT PASSER ───────────────────────────────
+  //
+  // Couper les filtres ne coupe pas les CONVERSIONS que le `.gitattributes` du
+  // dépôt demande : `text eol=crlf` servait `a\r\nb\r\n` pour un blob `a\nb\n`,
+  // `ident` développait `$Id$` en empreinte, `working-tree-encoding` rendait
+  // de l'UTF-16 — donc un « binaire ». Le miroir disait montrer les octets du
+  // dépôt ; il montrait ceux de l'extraction. Mesuré ici, sur Linux, contre
+  // les blobs eux-mêmes (`cat-file`).
+  let racine: string;
+  let t = 0;
+  /**
+   * Chaque rafraîchissement hors de la fenêtre du précédent — fenêtre qui
+   * part de la FIN de la tentative, d'où le double.
+   */
+  const plusTard = (): number => (t += 2 * FENETRE_RAFRAICHISSEMENT_MS);
+
+  beforeAll(() => {
+    racine = mkdtempSync(path.join(os.tmpdir(), 'hive-miroir-octets-'));
+  });
+  afterAll(() => rmSync(racine, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+
+  it('aucune conversion du `.gitattributes` : fins de ligne, `$Id$`, encodage', async () => {
+    const amont = path.join(racine, 'conversions');
+    mkdirSync(amont);
+    git(amont, 'init', '-q');
+    // Les données D'ABORD, sans attributs : les blobs gardent exactement ces
+    // octets. Les attributs arrivent au commit suivant — ils ne jouent plus
+    // qu'à l'extraction, c'est-à-dire chez le miroir.
+    writeFileSync(path.join(amont, 'lignes.txt'), 'a\nb\n');
+    writeFileSync(path.join(amont, 'version.id'), 'révision $Id$\n');
+    writeFileSync(path.join(amont, 'accents.u16'), 'déjà là\n');
+    git(amont, 'add', '--all');
+    git(amont, 'commit', '-q', '-m', 'donnees');
+    writeFileSync(
+      path.join(amont, '.gitattributes'),
+      '*.txt text eol=crlf\n*.id ident\n*.u16 working-tree-encoding=UTF-16\n',
+    );
+    git(amont, 'add', '.gitattributes');
+    git(amont, 'commit', '-q', '-m', 'attributs');
+
+    const miroir = new Miroir(path.join(racine, 'rayons-conversions'));
+    await miroir.rafraichir('p', amont, plusTard());
+    for (const fichier of ['lignes.txt', 'version.id', 'accents.u16']) {
+      const blob = git(amont, 'cat-file', 'blob', `HEAD:${fichier}`);
+      expect((await miroir.lire('p', fichier)).contenu, fichier).toBe(blob);
+    }
+    expect((await miroir.lire('p', 'lignes.txt')).contenu).toBe('a\nb\n');
+    expect((await miroir.lire('p', 'version.id')).contenu).toBe('révision $Id$\n');
+  }, 60_000);
+
+  it('un amont VIDE donne un rayon vide, sans relancer git à chaque requête', async () => {
+    const amont = path.join(racine, 'vide');
+    mkdirSync(amont);
+    git(amont, 'init', '-q', '-b', 'main');
+    const miroir = new Miroir(path.join(racine, 'rayons-vide'));
+    const debut = plusTard();
+    // Le clone d'un dépôt vide réussit ; il n'y a juste rien à extraire.
+    // C'est un rayon vide, pas une panne — et la fenêtre vaut pour lui aussi.
+    await miroir.rafraichir('p', amont, debut);
+    expect(miroir.existe('p')).toBe(true);
+    expect(await miroir.lister('p', '')).toEqual([]);
+    // Dans la fenêtre, aucun git : même un amont disparu ne se remarque pas.
+    await expect(miroir.rafraichir('p', path.join(racine, 'absent'), debut + 1)).resolves.toBe(
+      undefined,
+    );
+
+    // Les premiers commits : le rafraîchissement suivant les montre.
+    writeFileSync(path.join(amont, 'premier.txt'), 'enfin\n');
+    git(amont, 'add', '--all');
+    git(amont, 'commit', '-q', '-m', 'premier');
+    await miroir.rafraichir('p', amont, plusTard());
+    expect((await miroir.lire('p', 'premier.txt')).contenu).toBe('enfin\n');
+  }, 60_000);
+
+  it('la branche par défaut de l’amont change : le miroir la suit', async () => {
+    const amont = path.join(racine, 'tete');
+    mkdirSync(amont);
+    git(amont, 'init', '-q', '-b', 'main');
+    writeFileSync(path.join(amont, 'branche.txt'), 'main\n');
+    git(amont, 'add', '--all');
+    git(amont, 'commit', '-q', '-m', 'main');
+    const miroir = new Miroir(path.join(racine, 'rayons-tete'));
+    await miroir.rafraichir('p', amont, plusTard());
+    expect((await miroir.lire('p', 'branche.txt')).contenu).toBe('main\n');
+
+    // `--depth 1` ne suit qu'UNE branche : sans relire la tête de l'amont, un
+    // `fetch` ne voyait jamais `trunk`, et le miroir servait `main` pour toujours.
+    git(amont, 'checkout', '-q', '-b', 'trunk');
+    writeFileSync(path.join(amont, 'branche.txt'), 'trunk\n');
+    git(amont, 'commit', '-q', '-am', 'trunk');
+    await miroir.rafraichir('p', amont, plusTard());
+    expect((await miroir.lire('p', 'branche.txt')).contenu).toBe('trunk\n');
+
+    // Et la nouvelle branche suivie avance.
+    writeFileSync(path.join(amont, 'branche.txt'), 'trunk 2\n');
+    git(amont, 'commit', '-q', '-am', 'trunk 2');
+    await miroir.rafraichir('p', amont, plusTard());
+    expect((await miroir.lire('p', 'branche.txt')).contenu).toBe('trunk 2\n');
+  }, 60_000);
+  it('un HEAD d’amont qui ne désigne plus rien n’est pas un dépôt vide : la copie reste', async () => {
+    // Un dépôt nu à deux branches, HEAD → main ; puis `main` effacée (rien ne
+    // l'interdit sur un dépôt nu). `ls-remote … HEAD` seul rend alors la même
+    // sortie VIDE qu'un dépôt sans commit : le miroir se refaisait en dépôt
+    // vide — le code d'hier effacé, un Rayon vide rendu comme un succès.
+    const travail = path.join(racine, 'pendant-travail');
+    const nu = path.join(racine, 'pendant.git');
+    mkdirSync(travail);
+    git(travail, 'init', '-q', '-b', 'main');
+    writeFileSync(path.join(travail, 'code.txt'), 'hier\n');
+    git(travail, 'add', '--all');
+    git(travail, 'commit', '-q', '-m', 'hier');
+    git(racine, 'init', '-q', '--bare', '-b', 'main', nu);
+    git(travail, 'push', '-q', nu, 'main', 'main:trunk');
+    const miroir = new Miroir(path.join(racine, 'rayons-pendant'));
+    await miroir.rafraichir('p', nu, plusTard());
+    expect((await miroir.lire('p', 'code.txt')).contenu).toBe('hier\n');
+
+    git(nu, 'update-ref', '-d', 'refs/heads/main');
+    await expect(miroir.rafraichir('p', nu, plusTard())).rejects.toThrow(/HEAD/);
+    expect((await miroir.lire('p', 'code.txt')).contenu, 'la copie d’hier reste servie').toBe(
+      'hier\n',
+    );
+  }, 60_000);
 });

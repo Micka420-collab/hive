@@ -6,8 +6,15 @@
 
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
+import { EFFORTS, type Effort } from '../shared/effort.js';
+import { lancerStatut, type LanceurStatut } from '../node-client/agent-detect.js';
 import { assertRealExecutionAllowed, runCommandStreaming } from './exec.js';
-import { configurationDuDepot, consignesDuDepot } from './consignes-depot.js';
+import {
+  CONSIGNES_CLAUDE,
+  configurationDuDepot,
+  consignesDuDepot,
+  noteLiensNonSuivis,
+} from './consignes-depot.js';
 import {
   createDelegationBridge,
   resultatSansPont,
@@ -86,6 +93,10 @@ export const REGLAGES_IMPOSES = JSON.stringify({ disableAllHooks: true });
  * `consignesPath` : les consignes du dépôt relues comme DONNÉES
  * (`consignes-depot.ts`), que `--setting-sources user` retire au CLI.
  *
+ * `--effort <niveau>` suit la même règle que `--model` : un des niveaux que
+ * `claude --help` documente (« low, medium, high, xhigh, max », relevé sur
+ * 2.1.283 — `EFFORTS`), absent quand l'Aiguillage n'en a commandé aucun.
+ *
  * `--model <nom>` va AVANT le `--` : c'est une OPTION, et tout ce qui suit `--`
  * est du texte de prompt (cf. l'injection démontrée dans `prompt-argv.ts`). Le
  * prompt reste donc en TOUT DERNIER, derrière `--`. Un nom de modèle n'est pas un
@@ -98,8 +109,12 @@ export function argvClaude(
   mcpConfigPath?: string,
   mcpServerName = 'hive',
   consignesPath?: string,
+  effort?: Effort,
 ): string[] {
-  const drapeauxModele = modele ? ['--model', modele] : [];
+  const drapeauxModele = [
+    ...(modele ? ['--model', modele] : []),
+    ...(effort ? ['--effort', effort] : []),
+  ];
   const drapeauxPermission = ['--permission-mode', 'acceptEdits'];
   const drapeauxDepot = [
     '--setting-sources',
@@ -149,6 +164,37 @@ export function noteConfigurationIgnoree(
   return `configuration d'agent du dépôt ignorée (hooks, MCP, env) : ${liste}${consignes}`;
 }
 
+/**
+ * Les efforts que l'aide du `claude` INSTALLÉ documente, dans l'ordre de
+ * `EFFORTS` : le bloc de l'option `--effort`, jusqu'à l'option suivante, et
+ * la liste entre parenthèses qu'il porte (« (low, medium, high, xhigh, max) »
+ * sur 2.1.283). Pas d'option, pas de liste : aucun effort.
+ *
+ * Lu sur le binaire et non figé dans le code : un Claude Code d'avant
+ * `--effort` refuserait l'option à chaque tâche (échec d'infrastructure, sans
+ * verdict), et un niveau qu'il ne connaît pas est ignoré avec un simple
+ * avertissement — le verdict serait rangé sous un effort qui n'a pas tourné.
+ */
+export function effortsDeLAide(aide: string): Effort[] {
+  const debut = aide.indexOf('--effort');
+  if (debut < 0) return [];
+  const bloc = aide.slice(debut);
+  const fin = bloc.search(/\n\s*-/);
+  const liste = /\(([^)]*)\)/.exec(fin < 0 ? bloc : bloc.slice(0, fin))?.[1] ?? '';
+  const cites = new Set(liste.split(',').map((m) => m.trim()));
+  return EFFORTS.filter((e) => cites.has(e));
+}
+
+/**
+ * Sonde les efforts du `claude` installé : `claude --help`, qui n'appelle aucun
+ * modèle. Muette, en échec ou trop lente : AUCUN effort — le nœud n'en déclare
+ * pas, et le CLI garde son défaut. `lancer` : injectable pour les bancs.
+ */
+export async function sonderEffortsClaude(lancer: LanceurStatut = lancerStatut): Promise<Effort[]> {
+  const r = await lancer(['claude'], ['--help']);
+  return r?.code === 0 ? effortsDeLAide(r.sortie) : [];
+}
+
 export function createClaudeCodeAdapter(
   token = process.env.HIVE_TOKEN ?? DEFAULT_TOKEN,
 ): AgentAdapter {
@@ -156,6 +202,7 @@ export function createClaudeCodeAdapter(
   assertRealExecutionAllowed("L'adaptateur claude-code", token);
   return {
     name: 'claude-code',
+    effortsDocumentes: () => sonderEffortsClaude(),
     async run(task: Task, ctx: AdapterContext): Promise<AdapterResult> {
       ctx.onProgress({ log: 'claude -p (stream-json) démarré' });
       const tracker = createSubAgentTracker();
@@ -177,7 +224,7 @@ export function createClaudeCodeAdapter(
         // elles entreraient dans le diff. Le nœud fournit toujours un pont ;
         // sans lui (adaptateur appelé seul), elles restent écartées comme le
         // reste, et la note ne les annonce pas reprises.
-        const consignes = consignesDuDepot(ctx.cwd);
+        const consignes = consignesDuDepot(ctx.cwd, CONSIGNES_CLAUDE);
         const consignesPath =
           bridge && consignes ? writeClaudeConsignes(bridge, consignes) : undefined;
         const note = noteConfigurationIgnoree(
@@ -185,6 +232,8 @@ export function createClaudeCodeAdapter(
           consignesPath !== undefined,
         );
         if (note) ctx.onProgress({ log: note });
+        const liens = noteLiensNonSuivis(ctx.cwd, CONSIGNES_CLAUDE);
+        if (liens) ctx.onProgress({ log: liens });
         // --verbose est requis par Claude Code pour stream-json en mode -p.
         //
         // LE PROMPT EST EN DERNIER, DERRIÈRE `--`, ET CE N'EST PAS COSMÉTIQUE :
@@ -202,6 +251,7 @@ export function createClaudeCodeAdapter(
             bridge?.childConfigPath,
             bridge?.mcpServerName,
             consignesPath,
+            ctx.effort,
           ),
           ctx,
           (line) => {

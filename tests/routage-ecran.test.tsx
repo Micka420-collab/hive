@@ -39,6 +39,9 @@ afterEach(() => {
 
 const noeuds = [{ id: 'n-zzz', name: 'zzz' }] as unknown as HiveNode[];
 
+/** Ce qu'une raison d'avant la v3 ne dit pas : ni harness, ni effort, ni intervalle, ni coût. */
+const AVANT_V3 = { harness: null, effort: null, intervalle: null, cout: null } as const;
+
 async function monter(affectations: AffectationVue[]): Promise<HTMLElement> {
   vi.mocked(fetchRoutage).mockResolvedValue({ taskId: 't', affectations });
   conteneur = document.createElement('div');
@@ -57,11 +60,29 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
         ts: 1,
         nodeId: 'n-zzz',
         modele: 'opus',
+        effort: null,
+        decision: null,
         categorie: 'code',
         versionAiguillage: 2,
         raisonModele: [
-          { modele: 'opus', essais: 3, enVol: 0, moyenne: 1, score: 1.9, aExplorer: false },
-          { modele: 'grok', essais: 0, enVol: 0, moyenne: null, score: null, aExplorer: true },
+          {
+            modele: 'opus',
+            essais: 3,
+            enVol: 0,
+            moyenne: 1,
+            score: 1.9,
+            aExplorer: false,
+            ...AVANT_V3,
+          },
+          {
+            modele: 'grok',
+            essais: 0,
+            enVol: 0,
+            moyenne: null,
+            score: null,
+            aExplorer: true,
+            ...AVANT_V3,
+          },
         ],
         modelesEcartes: [],
         modelesReadmis: [],
@@ -90,10 +111,20 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
         ts: 1,
         nodeId: 'n-zzz',
         modele: 'fable',
+        effort: null,
+        decision: null,
         categorie: 'code',
         versionAiguillage: 2,
         raisonModele: [
-          { modele: 'fable', essais: 0, enVol: 0, moyenne: null, score: null, aExplorer: true },
+          {
+            modele: 'fable',
+            essais: 0,
+            enVol: 0,
+            moyenne: null,
+            score: null,
+            aExplorer: true,
+            ...AVANT_V3,
+          },
         ],
         modelesEcartes: [],
         modelesReadmis: ['fable'],
@@ -115,11 +146,29 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
         ts: 1,
         nodeId: 'n-zzz',
         modele: 'opus',
+        effort: null,
+        decision: null,
         categorie: 'code',
         versionAiguillage: 2,
         raisonModele: [
-          { modele: 'opus', essais: 4, enVol: 1, moyenne: 1, score: 1.7, aExplorer: false },
-          { modele: 'grok', essais: 0, enVol: 5, moyenne: null, score: 0.8, aExplorer: true },
+          {
+            modele: 'opus',
+            essais: 4,
+            enVol: 1,
+            moyenne: 1,
+            score: 1.7,
+            aExplorer: false,
+            ...AVANT_V3,
+          },
+          {
+            modele: 'grok',
+            essais: 0,
+            enVol: 5,
+            moyenne: null,
+            score: 0.8,
+            aExplorer: true,
+            ...AVANT_V3,
+          },
         ],
         modelesEcartes: [],
         modelesReadmis: [],
@@ -146,6 +195,8 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
         ts: 1,
         nodeId: 'n-zzz',
         modele: null,
+        effort: null,
+        decision: null,
         categorie: null,
         versionAiguillage: null,
         raisonModele: [],
@@ -172,10 +223,20 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
         ts: 2,
         nodeId: 'n-aaa',
         modele: 'fable',
+        effort: null,
+        decision: null,
         categorie: 'code',
         versionAiguillage: 2,
         raisonModele: [
-          { modele: 'fable', essais: 0, enVol: 0, moyenne: null, score: null, aExplorer: true },
+          {
+            modele: 'fable',
+            essais: 0,
+            enVol: 0,
+            moyenne: null,
+            score: null,
+            aExplorer: true,
+            ...AVANT_V3,
+          },
         ],
         modelesEcartes: ['grok'],
         modelesReadmis: [],
@@ -185,6 +246,8 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
             {
               nodeId: 'n-aaa',
               modele: 'fable',
+              effort: null,
+              decision: null,
               raisonModele: [
                 {
                   modele: 'fable',
@@ -193,14 +256,25 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
                   moyenne: null,
                   score: null,
                   aExplorer: true,
+                  ...AVANT_V3,
                 },
               ],
             },
             {
               nodeId: 'n-zzz',
               modele: 'opus',
+              effort: null,
+              decision: null,
               raisonModele: [
-                { modele: 'opus', essais: 3, enVol: 0, moyenne: 1, score: 1.9, aExplorer: false },
+                {
+                  modele: 'opus',
+                  essais: 3,
+                  enVol: 0,
+                  moyenne: 1,
+                  score: 1.9,
+                  aExplorer: false,
+                  ...AVANT_V3,
+                },
               ],
             },
           ],
@@ -233,6 +307,8 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
         ts: 2,
         nodeId: 'n-aaa',
         modele: 'fable',
+        effort: null,
+        decision: null,
         categorie: 'code',
         versionAiguillage: 2,
         raisonModele: [],
@@ -241,8 +317,8 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
         pheromone: null,
         course: {
           drones: [
-            { nodeId: 'n-aaa', modele: 'fable', raisonModele: [] },
-            { nodeId: 'n-zzz', modele: null, raisonModele: [] },
+            { nodeId: 'n-aaa', modele: 'fable', effort: null, raisonModele: [], decision: null },
+            { nodeId: 'n-zzz', modele: null, effort: null, raisonModele: [], decision: null },
           ],
           vainqueur: { nodeId: 'n-zzz', modele: null },
         },
@@ -252,6 +328,59 @@ describe('le panneau « Pourquoi ce Worker, ce modèle »', () => {
     expect(dom.querySelector('[data-testid="routage-worker"]')?.textContent).toContain('zzz');
     expect(dom.querySelector('[data-testid="routage-modele"]')).toBeNull();
     expect(dom.querySelector('[data-testid="routage-sans-modele"]')).toBeTruthy();
+  });
+
+  it('V3 : L’EFFORT, L’INTERVALLE ET « DÉCIDÉ À δ » S’AFFICHENT — le coût seulement s’il a pesé', async () => {
+    const ligne = (modele: string, effort: string | null, bas: number, haut: number) => ({
+      modele,
+      harness: 'claude-code',
+      effort,
+      essais: 40,
+      enVol: 0,
+      moyenne: (bas + haut) / 2,
+      score: haut,
+      aExplorer: false,
+      intervalle: { bas, haut },
+      cout: 0.25,
+    });
+    const affectation = (coutPondere: boolean): AffectationVue => ({
+      eventId: 1,
+      ts: 1,
+      nodeId: 'n-zzz',
+      modele: 'opus',
+      effort: 'high',
+      categorie: 'code',
+      versionAiguillage: 3,
+      raisonModele: [ligne('opus', 'high', 0.84, 0.99), ligne('opus', null, 0.1, 0.4)],
+      decision: { etat: 'decide', coutPondere },
+      modelesEcartes: [],
+      modelesReadmis: [],
+      pheromone: null,
+      course: null,
+      critereNoeud: 'porteur_du_modele',
+    });
+    const dom = await monter([affectation(false)]);
+    expect(dom.querySelector('[data-testid="routage-effort"]')?.textContent).toContain('high');
+    expect(
+      [...dom.querySelectorAll('[data-testid="routage-intervalle"]')].map((c) => c.textContent),
+    ).toEqual(['0.84–0.99', '0.10–0.40']);
+    expect(dom.querySelector('[data-testid="routage-decision"]')?.textContent).toContain(
+      'décidé à δ = 5 %',
+    );
+    const cellules = [...dom.querySelectorAll('.routage-rang tbody tr')].map(
+      (l) => l.querySelector('td')?.textContent,
+    );
+    expect(cellules, 'deux bras du même modèle, distingués').toEqual([
+      'opus · claude-code · high',
+      'opus · claude-code · effort par défaut',
+    ]);
+    expect(dom.textContent, 'coût non pondéré : pas de colonne').not.toContain('Coût déclaré');
+
+    act(() => racine?.unmount());
+    conteneur?.remove();
+    const pondere = await monter([affectation(true)]);
+    expect(pondere.textContent).toContain('Coût déclaré');
+    expect(pondere.textContent).toContain('$0.250');
   });
 
   it('PAS ENCORE AFFECTÉE : LE PANNEAU LE DIT', async () => {

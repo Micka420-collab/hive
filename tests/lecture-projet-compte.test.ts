@@ -51,6 +51,12 @@ const LECTURES = [
   'fabriques',
   'horizon',
   'motifs/perso',
+  // Le banc d'ombre : modèles comparés, dépense et titres des ombres du projet.
+  'banc-ombre',
+  // Le graphe d'expérience du projet : une lecture, gardée comme les autres
+  // (`lectureProjetPermise`), et isolée à ce projet quel que soit le réglage
+  // de fédération.
+  'experience',
 ];
 
 describe('lire un projet avec un COMPTE, sans le jeton de ruche', () => {

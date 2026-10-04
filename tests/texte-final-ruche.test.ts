@@ -52,6 +52,7 @@ import { leconsCroisees, signatureEchec } from '../src/orchestrator/essaim.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 import { HiveStore } from '../src/orchestrator/store.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const FIXTURES = path.join(import.meta.dirname, 'fixtures', 'texte-final');
 const fixture = (nom: string): string => readFileSync(path.join(FIXTURES, nom), 'utf8');
@@ -100,27 +101,21 @@ async function ruche(opts: { simulation: boolean; tickMs: number }): Promise<Hiv
 
 async function noeud(srv: HiveServer, nodeId: string, agentType: string) {
   const recues: Assignation[] = [];
-  const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-  sockets.push(ws);
-  ws.on('message', (data) => {
-    const m = JSON.parse(data.toString()) as Assignation;
-    if (m.type === 'assign_task') recues.push(m);
-  });
-  await new Promise<void>((r, j) => {
-    ws.once('open', () => r());
-    ws.once('error', j);
-  });
-  ws.send(
-    JSON.stringify({
-      type: 'register',
+  const { ws } = await brancherFauxNoeud<Assignation>(
+    srv.port,
+    {
       token: TOKEN,
       name: nodeId,
       ownerName: 'test',
       agentType,
       maxConcurrency: 1,
       nodeId,
-    }),
+    },
+    (m) => {
+      if (m.type === 'assign_task') recues.push(m);
+    },
   );
+  sockets.push(ws);
   return { ws, recues };
 }
 
@@ -441,6 +436,9 @@ describe.skipIf(process.platform === 'win32')(
           "'use strict';",
           "const fs = require('node:fs');",
           "const path = require('node:path');",
+          // La sonde des efforts du nœud (`claude --help`, au démarrage) n'est
+          // pas une tentative : comme le vrai CLI, l'aide sort sans prompt.
+          "if (process.argv.includes('--help')) { process.stdout.write('Usage: claude\\n'); process.exit(0); }",
           `const compteur = path.join(${JSON.stringify(faux)}, 'appels');`,
           "const n = fs.existsSync(compteur) ? Number(fs.readFileSync(compteur, 'utf8')) + 1 : 1;",
           'fs.writeFileSync(compteur, String(n));',

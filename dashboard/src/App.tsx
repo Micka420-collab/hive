@@ -24,6 +24,7 @@ import {
 import type { AuthUser } from './api';
 import { AccountPanel, EVENT_OUVRIR_COMPTE } from './AccountPanel';
 import { ChoixDuTheme } from './ChoixDuTheme';
+import { Compagnon } from './Compagnon';
 import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
 import { NewProjectModal } from './NewProjectModal';
@@ -382,6 +383,8 @@ export function App() {
             'delegation_rejected',
             'delegation_result',
             'delegation_cancelled',
+            'delegation_budget_exhausted',
+            'routage_consigne',
             'task_requeued',
             'task_retry',
             // Verdict humain persisté (émis APRÈS l'écriture) : la raison jointe
@@ -394,13 +397,17 @@ export function App() {
             // la nouvelle bande appliquée sans attendre le prochain poll.
             'thermo_shift',
             // Le Conseil et la War Room : un conseil réuni, clos ou tranché par
-            // un AUTRE opérateur, un renvoi refusé qui laisse une contestation
-            // en suspens, la revue humaine qui la lève — les panneaux qui le
-            // montrent se relisent.
+            // un AUTRE opérateur, ce qui laisse une production en attente d'un
+            // humain (un renvoi refusé, une relecture impossible), et ce qui
+            // la lève (la revue humaine, un forçage de l'Evaluator, le renvoi
+            // `task_retry` listé plus haut) — les panneaux qui le montrent se
+            // relisent, sans attendre le prochain poll.
             'council_opened',
             'council_closed',
             'council_decided',
             'evaluator_retry_skipped',
+            'contre_expertise_impossible',
+            'evaluator_overridden',
             'task_reviewed',
           ].includes(ev.type)
         ) {
@@ -723,6 +730,17 @@ export function App() {
             </li>
           ))}
         </ul>
+        {/* Le compagnon habite la barre, pas un calque sur les vues : il ne
+            couvre jamais le contenu (voir `Compagnon.tsx`). Il relit les
+            comptes que la barre affiche déjà — jamais un second calcul. */}
+        <Compagnon
+          connecte={connected}
+          tasks={snapshot.tasks}
+          aRevoir={pendingReviews}
+          pastille={pastille}
+          events={events}
+          userId={user?.id ?? null}
+        />
         <div
           className="mc-sidebar-pulse"
           title={t('Pouls de la ruche (débit/h)', 'Hive pulse (throughput/h)')}

@@ -25,9 +25,12 @@ import { detectAllAgents, detectBestAgent } from '../src/node-client/agent-detec
 import {
   DRAPEAU_UNE_OUVRIERE,
   ENTREES,
+  ENTREES_COMPILEES,
   type Piece,
   type PlanOuvrieres,
+  ORDRE_ARRET,
   SCRIPTS,
+  aUnCanal,
   adresseAnnoncee,
   annonceNonConnectes,
   annonceOuvrieres,
@@ -36,6 +39,7 @@ import {
   derniereLigne,
   entreesAbsentes,
   envDePiece,
+  estOrdreArret,
   largeurEtiquettes,
   pieces,
   planOuvrieres,
@@ -236,6 +240,46 @@ describe('LES CHEMINS VISÉS EXISTENT VRAIMENT', () => {
     for (const rel of [...Object.values(SCRIPTS), ...Object.values(ENTREES)]) {
       expect(path.isAbsolute(rel), rel).toBe(false);
     }
+  });
+});
+
+describe('LES ENTRÉES COMPILÉES — ce que lance l’application de bureau (ADR 0013)', () => {
+  it('chaque entrée compilée est l’image de sa source par `tsconfig.build.json` (src → dist, .ts → .js)', () => {
+    // L'app n'embarque ni `tsx` ni `src/` : un chemin compilé qui ne serait
+    // pas l'image exacte de la source viserait un fichier absent du paquet,
+    // et la Reine ne démarrerait QUE dans l'app — là où aucun banc ne passe.
+    for (const [nom, source] of Object.entries(ENTREES)) {
+      const attendu = source.replace(/^src/, 'dist').replace(/\.ts$/, '.js');
+      expect(ENTREES_COMPILEES[nom as keyof typeof ENTREES_COMPILEES], nom).toBe(attendu);
+    }
+  });
+
+  it('`compile` lance l’entrée directement, sans le lanceur `tsx` — même composition sinon', () => {
+    const source = pieces(NODE, { hub: true, noeud: true });
+    const compile = pieces(NODE, { hub: true, noeud: true }, PORT_PAR_DEFAUT, undefined, 'compile');
+    expect(compile.map((p) => p.argv)).toEqual([
+      [ENTREES_COMPILEES.hub],
+      [ENTREES_COMPILEES.noeud],
+    ]);
+    // Rien d'autre ne bouge : noms, rôles, liens à la Reine, canaux.
+    const sansArgv = (l: Piece[]) => l.map(({ argv: _argv, ...reste }) => reste);
+    expect(sansArgv(compile)).toEqual(sansArgv(source));
+  });
+
+  it('`compile` vaut aussi pour chaque ouvrière d’un essaim par agent', () => {
+    const plan: PlanOuvrieres = {
+      mode: 'par-agent',
+      modelesDeclaresPar: null,
+      ouvrieres: [
+        { agent: 'claude-code', ajoutee: false, env: { HIVE_AGENT: 'claude-code' } },
+        { agent: 'codex', ajoutee: true, env: { HIVE_AGENT: 'codex' } },
+      ],
+    };
+    const liste = pieces(NODE, { hub: true, noeud: true }, PORT_PAR_DEFAUT, plan, 'compile');
+    expect(liste.filter((p) => p.ouvriere).map((p) => p.argv)).toEqual([
+      [ENTREES_COMPILEES.noeud],
+      [ENTREES_COMPILEES.noeud],
+    ]);
   });
 });
 
@@ -565,6 +609,19 @@ describe('UNE OUVRIÈRE PAR AGENT DÉTECTÉ — la relecture croisée sur le che
     const sans = await planPour(['claude-code', 'codex']);
     expect(sans.mode === 'par-agent' && sans.modelesDeclaresPar).toBeNull();
   });
+
+  it('UNE SEULE se signale sur le réseau local — les ajoutées reçoivent `HIVE_DECOUVRABLE` VIDE', async () => {
+    // Chaque ouvrière qui se signale ouvre sa propre annonce : la Reine
+    // listait la même machine une fois par famille, chacune se disant
+    // porteuse de tous les agents. Vide et posé, pour que `loadEnvFile` ne
+    // rende pas le `HIVE_DECOUVRABLE=1` du `.env`.
+    const [premiere, codex, cursor] = ouvrieresDe(
+      await planPour(['claude-code', 'codex', 'cursor'], { HIVE_DECOUVRABLE: '1' }),
+    );
+    expect(premiere?.env).not.toHaveProperty('HIVE_DECOUVRABLE');
+    expect(codex?.env).toHaveProperty('HIVE_DECOUVRABLE', '');
+    expect(cursor?.env).toHaveProperty('HIVE_DECOUVRABLE', '');
+  });
 });
 
 describe('UNE OUVRIÈRE PAR AGENT — ce que le lanceur en fait', () => {
@@ -877,6 +934,19 @@ describe('la mort d’une pièce — la Reine emporte la ruche, une ouvrière no
     expect(derniereLigne(['x'.repeat(1_000)], null)).toHaveLength(400);
   });
 
+  it('une exception non rattrapée se cite par son MESSAGE, pas par sa pile ni la version de Node', () => {
+    const pile = [
+      'Error: base illisible',
+      '    at ouvrir (file:///hive/dist/db.js:12:9)',
+      '    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)',
+      '',
+      'Node.js v24.15.0',
+    ];
+    expect(derniereLigne(pile, null)).toBe('Error: base illisible');
+    // La pile arrive souvent dans un lot à part : le message du lot d'avant reste.
+    expect(derniereLigne(pile.slice(1), 'Error: base illisible')).toBe('Error: base illisible');
+  });
+
   it('un agent non connecté se DIT dans la bannière — aucune ouvrière pour lui', () => {
     expect(annonceNonConnectes([])).toEqual([]);
     const [ligne] = annonceNonConnectes([
@@ -884,5 +954,36 @@ describe('la mort d’une pièce — la Reine emporte la ruche, une ouvrière no
     ]);
     expect(ligne).toMatch(/^⚠ Cursor est installé mais non connecté/);
     expect(ligne).toContain('Aucune ouvrière ne le fait travailler.');
+  });
+});
+
+describe('L’ORDRE D’ARRÊT — le seul arrêt propre d’une pièce sous Windows', () => {
+  // Sous Windows, `kill('SIGTERM')` est un `TerminateProcess` : la Reine et
+  // l'ouvrière mouraient sans qu'une ligne de leur code tourne, et les agents
+  // d'une ouvrière lui survivaient. Elles reçoivent l'ordre par leur canal ;
+  // `tests/noeud-arret-signal.test.ts` l'éprouve de bout en bout.
+  it('la Reine et CHAQUE ouvrière ont un canal ; l’écran, qui n’en comprend aucun, non', async () => {
+    const liste = pieces(NODE, {}, PORT_PAR_DEFAUT, await planPour(['claude-code', 'codex']));
+    const avecCanal = liste.filter(aUnCanal).map((p) => p.nom);
+    expect(avecCanal).toEqual(['reine', 'ouvrière claude-code', 'ouvrière codex']);
+    expect(liste.filter((p) => !aUnCanal(p)).map((p) => p.nom)).toEqual(['écran']);
+    // Une ouvrière seule, sans Reine lancée ici, l'a aussi : le lanceur est
+    // toujours celui qui l'arrête.
+    expect(pieces(NODE, { noeud: true }).every(aUnCanal)).toBe(true);
+  });
+
+  it('seul l’ordre d’arrêt est un ordre d’arrêt — l’annonce de la Reine n’en est pas un', () => {
+    expect(estOrdreArret(ORDRE_ARRET)).toBe(true);
+    expect(estOrdreArret({ type: 'arret' })).toBe(true);
+    for (const message of [
+      undefined,
+      null,
+      'arret',
+      { type: 'reine-en-ligne', hote: '127.0.0.1', port: 7777 },
+      { type: 'ARRET' },
+      {},
+    ]) {
+      expect(estOrdreArret(message), JSON.stringify(message)).toBe(false);
+    }
   });
 });

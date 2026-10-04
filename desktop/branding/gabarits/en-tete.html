@@ -1,0 +1,23 @@
+<!doctype html>
+<!-- L'en-tête des pages intérieures de l'installeur Windows, 150 × 57. -->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      @font-face { font-family: 'Titre'; src: url('{{police-titre}}'); font-weight: 400 700; }
+      html, body { margin: 0; width: 150px; height: 57px; overflow: hidden; }
+      body {
+        background: linear-gradient(90deg, {{panneau}}, {{fond}});
+        color: {{texte}};
+        display: flex; align-items: center; gap: 10px; padding-left: 14px; box-sizing: border-box;
+        border-bottom: 3px solid {{miel}};
+      }
+      img { width: 36px; height: 36px; }
+      span { font: 700 22px/1 'Titre', sans-serif; letter-spacing: -0.01em; }
+    </style>
+  </head>
+  <body>
+    <img src="{{icone}}" alt="" />
+    <span>{{nom}}</span>
+  </body>
+</html>

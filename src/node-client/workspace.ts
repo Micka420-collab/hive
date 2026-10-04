@@ -2,7 +2,8 @@
 //
 // Ce que CE fichier fournit : un cwd dédié par tâche, un environnement épuré
 // (pas de HOME/USERPROFILE ni variables du membre), TEMP redirigé dans la
-// tâche, une branche git `hive/<taskId>` quand le projet a un dépôt — et le
+// tâche, une branche git `hive/<taskId>` quand le projet a un dépôt (ou, pour
+// une reprise, la branche de la pull request qu'elle prolonge) — et le
 // diff de revue, calculé par le git dir de la RUCHE, jamais par le `.git` que
 // l'agent a eu entre les mains (`git-hote.ts`).
 //
@@ -27,9 +28,13 @@ import { mkdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { CLONE_MS } from '../shared/butoirs-noeud.js';
 import type { Task } from '../shared/types.js';
+import { segmentSur } from '../shared/noms-windows.js';
 import { EchecGitHote, commandeSshDuMembre, gitHote } from '../shared/git-protege.js';
+import { estBrancheDeLivraison } from '../shared/protocol.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import { commitDeDepart, diffContreBase, poserRegistre } from './git-hote.js';
+import { ecarterConfiguration, reserveDeConfiguration } from './configuration-inerte.js';
+import type { ConfigurationEcartee } from './configuration-inerte.js';
 
 export interface Workspace {
   /** Répertoire de travail isolé de la tâche. */
@@ -53,8 +58,24 @@ export interface Workspace {
   depot: DepotEpingle | null;
   /** Environnement épuré pour les processus enfants. */
   env: NodeJS.ProcessEnv;
-  /** Diff des modifications, pour revue humaine (vide sans dépôt git). */
+  /**
+   * La configuration d'agent du dépôt écartée de l'arbre pendant l'exécution
+   * (`configuration-inerte.ts`), relative à sa racine — vide s'il n'y avait
+   * rien à écarter. Le nœud le dit au journal de la tâche.
+   */
+  configurationEcartee: readonly string[];
+  /**
+   * Diff des modifications, pour revue humaine (vide sans dépôt git). Remet
+   * d'abord en place la configuration écartée : elle n'y paraît pas comme une
+   * suppression, et les validations qui suivent voient l'arbre entier.
+   */
   collectDiff(): Promise<string>;
+  /**
+   * Le diff d'une exécution EN COURS (Sandbox Live), sous le même verrou :
+   * la configuration écartée n'est PAS remise en place — l'agent la lirait —
+   * et ses chemins n'y figurent pas.
+   */
+  diffEnCours(): Promise<string>;
   /** Supprime le répertoire de la tâche. */
   cleanup(): void;
 }
@@ -169,10 +190,17 @@ export function buildSandboxEnv(cwd: string, keepEnv: string[] = []): NodeJS.Pro
  *
  * Limite, dite : c'est le processus LANCÉ qui est tué. Sous Windows, où le `git`
  * du PATH est d'ordinaire un lanceur, le vrai git peut lui survivre jusqu'à ce
- * que le dépôt ferme (mesuré, `tests/clone-borne.test.ts`) — la limite de tout
- * `child.kill()` du nœud. Le travail, lui, échoue à l'heure partout.
+ * que le dépôt ferme (mesuré, `tests/clone-borne.test.ts`) — `gitHote` tue son
+ * processus, pas son arbre (les agents et les commandes du dépôt, eux, partent
+ * en entier : `arbre-processus.ts`). Le travail échoue à l'heure partout.
  */
-export async function cloneRepo(dir: string, repoUrl: string, delaiMs = CLONE_MS): Promise<void> {
+export async function cloneRepo(
+  dir: string,
+  repoUrl: string,
+  delaiMs = CLONE_MS,
+  /** Cloner CETTE branche plutôt que la branche par défaut (une reprise). */
+  branche?: string,
+): Promise<void> {
   const parent = path.dirname(path.resolve(dir));
   // git crée lui-même les dossiers de `dir`, mais il se LANCE depuis `parent`
   // (`gitHote`) : absent, le clone mourait en « spawn git ENOENT ».
@@ -180,7 +208,13 @@ export async function cloneRepo(dir: string, repoUrl: string, delaiMs = CLONE_MS
   const ssh = await commandeSshDuMembre(parent);
   try {
     // `--` : une URL qui commencerait par un tiret ne devient pas une option.
-    await gitHote(['clone', '--depth', '1', '--', repoUrl, dir], parent, { ssh, delaiMs });
+    // `--branch=` d'un seul tenant, pour la même raison : la valeur ne peut
+    // pas être relue comme une option (`estBrancheDeLivraison` l'interdit déjà).
+    await gitHote(
+      ['clone', '--depth', '1', ...(branche ? [`--branch=${branche}`] : []), '--', repoUrl, dir],
+      parent,
+      { ssh, delaiMs },
+    );
   } catch (err) {
     if (!(err instanceof EchecGitHote && err.delaiDepasse)) throw err;
     const duree =
@@ -198,9 +232,21 @@ export async function prepareWorkspace(
   // (démo/tests locaux) peuvent exécuter la MÊME tâche en parallèle (Drone
   // Wars) sans se détruire mutuellement le répertoire.
   instanceId = '',
+  /**
+   * La tâche PROLONGE une livraison (`assign_task.prolonger`) : `task.branch`
+   * est la branche de sa pull request. On la clone et on travaille sur SA tête
+   * — le travail d'origine y est, et le diff rendu ne contient que la
+   * correction, exactement ce que la livraison posera par-dessus.
+   */
+  prolonger = false,
+  // Les chemins du dépôt que le CLI de l'agent EXÉCUTERAIT sans interrupteur
+  // pour l'en empêcher (`AgentAdapter.configurationExecutee`).
+  configurationAgent: readonly string[] = [],
 ): Promise<Workspace> {
   const tasksRoot = path.resolve(workRoot, 'tasks');
-  const dirName = instanceId ? `${task.id}-${instanceId}` : task.id;
+  // `segmentSur` : un id valide peut être un nom que Windows réserve (`aux`,
+  // `nul`…), et `mkdir` y viserait un périphérique (`shared/noms-windows.ts`).
+  const dirName = segmentSur(instanceId ? `${task.id}-${instanceId}` : task.id);
   const cwd = path.resolve(tasksRoot, dirName);
   // Confinement strict : le cwd DOIT rester sous <workRoot>/tasks. Défense en
   // profondeur contre un task.id malveillant (« ../… » ou chemin absolu) qui
@@ -220,22 +266,44 @@ export async function prepareWorkspace(
   rmSync(cwd, rmOpts);
   rmSync(`${cwd}.tmp`, rmOpts);
   rmSync(registre, rmOpts);
+  rmSync(reserveDeConfiguration(cwd), rmOpts);
   mkdirSync(cwd, { recursive: true });
 
   let branch: string | null = null;
   let baseSha: string | null = null;
   let depot: DepotEpingle | null = null;
+  // Revalidé ICI, au plus près du clone, comme le chemin de la tâche : le
+  // protocole l'a déjà refusé, mais c'est ce nom qui part à `git clone`.
+  if (prolonger && !estBrancheDeLivraison(task.branch)) {
+    throw new Error(`branche de livraison invalide pour une reprise : ${task.id}`);
+  }
+  let ecartee: ConfigurationEcartee | null = null;
   if (repoUrl) {
     // Le clone exige un répertoire vide : il précède toute écriture dans cwd.
     // Tout ce qui suit, jusqu'à `poserRegistre`, se passe AVANT l'agent, dans
     // un dépôt que seul git a écrit.
-    await cloneRepo(cwd, repoUrl);
     const depotDuClone = { gitDir: path.join(cwd, '.git'), workTree: cwd };
-    // Une tâche = une branche isolée. Jamais de travail direct sur main (§5.2).
-    branch = task.branch ?? `hive/${task.id}`;
-    await gitHote(['checkout', '-q', '-b', branch], depotDuClone);
+    if (prolonger && task.branch) {
+      // ─── UNE REPRISE CONTINUE LA BRANCHE DE SA PR ─────────────────────────
+      // Le clone était celui de la branche par défaut, suivi d'un `checkout
+      // -b` : l'ouvrière d'une reprise n'avait PAS le travail de la PR qu'on
+      // lui demandait de corriger, et son diff ne pouvait devenir qu'une
+      // seconde PR. Cloner la branche la laisse extraite à sa tête ; la base
+      // épinglée est cette tête.
+      await cloneRepo(cwd, repoUrl, CLONE_MS, task.branch);
+      branch = task.branch;
+    } else {
+      await cloneRepo(cwd, repoUrl);
+      // Une tâche = une branche isolée. Jamais de travail direct sur main (§5.2).
+      branch = task.branch ?? `hive/${task.id}`;
+      await gitHote(['checkout', '-q', '-b', branch], depotDuClone);
+    }
     baseSha = await commitDeDepart(depotDuClone);
     depot = await poserRegistre(cwd, registre, baseSha);
+    // APRÈS le registre, qui copie index et configuration sans l'extraction
+    // clairsemée ; AVANT l'agent, tant que le `.git` de la tâche n'a été écrit
+    // que par git.
+    ecartee = await ecarterConfiguration(depotDuClone, configurationAgent);
   }
 
   const env = buildSandboxEnv(cwd, keepEnv);
@@ -246,21 +314,33 @@ export async function prepareWorkspace(
     baseSha,
     depot,
     env,
-    collectDiff(): Promise<string> {
+    configurationEcartee: ecartee?.chemins ?? [],
+    async collectDiff(): Promise<string> {
+      ecartee?.remettre();
       // Par le registre, jamais par le `.git` de la tâche : c'est l'agent qui
       // l'a eu entre les mains (git-hote.ts). CONTRE LA BASE ÉPINGLÉE, pas
       // contre l'index : ce que l'agent a `git add` ou committé reste dans la
       // revue, la livraison et le merge. Sous le verrou du registre : un diff
       // demandé en direct croise celui du résultat ou les validations.
-      if (!depot) return Promise.resolve('');
+      if (!depot) return '';
       const epingle = depot;
       return sousVerrouIndex(epingle, () => diffContreBase(epingle, baseSha));
+    },
+    diffEnCours(): Promise<string> {
+      // L'agent tourne encore : sa configuration écartée RESTE écartée (la
+      // remettre lui rendrait les hooks du dépôt), et ses chemins sont tenus
+      // hors du diff, où ils se liraient comme des suppressions.
+      if (!depot) return Promise.resolve('');
+      const epingle = depot;
+      const exclus = ecartee?.chemins ?? [];
+      return sousVerrouIndex(epingle, () => diffContreBase(epingle, baseSha, exclus));
     },
     cleanup(): void {
       try {
         rmSync(cwd, rmOpts);
         rmSync(`${cwd}.tmp`, rmOpts);
         rmSync(registre, rmOpts);
+        rmSync(reserveDeConfiguration(cwd), rmOpts);
       } catch {
         // Fichier verrouillé (Windows) : le prochain run de la tâche nettoiera.
       }

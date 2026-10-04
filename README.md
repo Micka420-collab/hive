@@ -8,9 +8,9 @@
 # 🐝 Hive
 
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
-![Node](https://img.shields.io/badge/node-%E2%89%A5%2024-F6C445?labelColor=17130C)
+![Node](https://img.shields.io/badge/node-%E2%89%A5%2024.18-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-7167%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-8336%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -89,10 +89,16 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   sans fermeture est éprouvé sur le vrai client et de vraies sockets
   (`tests/noeud-veille.test.ts`) : le nœud détecte la connexion morte par
   ping/pong au lieu d'attendre TCP
-  ([#437](https://github.com/Micka420-collab/hive/pull/437)). Sous Linux et
-  macOS, hors mode conteneur, un nœud arrêté par SIGTERM (`npm run ruche`,
-  systemd, `kill`) annule ses agents en cours au lieu de les laisser tourner
-  orphelins ([#468](https://github.com/Micka420-collab/hive/pull/468)).
+  ([#437](https://github.com/Micka420-collab/hive/pull/437)). Un nœud qui
+  s'arrête (Ctrl+C, SIGTERM de `npm run ruche`, de systemd ou d'un `kill`,
+  terminal fermé) emporte l'**arbre** de chaque agent, merge, chantier et
+  validation en cours, sous-processus compris, au lieu de le laisser tourner
+  orphelin ([#468](https://github.com/Micka420-collab/hive/pull/468)) : groupe
+  de processus sous Linux et macOS, `taskkill /T` sous Windows, où
+  `npm run ruche` arrête ses pièces par leur canal IPC puisqu'un SIGTERM y tue
+  net. Éprouvé sur les trois systèmes avec de vrais processus, côté nœud
+  (`tests/arbre-processus.test.ts`, `tests/noeud-arret-signal.test.ts`) ;
+  l'envoi de l'ordre par `npm run ruche` sous Windows ne l'est pas encore.
 
 - **Sécurité** :
   - les identifiants des dépôts privés ne sortent plus vers l'essaim
@@ -159,13 +165,26 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   un faux binaire, pas encore contre le CLI réel ; celle des jetons de Codex
   est enregistrée sur le vrai codex-cli 0.156.0, mais contre un faux
   fournisseur local, pas sur un vrai run payé ;
-- l'arrêt d'un nœud en **mode conteneur** et **sous Windows** : l'agent peut
-  survivre à son nœud (conteneur lancé sans `--init`, `TerminateProcess` sous
-  Windows), comme les merges et chantiers en cours et les sous-processus
-  qu'un agent lance lui-même ;
-- l'apprentissage : le routing apprend toujours des seules contre-visites ;
-  y faire entrer les autres faits du registre Genome est une décision de
-  pondération, pas encore prise ;
+- un nœud tué **net** (`kill -9`, ou sous Windows un `TerminateProcess` qui ne
+  vient pas de `npm run ruche` — l'arrêt de la tâche planifiée de
+  `hive service` compris) : ses agents sans bac lui survivent jusqu'à leur
+  propre fin, ses conteneurs jusqu'à son redémarrage. Et le bac conteneur hors
+  Linux, que la CI n'exerce pas : la matrice systèmes × bacs est dans
+  [docs/INSTALLATION.md](docs/INSTALLATION.md) ;
+- l'apprentissage : la qualité apprise vient toujours des seules
+  contre-visites ; y faire entrer les autres faits du registre Genome — et les
+  comparaisons du [banc d'ombre](docs/BANC-OMBRE.md), qui mesure deux modèles
+  sur la même tâche sans toucher au routing — est une décision de pondération,
+  pas encore prise. Depuis l'Aiguillage v3, un modèle
+  neuf part d'un a priori fini (plus de choix d'office), chaque bras (modèle ×
+  agent × effort) hérite du vécu de son modèle, et le coût déclaré n'entre
+  dans le score que si TOUS les bras comparés en déclarent un (poids repris de
+  LiteLLM, non calibrés) ; l'effort n'est commandé qu'à Claude Code, le seul
+  CLI qui documente ses niveaux (sondés sur le binaire installé). Prix connu :
+  chaque modèle Claude s'offre à six efforts (défaut du CLI, puis low → max),
+  les efforts jamais jugés d'un bon modèle sont explorés tour à tour — `xhigh`
+  et `max` compris — et le coût reste hors du score tant qu'ils ne le sont
+  pas tous ; le CLI accepte aussi un effort pour un modèle qui l'ignore ;
 - une contre-expertise croisée sur un vrai run : une ouvrière par famille est
   éprouvée avec de vrais processus et de faux agents, pas encore avec Claude
   Code relu par Codex ;
@@ -199,7 +218,8 @@ diffs produits sont factices, et l'installeur comme la Reine le disent.
 Captures de l'écran réel (`npm run ruche`), pas de maquettes.
 Chaque vue de la barre, la Chambre et un tiroir de tâche, sur bureau et sur
 mobile, se rephotographient en une commande sur une ruche de laboratoire :
-`npm run captures` ([docs/CAPTURES.md](docs/CAPTURES.md)).
+`npm run captures` ([docs/CAPTURES.md](docs/CAPTURES.md)). Qui tranche quoi
+quand les IA se contredisent : [docs/PROTOCOLE-DEBAT.md](docs/PROTOCOLE-DEBAT.md).
 
 <p align="center">
   <img src="docs/images/vitrine.png" width="840" alt="Vitrine Hive — page d'accueil crème, miel en accent, hexagones.">
@@ -215,6 +235,9 @@ mobile, se rephotographient en une commande sur une ruche de laboratoire :
 </p>
 <p align="center">
   <img src="docs/images/dashboard-chambre.png" width="840" alt="Tableau de bord — Chambre, poste ouvrière baptisée Capucine, bandeau À trancher, abeille et fleur.">
+</p>
+<p align="center">
+  <img src="docs/images/captures/warroom.bureau.png" width="840" alt="War Room — désaccords non résolus (contestation aux essais épuisés, relecture impossible, Conseil à trancher) et les voix du fil ; protocole : docs/PROTOCOLE-DEBAT.md.">
 </p>
 <p align="center">
   <a href="docs/media/chambre-presentation-demo.mp4">Vidéo — parcours Chambre (FR)</a>
@@ -236,6 +259,21 @@ mobile, se rephotographient en une commande sur une ruche de laboratoire :
 
 ## ⚡ Installation
 
+**L'application de bureau** — la plus simple : un installeur par système,
+sans Node ni terminal. La Reine, une ouvrière par agent connecté et Mission
+Control dans une fenêtre, avec barre système et mises à jour automatiques.
+
+| Windows                | macOS                               | Linux                                                 |
+| ---------------------- | ----------------------------------- | ----------------------------------------------------- |
+| `Hive-Setup-X.Y.Z.exe` | `Hive-X.Y.Z-arm64.dmg` / `-x64.dmg` | `hive_X.Y.Z_amd64.deb` · `Hive-X.Y.Z-x86_64.AppImage` |
+
+Téléchargement : les [Releases](https://github.com/Micka420-collab/hive/releases).
+Tant que les paquets ne sont pas signés, SmartScreen et Gatekeeper préviennent
+— comment passer, où vivent les données, désinstaller :
+**[docs/APPLICATION.md](docs/APPLICATION.md)**.
+
+**Par un terminal** (Node ≥ 24.18) — pour un serveur, un développeur, une ouvrière :
+
 ```bash
 # Linux · macOS
 curl -fsSL https://raw.githubusercontent.com/Micka420-collab/hive/main/install.sh | sh
@@ -254,10 +292,11 @@ irm https://raw.githubusercontent.com/Micka420-collab/hive/main/install.ps1 -Out
 #   powershell -NoProfile -ExecutionPolicy Bypass -File .\hive-install.ps1
 ```
 
-Le script vérifie Node (≥ 24), récupère Hive, installe les dépendances et pose
-**au plus trois questions**. Jamais de `sudo`, rien hors de son dossier —
-`--dry-run` montre tout sans rien créer. Lancé comme fichier, il affiche son
-empreinte SHA-256 (ADR 0002). Pages publie `install.sh`, `install.ps1` et
+Le script vérifie Node (≥ 24.18 ; sous Linux, glibc ≥ 2.34 : Ubuntu 22.04+,
+Debian 12+ — [pourquoi](docs/INSTALLATION.md#pourquoi-node-2418-et-pas-moins)),
+récupère Hive, installe les dépendances et pose **au plus trois questions**.
+Jamais de `sudo`, rien hors de son dossier — `--dry-run` montre tout sans rien
+créer. Lancé comme fichier, il affiche son empreinte SHA-256 (ADR 0002). Pages publie `install.sh`, `install.ps1` et
 `install.sha256` ; une **Release GitHub signée** reste hors d’atteinte (comptes
 humains) — l’empreinte Pages protège du pipe aveugle, pas d’un dépôt compromis.
 
@@ -394,7 +433,9 @@ Avec **podman**, **docker** ou **bubblewrap**, l'agent ne voit que le répertoir
 de sa tâche lorsque le fournisseur et l’image ont passé le preflight. **Le
 réseau reste ouvert** : un agent de codage doit joindre l'API de son modèle.
 Sans moteur de conteneurs, posez `HIVE_ISOLEMENT=exige` — le nœud refusera de
-travailler à découvert.
+travailler à découvert. Ce que la CI prouve, système par système et bac par bac
+(Linux, macOS, Windows × sans bac, bubblewrap, Podman, Docker) :
+[docs/INSTALLATION.md](docs/INSTALLATION.md), « Systèmes et bacs à sable ».
 
 L'image par défaut, `localhost/hive-agent:local` (Claude Code, Codex, Cline), se
 construit sur chaque nœud par `npm run bac:image` ; Hive ne la télécharge
@@ -420,32 +461,51 @@ demander, et un `ANTHROPIC_BASE_URL` du dépôt recevait la clé du membre. Le
 `CLAUDE.md` et les `.claude/rules` du dépôt sont relus par Hive comme simples
 données, bornées, ajoutées au prompt système ; le journal de la tâche le dit.
 Choix assumé : hors du bac, les hooks et serveurs MCP **du membre** lui-même
-sont coupés aussi pour les tâches de la ruche.
+sont coupés aussi pour les tâches de la ruche. Codex, lui, voit le dépôt comme
+non fiable (ni son `.codex/config.toml`, ni ses crochets) ; son `AGENTS.md` lui
+est transmis de la même façon, en simple donnée bornée.
+
+Cursor et Cline n'ont pas de tel interrupteur : Cursor (`--force` vaut
+confiance du dossier) lance les hooks de `.cursor/hooks.json` et ceux, au format
+Claude, de `.claude/settings.json` et `.claude/settings.local.json` ; Cline lance
+ceux de `.clinerules/hooks/` et `.cline/hooks/` et charge `.cline/plugins/`
+comme du code. Le nœud écarte donc ces chemins de l'arbre de la tâche avant
+l'agent — sur tous les systèmes, bac ou pas — et les remet avant le diff : ils
+n'y apparaissent pas comme des suppressions. Une extraction clairsemée tient
+ces chemins hors de l'arbre pour le git de l'agent : `checkout`, `reset
+--hard`, `stash`, `pull --rebase` ne les ramènent pas, pas même dans une
+version poussée après l'envoi — seul un `checkout <révision> -- <chemins>`
+explicite de l'agent les réécrit, comme s'il les écrivait lui-même. Le journal
+de la tâche le dit ; si l'écartement échoue, la tâche est refusée avant l'agent, raison à l'appui.
 
 ## 🛠️ Commandes
 
-| Commande                                      | Effet                                                                                                                                                                         |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `npm run ruche`                               | **Tout en une commande** — Reine + une ouvrière par agent installé + écran                                                                                                    |
-| `npm run ruche -- --une-ouvriere`             | Une seule ouvrière, même si plusieurs agents sont installés                                                                                                                   |
-| `npm run demo`                                | Démo complète (orchestrateur + 2 nœuds + projet)                                                                                                                              |
-| `npm run dev`                                 | Orchestrateur seul                                                                                                                                                            |
-| `npm run node`                                | Un nœud membre                                                                                                                                                                |
-| `npm run cli -- doctor`                       | **Le docteur** — 13 causes de panne, et la commande qui répare                                                                                                                |
-| `npm run preuve:v2-alpha -- --racine . --oui` | **La preuve V2 Alpha** — une vraie mission confiée à un vrai agent, jugée critère par critère une fois réglée ; `--workers 3` pour l'essaim, `--exige-bac` pour exiger le bac |
-| `npm run cli -- livrer-local <projet>`        | **Livrer sans GitHub** — la mission commitée sur `hive/mission-<projet>-<n>` (`--pousser`)                                                                                    |
-| `npm run captures`                            | **Les captures** — chaque vue de la barre, la Chambre et un tiroir, bureau et mobile, sur une ruche de laboratoire                                                            |
-| `npm run cli -- sauvegarde`                   | Sauvegarde SQLite par `VACUUM INTO`                                                                                                                                           |
-| `npm run cli -- service`                      | Installer la ruche en service (systemd · launchd · tâche planifiée)                                                                                                           |
-| `npm test`                                    | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit                                                                                                  |
-| `npm run fusionner`                           | Porte la branche sur `main` en **avance rapide** — sans commit de fusion                                                                                                      |
-| `npm run lint`                                | ESLint + Prettier — zéro erreur exigé                                                                                                                                         |
-| `npm run loupe`                               | **La loupe** — le code neuf est-il défendu par ses tests ?                                                                                                                    |
+| Commande                                        | Effet                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `npm run ruche`                                 | **Tout en une commande** — Reine + une ouvrière par agent installé + écran                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `npm run ruche -- --une-ouvriere`               | Une seule ouvrière, même si plusieurs agents sont installés                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `npm run app:dev`                               | L'**application de bureau** depuis le dépôt (Electron) — voir [docs/APPLICATION.md](docs/APPLICATION.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `npm run app:dist:linux`                        | Les paquets de l'app (AppImage + .deb ; `:win` → .exe, `:mac` → .dmg) dans `desktop/release/`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `npm run demo`                                  | Démo complète (orchestrateur + 2 nœuds + projet)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `npm run dev`                                   | Orchestrateur seul                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `npm run node`                                  | Un nœud membre                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `npm run cli -- doctor`                         | **Le docteur** — 14 causes de panne, et la commande qui répare                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `npm run preuve:v2-alpha -- --racine . --oui`   | **La preuve V2 Alpha** — une vraie mission confiée à un vrai agent, jugée critère par critère une fois réglée ; `--workers 3` pour l'essaim, `--exige-bac` pour exiger le bac                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `npm run boucle:v3 -- --racine . --mission "…"` | **La boucle Hive → Hive (V3)** — Hive se confie une mission sur son propre dépôt : architecture, implémentation relue par une autre famille, porte des changements sensibles, QA de cette production exacte, puis une PR (jamais main) qui porte son rapport de risques ; une production qui touche sécurité, permissions, secrets, déploiement, facturation, auto-exécution ou la porte elle-même — ou que personne d'une autre famille n'a relue — s'arrête AVANT la QA (code 75) jusqu'à ce qu'un humain l'approuve dans la Miellerie avec un compte propriétaire ou administrateur (le jeton de ruche ne valide pas), puis `--reprendre <projet>` ; ne fusionne jamais, rien n'est créé sans `--oui` |
+| `npm run cli -- livrer-local <projet>`          | **Livrer sans GitHub** — la mission commitée sur `hive/mission-<projet>-<n>` (`--pousser`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `npm run captures`                              | **Les captures** — chaque vue de la barre, la Chambre et un tiroir, bureau et mobile, sur une ruche de laboratoire                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `npm run cli -- sauvegarde`                     | Sauvegarde SQLite par `VACUUM INTO`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `npm run cli -- service`                        | Installer la ruche en service (systemd · launchd · tâche planifiée)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `npm test`                                      | La suite complète (vitest) — le compte vit dans le badge, en un seul endroit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `npm run fusionner`                             | Porte la branche sur `main` en **avance rapide** — sans commit de fusion                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `npm run lint`                                  | ESLint + Prettier — zéro erreur exigé                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `npm run loupe`                                 | **La loupe** — le code neuf est-il défendu par ses tests ?                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 ## 📚 Documentation
 
 | Fichier                                                      | Ce qu'on y trouve                                        |
 | ------------------------------------------------------------ | -------------------------------------------------------- |
+| **[docs/APPLICATION.md](docs/APPLICATION.md)**               | L'app de bureau : installer, mettre à jour, signer       |
 | **[docs/INSTALLATION.md](docs/INSTALLATION.md)**             | Installer, désinstaller, service, conteneur, sauvegardes |
 | **[docs/CLOUD.md](docs/CLOUD.md)**                           | Community 0 € vs Cloud payant sur tes serveurs           |
 | **[docs/ATELIER.md](docs/ATELIER.md)**                       | Bureau de recette : écran, CDP, outils                   |
@@ -454,10 +514,12 @@ sont coupés aussi pour les tâches de la ruche.
 | **[docs/PROTECTION-BRANCHE.md](docs/PROTECTION-BRANCHE.md)** | Protéger `main` : les réglages exacts, et pourquoi       |
 | **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**       | Chaque partie en détail, avec ses arbitrages             |
 | **[docs/FEATURES.en.md](docs/FEATURES.en.md)**               | The same, in English                                     |
+| **[docs/BANC-OMBRE.md](docs/BANC-OMBRE.md)**                 | Comparer deux modèles sur une même tâche, sans livrer    |
 | **[docs/ERREURS.md](docs/ERREURS.md)**                       | Le journal des erreurs — par leçon, avec les règles      |
 | **[docs/ETAPES.md](docs/ETAPES.md)**                         | L'état réel du projet face à ses propres promesses       |
 | **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)**   | Quotas, abonnements, ce qui est facturé                  |
 | **[CHANGELOG.md](CHANGELOG.md)**                             | Ce qui a changé, version par version                     |
+| **[docs/RELEASING.md](docs/RELEASING.md)**                   | Versions, étiquettes, mettre à jour sans rien perdre     |
 
 ## 🤝 Contribuer
 

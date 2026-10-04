@@ -1,0 +1,27 @@
+{
+  // La coquille de l'application de bureau (ADR 0013) : le processus principal
+  // d'Electron, compilé vers `dist/`. Les préchargements sont en `.cjs` écrits à
+  // la main (`app/`) : un préchargement `sandbox` ne peut pas être un module ES.
+  //
+  // Le code de Hive n'est PAS compilé ici : il est chargé au démarrage depuis
+  // `RACINE_HIVE/dist` (le paquet ou le dépôt), et ce qu'on en appelle est
+  // décrit par `src/contrat-hive.ts` — un contrat que la vérification de types
+  // du dépôt compare aux vrais modules (`tests/bureau-contrat.test.ts`).
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2024"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "sourceMap": false
+  },
+  "include": ["src"]
+}

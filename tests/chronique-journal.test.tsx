@@ -146,7 +146,15 @@ describe('la Chronique — les deux vides, et la survivante du balayage', () => 
       projects: 1,
       nodesOnline: 1,
       nodesTotal: 1,
-      tasks: { pending: 0, ready: 0, assigned: 0, running: 0, done: eventId, failed: 0 },
+      tasks: {
+        pending: 0,
+        ready: 0,
+        assigned: 0,
+        running: 0,
+        done: eventId,
+        failed: 0,
+        cancelled: 0,
+      },
     });
     vi.mocked(fetchReplay).mockResolvedValue({
       frames: [image(1), image(2), image(3)],

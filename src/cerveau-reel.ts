@@ -30,6 +30,7 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -38,13 +39,16 @@ import {
   type Bornes,
   BORNES,
   type Note,
+  type OrigineEpisode,
   type Selection,
   aElaguer,
   analyser,
   contexte,
+  marquerServie,
   nomFichier,
   rendre,
   selectionner,
+  servies,
 } from './shared/cerveau.js';
 import { champSurUneLigne } from './shared/donnees-non-fiables.js';
 
@@ -168,14 +172,91 @@ export function ecrire(dossier: string, note: Note): string | null {
  * Le refus remonte tel quel. Un appelant qui l'ignore et colle une chaîne vide
  * enverra l'ouvrière travailler sans ses invariants ; c'est pour ça que
  * `Selection.refus` est rendu, et pas seulement journalisé ici.
+ *
+ * ─── ET ELLE DIT QUEL ÉPISODE A SERVI ────────────────────────────────────────
+ *
+ * `serviLe` était documenté « la dernière fois que cette note a servi », et
+ * l'élagage des épisodes se règle dessus — mais personne ne l'écrivait hors
+ * d'une récurrence. Un épisode injecté chaque jour partait donc à 90 jours
+ * comme s'il n'avait jamais été lu. C'est ici que la note sert : c'est donc
+ * ici qu'on l'écrit — sur les ÉPISODES seulement (`marquerServies`).
+ *
+ * ─── ET SEULES LES NOTES ADMISES POUR CETTE TÂCHE ENTRENT EN COMPTE ─────────
+ *
+ * `admise` écarte, AVANT la sélection, ce que cette tâche n'a pas le droit de
+ * lire — un épisode né d'un projet privé qui n'est pas le sien (#527). Écarter
+ * après coup laisserait la note prendre le budget d'une autre.
  */
 export function pourLaTache(
   dossier: string,
   tache: string,
   budget = 12_000,
+  maintenant: string = new Date().toISOString(),
+  admise: (note: Note) => boolean = () => true,
 ): { readonly bloc: string; readonly selection: Selection } {
-  const selection = selectionner(lire(dossier), tache, budget);
-  return { bloc: contexte(selection, budget), selection };
+  const selection = selectionner(lire(dossier).filter(admise), tache, budget);
+  const bloc = contexte(selection, budget);
+  marquerServies(dossier, servies(selection, bloc), maintenant);
+  return { bloc, selection };
+}
+
+/**
+ * Pose `serviLe` sur les ÉPISODES qu'une tâche vient de RECEVOIR — au plus une
+ * écriture par note et par jour (UTC).
+ *
+ * ─── POURQUOI LES ÉPISODES SEULEMENT ─────────────────────────────────────────
+ *
+ * Ce sont les seules notes que `serviLe` protège : l'élagage ne touche jamais
+ * une règle (`aElaguer`). Les invariants, leçons et décisions s'écrivent à la
+ * main, dans Obsidian, dans le dossier dont `git diff` doit montrer ce que la
+ * ruche a APPRIS : y réécrire une ligne chaque jour sur chaque note servie en
+ * ferait du bruit — et une écriture concurrente d'un éditeur ouvert. Leur
+ * « jamais servie » à la vue Cerveau reste ce qu'il était ; le dire vrai
+ * demandera un fait hors du fichier, pas une réécriture de la note humaine.
+ *
+ * ─── POURQUOI LE JOUR, ET PAS L'INSTANT ──────────────────────────────────────
+ *
+ * `pourLaTache` tourne à chaque assignation ET à chaque re-livraison d'une
+ * tâche muette : réécrire les invariants à chaque tick ferait du dossier une
+ * source d'écritures continues, et de son `git diff` un bruit quotidien. La
+ * borne d'élagage se compte en JOURS (`joursSansServir`) : une précision plus
+ * fine n'achèterait rien.
+ *
+ * ─── UNE ÉCRITURE QUI ÉCHOUE NE PRIVE PERSONNE DE SON CONTEXTE ───────────────
+ *
+ * Un dossier en lecture seule, un fichier verrouillé par un éditeur : la note
+ * a quand même servi, et l'ouvrière doit partir avec. Le seul prix est celui
+ * d'avant ce correctif — un épisode élagué sur son âge plutôt que sur son
+ * usage — et il se paie note par note, jamais pour toute la tâche.
+ */
+function marquerServies(dossier: string, notes: readonly Note[], maintenant: string): void {
+  const jour = maintenant.slice(0, 10);
+  for (const note of notes) {
+    if (note.genre !== 'episode' || note.serviLe?.slice(0, 10) === jour) continue;
+    const c = cheminDe(dossier, note.id);
+    if (c === null) continue;
+    // Même garde que `lire` : un lien symbolique posé là depuis n'est pas
+    // suivi, même pour une seule ligne.
+    const st = lstatOuNull(c);
+    if (st === null || !st.isFile()) continue;
+    // Écrite À CÔTÉ puis renommée : un lien symbolique glissé là entre la
+    // garde et l'écriture est REMPLACÉ, jamais suivi, et un lecteur (l'humain
+    // dans Obsidian, `lire` d'une tâche voisine) ne voit jamais une note à
+    // moitié écrite. Le suffixe n'est pas `.md` : `lire` l'ignore.
+    const temporaire = `${c}.${process.pid}.serviLe.tmp`;
+    try {
+      const marque = marquerServie(readFileSync(c, 'utf8'), maintenant);
+      if (marque === null) continue;
+      writeFileSync(temporaire, marque, { encoding: 'utf8', flag: 'wx' });
+      renameSync(temporaire, c);
+    } catch {
+      try {
+        rmSync(temporaire, { force: true });
+      } catch {
+        // Un reste de fichier temporaire ne prive personne : `lire` l'ignore.
+      }
+    }
+  }
 }
 
 /**
@@ -221,16 +302,33 @@ export interface EpisodeEnregistre {
  * comprendre POURQUOI, et une règle fausse coûte plus cher que pas de règle —
  * parce qu'elle est SUIVIE. La ruche accumule donc la matière et signale
  * quand elle est mûre ; l'écriture de la règle reste un geste délibéré.
+ *
+ * `origine` est REQUISE : un épisode sans auteur ni production ne dit pas qui
+ * refaire, ni sur quelle pièce vérifier. L'en-tête garde la plus récente ; le
+ * journal de l'appelant (`cerveau_episode`) garde chacune.
+ *
+ * ─── UN PROJET PRIVÉ A SES PROPRES ÉPISODES ─────────────────────────────────
+ *
+ * `cloison` (l'identifiant d'un projet PRIVÉ) entre dans la clé de
+ * dédoublonnage : la même panne vue dans deux projets privés fait deux notes,
+ * jamais une note dont le corps viendrait de l'un et l'attribution de l'autre.
+ * Sans cloison, la panne reste dédoublonnée pour toute la ruche (#527).
  */
 export function enregistrerEpisode(
   dossier: string,
-  echec: { readonly signature: string; readonly titre: string; readonly detail: string },
+  echec: {
+    readonly signature: string;
+    readonly titre: string;
+    readonly detail: string;
+    readonly origine: OrigineEpisode;
+    readonly cloison?: string;
+  },
   maintenant: string = new Date().toISOString(),
 ): EpisodeEnregistre | null {
   const sig = echec.signature.trim();
   if (sig === '') return null;
 
-  const id = idEpisode(sig);
+  const id = idEpisode(echec.cloison === undefined ? sig : `${echec.cloison}\n${sig}`);
   const existante = lire(dossier).find((n) => n.id === id);
   const note: Note = {
     id,
@@ -246,10 +344,41 @@ export function enregistrerEpisode(
     // Une panne qui revient AUJOURD'HUI est du savoir vivant : elle ne doit
     // pas être élaguée pour cause d'ancienneté.
     serviLe: maintenant,
+    origine: echec.origine,
   };
   return ecrire(dossier, note) === null
     ? null
     : { id, recurrences: note.recurrences, nouveau: existante === undefined };
+}
+
+/**
+ * Retire les ÉPISODES nés d'un projet qu'on supprime (#527) — rend leurs
+ * identifiants.
+ *
+ * Un épisode porte les mots d'un échec : objections d'un relecteur, rejet de
+ * l'Evaluator, titre de la tâche. Un projet supprimé « n'existe plus nulle
+ * part » : ses épisodes non plus. Le projet se lit dans l'en-tête
+ * (`origine.projectId`) ; un épisode écrit avant lui se reconnaît à sa tâche
+ * (`taches`, relevées AVANT la cascade qui les efface). Les invariants, leçons
+ * et décisions sont écrits À LA MAIN : jamais touchés ici.
+ */
+export function effacerEpisodesDuProjet(
+  dossier: string,
+  projectId: string,
+  taches: ReadonlySet<string>,
+): string[] {
+  const retires: string[] = [];
+  for (const note of lire(dossier)) {
+    const o = note.origine;
+    if (note.genre !== 'episode' || o === undefined) continue;
+    const duProjet = o.projectId === undefined ? taches.has(o.taskId) : o.projectId === projectId;
+    if (!duProjet) continue;
+    const c = cheminDe(dossier, note.id);
+    if (c === null) continue;
+    rmSync(c, { force: true, maxRetries: 5, retryDelay: 100 });
+    retires.push(note.id);
+  }
+  return retires;
 }
 
 export interface Elagage {

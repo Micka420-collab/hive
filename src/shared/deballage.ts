@@ -57,6 +57,8 @@
 // ne dit rien du contenu des fichiers : `nectar-suspect.ts` s'en charge, et ne
 // promet pas davantage que « aucune forme connue n'a été vue ».
 
+import { nomReserveWindows } from './noms-windows.js';
+
 /** Au-delà, on refuse l'archive entière sans en extraire une seule entrée. */
 export const ENTREES_MAX = 20_000;
 
@@ -99,9 +101,6 @@ export type VerdictDeballage =
       readonly detail: string;
       readonly refusees: readonly EntreeRefusee[];
     };
-
-/** Noms que Windows réserve, avec ou sans extension. */
-const RE_NOM_RESERVE = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
 
 /** Octet nul et caractères de contrôle : un nom qui ne survit pas à l'écriture. */
 // eslint-disable-next-line no-control-regex
@@ -247,7 +246,7 @@ export function jugerEntrees(
     }
 
     const segments = normal.split('/');
-    if (segments.some((s) => RE_NOM_RESERVE.test(s) || /[. ]$/.test(s))) {
+    if (segments.some(nomReserveWindows)) {
       refusees.push(
         refus(
           e.chemin,

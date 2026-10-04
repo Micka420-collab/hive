@@ -47,7 +47,10 @@ import path from 'node:path';
  *     git — clé d'hôte inconnue, phrase de passe — et il lit le TERMINAL
  *     lui-même. `BatchMode=yes` rend un refus lisible au lieu d'une attente.
  *     `ssh` : la commande à laquelle on l'ajoute — celle du MEMBRE quand il en
- *     a une (`commandeSshDuMembre`), sinon `ssh` ;
+ *     a une (`commandeSshDuMembre`), sinon `ssh`. `ConnectTimeout` et
+ *     `ServerAlive*` bornent le TRANSPORT lui-même : le butoir de `gitHote`
+ *     ne tue que git, et un `ssh` orphelin restait accroché à un hôte qui ne
+ *     répond plus (voir `transportBorne`) ;
  *   · `SSH_AUTH_SOCK` passe, lui, vers GIT et jamais vers l'agent
  *     (`buildSandboxEnv` ne le transmet pas) : c'est ce qui permet à une clé
  *     à phrase de passe, déverrouillée dans l'agent ssh du membre, de servir
@@ -67,7 +70,7 @@ export function envGitHote(ssh = 'ssh', identite?: IdentiteCommit): NodeJS.Proce
     GIT_ALLOW_PROTOCOL: 'http:https:git:ssh:file',
     GIT_TERMINAL_PROMPT: '0',
     GCM_INTERACTIVE: 'Never',
-    GIT_SSH_COMMAND: `${ssh} -o BatchMode=yes`,
+    GIT_SSH_COMMAND: `${ssh} -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4`,
     GIT_NO_LAZY_FETCH: '1',
   };
   if (process.env.SSH_AUTH_SOCK !== undefined) env.SSH_AUTH_SOCK = process.env.SSH_AUTH_SOCK;
@@ -146,6 +149,20 @@ const PROTECTIONS = [
  */
 const DELAI_GIT_LOCAL_MS = 5 * 60_000;
 
+/**
+ * Le butoir du TRANSPORT HTTP, calé sur celui de la commande. `execFile` ne
+ * tue que `git` : son `git-remote-http(s)` survivait, rattaché à init, et
+ * gardait ouverte la prise d'un serveur muet — curl n'a pas de délai de
+ * lecture par défaut. Chaque tentative du miroir sur un amont muet laissait
+ * donc un processus et une prise de plus sur la machine de la Reine. Moins
+ * d'un octet par seconde pendant tout le butoir : curl abandonne de lui-même,
+ * et l'assistant sort. Un vrai transfert lent n'est pas touché.
+ */
+function transportBorne(delai: number): string[] {
+  if (delai <= 0) return [];
+  return ['-c', 'http.lowSpeedLimit=1', '-c', `http.lowSpeedTime=${Math.ceil(delai / 1000)}`];
+}
+
 /** La sortie la plus grande gardée d'un git (voir `gitHote`). */
 const SORTIE_MAX_OCTETS = 256 * 1024 * 1024;
 
@@ -210,7 +227,7 @@ export function gitHote(
   return new Promise((resolve, reject) => {
     execFile(
       'git',
-      [...PROTECTIONS, ...epingle, ...args],
+      [...PROTECTIONS, ...transportBorne(delai), ...epingle, ...args],
       {
         cwd: local ? path.dirname(ou.workTree) : ou,
         env: envGitHote(ssh, identite),

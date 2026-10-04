@@ -3,6 +3,7 @@
 // connaître l'outil qui exécute réellement la tâche (contrainte §5.4).
 
 import type { PresenceFichier } from '../shared/presence.js';
+import type { Effort } from '../shared/effort.js';
 import type { ExecutionUsage, SubAgent, Task, UsageFournisseur } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
 import { createClineAdapter } from './cline.js';
@@ -79,6 +80,11 @@ export interface AdapterContext {
    * Ce n'est PAS un secret — il peut voyager en argument de commande.
    */
   modele?: string;
+  /**
+   * L'effort élu avec le modèle (`--effort` chez Claude Code). Absent : le CLI
+   * garde son défaut. N'arrive qu'à un adaptateur qui déclare `efforts`.
+   */
+  effort?: Effort;
   /** Remontée de progrès vers l'orchestrateur (sous-agents, logs). */
   onProgress: (progress: AdapterProgress) => void;
   /**
@@ -151,6 +157,20 @@ export interface AdapterResult {
 
 export interface AgentAdapter {
   name: string;
+  /**
+   * Les efforts que le CLI INSTALLÉ documente, sondés une fois au démarrage du
+   * nœud, qui les déclare à la ruche. Absent (ou liste vide) : l'Aiguillage ne
+   * lui en commande jamais (`shared/effort.ts`).
+   */
+  effortsDocumentes?: () => Promise<readonly Effort[]>;
+  /**
+   * Les chemins du dépôt (relatifs à sa racine, séparés par `/`) dont ce CLI
+   * EXÉCUTE le contenu — hooks, plugins — sans option pour l'en empêcher. Le
+   * nœud les écarte de l'arbre avant l'agent et les remet avant le diff
+   * (`node-client/configuration-inerte.ts`). Absent : le CLI n'en exécute
+   * aucun, ou des drapeaux le lui interdisent (Claude Code, `claude-code.ts`).
+   */
+  configurationExecutee?: readonly string[];
   run(task: Task, ctx: AdapterContext): Promise<AdapterResult>;
 }
 

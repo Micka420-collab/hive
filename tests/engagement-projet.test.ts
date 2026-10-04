@@ -16,10 +16,10 @@
 //   · OU un projet SANS PROPRIÉTAIRE, qui n'appartient qu'à la ruche, et pour
 //     lequel le jeton de ruche EST la ruche.
 //
-// Et RÉGLER n'est pas ENGAGER : autonomie, Garde-Fous, plafond de dépense et
-// horizon décident de ce que le projet s'autorise ensuite. Ils sont réservés à
-// qui en répond — le propriétaire ou un administrateur, ou le jeton sur un
-// projet orphelin. Un membre reçoit 403 : il sait déjà que le projet existe.
+// Et RÉGLER n'est pas ENGAGER : autonomie, Garde-Fous, plafond de dépense,
+// banc d'ombre et horizon décident de ce que le projet s'autorise ensuite.
+// Ils sont réservés à qui en répond — le propriétaire ou un administrateur, ou
+// le jeton sur un projet orphelin. Un membre reçoit 403 : il sait déjà que le projet existe.
 //
 // DÉCIDER n'est pas engager non plus : la revue humaine, l'annulation, la
 // livraison et la fusion disent ce que devient un travail déjà fait. Même
@@ -40,6 +40,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { instantaneDe } from '../src/orchestrator/missions.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
@@ -52,11 +53,12 @@ interface Cible {
   fabrique: string;
   motifPerso: string;
   sauvegarde: string;
+  mission: string;
 }
 
 interface Acte {
   nom: string;
-  methode: 'GET' | 'POST' | 'PUT';
+  methode: 'GET' | 'POST' | 'PUT' | 'DELETE';
   /** Le chemin de la route, tel que server.ts le déclare. */
   route: string;
   url: (c: Cible) => string;
@@ -65,6 +67,8 @@ interface Acte {
   refus: 'projet' | 'tache';
   /** Faux : la route exige un COMPTE, le jeton seul n'y ouvre jamais rien. */
   jeton?: false;
+  /** Le statut d'un acte réussi, quand ce n'est pas 200 (une création : 201). */
+  succes?: number;
 }
 
 const p = (suite: string) => (c: Cible) => `/api/projects/${c.projet}/${suite}`;
@@ -312,6 +316,16 @@ const DECISIONS: readonly Acte[] = [
     url: (c) => `/api/tasks/${c.tache}/resume`,
     refus: 'tache',
   },
+  {
+    // Imposer ou exclure le modèle qui fera le travail — donc celui que la
+    // ruche paiera : une décision sur le sort de la tâche, pas un engagement.
+    nom: 'tasks/:taskId/consigne-routage',
+    methode: 'PUT',
+    route: '/api/tasks/:taskId/consigne-routage',
+    url: (c) => `/api/tasks/${c.tache}/consigne-routage`,
+    corps: () => ({ consigne: null }),
+    refus: 'tache',
+  },
 ];
 
 /** Les actes qui RÈGLENT un projet : propriétaire ou administrateur. */
@@ -348,6 +362,73 @@ const REGLAGES: readonly Acte[] = [
     corps: () => ({ kind: 'fait', texte: 'le site est en ligne' }),
     refus: 'projet',
   },
+  {
+    // Un rejeu hérite du dépôt, des garde-fous et d'un niveau d'autonomie :
+    // c'est un RÉGLAGE, pas un engagement — même si ses effets irréversibles
+    // sont ensuite simulés.
+    nom: 'missions/:missionId/rejouer',
+    methode: 'POST',
+    route: '/api/projects/:projectId/missions/:missionId/rejouer',
+    url: (c) => `/api/projects/${c.projet}/missions/${c.mission}/rejouer`,
+    corps: () => ({ autonomie: 'off' }),
+    refus: 'projet',
+    succes: 201,
+  },
+  {
+    // Le banc d'ombre fait payer à l'hôte de vrais appels de modèle : l'allumer
+    // et fixer son budget, c'est décider de ce que le projet s'autorise.
+    nom: 'banc-ombre',
+    methode: 'POST',
+    route: '/api/projects/:projectId/banc-ombre',
+    url: p('banc-ombre'),
+    corps: () => ({ actif: false, executionsParJour: 3, plafondCoutUsd: 1 }),
+    refus: 'projet',
+  },
+  {
+    // Accorder un connecteur externe + ses portées à un projet est un RÉGLAGE :
+    // il décide de ce que le projet laisse partir vers l'extérieur (Slack,
+    // webhook) et de qui peut approuver depuis Slack. Propriétaire ou admin.
+    nom: 'connecteurs/:id/autoriser',
+    methode: 'POST',
+    route: '/api/projects/:projectId/connecteurs/:connecteurId/autoriser',
+    url: p('connecteurs/webhook/autoriser'),
+    corps: () => ({ portees: ['notification'] }),
+    refus: 'projet',
+  },
+  {
+    nom: 'connecteurs/:id (révoquer)',
+    methode: 'DELETE',
+    route: '/api/projects/:projectId/connecteurs/:connecteurId',
+    url: p('connecteurs/webhook'),
+    refus: 'projet',
+  },
+  {
+    // Émettre un fait de test à travers un connecteur touche le monde extérieur
+    // au nom du projet : même porte que l'autorisation.
+    nom: 'connecteurs/:id/test',
+    methode: 'POST',
+    route: '/api/projects/:projectId/connecteurs/:connecteurId/test',
+    url: p('connecteurs/webhook/test'),
+    corps: () => ({}),
+    refus: 'projet',
+  },
+];
+
+/**
+ * SUPPRIMER le projet : la même porte que les réglages (`proprieteProjetPermise`
+ * — propriétaire ou administrateur, le jeton sur un orphelin seulement), mais un
+ * acte qui DÉTRUIT sa cible. Chaque essai qui passe consomme donc un projet
+ * neuf : il ne peut pas partager les cibles des autres tables, qu'il effacerait
+ * sous leurs pieds (bloc « la SUPPRESSION »).
+ */
+const SUPPRESSIONS: readonly Acte[] = [
+  {
+    nom: 'supprimer le projet',
+    methode: 'DELETE',
+    route: '/api/projects/:projectId',
+    url: (c) => `/api/projects/${c.projet}`,
+    refus: 'projet',
+  },
 ];
 
 /**
@@ -376,6 +457,8 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
   let jetonProprio = '';
   let jetonMembre = '';
   let jetonTiers = '';
+  let idProprio = '';
+  let idMembre = '';
   let orphelin: Cible;
   let possede: Cible;
   let publique: Cible;
@@ -385,6 +468,7 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     fabrique: 'fabrique-qui-nexiste-pas',
     motifPerso: 'motif-qui-nexiste-pas',
     sauvegarde: 'sauvegarde-qui-nexiste-pas',
+    mission: 'mission-qui-nexiste-pas',
   };
 
   const inscrire = async (
@@ -459,7 +543,14 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
       patch: 'diff --git a/x b/x\n+y',
     }).id;
     if (!fabrique.ok || !motif.ok) throw new Error('garniture du projet impossible');
-    return { projet, tache, fabrique: fabrique.id, motifPerso: motif.id, sauvegarde };
+    // Une mission rangée, avec un VRAI instantané de début : rejouer doit
+    // pouvoir réussir, sans quoi la garde ne serait éprouvée que sur des refus.
+    const mission = `mission-${projet}`;
+    const ouverture = { id: mission, ouverteA: 0, closeA: null, depuisEvenement: 0 };
+    const membres = [tache];
+    const debut = instantaneDe(s, s.getProject(projet)!, ouverture, 'debut', Date.now(), membres);
+    s.ouvrirMission({ ...ouverture, projectId: projet, membres, debut: JSON.stringify(debut) });
+    return { projet, tache, fabrique: fabrique.id, motifPerso: motif.id, sauvegarde, mission };
   };
 
   beforeAll(async () => {
@@ -482,8 +573,10 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     jetonReine = (await inscrire('la-reine@ruche.test', jeton)).token;
     const proprio = await inscrire('proprio@ruche.test');
     jetonProprio = proprio.token;
+    idProprio = proprio.id;
     const membre = await inscrire('ouvriere@ruche.test');
     jetonMembre = membre.token;
+    idMembre = membre.id;
     jetonTiers = (await inscrire('curieux@ailleurs.test')).token;
 
     // La voie CLI / jeton : un projet que personne ne possède.
@@ -612,9 +705,11 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
           ['l’administratrice', jetonReine],
         ] as const) {
           const r = await tenter(possede, acte, compte(t));
-          expect(r.status, `${acte.nom} par ${qui}`).toBe(200);
+          expect(r.status, `${acte.nom} par ${qui}`).toBe(acte.succes ?? 200);
         }
-        expect((await tenter(orphelin, acte, jeton)).status, `${acte.nom} (orphelin)`).toBe(200);
+        expect((await tenter(orphelin, acte, jeton)).status, `${acte.nom} (orphelin)`).toBe(
+          acte.succes ?? 200,
+        );
       }
     });
 
@@ -735,6 +830,138 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     });
   });
 
+  describe('la SUPPRESSION', () => {
+    const [supprimer] = SUPPRESSIONS as [Acte];
+    /** Un projet NEUF qui appartient au propriétaire, le membre admis — la cible d'un seul essai. */
+    const possedeNeuf = (): Cible => {
+      const id = server.store.createProject({
+        name: 'À supprimer',
+        visibility: 'private',
+        ownerId: idProprio,
+      }).id;
+      server.store.addMember(id, idProprio, 'owner');
+      server.store.addMember(id, idMembre);
+      return garnir(id);
+    };
+    const orphelinNeuf = (): Cible =>
+      garnir(server.store.createProject({ name: 'Orphelin à supprimer', ownerId: null }).id);
+
+    it('le propriétaire et l’administratrice suppriment ; l’administratrice seule un orphelin', async () => {
+      for (const [qui, cible, entetes] of [
+        ['le propriétaire', possedeNeuf(), compte(jetonProprio)],
+        ['l’administratrice', possedeNeuf(), compte(jetonReine)],
+        ['l’administratrice, sur un orphelin', orphelinNeuf(), compte(jetonReine)],
+      ] as const) {
+        const r = await tenter(cible, supprimer, entetes);
+        expect(r.status, `${qui} (${await r.text()})`).toBe(200);
+        expect(
+          server.store.getProject(cible.projet),
+          `${qui} : le projet est resté`,
+        ).toBeUndefined();
+      }
+    });
+
+    it('LE JETON DE RUCHE SEUL NE SUPPRIME PLUS, MÊME UN ORPHELIN — un compte est exigé, et le refus le dit', async () => {
+      // Décision #527 : le jeton se recopie sur chaque machine membre (ADR
+      // 0007) ; un geste sans retour ne se laisse pas à tout l'essaim. Un
+      // compte ordinaire qui présente AUSSI le jeton ne répond pas pour autant
+      // d'un orphelin : seul un administrateur le fait.
+      const cible = orphelinNeuf();
+      for (const [qui, entetes] of [
+        ['le jeton seul', jeton],
+        ['un compte ordinaire avec le jeton', { ...compte(jetonTiers), ...jeton }],
+      ] as const) {
+        const r = await tenter(cible, supprimer, entetes);
+        expect(r.status, qui).toBe(403);
+        expect(((await r.json()) as { code: string }).code, qui).toBe('compte_requis');
+      }
+      expect(server.store.getProject(cible.projet), 'l’orphelin est parti').toBeDefined();
+      expect(server.store.getTask(cible.tache), 'une tâche est partie').toBeDefined();
+    });
+
+    it('UN MEMBRE NE SUPPRIME PAS — 403, même avec le jeton, et rien ne part', async () => {
+      const cible = possedeNeuf();
+      for (const entetes of [compte(jetonMembre), { ...compte(jetonMembre), ...jeton }]) {
+        const r = await tenter(cible, supprimer, entetes);
+        expect(r.status).toBe(403);
+        expect(((await r.json()) as { error: string }).error).toMatch(/propriétaire/);
+      }
+      expect(server.store.getProject(cible.projet)).toBeDefined();
+      expect(server.store.getTask(cible.tache), 'une tâche est partie').toBeDefined();
+    });
+
+    it('ni le jeton sur le projet d’autrui, ni un tiers, ni l’anonyme — refus de l’inexistence', async () => {
+      const cible = possedeNeuf();
+      const parJeton = await tenter(cible, supprimer, jeton);
+      expect(parJeton.status).toBe(404);
+      expect(await parJeton.text()).toBe(REFUS.projet);
+      for (const entetes of [compte(jetonTiers), { ...compte(jetonTiers), ...jeton }]) {
+        const r = await tenter(cible, supprimer, entetes);
+        const absent = await tenter(fantome, supprimer, entetes);
+        expect(r.status).toBe(404);
+        expect(await r.text(), 'le refus trahit l’existence du projet').toBe(await absent.text());
+      }
+      expect((await tenter(cible, supprimer, {})).status).toBe(401);
+      expect((await tenter(fantome, supprimer, {})).status).toBe(401);
+      expect(server.store.getProject(cible.projet)).toBeDefined();
+    });
+
+    it('UNE VITRINE N’EST PAS À QUI S’Y INSCRIT', async () => {
+      // `peutRejoindre` ouvre tout projet public au premier compte venu : s'y
+      // inscrire d'un clic ne donne pas le droit de l'effacer.
+      const passant = await inscrire(`passant-suppr-${Date.now()}@ailleurs.test`);
+      const vitrine = garnir(
+        server.store.createProject({ name: 'Vitrine', visibility: 'public', ownerId: idProprio })
+          .id,
+      );
+      const rejoint = await fetch(`${base}/api/projects/${vitrine.projet}/join`, {
+        method: 'POST',
+        headers: { ...compte(passant.token), 'x-forwarded-for': '10.9.9.10' },
+      });
+      expect(rejoint.status, 'le banc : la vitrine se rejoint d’un clic').toBe(200);
+      expect((await tenter(vitrine, supprimer, compte(passant.token))).status).toBe(403);
+      expect(server.store.getProject(vitrine.projet)).toBeDefined();
+    });
+  });
+
+  describe('la LECTURE d’une consigne de routage', () => {
+    // #527 : la route disait « la même porte que les autres lectures », et
+    // n'ouvrait qu'au jeton de ruche — un compte lisait son propre projet
+    // partout ailleurs, et recevait 401 ici. Elle suit maintenant la porte
+    // des lectures du PROJET de la tâche (`lectureProjetPermise`).
+    const lire: Acte = {
+      nom: 'lire la consigne de routage',
+      methode: 'GET',
+      route: '/api/tasks/:taskId/consigne-routage',
+      url: (c) => `/api/tasks/${c.tache}/consigne-routage`,
+      refus: 'tache',
+    };
+
+    it('le jeton, le propriétaire, le membre — et tout compte sur un projet public', async () => {
+      for (const [qui, cible, entetes] of [
+        ['le jeton, sur un orphelin', orphelin, jeton],
+        ['le jeton, sur le projet d’autrui', possede, jeton],
+        ['le propriétaire, sans le jeton', possede, compte(jetonProprio)],
+        ['le membre, sans le jeton', possede, compte(jetonMembre)],
+        ['un tiers, sur un projet public', publique, compte(jetonTiers)],
+      ] as const) {
+        const r = await tenter(cible, lire, entetes);
+        expect(r.status, `${qui} (${await r.clone().text()})`).toBe(200);
+        expect(((await r.json()) as { taskId: string }).taskId, qui).toBe(cible.tache);
+      }
+    });
+
+    it('un tiers sur un projet privé : le refus de l’inexistence ; l’anonyme : 401', async () => {
+      const r = await tenter(possede, lire, compte(jetonTiers));
+      const absent = await tenter(fantome, lire, compte(jetonTiers));
+      expect(r.status).toBe(404);
+      expect(await r.text(), 'le refus trahit l’existence de la tâche').toBe(REFUS.tache);
+      expect(await absent.text()).toBe(REFUS.tache);
+      expect((await tenter(possede, lire, {})).status).toBe(401);
+      expect((await tenter(fantome, lire, jeton)).status, 'tâche inconnue au jeton').toBe(404);
+    });
+  });
+
   describe('les LIENS DE PARTAGE', () => {
     /** Un lien créé par `t` sur `projet` ; rend son identifiant. */
     const partager = async (projet: string, t: string): Promise<string> => {
@@ -832,11 +1059,15 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     expect(ecritures.length, 'une écriture du serveur a échappé au relevé').toBe(
       [...serveur.matchAll(/app\.(post|put|patch|delete)\b/g)].length,
     );
+    // `projects/:projectId` SANS suite compte aussi : c'est le projet lui-même
+    // (sa suppression), l'écriture la plus lourde de l'espace projet.
     const declarees = ecritures.filter((r) =>
-      /^\S+ \/api\/(projects\/:projectId\/|tasks\/:taskId\/|livraison)/.test(r),
+      /^\S+ \/api\/(projects\/:projectId(\/|$)|tasks\/:taskId\/|livraison)/.test(r),
     );
     const connues = new Set([
-      ...[...ENGAGEMENTS, ...REGLAGES, ...DECISIONS].map((a) => `${a.methode} ${a.route}`),
+      ...[...ENGAGEMENTS, ...REGLAGES, ...DECISIONS, ...SUPPRESSIONS].map(
+        (a) => `${a.methode} ${a.route}`,
+      ),
       ...Object.keys(HORS_ENGAGEMENT),
     ]);
     expect(declarees.length, 'le relevé des routes a échoué').toBeGreaterThan(30);

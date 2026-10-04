@@ -339,13 +339,41 @@ describe('index et plans de requête', () => {
     const db = new Database(dbPath, { readonly: true });
     try {
       const placeholders = TYPES_THERMO.map(() => '?').join(', ');
+      // La requête de `listEventsInWindow`, épinglée comme elle (`INDEXED BY`) :
+      // sans l'épingle, `idx_events_type` gagne et relit toutes les issues
+      // retenues pour en garder dix minutes.
       const detail = plan(
         db,
-        `SELECT ts, type, payload FROM events WHERE ts >= ? AND type IN (${placeholders}) ORDER BY ts`,
+        `SELECT ts, type, payload FROM events INDEXED BY idx_events_ts
+          WHERE ts >= ? AND type IN (${placeholders}) ORDER BY ts`,
         Date.now(),
         ...TYPES_THERMO,
       );
       expect(detail).toContain('idx_events_ts');
+      expect(detail).not.toContain('SCAN events');
+    } finally {
+      db.close();
+    }
+  });
+
+  it('les preuves d’UNE tâche sont servies par idx_events_tache, pas par tout leur type', () => {
+    // La rétention garde les preuves avec leur tâche : le journal dépasse la
+    // fenêtre de 5 000 lignes, et relire les verdicts d'un résultat par l'index
+    // de TYPE parcourait ceux de toute la ruche retenue. L'expression est celle
+    // de `TACHE_DE_L_EVENEMENT`, au caractère près — sans quoi l'index ne sert
+    // pas, et ce banc le dit.
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      const tache =
+        "json_extract(CASE WHEN json_valid(payload) THEN payload ELSE '{}' END, '$.taskId')";
+      const detail = plan(
+        db,
+        `SELECT * FROM events WHERE type = 'contre_expertise_verdict' AND ${tache} = ?
+           AND json_extract(payload, '$.resultId') = ? ORDER BY id ASC`,
+        't-1',
+        1,
+      );
+      expect(detail).toContain('idx_events_tache');
       expect(detail).not.toContain('SCAN events');
     } finally {
       db.close();
@@ -390,6 +418,8 @@ describe('index et plans de requête', () => {
       ).map((i) => i.name);
       expect(noms).toContain('idx_results_recent');
       expect(noms).toContain('idx_events_ts');
+      expect(noms).toContain('idx_events_type');
+      expect(noms).toContain('idx_events_tache');
       db.close();
     } finally {
       migre.close();

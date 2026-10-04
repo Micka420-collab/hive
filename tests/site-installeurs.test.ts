@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { versionAuMoins } from '../src/shared/doctor.js';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
 const lire = (f: string) => readFileSync(path.join(RACINE, f), 'utf8');
@@ -115,12 +116,12 @@ describe('install.sh annonce son empreinte', () => {
   const lancer = (): { sortie: string; code: number } => (passage ??= lancerUneFois());
 
   /** Le plancher que l'installeur s'impose, LU dans le script — jamais recopié. */
-  const nodeMin = Number(/^NODE_MIN=(\d+)$/m.exec(lire('install.sh'))?.[1]);
+  const nodeMin = /^NODE_MIN=([\d.]+)$/m.exec(lire('install.sh'))?.[1] ?? '';
 
   it('le plancher de version est lisible dans le script', () => {
     // Sans lui, les deux cas ci-dessous se choisiraient sur un nombre écrit de
     // tête, et le banc mentirait le jour où le plancher bouge.
-    expect(nodeMin, 'NODE_MIN introuvable dans install.sh').toBeGreaterThan(0);
+    expect(nodeMin, 'NODE_MIN introuvable dans install.sh').toMatch(/^\d+\.\d+\.\d+$/);
   });
 
   it('affiche le SHA-256 avant de juger quoi que ce soit (--dry-run)', () => {
@@ -151,14 +152,14 @@ describe('install.sh annonce son empreinte', () => {
     // le dry-run doit réussir, en dessous il doit refuser. Le même banc ne
     // mesure plus la machine — il mesure ce que le script promet À CETTE
     // machine-là.
-    const majeur = Number(process.versions.node.split('.')[0]);
+    const version = process.versions.node;
     const { sortie, code } = lancer();
-    if (majeur >= nodeMin) {
-      expect(code, `--dry-run doit réussir sous Node ${majeur} (≥ ${nodeMin})`).toBe(0);
+    if (versionAuMoins(version, nodeMin)) {
+      expect(code, `--dry-run doit réussir sous Node ${version} (≥ ${nodeMin})`).toBe(0);
       return;
     }
     expect(code, 'un refus qui sort 0 fait croire à une installation réussie').not.toBe(0);
-    expect(sortie, 'le refus ne nomme pas la version trouvée').toContain(`Node ${majeur}`);
-    expect(sortie, 'le refus ne nomme pas le plancher exigé').toContain(String(nodeMin));
+    expect(sortie, 'le refus ne nomme pas la version trouvée').toContain(`Node ${version}`);
+    expect(sortie, 'le refus ne nomme pas le plancher exigé').toContain(nodeMin);
   });
 });

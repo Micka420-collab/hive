@@ -4,6 +4,7 @@
 import { RefusDemarrage } from '../shared/amorce.js';
 import { annonceSimulation } from '../shared/annonce-simulation.js';
 import type { AnnonceReine } from '../shared/demarrage.js';
+import { estOrdreArret } from '../shared/demarrage.js';
 import { chargerEnvQueen } from '../shared/env-queen.js';
 import { adresseLocale } from '../shared/port.js';
 import { lireConfianceProxy } from '../shared/proxy-confiance.js';
@@ -108,6 +109,12 @@ const shutdown = async (signal: string): Promise<void> => {
 
 process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
+// L'ordre d'arrêt de `npm run ruche`, par le canal de l'annonce : sous Windows,
+// son `kill('SIGTERM')` était un `TerminateProcess`, et la base ne se fermait
+// jamais proprement (`ORDRE_ARRET`, `shared/demarrage.ts`).
+process.on('message', (message: unknown) => {
+  if (estOrdreArret(message)) void shutdown('ordre de la ruche');
+});
 
 // Dernier recours : une exception non catchée ne doit pas laisser la ruche dans
 // un état incohérent silencieux. On journalise (les handlers WS/tick catchent

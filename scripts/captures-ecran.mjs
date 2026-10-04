@@ -44,8 +44,8 @@
 //      tâche qui a connu un échec puis une reprise. Pas davantage : la page
 //      de Partage, l'écran de connexion et les modales ne sont pas
 //      photographiés (cf. docs/CAPTURES.md, « Ce qui n'est pas photographié »).
-//   5. EN VOL : un lot est confié, et la Ruche, la Chambre puis Sandbox Live
-//      sont photographiées PENDANT que les sous-agents travaillent. Un état stable
+//   5. EN VOL : un lot est confié, et la Ruche, la Chambre, la Chronique puis
+//      Sandbox Live sont photographiées PENDANT que les sous-agents travaillent. Un état stable
 //      ne montre jamais un agent au travail.
 //   6. Un manifeste (`captures.json`) : pour chaque image, le débordement
 //      horizontal mesuré et les erreurs de console survenues pendant la vue.
@@ -306,6 +306,12 @@ async function principal() {
   console.log(`✔ ruche de laboratoire en ligne (${ruche.http}, ouvrière ${labo.NOM_OUVRIERE})`);
   const { jwt, projets } = await labo.amorcerRuche(ruche);
   console.log(`✔ ruche remplie : ${projets.length} projets, toutes les tâches terminées`);
+  const { VERDICTS_DEMO } = await import('./captures-relectrice.mjs');
+  const debat = await labo.amorcerDebat(ruche, { verdicts: VERDICTS_DEMO });
+  console.log(
+    `✔ débat joué avec ${labo.NOM_RELECTRICE} (arrêtée depuis) — Conseils clos : ` +
+      debat.conseils.map((c) => `${c.issue}${c.tranche ? ' (tranché)' : ''}`).join(', '),
+  );
 
   // Les captures d'une exécution précédente : SEULEMENT celles que ce script a
   // pu écrire (`estNotreCapture`) — le reste du dossier n'est pas à nous. Avec
@@ -469,6 +475,17 @@ async function principal() {
     // La Chambre n'a pas de case (ADR 0010) : on y entre par l'ouvrière.
     await photographier('chambre', () => naviguer(chambre));
 
+    // La War Room filtrée sur les DÉCISIONS HUMAINES : le fil entier est long
+    // (le débat de la démonstration y verse chaque tour du Conseil), et ce que
+    // l'humain a tranché — Conseil, revues et leurs raisons — s'y noierait.
+    // La voix se choisit par sa case (`aria-pressed`), dernière de la rangée.
+    await photographier('warroom-decisions', async () => {
+      await page.locator('.mc-nav-cell[data-vue="warroom"]').click();
+      await page.locator('.wr-familles button').last().click();
+      await page.locator('.wr-familles button[aria-pressed="true"]').last().waitFor();
+      await page.locator('.wr-fil').waitFor({ timeout: 15_000 });
+    });
+
     // Le tiroir de la tâche qui a échoué puis repris, dans la Chambre — où l'on
     // se rend soi-même : avec `--vues tache`, la capture de la Chambre n'a pas
     // eu lieu. On essaie chaque filtre des missions plutôt que d'en supposer
@@ -500,7 +517,7 @@ async function principal() {
   // raison : pendant un vol, le tableau relit sans cesse. Aucun lot n'est
   // confié pour un format dont `--vues` n'a retenu aucune image en vol.
   for (const { format, page, photographier, naviguer } of postes) {
-    const enVol = ['ruche-en-vol', 'chambre-en-vol', 'sandbox-en-vol'];
+    const enVol = ['ruche-en-vol', 'chambre-en-vol', 'chronique-en-vol', 'sandbox-en-vol'];
     if (!enVol.some((vue) => vueRetenue(vues, vue, format.nom))) continue;
     await labo.confierLot(ruche, projets[0]);
     await photographier(
@@ -516,6 +533,18 @@ async function principal() {
       async () => {
         await naviguer(chambre);
         await page.locator('.ch-taches .ch-tache').first().waitFor({ timeout: 15_000 });
+      },
+      { calmeMs: 150, plafondMs: 1_500 },
+    );
+    // La Chronique ne lit que le journal reçu DEPUIS l'ouverture de l'onglet
+    // (le rattrapage `/api/events` ne sert qu'aux reconnexions) : au repos,
+    // sur une ruche déjà remplie, elle est vide. Pendant le vol, elle se
+    // remplit — c'est là qu'elle se photographie.
+    await photographier(
+      'chronique-en-vol',
+      async () => {
+        await page.locator('.mc-nav-cell[data-vue="chronique"]').click();
+        await page.locator('.ch-journal .ch-row').nth(5).waitFor({ timeout: 15_000 });
       },
       { calmeMs: 150, plafondMs: 1_500 },
     );
@@ -555,6 +584,12 @@ async function principal() {
       hauteur: f.viewport.height,
       densite: f.deviceScaleFactor,
     })),
+    // Comment le débat de la War Room s'est joué : les issues des Conseils ne
+    // sont pas décidées par la démonstration, elles sont CONSTATÉES.
+    debat: {
+      relectrice: labo.NOM_RELECTRICE,
+      conseils: debat.conseils.map(({ issue, tranche }) => ({ issue, tranche })),
+    },
     captures,
     echecs,
   };

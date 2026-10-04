@@ -60,6 +60,13 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
     Promise.resolve({ billet: 'b-x', commande: 'hive node --billet b-x' }),
   ),
   fetchCles: vi.fn(() => Promise.resolve({ noeuds: [], billets: [] })),
+  // L'Intendance monte aussi les connecteurs externes : sans ces stubs, la
+  // section partirait en vrai `fetch` et couvrirait l'écran d'un bandeau
+  // d'erreur — exactement le « bandeau muet » que ce banc traque.
+  fetchConnecteurs: vi.fn(() => Promise.resolve({ connecteurs: [] })),
+  fetchConnecteursProjet: vi.fn(() =>
+    Promise.resolve({ autorisations: [], journal: [], connecteurs: [] }),
+  ),
   setMembreRole: vi.fn(() => Promise.resolve({ userId: 'u', role: 'admin' })),
   fetchMembres: vi.fn(() =>
     Promise.resolve({

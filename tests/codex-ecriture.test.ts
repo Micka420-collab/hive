@@ -36,6 +36,7 @@ import {
   executionCodex,
 } from '../src/adapters/codex.js';
 import { createLecteurFluxCodex } from '../src/adapters/flux-codex.js';
+import { LIGNE_ANNULATION } from '../src/adapters/exec.js';
 import type { AdapterContext } from '../src/adapters/index.js';
 import { fournisseurParNom, MONTAGE } from '../src/node-client/isolement.js';
 import { texteDEchec } from '../src/shared/texte-d-echec.js';
@@ -196,7 +197,7 @@ describe('bacWindowsDeclare : le bac Windows de Codex, lu dans son config.toml',
  */
 function fauxCodex(
   scenario: string,
-  sonde: { code: number; stderr?: string },
+  sonde: { code: number; stderr?: string; attendMs?: number },
   cwd?: string,
 ): { ctx: AdapterContext; temoin: string } {
   const dossier = dossierJetable();
@@ -211,7 +212,8 @@ function fauxCodex(
       "const fs = require('node:fs');",
       "if (process.argv[2] === 'sandbox') {",
       `  process.stderr.write(${JSON.stringify(sonde.stderr ?? '')});`,
-      `  process.exit(${sonde.code});`,
+      `  setTimeout(() => process.exit(${sonde.code}), ${sonde.attendMs ?? 0});`,
+      '  return;',
       '}',
       // Le cwd que Codex voit — celui que rend le noyau, liens résolus.
       `fs.writeFileSync(${JSON.stringify(temoin)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }));`,
@@ -267,6 +269,29 @@ describe.skipIf(process.platform === 'win32')(
         expect(dit).toContain("codex : échec avant l'agent — le bac de Codex");
         expect(dit).toContain('Failed RTM_NEWADDR');
         expect(dit).toContain('openai/codex#46246');
+      },
+    );
+
+    // #503 × #507. Une annulation n'est plus un échec d'infra (#503) : la sonde
+    // annulée rendait donc un échec ordinaire, que Codex lisait comme SON bac
+    // cassé — « le bac de Codex ne démarre pas sur cet hôte », remède compris,
+    // pour une tâche qu'un humain venait d'annuler.
+    it.runIf(process.platform === 'linux')(
+      'UNE ANNULATION PENDANT LA SONDE se dit comme telle — jamais un bac cassé, aucun modèle payé',
+      { timeout: 15_000 },
+      async () => {
+        const { ctx, temoin } = fauxCodex('bac-casse', { code: 0, attendMs: 10_000 });
+        const arret = new AbortController();
+        setTimeout(() => arret.abort(), 300);
+        const r = await createCodexAdapter(TOKEN).run(tache('Create hello.txt'), {
+          ...ctx,
+          signal: arret.signal,
+        });
+        expect(r.success).toBe(false);
+        expect(r.infra).toBeUndefined();
+        expect(existsSync(temoin)).toBe(false);
+        expect(r.logs).toContain(LIGNE_ANNULATION);
+        expect(texteDEchec(r.logs, r.finalText)).not.toContain('le bac de Codex');
       },
     );
 

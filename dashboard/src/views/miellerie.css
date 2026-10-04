@@ -611,6 +611,12 @@
   font-style: normal;
 }
 
+/* Un constat qui n'a rien bloqué ne se lit pas en alerte. */
+.mi-sting-item[data-severite='mineur'] .mi-sting-sev,
+.mi-sting-item[data-severite='info'] .mi-sting-sev {
+  color: var(--muted);
+}
+
 .mi-sting-paths {
   font-family: var(--mono);
   font-size: var(--fs-2xs);

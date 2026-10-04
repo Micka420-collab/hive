@@ -30,10 +30,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import WebSocket from 'ws';
 import { SEUIL_BATISSEUSE } from '../src/orchestrator/polyethisme.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
+import { brancherFauxNoeud, type FauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-caste-suffisamment-long-42';
 const NOEUD = 'noeud-observe';
@@ -71,7 +71,7 @@ const diffDe = (n: number): string =>
 describe('de la production réelle à la caste, puis au cadre', { shuffle: false }, () => {
   let server: HiveServer;
   let dir: string;
-  let ws: WebSocket;
+  let noeud: FauxNoeud;
   let projet = '';
   const assignations: { taskId: string; hiveContext?: string }[] = [];
 
@@ -106,7 +106,7 @@ describe('de la production réelle à la caste, puis au cadre', { shuffle: false
    * sur un message qui parle d'inspection alors que le problème est ailleurs.
    */
   const repondre = (taskId: string, diff: string): void => {
-    ws.send(
+    noeud.ws.send(
       JSON.stringify({
         type: 'task_result',
         taskId,
@@ -163,39 +163,31 @@ describe('de la production réelle à la caste, puis au cadre', { shuffle: false
       repoUrl: 'https://github.com/micka/observee.git',
     }).id;
 
-    ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
-    ws.on('message', (data) => {
-      const m = JSON.parse(data.toString()) as {
-        type: string;
-        task?: { id: string };
-        hiveContext?: string;
-      };
-      if (m.type === 'assign_task' && m.task) {
-        assignations.push({
-          taskId: m.task.id,
-          ...(m.hiveContext !== undefined ? { hiveContext: m.hiveContext } : {}),
-        });
-      }
-    });
-    await new Promise<void>((res, rej) => {
-      ws.once('open', () => res());
-      ws.once('error', rej);
-    });
-    ws.send(
-      JSON.stringify({
-        type: 'register',
+    // Le nœud bat comme un vrai (`aide/faux-noeud`) : muet, la Reine le
+    // fauchait à 15 s (#533), et ce fichier en met 24 sur un runner chargé.
+    noeud = await brancherFauxNoeud<{ type: string; task?: { id: string }; hiveContext?: string }>(
+      server.port,
+      {
         token: TOKEN,
         name: NOEUD,
         ownerName: 'test',
         agentType: 'shell',
         maxConcurrency: 1,
         nodeId: NOEUD,
-      }),
+      },
+      (m) => {
+        if (m.type === 'assign_task' && m.task) {
+          assignations.push({
+            taskId: m.task.id,
+            ...(m.hiveContext !== undefined ? { hiveContext: m.hiveContext } : {}),
+          });
+        }
+      },
     );
   });
 
   afterAll(async () => {
-    ws.close();
+    await noeud.arreter();
     await server.stop();
     rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
   });
