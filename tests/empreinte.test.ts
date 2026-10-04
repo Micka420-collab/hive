@@ -694,6 +694,11 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     'src/node-client/reseau-tache.ts':
       'efface le dossier de session réseau de la tâche (sous hive-pont-*) à sa fin',
     'src/node-client/workspace.ts': '<workdir>/<nom> et son .tmp voisin',
+    'src/node-client/porte-securite.ts':
+      '<workdir>/<nœud>/tasks/<tâche>/.hive-porte-* — le miroir de la porte de sécurité, ' +
+      'écrit DANS la tâche (le seul dossier que le bac monte) après le calcul du diff, et ' +
+      'effacé en `finally` dès qu’elle a jugé. Déclaré dans `empreinte()` comme contenu ' +
+      'nommé de « travail » ; rien dans `os.tmpdir()`.',
     'src/node-client/configuration-inerte.ts':
       '<workdir>/tasks/<id>.inerte — la configuration d’agent du dépôt écartée ' +
       'pendant l’exécution, voisine de la tâche et effacée avec elle',
@@ -860,6 +865,9 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     expect(createurs.map((f) => f.chemin).sort()).toEqual([
       'src/node-client/isolement.ts',
       'src/node-client/merge-runner.ts',
+      // Son `mkdtemp` vise la TÂCHE, pas `os.tmpdir()` : le miroir de la porte
+      // de sécurité, que le bac doit voir. Même exigence pour autant — effacé.
+      'src/node-client/porte-securite.ts',
       'src/node-client/rendez-vous-pont.ts',
     ]);
     // Et le même fichier doit le nettoyer. Un `mkdtemp` sans `rmSync` remplit
@@ -873,6 +881,14 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     expect(
       nu(createurs.find((f) => f.chemin === 'src/node-client/rendez-vous-pont.ts')!.texte),
     ).toMatch(/rmSync/);
+    // Le miroir de la porte : créé dans la tâche, jamais ailleurs, et retiré
+    // dans un `finally` — une porte qui lève ne le laisse pas derrière elle.
+    const porte = nu(
+      createurs.find((f) => f.chemin === 'src/node-client/porte-securite.ts')!.texte,
+    );
+    expect(porte).toMatch(/mkdtempSync\(path\.join\(cwd,/);
+    expect(porte).toMatch(/finally \{[\s\S]*?rmSync\(miroir\.chemin/);
+    expect(porte).not.toMatch(/tmpdir\s*\(/);
   });
 
   it('aucun chemin ABSOLU de système n’est écrit', () => {

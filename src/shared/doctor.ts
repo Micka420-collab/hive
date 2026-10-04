@@ -41,6 +41,13 @@
 
 import { LONGUEUR_MIN_SECRET_JWT } from '../orchestrator/auth.js';
 import { GIT_ACCES_MINIMUM, URL_DU_PROJET_FIGEE, gitPorteLAcces } from './git-protege.js';
+import {
+  ETIQUETTE_PORTE,
+  PUBLICATION_OUTIL,
+  VALEUR_ETIQUETTE_PORTE,
+  VERSION_EPINGLEE,
+  type OutilPorte,
+} from './porte-securite.js';
 import { MIN_TOKEN_LENGTH } from './types.js';
 
 /**
@@ -217,6 +224,27 @@ export interface Releve {
     /** L'image par défaut, absente partout : la commande qui la construit. */
     construire: string | null;
   } | null;
+  /** Les outils de la porte de sécurité, là où le nœud les lancera. */
+  porteSecurite: {
+    /**
+     * Sur l'HÔTE : la version que `<outil> --version` dit, ou `null` s'il ne
+     * répond pas. Bubblewrap monte le PATH de l'hôte ; sans bac, c'est lui.
+     */
+    hote: Readonly<Record<OutilPorte, string | null>>;
+    /**
+     * Dans l'IMAGE du bac, quand un moteur de conteneurs l'a : son étiquette
+     * `hive.porte-securite` (`''` si elle ne la porte pas), ou `null` si
+     * aucun moteur n'a pu la lire — ou s'il n'y a pas d'image à lire.
+     */
+    image: string | null;
+    /**
+     * api.osv.dev, éprouvé comme osv-scanner le joindrait — par le proxy
+     * standard que le nœud lui transmet (`proxy`, sans identifiants), sinon en
+     * direct — par une connexion bornée, sans rien envoyer. `joignable: null` :
+     * pas éprouvé (aucun osv-scanner là où la porte tourne).
+     */
+    osv: { joignable: boolean | null; proxy: string | null };
+  };
   /** Le WebSocket répond-il ? `null` si la ruche n'écoute pas — on ne peut pas conclure. */
   wsJoignable: boolean | null;
   reglages: {
@@ -318,7 +346,7 @@ export const ESPACE_MINIMUM_OCTETS = 500 * 1024 * 1024;
 const go = (octets: number): string => `${(octets / (1024 * 1024 * 1024)).toFixed(1)} Go`;
 
 /**
- * Les seize diagnostics, dans l'ordre où ils se réparent.
+ * Les dix-sept diagnostics, dans l'ordre où ils se réparent.
  *
  * L'ORDRE EST UNE INFORMATION, pas une présentation : Node d'abord, parce que
  * réparer un port quand on tourne sur Node 18 ne sert à rien. Qui lit de haut
@@ -344,6 +372,9 @@ export function diagnostiquer(r: Releve): Diagnostic[] {
     // Juste après l'agent : sans git, une ouvrière ne clone rien à lui donner.
     git(r),
     isolement(r),
+    // Juste après le bac : c'est LUI qui dit où tournent les outils de la
+    // porte — dans son image, ou sur l'hôte (bubblewrap, ou sans bac).
+    porteSecurite(r),
     websocket(r),
     reglages(r),
     // Avec les réglages risqués : rien ne s'arrête, mais un jeton traîne.
@@ -378,7 +409,7 @@ export function codeDeSortie(diags: Diagnostic[]): number {
   return 0;
 }
 
-// ─── Les seize ──────────────────────────────────────────────────────────────
+// ─── Les dix-sept ───────────────────────────────────────────────────────────
 
 function nodeVersion(r: Releve): Diagnostic {
   if (nodeSuffisant(r.versionNode)) {
@@ -842,6 +873,137 @@ function isolement(r: Releve): Diagnostic {
     gravite: 'inconnu',
     constat: `${r.isolement} répond, mais n'a rien dit de l'image du bac (${image})`,
     reparation: `${r.isolement} image inspect ${image}  — la réponse dit ce qui bloque`,
+  };
+}
+
+/**
+ * La porte de sécurité du nœud (`node-client/porte-securite.ts`) : ses outils
+ * répondront-ils là où ils tourneront ?
+ *
+ * La MÊME règle que le nœud pour le lieu : un moteur de conteneurs qui a
+ * l'image (ou la télécharge au démarrage, image nommée) lance les outils de
+ * l'IMAGE ; bubblewrap monte ceux du PATH de l'hôte ; sans bac prêt, le nœud
+ * les lance sur l'hôte.
+ *
+ * Dans l'image, le docteur ne lance rien : il lit l'étiquette que le
+ * Dockerfile pose après avoir installé et vérifié les outils
+ * (`ETIQUETTE_PORTE`). Absente, l'image a été construite avant eux.
+ *
+ * Un outil absent est un `risque` : chaque production serait « non
+ * vérifiée » — jamais verte, et retenue en polyéthisme `strict`. Une autre
+ * version que celle qu'épingle l'image en est un aussi, plus petit : la porte
+ * la LANCE, mais ses drapeaux (`--confidence`, l'extraction hors ligne) et ses
+ * rapports n'ont été éprouvés que sur la version épinglée — un rapport qui ne
+ * se relit plus la rend « non vérifiée ». Outils prêts, api.osv.dev
+ * injoignable (ni en direct, ni par le proxy que le nœud transmettrait) : le
+ * volet dépendances sera « non vérifié » à chaque lockfile touché. Ce que
+ * personne n'a pu lire est `inconnu`.
+ */
+function porteSecurite(r: Releve): Diagnostic {
+  const img = r.imageBac;
+  const moteurImage =
+    img && img.dans !== 'bubblewrap' ? (img.dans ?? (img.construire ? null : img.absenteDe)) : null;
+  const outils = Object.keys(VERSION_EPINGLEE) as OutilPorte[];
+  const epinglees = outils.map((o) => `${o} ${VERSION_EPINGLEE[o]}`).join(', ');
+  if (img && moteurImage) {
+    const lue = r.porteSecurite.image;
+    const lire =
+      `${moteurImage} image inspect --format '{{index .Config.Labels "${ETIQUETTE_PORTE}"}}' ` +
+      img.image;
+    if (lue === null) {
+      return {
+        cle: 'porte_securite',
+        gravite: 'inconnu',
+        constat:
+          `outils de la porte de sécurité lancés dans l'image du bac (${img.image}) : ` +
+          `${moteurImage} n'a rien dit de son étiquette ${ETIQUETTE_PORTE}`,
+        reparation: `${lire}  — la réponse dit ce qu'elle porte`,
+      };
+    }
+    if (lue === VALEUR_ETIQUETTE_PORTE) {
+      return (
+        osvInjoignable(r) ?? {
+          cle: 'porte_securite',
+          gravite: 'ok',
+          constat: `porte de sécurité vérifiable (image ${img.image}, ${moteurImage}) : ${epinglees}`,
+          reparation: null,
+        }
+      );
+    }
+    return {
+      cle: 'porte_securite',
+      gravite: 'risque',
+      constat:
+        `l'image du bac (${img.image}) ` +
+        (lue === ''
+          ? `ne dit pas porter les outils de la porte (aucune étiquette ${ETIQUETTE_PORTE} : construite avant eux, ou image tierce)`
+          : `porte d'autres versions des outils de la porte (${lue} ; épinglées : ${epinglees}) — ` +
+            'la porte les lance, mais leurs rapports n’ont été éprouvés que sur les versions épinglées') +
+        ' — une production qu’elle ne sait pas juger y sera « non vérifiée », jamais verte',
+      reparation:
+        'npm run bac:image (reconstruit l’image par défaut) — une image tierce : installez-y ' +
+        `${epinglees}, et posez LABEL ${ETIQUETTE_PORTE}="${VALEUR_ETIQUETTE_PORTE}"`,
+    };
+  }
+  const lieu = img?.dans === 'bubblewrap' ? 'bubblewrap, PATH de l’hôte' : 'sur l’hôte, sans bac';
+  const ecarts = outils.filter((o) => r.porteSecurite.hote[o] !== VERSION_EPINGLEE[o]);
+  if (ecarts.length === 0) {
+    return (
+      osvInjoignable(r) ?? {
+        cle: 'porte_securite',
+        gravite: 'ok',
+        constat: `porte de sécurité vérifiable (${lieu}) : ${epinglees}`,
+        reparation: null,
+      }
+    );
+  }
+  const dits = ecarts.map((o) => {
+    const vue = r.porteSecurite.hote[o];
+    return vue === null ? `${o} absent` : `${o} ${vue} (épinglé : ${VERSION_EPINGLEE[o]})`;
+  });
+  const absents = ecarts.some((o) => r.porteSecurite.hote[o] === null);
+  return {
+    cle: 'porte_securite',
+    gravite: 'risque',
+    constat:
+      `porte de sécurité non vérifiable telle quelle (${lieu}) : ${dits.join(' · ')} — ` +
+      (absents
+        ? 'chaque production sera « non vérifiée », jamais verte'
+        : 'la porte les lance, mais leurs rapports n’ont été éprouvés que sur les versions épinglées'),
+    reparation: ecarts
+      .map((o) => {
+        const { depot, empreintes } = PUBLICATION_OUTIL[o];
+        return (
+          `${o} ${VERSION_EPINGLEE[o]} : https://github.com/${depot}/releases/tag/` +
+          `v${VERSION_EPINGLEE[o]} (vérifiez le SHA-256 dans ${empreintes})`
+        );
+      })
+      .join(' · ')
+      .concat(', dans un dossier du PATH'),
+  };
+}
+
+/**
+ * Les outils sont prêts, mais api.osv.dev ne répond pas d'ici : le volet
+ * dépendances sera « non vérifié » — `null` s'il répond, ou s'il n'a pas été
+ * éprouvé.
+ */
+function osvInjoignable(r: Releve): Diagnostic | null {
+  const { joignable, proxy } = r.porteSecurite.osv;
+  if (joignable !== false) return null;
+  return {
+    cle: 'porte_securite',
+    gravite: 'risque',
+    constat:
+      `outils de la porte prêts, mais api.osv.dev injoignable depuis ce poste` +
+      (proxy ? ` par le proxy ${proxy}` : ' (aucun proxy déclaré : en direct)') +
+      ' — le volet dépendances sera « non vérifié » à chaque lockfile touché',
+    reparation:
+      'ouvrez la sortie HTTPS vers api.osv.dev:443' +
+      (proxy
+        ? ` à travers ${proxy}`
+        : ', ou posez HTTPS_PROXY dans l’environnement du nœud (.env)') +
+      ' — dans un bac à conteneurs, un proxy en 127.0.0.1 n’est pas joignable du conteneur',
   };
 }
 

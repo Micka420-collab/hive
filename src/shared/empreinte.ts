@@ -252,6 +252,14 @@ export function empreinte(ctx: Contexte): Emplacement[] {
           quoi: 'cloudflared, s’il a été téléchargé par `hive cloudflare --install`',
         },
         {
+          // La porte de sécurité (`node-client/porte-securite.ts`) écrit son
+          // miroir DANS la tâche — le seul dossier que le bac monte — et
+          // l'efface dès qu'elle a jugé ; un nœud tué au mauvais moment le
+          // laisse, et il part avec la tâche. Rien dans `os.tmpdir()`.
+          chemin: p.join(ctx.workdir, '<nœud>', 'tasks', '<tâche>', '.hive-porte-*'),
+          quoi: 'le miroir de la porte de sécurité — effacé dès qu’elle a jugé, sinon avec la tâche',
+        },
+        {
           // Le seul contenu d'ici qui ne se REFAIT pas : une mission livrée
           // sans GitHub et sans poussée vit dans ce dépôt nu, et nulle part
           // ailleurs (`node-client/livraison-locale.ts`).

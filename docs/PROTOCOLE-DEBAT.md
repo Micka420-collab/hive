@@ -215,31 +215,58 @@ exige que son motif (le début de `reasons[0]`) ne désigne qu'elle :
 
 <!-- verifie:evaluator -->
 
-| #   | Quand                                                     | Décision                   | Renvoi recommandé | Motif rendu (extrait)            |
-| --- | --------------------------------------------------------- | -------------------------- | ----------------- | -------------------------------- |
-| 1   | aucun résultat Worker                                     | `correction_required`      | oui               | `aucun résultat Worker`          |
-| 2   | dernier résultat en échec                                 | `rejected`                 | oui               | `le dernier résultat a échoué`   |
-| 3   | production creuse (Gardiennes `hollow`)                   | `rejected`                 | oui               | `production creuse`              |
-| 4   | Gardiennes `suspect`                                      | `correction_required`      | oui               | `signal suspect`                 |
-| 5   | rejet humain                                              | `correction_required`      | oui               | `la revue humaine a rejeté`      |
-| 6   | pas d'inspection des Gardiennes                           | `human_review_required`    | non               | `aucune inspection indépendante` |
-| 7   | le résultat n'est pas celui que le Parlement a élu        | `correction_required`      | oui               | `faction élue`                   |
-| 8   | contre-revue contestée                                    | `correction_required`      | oui               | `demande une amélioration`       |
-| 9   | une validation en échec                                   | `correction_required`      | oui               | `en échec`                       |
-| 10  | relecture impossible, sans aucun avis ni relecture en vol | `human_review_required`    | non               | `relecture impossible :`         |
-| 11  | une validation manque (ou les tests ne sont pas déclarés) | `additional_test_required` | non               | `preuves manquantes`             |
-| 12  | une relecture de ce résultat est encore en vol            | `human_review_required`    | non               | `contre-revue en cours`          |
-| 13  | aucun avis favorable d'une autre famille                  | `human_review_required`    | non               | `aucune contre-revue`            |
-| 14  | tout est vert **et** un avis favorable indépendant        | `accepted`                 | non               | `contre-revue favorable`         |
+| #   | Quand                                                                          | Décision                   | Renvoi recommandé | Motif rendu (extrait)              |
+| --- | ------------------------------------------------------------------------------ | -------------------------- | ----------------- | ---------------------------------- |
+| 1   | aucun résultat Worker                                                          | `correction_required`      | oui               | `aucun résultat Worker`            |
+| 2   | dernier résultat en échec                                                      | `rejected`                 | oui               | `le dernier résultat a échoué`     |
+| 3   | production creuse (Gardiennes `hollow`)                                        | `rejected`                 | oui               | `production creuse`                |
+| 4   | la porte de sécurité a trouvé un secret ajouté ou une vulnérabilité introduite | `correction_required`      | oui               | `la porte de sécurité a trouvé`    |
+| 5   | Gardiennes `suspect`                                                           | `correction_required`      | oui               | `signal suspect`                   |
+| 6   | rejet humain                                                                   | `correction_required`      | oui               | `la revue humaine a rejeté`        |
+| 7   | pas d'inspection des Gardiennes                                                | `human_review_required`    | non               | `aucune inspection indépendante`   |
+| 8   | le résultat n'est pas celui que le Parlement a élu                             | `correction_required`      | oui               | `faction élue`                     |
+| 9   | contre-revue contestée                                                         | `correction_required`      | oui               | `demande une amélioration`         |
+| 10  | une validation en échec                                                        | `correction_required`      | oui               | `en échec`                         |
+| 11  | relecture impossible, sans aucun avis ni relecture en vol                      | `human_review_required`    | non               | `relecture impossible :`           |
+| 12  | porte de sécurité non vérifiée, en polyéthisme `strict`                        | `human_review_required`    | non               | `non vérifiée, polyéthisme strict` |
+| 13  | une validation manque (ou les tests ne sont pas déclarés)                      | `additional_test_required` | non               | `preuves manquantes`               |
+| 14  | une relecture de ce résultat est encore en vol                                 | `human_review_required`    | non               | `contre-revue en cours`            |
+| 15  | aucun avis favorable d'une autre famille                                       | `human_review_required`    | non               | `aucune contre-revue`              |
+| 16  | tout est vert **et** un avis favorable indépendant                             | `accepted`                 | non               | `contre-revue favorable`           |
 
 <!-- /verifie:evaluator -->
 
-La relecture impossible (10) passe **avant** les preuves absentes : aucune CI
+La relecture impossible (11) passe **avant** les preuves absentes : aucune CI
 ne ferait `accepted` sans avis indépendant, et « tests supplémentaires
 requis » enverrait l'opérateur chercher une preuve qui ne débloquerait rien.
 Un premier avis favorable ne vaut pas acceptation tant qu'une autre relecture
-du même résultat est en vol (12) : une objection reste bloquante, d'où qu'elle
+du même résultat est en vol (14) : une objection reste bloquante, d'où qu'elle
 vienne.
+
+La **porte de sécurité** (`src/shared/porte-securite.ts`) n'est pas une
+cinquième validation : le nœud la joint à son résultat (`porteSecurite`,
+rangée en `security_gate_recorded`), volet par volet — secrets (Betterleaks,
+confiance haute, lignes ajoutées seulement, sur TOUT résultat porteur d'un
+diff, échecs compris) et dépendances (osv-scanner, vulnérabilités INTRODUITES
+par rapport à la base, pour une production réussie de l'arbre de la tâche ;
+ce qui en part à osv.dev : `src/shared/porte-securite-dependances.ts`). La
+Reine revalide chaque volet SEUL : un volet mal formé devient
+`rapport_rejete`, journalisé (`security_gate_rejected`), sans emporter
+l'autre. Un constat (4) passe avant tout ce qui appelle un humain :
+`human_review_required` n'arrête pas la livraison, et une approbation ne doit
+pas laisser partir une clé ; sur un résultat en échec (2), les constats
+suivent le motif, pour que la critique les porte. Non vérifiée (outil absent,
+en échec, osv.dev injoignable, nœud antérieur à la porte), elle n'est
+**jamais comptée verte** — `accepted` le dit dans ses motifs, comme les
+paquets introduits qui n'ont pas pu être interrogés (« passée en partie ») —
+et ne retient la production qu'en polyéthisme `strict` (12) : comme une
+contre-visite manquante, la production attend alors un humain
+(`human_review_required`, sans renvoi — le producteur n'installe pas l'outil
+du nœud). Ce que cela change, et rien de plus : la livraison exigeait déjà
+une approbation humaine, que ce verdict ne bloque pas ; l'Evaluator n'accepte
+plus seul (pas de souvenir retenu au Hive Mind sans humain, pas de production
+« jugée » dans la qualité des ouvrières). Un rejet humain relance la
+production, et la porte avec elle.
 
 ### Étape 4 — la correction, avec la critique (#488)
 

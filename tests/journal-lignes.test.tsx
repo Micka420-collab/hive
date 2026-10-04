@@ -173,6 +173,33 @@ describe('la course annonce les drones QUI VOLENT, pas le facteur demandé', () 
   });
 });
 
+describe('la porte de sécurité au journal : `?` quand elle n’a pas été vérifiée — jamais un vert', () => {
+  const porte = evenement('security_gate_recorded', {
+    taskId: 'tache-porte',
+    resultId: 3,
+    nodeId: 'n1',
+    porte: {
+      secrets: { etat: 'constat', raison: 'trouve', constats: [], total: 2 },
+      dependances: { etat: 'non_verifie', raison: 'outil_absent', constats: [], total: 0 },
+    },
+  });
+
+  it('UN CONSTAT EST COMPTÉ ; UNE PORTE NON VÉRIFIÉE N’EST PAS VERTE', async () => {
+    const dom = await monter(porte);
+    expect(ligne(dom)).toContain('porte de sécurité');
+    expect(ligne(dom)).toContain('secrets ✘ ×2');
+    expect(ligne(dom)).toContain('dépendances ?');
+    expect(ligne(dom), 'une porte non vérifiée passe pour verte').not.toContain('✔');
+  });
+
+  it('EN ANGLAIS AUSSI', async () => {
+    setLang('en');
+    const dom = await monter(porte);
+    expect(ligne(dom)).toContain('security gate');
+    expect(ligne(dom)).toContain('dependencies ?');
+  });
+});
+
 describe('une correction de l’Evaluator ne se lit pas comme un échec', () => {
   // ─── LE MÊME TYPE, DEUX HISTOIRES OPPOSÉES ─────────────────────────────
   //

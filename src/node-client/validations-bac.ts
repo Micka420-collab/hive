@@ -114,8 +114,11 @@ export interface OptionsValidation {
   caviarder?: (texte: string) => string;
 }
 
-/** Lit un fichier du commit de base ; `null` s'il n'y existe pas. */
-async function fichierDeBase(
+/**
+ * Lit un fichier du commit de base ; `null` s'il n'y existe pas. Partagé avec
+ * la porte de sécurité, qui y relit les lockfiles d'avant la production.
+ */
+export async function fichierDeBase(
   depot: DepotEpingle,
   baseSha: string,
   fichier: string,

@@ -3812,6 +3812,10 @@ async function monterReine(
     const inspection = latest
       ? inspectionDeProduction(inspections, task.id, latest.nodeId, latest.resultId)
       : undefined;
+    // La porte de sécurité juge la PRODUCTION, pas une tête de PR : elle
+    // tient même `sansCI` — une reprise n'efface pas une clé déjà livrée.
+    const securite =
+      latest?.resultId !== undefined ? store.porteSecuriteDe(task.id, latest.resultId) : null;
     const ballots: Ballot[] = results.map((r) => ({
       nodeId: r.nodeId,
       agentType: store.getNode(r.nodeId)?.agentType ?? 'inconnu',
@@ -3834,6 +3838,11 @@ async function monterReine(
         ...(crossReview ? { crossReview } : {}),
         crossReviewPending,
         ...(crossReviewImpossible ? { crossReviewImpossible } : {}),
+        ...(securite ? { securite: { porte: securite.porte, nodeId: securite.nodeId } } : {}),
+        // Le mode qui a GOUVERNÉ cette production (échelon du Garde-Fou, ou
+        // mode global en vigueur) : c'est lui qui décide si une porte non
+        // vérifiée la retient (evaluator.ts).
+        securiteStricte: polyethismeDe(task) === 'strict',
       }),
     };
   };
@@ -16075,6 +16084,10 @@ async function monterReine(
               ...(msg.finalText !== undefined ? { finalText: msg.finalText } : {}),
               ...(msg.validations ? { validations: msg.validations } : {}),
               ...(arretBudgetaire ? { arretBudgetaire } : {}),
+              ...(msg.porteSecurite ? { porteSecurite: msg.porteSecurite } : {}),
+              ...(msg.porteSecuriteRejetee
+                ? { porteSecuriteRejetee: msg.porteSecuriteRejetee }
+                : {}),
             });
             if (!pris) {
               send(ws, {

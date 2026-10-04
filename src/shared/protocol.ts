@@ -13,10 +13,12 @@ import type {
 import { estPlateforme } from './machine.js';
 import { estEmpreinte } from './empreinte-ruche.js';
 import { validationsBacDepuis } from './validations-bac.js';
+import { porteSecuriteDepuis } from './porte-securite.js';
 import { estEffort, estListeEfforts, type Effort } from './effort.js';
 import { estNiveauReseau, type NiveauReseau } from './reseau.js';
 import { estNiveauAutonomie, type NiveauAutonomie } from './politique-actions.js';
 import type { ValidationsBac } from './validations-bac.js';
+import type { PorteSecurite, VoletPorte } from './porte-securite.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
 import { estArretBudgetaire, type ArretBudgetaire } from './arret-budgetaire.js';
@@ -328,6 +330,19 @@ export interface TaskResultMsg {
    * coût déclaré arrivé sur ce plafond (`arretCru`, server.ts).
    */
   arretBudgetaire?: ArretBudgetaire;
+  /**
+   * Ce que la porte de sécurité du nœud a vu dans ce que la production AJOUTE
+   * (`porte-securite.ts`) : secrets, dépendances introduites — jamais une
+   * valeur. ADDITIF : un nœud plus ancien ne l'envoie pas, et la Reine lit
+   * alors « non vérifié », jamais un vert.
+   */
+  porteSecurite?: PorteSecurite;
+  /**
+   * Les volets de `porteSecurite` que la Reine a REFUSÉS à la réception (mal
+   * formés, devenus `rapport_rejete`). Posé par `parseClientMessage`, jamais
+   * lu du réseau : la Reine le journalise (`security_gate_rejected`).
+   */
+  porteSecuriteRejetee?: VoletPorte[];
 }
 
 /**
@@ -1297,6 +1312,10 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         const arretBudgetaire = estArretBudgetaire(m.arretBudgetaire)
           ? m.arretBudgetaire
           : undefined;
+        // La porte, VOLET PAR VOLET : un volet mal formé devient
+        // `rapport_rejete` — « non vérifié », jamais « rien trouvé » — sans
+        // emporter l'autre, et son refus est rendu pour être journalisé.
+        const porte = m.porteSecurite === undefined ? null : porteSecuriteDepuis(m.porteSecurite);
         return {
           type: 'task_result',
           taskId: m.taskId,
@@ -1310,6 +1329,8 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           ...(finalText !== undefined ? { finalText } : {}),
           ...(validations ? { validations } : {}),
           ...(arretBudgetaire ? { arretBudgetaire } : {}),
+          ...(porte ? { porteSecurite: porte.porte } : {}),
+          ...(porte && porte.rejetes.length > 0 ? { porteSecuriteRejetee: porte.rejetes } : {}),
         };
       }
       return null;

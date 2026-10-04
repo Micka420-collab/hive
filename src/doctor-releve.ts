@@ -52,6 +52,7 @@ import { modeRunnerDepuisEnv } from './orchestrator/essaim-runner.js';
 import { envSonde, inventaireAgents, type InventaireAgents } from './node-client/agent-detect.js';
 import {
   commandeImage,
+  etiquetteImage,
   IMAGE_DEFAUT,
   imageDepuisEnv,
   inspecterImage,
@@ -61,6 +62,8 @@ import {
   type Fournisseur,
 } from './node-client/isolement.js';
 import { SECRET_JWT_INTERDIT, secretJwtDepuisEnv } from './orchestrator/auth.js';
+import { joindreOsv, versionPourLaPorte } from './node-client/porte-securite.js';
+import { ETIQUETTE_PORTE, VALEUR_ETIQUETTE_PORTE } from './shared/porte-securite.js';
 
 /** Où la ruche range ses affaires, vu depuis la racine du dépôt. */
 export interface Emplacements {
@@ -482,6 +485,29 @@ export async function relever(
   }));
   // Sondés UNE fois : le nom du premier et l'image du bac en découlent.
   const joignables = await moteursJoignables().catch((): Fournisseur[] => []);
+  // Les outils de la porte de sécurité sur l'hôte, par la sonde même de la
+  // porte (`versionPourLaPorte` : sa résolution, son lanceur) — un outil muet,
+  // ou que la porte ne lancerait pas, est `null`, jamais une version supposée.
+  const [betterleaks, osvScanner] = await Promise.all([
+    versionPourLaPorte('betterleaks'),
+    versionPourLaPorte('osv-scanner'),
+  ]);
+  // Une inspection qui plante n'est ni « présente » ni « absente » : inconnue.
+  const imageBac = await imageDuBac(env, joignables).catch(() =>
+    joignables.length === 0
+      ? null
+      : { image: imageDepuisEnv(env), dans: null, absenteDe: null, construire: null },
+  );
+  // Et dans l'image, son étiquette — lue par le moteur qui l'A, sans rien y lancer.
+  const moteurImage = joignables.find((f) => f.nom === imageBac?.dans && f.bin !== 'bwrap');
+  const etiquetteLue =
+    moteurImage && imageBac
+      ? await etiquetteImage(moteurImage, imageBac.image, ETIQUETTE_PORTE, 5_000)
+      : null;
+  // api.osv.dev, par le chemin qu'osv-scanner prendrait — seulement s'il y a
+  // un osv-scanner pour le prendre : une connexion bornée, rien d'envoyé.
+  const osvLa = etiquetteLue === VALEUR_ETIQUETTE_PORTE || osvScanner !== null;
+  const osv = osvLa ? await joindreOsv(env) : { joignable: null, proxy: null };
 
   return {
     versionNode: process.versions.node,
@@ -551,12 +577,12 @@ export async function relever(
     // Lus dans le HOME de `env`, le paramètre : un test compose le sien.
     identifiantsGit: await identifiantsDeposes(env, plateforme),
     isolement: joignables[0]?.nom ?? null,
-    // Une inspection qui plante n'est ni « présente » ni « absente » : inconnue.
-    imageBac: await imageDuBac(env, joignables).catch(() =>
-      joignables.length === 0
-        ? null
-        : { image: imageDepuisEnv(env), dans: null, absenteDe: null, construire: null },
-    ),
+    imageBac,
+    porteSecurite: {
+      hote: { betterleaks, 'osv-scanner': osvScanner },
+      image: etiquetteLue,
+      osv,
+    },
     wsJoignable: ws,
     reglages: {
       // MÊMES règles que la ruche : un docteur qui annonce autre chose que ce

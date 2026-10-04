@@ -47,7 +47,8 @@ import {
   useReviewTick,
 } from './shared';
 import type { ReviewState, ViewProps } from './shared';
-import { resumeProvenance, texteControle } from './validations-rendu';
+import type { PorteSecurite } from '../../../src/shared/porte-securite';
+import { resumePorte, resumeProvenance, texteControle } from './validations-rendu';
 import { direComptesCriteres, enteteConstat } from './critique-rendu';
 import './miellerie.css';
 
@@ -719,6 +720,13 @@ export function EvaluationPanel({
         <div>
           <dt>{t('Contre-revue', 'Cross-review')}</dt>
           <dd data-testid="mi-cross-review">{crossReviewSummary}</dd>
+        </div>
+        <div>
+          <dt>{t('Porte de sécurité', 'Security gate')}</dt>
+          <dd data-testid="mi-porte-securite">
+            {/* Optionnelle à la lecture : une Reine plus ancienne n'en rend pas. */}
+            {resumePorte(evaluation.evidence.securite as PorteSecurite | undefined, t)}
+          </dd>
         </div>
         <div>
           <dt>{t('Constats par critère', 'Findings by criterion')}</dt>

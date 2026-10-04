@@ -31,6 +31,7 @@ import {
 import type { Diagnostic, Releve } from '../src/shared/doctor.js';
 import { LONGUEUR_MIN_SECRET_JWT, secretJwtDepuisEnv } from '../src/orchestrator/auth.js';
 import { GIT_ACCES_MINIMUM } from '../src/shared/git-protege.js';
+import { VALEUR_ETIQUETTE_PORTE, VERSION_EPINGLEE } from '../src/shared/porte-securite.js';
 
 /** Une ruche en parfait état. Chaque test n'en dérange qu'un point. */
 const SAINE: Releve = {
@@ -58,6 +59,13 @@ const SAINE: Releve = {
     dans: 'podman',
     absenteDe: null,
     construire: null,
+  },
+  // L'image porte l'étiquette que pose le Dockerfile après avoir vérifié les
+  // outils : la porte de sécurité y est vérifiable, sans rien lancer.
+  porteSecurite: {
+    hote: { betterleaks: null, 'osv-scanner': null },
+    image: VALEUR_ETIQUETTE_PORTE,
+    osv: { joignable: true, proxy: null },
   },
   wsJoignable: true,
   reglages: { runner: 'off', bindPublic: false, gardiennes: 'strict', corsOuvert: false },
@@ -105,6 +113,12 @@ describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
       },
       isolement: null,
       imageBac: null,
+      // Sans bac, la porte tourne sur l'hôte — où ses outils manquent.
+      porteSecurite: {
+        hote: { betterleaks: null, 'osv-scanner': null },
+        image: null,
+        osv: { joignable: null, proxy: null },
+      },
       wsJoignable: false,
       reglages: { runner: 'on', bindPublic: true, gardiennes: 'off', corsOuvert: true },
       espace: { octetsLibres: 0, inscriptible: true },
@@ -112,7 +126,7 @@ describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
       decouverte: { ruche: true, machine: false, ecouteLocale: true },
     };
     const diags = diagnostiquer(cassee);
-    // ─── DOUZE, PUIS TREIZE, PUIS QUATORZE ──────────────────────────────────
+    // ─── DOUZE, PUIS TREIZE, PUIS QUATORZE, PUIS QUINZE ─────────────────────
     //
     // Le treizième est `secret_session`. Il est arrivé parce qu'un nouveau venu
     // pouvait suivre le docteur À LA LETTRE, ne plus voir aucun ✘ réparable,
@@ -131,7 +145,10 @@ describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
     // Ce compte est délibérément écrit en dur : ajouter un contrôle DOIT faire
     // rougir ce test, pour qu'on écrive aussi sa place dans l'ordre — l'ordre
     // est une information, pas une présentation.
-    expect(diags.length, 'les seize diagnostics').toBe(16);
+    //
+    // Le dix-septième est `porte_securite`, juste après le bac qui dit où ses
+    // outils tournent : sans eux, chaque production est « non vérifiée ».
+    expect(diags.length, 'les dix-sept diagnostics').toBe(17);
 
     for (const d of diags) {
       expect(d.gravite, `${d.cle} devrait signaler quelque chose`).not.toBe('ok');
@@ -633,6 +650,157 @@ describe('12. LE MOTEUR — la panne que le docteur savait possible et taisait',
   });
 });
 
+describe('porte_securite — les outils de la porte là où le nœud les lancera', () => {
+  const hote = (betterleaks: string | null, osv: string | null) => ({
+    hote: { betterleaks, 'osv-scanner': osv },
+    image: null,
+    osv: { joignable: osv === null ? null : true, proxy: null },
+  });
+  const bubblewrap: Releve['imageBac'] = {
+    image: 'localhost/hive-agent:local',
+    dans: 'bubblewrap',
+    absenteDe: null,
+    construire: null,
+  };
+
+  it('DANS L’IMAGE : l’étiquette posée après l’installation vérifiée suffit — sans rien lancer', () => {
+    const d = diag(SAINE, 'porte_securite');
+    expect(d.gravite).toBe('ok');
+    expect(d.constat).toContain(`betterleaks ${VERSION_EPINGLEE.betterleaks}`);
+    expect(d.constat).toContain(`osv-scanner ${VERSION_EPINGLEE['osv-scanner']}`);
+  });
+
+  it('UNE IMAGE CONSTRUITE AVANT LA PORTE est un risque, et la commande la reconstruit', () => {
+    const d = diag(
+      avec({
+        porteSecurite: {
+          hote: { betterleaks: '1.9.0', 'osv-scanner': '2.6.0' },
+          image: '',
+          osv: { joignable: true, proxy: null },
+        },
+      }),
+      'porte_securite',
+    );
+    // Les outils de l'HÔTE n'y changent rien : le nœud lance ceux de l'image.
+    expect(d.gravite).toBe('risque');
+    expect(d.constat).toContain('non vérifiée');
+    expect(d.reparation).toContain('npm run bac:image');
+  });
+
+  it('D’AUTRES VERSIONS DANS L’IMAGE sont nommées, avec celles qu’épingle le Dockerfile', () => {
+    const d = diag(
+      avec({
+        porteSecurite: { ...hote(null, null), image: 'betterleaks=1.8.1 osv-scanner=2.6.0' },
+      }),
+      'porte_securite',
+    );
+    expect(d.gravite).toBe('risque');
+    expect(d.constat).toContain('betterleaks=1.8.1');
+    expect(d.reparation).toContain(VALEUR_ETIQUETTE_PORTE);
+  });
+
+  it('UNE ÉTIQUETTE QUE LE MOTEUR N’A PAS DITE est « inconnu », jamais « ok »', () => {
+    const d = diag(avec({ porteSecurite: hote(null, null) }), 'porte_securite');
+    expect(d.gravite).toBe('inconnu');
+    expect(d.reparation).toContain('podman image inspect');
+  });
+
+  it('SOUS BUBBLEWRAP, ce sont ceux du PATH de l’hôte : présents et épinglés, ok', () => {
+    const d = diag(
+      avec({
+        imageBac: bubblewrap,
+        isolement: 'bubblewrap',
+        porteSecurite: hote('1.9.0', '2.6.0'),
+      }),
+      'porte_securite',
+    );
+    expect(d.gravite).toBe('ok');
+    expect(d.constat).toContain('bubblewrap');
+  });
+
+  it('ABSENTS DE L’HÔTE : un risque, et chaque release avec son fichier d’empreintes', () => {
+    const d = diag(
+      avec({ imageBac: bubblewrap, isolement: 'bubblewrap', porteSecurite: hote(null, null) }),
+      'porte_securite',
+    );
+    expect(d.gravite).toBe('risque');
+    expect(d.constat).toContain('betterleaks absent');
+    expect(d.constat).toContain('jamais verte');
+    expect(d.reparation).toContain(
+      'https://github.com/betterleaks/betterleaks/releases/tag/v1.9.0 (vérifiez le SHA-256 dans checksums.txt)',
+    );
+    expect(d.reparation).toContain(
+      'https://github.com/google/osv-scanner/releases/tag/v2.6.0 (vérifiez le SHA-256 dans osv-scanner_SHA256SUMS)',
+    );
+  });
+
+  it('UNE AUTRE VERSION SUR L’HÔTE n’est pas celle dont les rapports ont été éprouvés', () => {
+    const d = diag(
+      avec({
+        imageBac: bubblewrap,
+        isolement: 'bubblewrap',
+        porteSecurite: hote('1.9.0', '2.5.1'),
+      }),
+      'porte_securite',
+    );
+    expect(d.gravite).toBe('risque');
+    expect(d.constat).toContain('osv-scanner 2.5.1 (épinglé : 2.6.0)');
+    // La porte la LANCE : le docteur ne dit pas « absente » d'un outil présent.
+    expect(d.constat).toContain('la porte les lance');
+    expect(d.constat).not.toContain('chaque production sera « non vérifiée »');
+    expect(d.reparation).not.toContain('betterleaks');
+  });
+
+  it('OUTILS PRÊTS, api.osv.dev INJOIGNABLE : un risque qui nomme l’hôte, le proxy, et quoi faire', () => {
+    const direct = diag(
+      avec({
+        porteSecurite: { ...SAINE.porteSecurite, osv: { joignable: false, proxy: null } },
+      }),
+      'porte_securite',
+    );
+    expect(direct.gravite).toBe('risque');
+    expect(direct.constat).toContain('api.osv.dev injoignable');
+    expect(direct.constat).toContain('« non vérifié »');
+    expect(direct.reparation).toContain('HTTPS_PROXY');
+    const parProxy = diag(
+      avec({
+        imageBac: bubblewrap,
+        isolement: 'bubblewrap',
+        porteSecurite: {
+          hote: { betterleaks: '1.9.0', 'osv-scanner': '2.6.0' },
+          image: null,
+          osv: { joignable: false, proxy: 'proxy.entreprise.test:3128' },
+        },
+      }),
+      'porte_securite',
+    );
+    expect(parProxy.gravite).toBe('risque');
+    expect(parProxy.constat).toContain('par le proxy proxy.entreprise.test:3128');
+    expect(parProxy.reparation).toContain('à travers proxy.entreprise.test:3128');
+  });
+
+  it('L’IMAGE PAR DÉFAUT CONSTRUITE NULLE PART : le nœud se replie, la porte tourne sur l’hôte', () => {
+    const d = diag(
+      avec({
+        imageBac: {
+          image: 'localhost/hive-agent:local',
+          dans: null,
+          absenteDe: 'podman',
+          construire: 'npm run bac:image',
+        },
+        porteSecurite: {
+          hote: { betterleaks: null, 'osv-scanner': null },
+          image: null,
+          osv: { joignable: null, proxy: null },
+        },
+      }),
+      'porte_securite',
+    );
+    expect(d.gravite).toBe('risque');
+    expect(d.constat).toContain('sans bac');
+  });
+});
+
 describe('LE VERDICT D’ENSEMBLE, ET LE CODE DE SORTIE', () => {
   it('le pire l’emporte, dans le bon ordre', () => {
     expect(pire(diagnostiquer(SAINE))).toBe('ok');
@@ -686,6 +854,8 @@ describe('CE QUE LE MODULE NE FAIT PAS', () => {
       // Sans git, l'ouvrière ne clone rien à donner à son agent.
       'git',
       'isolement',
+      // Juste après le bac : c'est lui qui dit où tournent les outils de la porte.
+      'porte_securite',
       'websocket',
       'reglages',
       // Avec les réglages risqués : rien ne s'arrête, mais un jeton traîne.

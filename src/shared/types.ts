@@ -5,6 +5,7 @@
 import type { PlateformeNoeud } from './machine.js';
 import type { OutilConstate } from './protocol.js';
 import type { ValidationsBac } from './validations-bac.js';
+import type { PorteSecurite, VoletPorte } from './porte-securite.js';
 import type { Effort } from './effort.js';
 import type { ArretBudgetaire } from './arret-budgetaire.js';
 
@@ -204,6 +205,10 @@ export interface TaskResult {
    * arrivé sur ce plafond).
    */
   arretBudgetaire?: ArretBudgetaire;
+  /** La porte de sécurité du nœud — même règle : rangée à la réception (`security_gate_recorded`). */
+  porteSecurite?: PorteSecurite;
+  /** Ses volets refusés à la réception (`TaskResultMsg.porteSecuriteRejetee`) — journalisés. */
+  porteSecuriteRejetee?: VoletPorte[];
 }
 
 /** Entrée du journal d'événements — base du futur Time-Lapse Replay (palier 3). */

@@ -107,6 +107,8 @@ import type {
 import { capturerExecutionUsage, executionUsageDepuis } from './execution-usage.js';
 import { VALIDATION_KEYS } from '../shared/validations-bac.js';
 import type { ValidationsBac } from '../shared/validations-bac.js';
+import type { PorteSecurite } from '../shared/porte-securite.js';
+import { passerLaPorte } from './porte-securite.js';
 import { reglesAutorisationDeBase, validerProduction } from './validations-bac.js';
 
 const MAX_PENDING_DELEGATIONS = 32;
@@ -1601,7 +1603,7 @@ export class HiveNodeClient {
    * `buildSandboxEnv` retire de `keepEnv` restent caviardés ici — en trop,
    * jamais en moins.
    */
-  private caviardeurDuNoeud(): Caviardeur {
+  private caviardeurDuNoeud(trouvees: readonly string[] = []): Caviardeur {
     const env = Object.fromEntries(
       (this.opts.keepEnv ?? []).map((nom): [string, string | undefined] => [nom, process.env[nom]]),
     );
@@ -1610,7 +1612,12 @@ export class HiveNodeClient {
     // les sources de Hive : le caviarder réécrirait leurs diffs et leurs logs.
     const jeton = this.opts.token;
     const jetonReel = jeton !== DEFAULT_TOKEN && jeton.length >= MIN_TOKEN_LENGTH;
-    return creerCaviardeur([...valeursSecretes(env), ...(jetonReel ? [jeton] : [])]);
+    // `trouvees` : les secrets que la porte a trouvés dans la production, relus
+    // dans son diff (`passerLaPorte`) — une clé AWS n'a aucun motif connu de
+    // Hive, sa valeur exacte, si. Déjà sous leurs seules formes CAVIARDABLES
+    // (une clé PEM par ses lignes de base64, jamais par son en-tête) : rien
+    // n'y réécrit une ligne légitime.
+    return creerCaviardeur([...valeursSecretes(env), ...(jetonReel ? [jeton] : []), ...trouvees]);
   }
 
   /**
@@ -2019,7 +2026,7 @@ export class HiveNodeClient {
       // nourrit la Balance et la chronologie, qui comparent des agents — pas
       // la vitesse des tests du projet.
       const durationMs = Date.now() - started;
-      const validations = await this.validerSiProduction(
+      const verifie = await this.validerSiProduction(
         task.id,
         result,
         diff,
@@ -2027,6 +2034,9 @@ export class HiveNodeClient {
         ctrl,
         reseauBac,
       );
+      // Ce que la porte a trouvé se caviarde dans tout ce qui part — diff,
+      // logs, texte final —, pas seulement dans son propre rapport.
+      const sortant = verifie.caviardeur ?? caviardeur;
       // Tronquer aux limites du protocole : un diff/log surdimensionné ferait
       // rejeter le message par le hub (fermeture de connexion) et la tâche
       // bouclerait indéfiniment sans jamais aboutir.
@@ -2035,7 +2045,7 @@ export class HiveNodeClient {
         taskId: task.id,
         success: result.success,
         // Caviardés AVANT d'être tronqués (voir `declarationsDuResultat`).
-        diff: caviardeur.diff(diff).slice(0, LIMITS.diff),
+        diff: sortant.diff(diff).slice(0, LIMITS.diff),
         // Deux têtes, dans cet ordre : la ligne d'un arrêt budgétaire (celle
         // que le parent qui attend lit d'abord), puis le bilan des refus du
         // proxy, puis les logs de l'agent.
@@ -2043,16 +2053,17 @@ export class HiveNodeClient {
           { ...result, logs: HiveNodeClient.logsAvecReseau(result.logs, reseauTache) },
           diff,
           plafond,
-          caviardeur,
+          sortant,
         ),
         durationMs,
         subAgents: HiveNodeClient.sousAgentsCaviardes(
           result.subAgents.slice(0, LIMITS.subAgents),
-          caviardeur,
+          sortant,
         ),
         ...(usage ? { usage } : {}),
-        ...declarationsDuResultat(result, caviardeur),
-        ...(validations ? { validations } : {}),
+        ...declarationsDuResultat(result, sortant),
+        ...(verifie.validations ? { validations: verifie.validations } : {}),
+        ...(verifie.porteSecurite ? { porteSecurite: verifie.porteSecurite } : {}),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title}`);
     } catch (err) {
@@ -2088,13 +2099,26 @@ export class HiveNodeClient {
   }
 
   /**
-   * Les validations du bac pour CETTE production, ou rien.
+   * La porte de sécurité puis les validations du bac pour CE résultat — et le
+   * caviardeur qui doit l'accompagner au hub.
    *
-   * Seulement quand le diff remis est celui du RÉPERTOIRE — l'adaptateur n'en a
-   * pas fourni un à lui. L'adaptateur `shell` simulé rend un diff factice sans
-   * rien écrire : valider son répertoire rendrait des verts à propos de la base,
-   * attribués à une production qui n'existe pas. Rien non plus sans succès ni
-   * diff : un échec est déjà un verdict, et une relecture n'écrit rien.
+   * LA PORTE, SUR TOUT RÉSULTAT : son volet secrets lit le diff qui part au hub
+   * et n'exécute rien de la production. Il passait seulement après un succès :
+   * le diff d'un échec — un délai, un code non nul, un budget dépassé — partait
+   * avec la clé AWS en clair, et la Reine le rangeait dans `results.diff`. Son
+   * volet dépendances, lui, lit l'arbre de la tâche : seulement pour une
+   * production réussie dont le diff est celui du RÉPERTOIRE.
+   *
+   * LES VALIDATIONS, seulement pour cette production-là : l'adaptateur `shell`
+   * simulé rend un diff factice sans rien écrire — valider son répertoire
+   * rendrait des verts à propos de la base, attribués à une production qui
+   * n'existe pas ; un échec est déjà un verdict ; sans diff, rien à valider.
+   *
+   * La porte passe AVANT : les validations exécutent les tests du dépôt, que
+   * l'agent a pu écrire — après elles, elle ne jugerait plus l'arbre que le
+   * diff livre (`node-client/porte-securite.ts`). Et ce qu'elle trouve rejoint
+   * le caviardeur de la suite : l'extrait d'un test qui imprimerait la clé
+   * AWS que l'agent a écrite ne part pas plus au hub que le diff qui la porte.
    */
   private async validerSiProduction(
     taskId: string,
@@ -2104,26 +2128,55 @@ export class HiveNodeClient {
     ctrl: AbortController,
     /** Le réseau filtré de la tâche : ses validations tournent derrière le même proxy. */
     reseau?: ReseauBac,
-  ): Promise<ValidationsBac | undefined> {
-    if (!result.success || result.diff !== '' || diff.trim() === '') return undefined;
+  ): Promise<{
+    validations?: ValidationsBac;
+    porteSecurite?: PorteSecurite;
+    caviardeur?: Caviardeur;
+  }> {
+    const duRepertoire = result.success && result.diff === '';
+    const depot =
+      workspace.depot && workspace.baseSha
+        ? { depot: workspace.depot, baseSha: workspace.baseSha }
+        : null;
+    const surEtape = (log: string): void =>
+      this.send({ type: 'task_update', taskId, status: 'running', log });
+    const examenDependances = duRepertoire
+      ? 'examiner'
+      : result.success
+        ? 'diff_hors_arbre'
+        : 'production_en_echec';
+    const porte = await passerLaPorte({
+      cwd: workspace.cwd,
+      diff,
+      depot,
+      ...this.optionBacTache(taskId, reseau),
+      signal: ctrl.signal,
+      surEtape,
+      caviardeur: this.caviardeurDuNoeud(),
+      dependances: examenDependances,
+    });
+    const caviardeur = this.caviardeurDuNoeud(porte.valeurs);
+    const { secrets, dependances } = porte.rapport;
+    this.log(
+      `porte de sécurité : secrets ${secrets.etat} (${secrets.raison}) · ` +
+        `dépendances ${dependances.etat} (${dependances.raison})`,
+    );
+    if (!duRepertoire || diff.trim() === '') return { porteSecurite: porte.rapport, caviardeur };
     const validations = await validerProduction({
       cwd: workspace.cwd,
-      depot:
-        workspace.depot && workspace.baseSha
-          ? { depot: workspace.depot, baseSha: workspace.baseSha }
-          : null,
+      depot,
       // Étiquetés comme la tâche : un nœud tué pendant ses validations laisse
       // des conteneurs que son redémarrage doit ramasser (`ramasserConteneurs`).
       // Le code que l'agent a écrit y tourne : derrière le même réseau que lui.
       ...this.optionBacTache(taskId, reseau),
       // Leurs extraits partent au hub comme les logs : caviardés au nœud (#489).
-      caviarder: (texte) => this.caviardeurDuNoeud().texte(texte),
+      caviarder: (texte) => caviardeur.texte(texte),
       signal: ctrl.signal,
-      surEtape: (log) => this.send({ type: 'task_update', taskId, status: 'running', log }),
+      surEtape,
     });
     const etats = VALIDATION_KEYS.map((cle) => `${cle} ${validations.controles[cle].etat}`);
     this.log(`validations du bac : ${etats.join(' · ')}`);
-    return validations;
+    return { validations, porteSecurite: porte.rapport, caviardeur };
   }
 
   /** Reprend une tâche après réquisition accordée — credentials / binaire prêts. */
@@ -2272,7 +2325,7 @@ export class HiveNodeClient {
       }
       const diff = result.diff !== '' ? result.diff : await workspace.collectDiff();
       const durationMs = Date.now() - started;
-      const validations = await this.validerSiProduction(
+      const verifie = await this.validerSiProduction(
         task.id,
         result,
         diff,
@@ -2280,26 +2333,28 @@ export class HiveNodeClient {
         ctrl,
         reseauBac,
       );
+      const sortant = verifie.caviardeur ?? caviardeur;
       this.send({
         type: 'task_result',
         taskId: task.id,
         success: result.success,
         // Caviardés AVANT d'être tronqués (voir `declarationsDuResultat`).
-        diff: caviardeur.diff(diff).slice(0, LIMITS.diff),
+        diff: sortant.diff(diff).slice(0, LIMITS.diff),
         logs: logsDuResultat(
           { ...result, logs: HiveNodeClient.logsAvecReseau(result.logs, reseauTache) },
           diff,
           plafondCoutMicros,
-          caviardeur,
+          sortant,
         ),
         durationMs,
         subAgents: HiveNodeClient.sousAgentsCaviardes(
           result.subAgents.slice(0, LIMITS.subAgents),
-          caviardeur,
+          sortant,
         ),
         ...(usage ? { usage } : {}),
-        ...declarationsDuResultat(result, caviardeur),
-        ...(validations ? { validations } : {}),
+        ...declarationsDuResultat(result, sortant),
+        ...(verifie.validations ? { validations: verifie.validations } : {}),
+        ...(verifie.porteSecurite ? { porteSecurite: verifie.porteSecurite } : {}),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title} (reprise)`);
     } catch (err) {

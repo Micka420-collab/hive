@@ -14,6 +14,7 @@ import type {
   ValidationState,
   ValidationsBac,
 } from '../shared/validations-bac.js';
+import type { PorteSecurite, VoletPorte } from '../shared/porte-securite.js';
 // L'Aiguillage appris : parmi les nœuds éligibles à charge, restreindre à ceux
 // qui offrent le meilleur modèle pour le genre de la tâche. Module PUR — il ne
 // lit ni n'écrit rien ; le scheduler lui donne les antécédents et enregistre le
@@ -1162,6 +1163,45 @@ export class Scheduler {
   }
 
   /**
+   * Range ce que la porte de sécurité du nœud a vu dans CETTE production —
+   * même règle que `rangerValidations` : c'est l'admission qui attribue le
+   * `resultId`, le lien est un fait.
+   *
+   * Un fait À PART, pas un champ de `validation_recorded` : une CI GitHub
+   * ingérée ensuite remplace les validations du bac (`latestValidation`), et
+   * ne dit rien de ce que la production a ajouté. Rien n'est rangé sans
+   * rapport : c'est son ABSENCE que l'Evaluator lit « non vérifiée ».
+   */
+  private rangerPorteSecurite(
+    porte: PorteSecurite | undefined,
+    resultId: number,
+    task: Task,
+    nodeId: string,
+    rejetes: readonly VoletPorte[] = [],
+  ): void {
+    if (!porte) return;
+    // Un volet refusé à la réception (mal formé) n'est pas tu : il est devenu
+    // `rapport_rejete`, et le journal dit lequel, de quel nœud, sur quel résultat.
+    if (rejetes.length > 0) {
+      this.emit('security_gate_rejected', {
+        taskId: task.id,
+        projectId: task.projectId,
+        resultId,
+        nodeId,
+        volets: [...rejetes],
+      });
+    }
+    this.emit('security_gate_recorded', {
+      taskId: task.id,
+      projectId: task.projectId,
+      resultId,
+      nodeId,
+      porte,
+      recordedAt: Date.now(),
+    });
+  }
+
+  /**
    * Hive Mind : la production retenue PROPOSE un souvenir — elle ne l'écrit
    * pas. Il n'entre dans la mémoire qu'une fois la production validée
    * (acceptée par l'Evaluator, ou approuvée par un humain : `statuerProduction`,
@@ -1299,6 +1339,13 @@ export class Scheduler {
       const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
       if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
       this.rangerValidations(result.validations, resultId, task, nodeId);
+      this.rangerPorteSecurite(
+        result.porteSecurite,
+        resultId,
+        task,
+        nodeId,
+        result.porteSecuriteRejetee,
+      );
 
       if (retenu) {
         // L'état des modèles écartés vit EN MÉMOIRE : il suit le COMMIT.
@@ -2147,6 +2194,13 @@ export class Scheduler {
       const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
       if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
       this.rangerValidations(result.validations, resultId, task, nodeId);
+      this.rangerPorteSecurite(
+        result.porteSecurite,
+        resultId,
+        task,
+        nodeId,
+        result.porteSecuriteRejetee,
+      );
       // Parité avec la voie mono : le modèle de ce drone a échoué sur la tâche —
       // si la course s'éteint, la reprise ne le ré-élira pas.
       if (!retenu) {

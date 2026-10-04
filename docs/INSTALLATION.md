@@ -820,6 +820,13 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
   `.clinerules/hooks`, `.cline/hooks`, `.cline/plugins`) attend ici pendant que
   l'agent tourne, hors du bac, puis retourne dans la tâche avant le diff. Le
   dossier est effacé avec la tâche.
+- `<installation>/.hive-work/<nœud>/tasks/<task-id>/.hive-porte-*` : le miroir
+  de la **porte de sécurité** — les lignes que la production ajoute, les
+  lockfiles de la base et de la tête, la configuration que la porte impose aux
+  deux outils. Écrit dans la tâche, le seul dossier que le bac monte, APRÈS le
+  calcul du diff (il n'y entre donc jamais), et effacé dès que la porte a
+  jugé ; un nœud tué à ce moment-là le laisse, et il part avec la tâche. Rien
+  n'est écrit dans `$TMPDIR` : les outils reçoivent le `TEMP` de la tâche.
 - **un dépôt privé par SSH** (`git@hôte:…`) : le nœud clone — et, pour une
   livraison locale, liste et pousse — en mode lot
   (`ssh -o BatchMode=yes`), sans jamais attendre une invite. La clé d'hôte

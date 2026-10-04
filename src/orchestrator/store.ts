@@ -35,6 +35,7 @@ import {
   validationsBacDepuis,
 } from '../shared/validations-bac.js';
 import type { ValidationState } from '../shared/validations-bac.js';
+import { porteSecuriteDepuis, type PorteSecurite } from '../shared/porte-securite.js';
 import { agreger, type Avis } from '../shared/contre-expertise.js';
 import {
   MOTIFS_FAIT_CONNU,
@@ -8598,6 +8599,40 @@ export class HiveStore {
       return null;
     }
     return { validation, provenance };
+  }
+
+  /**
+   * Ce que la porte de sécurité du nœud a vu dans CE résultat
+   * (`security_gate_recorded`), ou `null` s'il n'a rien rapporté.
+   *
+   * Revalidé par les règles mêmes qui l'ont admis du réseau
+   * (`porteSecuriteDepuis`) : le journal est une trace, pas une zone de
+   * confiance. Un volet altéré devient `rapport_rejete` — « non vérifié »,
+   * jamais « rien trouvé » — sans emporter l'autre.
+   */
+  porteSecuriteDe(
+    taskId: string,
+    resultId: number,
+  ): { porte: PorteSecurite; nodeId: string; recordedAt: number } | null {
+    const row = this.db
+      .prepare(
+        `SELECT payload FROM events
+         WHERE type = 'security_gate_recorded'
+           AND ${TACHE_DE_L_EVENEMENT} = ?
+           AND json_extract(payload, '$.resultId') = ?
+         ORDER BY id DESC LIMIT 1`,
+      )
+      .get(taskId, resultId) as { payload: string } | undefined;
+    if (!row) return null;
+    try {
+      const payload = JSON.parse(row.payload) as Record<string, unknown>;
+      const { nodeId, recordedAt } = payload;
+      if (payload.porte === undefined || typeof nodeId !== 'string' || nodeId === '') return null;
+      if (typeof recordedAt !== 'number' || !Number.isSafeInteger(recordedAt)) return null;
+      return { porte: porteSecuriteDepuis(payload.porte).porte, nodeId, recordedAt };
+    } catch {
+      return null;
+    }
   }
 
   /**
