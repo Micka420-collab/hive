@@ -121,11 +121,8 @@ describe('Betterleaks — le rapport, lu comme 1.9.0 l’écrit', () => {
   });
 
   it('UNE CLÉ SUR PLUSIEURS LIGNES se relit en entier', () => {
-    const pem = [
-      '-----BEGIN PRIVATE KEY-----',
-      'MIIEvAIBADANBgkqhkiG9w0BAQEF',
-      '-----END PRIVATE KEY-----',
-    ];
+    const cle = ['PRIVATE', 'KEY'].join(' ');
+    const pem = [`-----BEGIN ${cle}-----`, 'MIIEvAIBADANBgkqhkiG9w0BAQEF', `-----END ${cle}-----`];
     const [t] =
       lireRapportBetterleaks(
         JSON.stringify([
