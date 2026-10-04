@@ -47,6 +47,7 @@ import {
   oublierTache,
 } from './sorties-directes';
 import { transitionDifferees } from './differees';
+import { creerMagasinDirects } from './directs';
 import { annoncesDepuisEvenements } from './horloge-vue';
 import {
   compteAffiche,
@@ -87,6 +88,7 @@ const Chantiers = lazy(() => import('./views/Chantiers'));
 const Chambre = lazy(() => import('./views/Chambre'));
 const WarRoom = lazy(() => import('./views/WarRoom'));
 const Parametres = lazy(() => import('./views/Parametres'));
+const Sandbox = lazy(() => import('./views/Sandbox'));
 
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [], tasksTotal: 0 };
 
@@ -118,6 +120,7 @@ const NAV: NavItem[] = [
   { id: 'monespace', label: 'Mon espace', labelEn: 'My space', key: '0' },
   { id: 'chantiers', label: 'Chantiers', labelEn: 'Works', key: 'h' },
   { id: 'warroom', label: 'War Room', labelEn: 'War Room', key: 'w' },
+  { id: 'sandbox', label: 'Sandbox Live', labelEn: 'Sandbox Live', key: 'l' },
   {
     id: 'intendance',
     label: 'Intendance',
@@ -248,6 +251,14 @@ function NavGlyph({ id }: { id: ViewId }) {
           <circle cx="17" cy="17" r="2" />
         </svg>
       );
+    case 'sandbox':
+      // Un bac (cadre) et le tracé d'une activité en cours : ce qui tourne dedans.
+      return (
+        <svg {...common}>
+          <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+          <path d="M6.5 13h2.5l1.5-3.5 2.5 6 1.5-2.5h3" />
+        </svg>
+      );
     case 'intendance':
       return (
         <svg {...common}>
@@ -326,6 +337,8 @@ export function App() {
   const [agentsByTask, setAgentsByTask] = useState<Record<string, SubAgent[]>>({});
   // Hors de l'état React : un morceau ne re-rend que la console qui l'affiche.
   const [magasinSorties] = useState(creerMagasinSorties);
+  // L'état en direct des exécutions (Sandbox Live), hors de React lui aussi.
+  const [magasinDirects] = useState(creerMagasinDirects);
   const [deferred, setDeferred] = useState<Set<string>>(() => new Set());
   const [connected, setConnected] = useState(false);
   const [tokenAuthError, setTokenAuthError] = useState(false);
@@ -421,10 +434,12 @@ export function App() {
         // Un `task_done` manqué pendant une coupure ne viderait jamais ces
         // états : l'instantané, lui, dit toujours quelles tâches vivent.
         magasinSorties.garderVivantes(snap.tasks);
+        magasinDirects.garderVivantes(snap.tasks);
         setAgentsByTask((prev) => garderVivantes(prev, snap.tasks));
       },
       onSortie: (taskId, nodeId, sortie, niveaux) =>
         magasinSorties.ajouter(taskId, nodeId, sortie, niveaux),
+      onDirect: (taskId, direct) => magasinDirects.appliquer(taskId, direct),
       onEvent: (ev) => {
         setEvents((prev) => [...prev.slice(-499), ev]);
         // Tout événement de fin de tâche / merge / conflit invalide les vues qui fetchent.
@@ -497,6 +512,7 @@ export function App() {
         } else if (FINS_D_EXECUTION.includes(ev.type)) {
           setAgentsByTask((prev) => oublierTache(prev, taskId));
           magasinSorties.oublier(taskId);
+          magasinDirects.oublier(taskId);
         }
         // La transition vit dans `differees.ts`, PUR — la loupe l'avait rendue
         // SANS TEST tant qu'elle était enfouie ici. Rendre `prev` lui-même
@@ -542,7 +558,7 @@ export function App() {
       feedRef.current = null;
       feed.close();
     };
-  }, [feedKey, demanderSession, magasinSorties]);
+  }, [feedKey, demanderSession, magasinSorties, magasinDirects]);
 
   // Le réseau de l'APPAREIL : une Wi-Fi tombée se dit comme telle, pas comme
   // une ruche muette. Le retour du réseau rappelle la ruche sans attendre la
@@ -1207,6 +1223,13 @@ export function App() {
                   {route.view === 'chantiers' && <Chantiers {...viewProps} />}
                   {route.view === 'chambre' && <Chambre {...viewProps} />}
                   {route.view === 'warroom' && <WarRoom {...viewProps} />}
+                  {route.view === 'sandbox' && (
+                    <Sandbox
+                      {...viewProps}
+                      magasinSorties={magasinSorties}
+                      magasinDirects={magasinDirects}
+                    />
+                  )}
                 </>
               )}
             </Suspense>

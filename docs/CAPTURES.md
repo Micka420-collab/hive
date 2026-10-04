@@ -167,6 +167,27 @@ npm run captures -- --sortie docs/images/captures --vues warroom,warroom-decisio
   <img src="images/captures/chronique-en-vol.mobile.png" width="200" alt="Chronique sur mobile pendant un vol : le journal en direct, par famille.">
 </p>
 
+### Sandbox Live, sur un vrai processus
+
+`images/captures/sandbox-live.bureau.png` n'est PAS de la série ci-dessus :
+l'agent simulé du laboratoire ne lance aucun processus, et ses mesures restent
+« inconnu » (c'est exact, et c'est ce que montre `sandbox-en-vol`). Celle-ci
+photographie un vrai `node` qui travaille, lancé par une ouvrière en mode
+processus, puis MIS EN PAUSE : le CPU de l'arbre gelé tombe à 0 %, la mémoire
+reste, le diff a été demandé et « Expliquer » relit l'état consigné. Même
+exécution, même pause, au format mobile (`sandbox-live.mobile.png`, page
+entière : sous 760 px la liste passe au-dessus du détail) ; les jumelles
+sombres — bureau et mobile, en pause elles aussi — vivent dans
+`images/theme-sombre/`.
+
+<p align="center">
+  <img src="images/captures/sandbox-live.bureau.png" width="840" alt="Sandbox Live : une exécution réelle mise en pause — CPU à 0 % sur l’arbre gelé, commande, diff demandé, explication relue.">
+</p>
+
+<p align="center">
+  <img src="images/captures/sandbox-live.mobile.png" width="300" alt="Sandbox Live sur mobile, en pause : boutons Reprendre et Arrêter, bandeau « En pause », CPU à 0 %.">
+</p>
+
 ## Ce que la première exécution a trouvé
 
 - **La Chambre rendait tout le tableau blanc** — corrigé avec ce script.

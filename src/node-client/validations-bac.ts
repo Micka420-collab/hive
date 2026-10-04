@@ -142,6 +142,7 @@ import type {
   ValidationKey,
   ValidationsBac,
 } from '../shared/validations-bac.js';
+import type { EtatControleDirect } from '../shared/bac-direct.js';
 import { BaseFalsifiee, lireFichierDeBaseVerifie } from './base-verifiee.js';
 import { DELAI_EXTRACTION_MS, extraireBase, extraireLivre, figerArbreLivre } from './git-hote.js';
 import { MONTAGE } from './isolement.js';
@@ -155,6 +156,7 @@ import {
   dossierDeTete,
   effacerRejeu,
   retirerFichiersIgnores,
+  sousVerrouIndex,
 } from './workspace.js';
 
 /** Délai de chaque commande de validation — celui des tests d'un merge. */
@@ -241,6 +243,12 @@ export interface OptionsValidation {
   signal?: AbortSignal;
   /** Une ligne de progrès, relayée au hub pendant que les commandes tournent. */
   surEtape?: (ligne: string) => void;
+  /**
+   * Chaque validation LANCÉE, à son départ (`en_cours`) puis à sa conclusion
+   * (Sandbox Live : l'écran les suit une à une). Celles qui ne se lancent pas
+   * arrivent avec le rapport final, comme avant.
+   */
+  surControle?: (cle: ValidationKey, etat: EtatControleDirect) => void;
   /** Délai de chaque commande (défaut `DELAI_VALIDATION_MS`). */
   delaiMs?: number;
   /**
@@ -353,12 +361,19 @@ async function arbreLivre(
   depot: DepotEpingle,
   baseSha: string,
 ): Promise<{ arbre: string; npmrcModifie: boolean }> {
-  const arbre = await figerArbreLivre(depot);
-  const modifies = await gitHote(
-    ['diff', '--no-ext-diff', '--no-textconv', '--name-only', baseSha, '--', '.npmrc'],
-    depot,
-  );
-  return { arbre, npmrcModifie: modifies.trim() !== '' };
+  // Sous le verrou du registre (`sousVerrouIndex`) : figer l'arbre livré
+  // (`add --all`, `write-tree`) écrit l'index du registre, que touche aussi un
+  // diff demandé en direct (Sandbox Live) pendant les validations — croisés,
+  // le second trouvait `index.lock`, et toutes les validations devenaient
+  // `interrompue`.
+  return sousVerrouIndex(depot, async () => {
+    const arbre = await figerArbreLivre(depot);
+    const modifies = await gitHote(
+      ['diff', '--no-ext-diff', '--no-textconv', '--name-only', baseSha, '--', '.npmrc'],
+      depot,
+    );
+    return { arbre, npmrcModifie: modifies.trim() !== '' };
+  });
 }
 
 /**
@@ -517,6 +532,7 @@ async function lancerLePlan(
       continue;
     }
     opts.surEtape?.(`validation ${cle} : ${argv.join(' ')}…`);
+    opts.surControle?.(cle, 'en_cours');
     const debut = Date.now();
     const r = await lancer(argv, delaiMs);
     const premier = {
@@ -545,6 +561,7 @@ async function lancerLePlan(
       controle = compare ?? controle;
     }
     controles[cle] = controle;
+    opts.surControle?.(cle, controle.etat);
     // La panne reconnue se dit dès cette ligne : « missing (environnement :
     // memoire, code 137) » renvoie l'opérateur vers le nœud, pas vers le code.
     opts.surEtape?.(`validation ${cle} : ${controle.etat} (${resumeDuControle(controle)})`);

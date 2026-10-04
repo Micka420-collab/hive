@@ -72,6 +72,12 @@ export interface Workspace {
    * suppression, et les validations qui suivent voient l'arbre entier.
    */
   collectDiff(): Promise<string>;
+  /**
+   * Le diff d'une exécution EN COURS (Sandbox Live), sous le même verrou :
+   * la configuration écartée n'est PAS remise en place — l'agent la lirait —
+   * et ses chemins n'y figurent pas.
+   */
+  diffEnCours(): Promise<string>;
   /** Supprime le répertoire de la tâche (et ce qui vit à côté : TEMP, registre, réserve). */
   cleanup(): Promise<void>;
 }
@@ -111,6 +117,31 @@ const SECRETS_INTERDITS_AGENT = new Set([
   'GITHUB_TOKEN',
 ]);
 
+/** La file de chaque registre : le dernier geste en cours, que le suivant attend. */
+const filesDesRegistres = new WeakMap<DepotEpingle, Promise<unknown>>();
+
+/**
+ * UN SEUL GIT À LA FOIS SUR L'INDEX D'UN REGISTRE. `diffContreBase` et le
+ * garde `.npmrc` des validations écrivent cet index (`add --intent-to-add`),
+ * `clean` retire des fichiers pendant qu'un `add --all` les parcourrait. Deux
+ * gestes croisés — un diff demandé en direct (Sandbox Live) pendant le diff du
+ * résultat ou pendant les validations — trouvaient `index.lock` : l'échec
+ * emportait le diff remis à la revue, ou rendait toutes les validations
+ * `interrompue`. Un clic en lecture ne défait pas un verdict.
+ *
+ * Par REGISTRE (l'objet épinglé, partagé par l'exécution, son diff et ses
+ * validations), pas par appelant : une file par appelant ne sérialisait que
+ * ses propres gestes. Un geste qui échoue ne bloque pas la file.
+ */
+export function sousVerrouIndex<T>(depot: DepotEpingle, geste: () => Promise<T>): Promise<T> {
+  const suite = (filesDesRegistres.get(depot) ?? Promise.resolve()).then(geste, geste);
+  filesDesRegistres.set(
+    depot,
+    suite.catch(() => undefined),
+  );
+  return suite;
+}
+
 /**
  * Retire du répertoire d'une tâche tout ce que git IGNORE — `node_modules`,
  * sorties de build, `.env`. Par le registre (`git-hote.ts`) : un
@@ -131,7 +162,7 @@ const SECRETS_INTERDITS_AGENT = new Set([
  */
 export async function retirerFichiersIgnores(depot: DepotEpingle): Promise<void> {
   // `-ff` : aussi les dépôts imbriqués ignorés ; `-d` : les dossiers entiers.
-  await gitHote(['clean', '-ffdX'], depot);
+  await sousVerrouIndex(depot, () => gitHote(['clean', '-ffdX'], depot));
 }
 
 /**
@@ -366,8 +397,20 @@ export async function prepareWorkspace(
       // Par le registre, jamais par le `.git` de la tâche : c'est l'agent qui
       // l'a eu entre les mains (git-hote.ts). CONTRE LA BASE ÉPINGLÉE, pas
       // contre l'index : ce que l'agent a `git add` ou committé reste dans la
-      // revue, la livraison et le merge.
-      return depot ? diffContreBase(depot, baseSha) : '';
+      // revue, la livraison et le merge. Sous le verrou du registre : un diff
+      // demandé en direct croise celui du résultat ou les validations.
+      if (!depot) return '';
+      const epingle = depot;
+      return sousVerrouIndex(epingle, () => diffContreBase(epingle, baseSha));
+    },
+    diffEnCours(): Promise<string> {
+      // L'agent tourne encore : sa configuration écartée RESTE écartée (la
+      // remettre lui rendrait les hooks du dépôt), et ses chemins sont tenus
+      // hors du diff, où ils se liraient comme des suppressions.
+      if (!depot) return Promise.resolve('');
+      const epingle = depot;
+      const exclus = ecartee?.chemins ?? [];
+      return sousVerrouIndex(epingle, () => diffContreBase(epingle, baseSha, exclus));
     },
     async cleanup(): Promise<void> {
       // Les rejeux sont déjà effacés par les validations : ceci rattrape un

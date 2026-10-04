@@ -46,8 +46,8 @@
 //      tâche qui a connu un échec puis une reprise. Pas davantage : la page
 //      de Partage, l'écran de connexion et les modales ne sont pas
 //      photographiés (cf. docs/CAPTURES.md, « Ce qui n'est pas photographié »).
-//   5. EN VOL : un lot est confié, et la Ruche puis la Chambre sont
-//      photographiées PENDANT que les sous-agents travaillent. Un état stable
+//   5. EN VOL : un lot est confié, et la Ruche, la Chambre, la Chronique puis
+//      Sandbox Live sont photographiées PENDANT que les sous-agents travaillent. Un état stable
 //      ne montre jamais un agent au travail.
 //   6. Un manifeste (`captures.json`) : pour chaque image, le débordement
 //      horizontal mesuré et les erreurs de console survenues pendant la vue.
@@ -583,7 +583,7 @@ async function principal() {
   // raison : pendant un vol, le tableau relit sans cesse. Aucun lot n'est
   // confié pour un format dont `--vues` n'a retenu aucune image en vol.
   for (const { format, page, photographier, naviguer, ouvrirLaBarre } of postes) {
-    const enVol = ['ruche-en-vol', 'chambre-en-vol', 'chronique-en-vol'];
+    const enVol = ['ruche-en-vol', 'chambre-en-vol', 'chronique-en-vol', 'sandbox-en-vol'];
     if (!enVol.some((vue) => vueRetenue(vues, vue, format.nom))) continue;
     await labo.confierLot(ruche, projets[0]);
     await photographier(
@@ -612,6 +612,17 @@ async function principal() {
         await ouvrirLaBarre();
         await page.locator('.mc-nav-cell[data-vue="chronique"]').click();
         await page.locator('.ch-journal .ch-row').nth(5).waitFor({ timeout: 15_000 });
+      },
+      { calmeMs: 150, plafondMs: 1_500 },
+    );
+    // Sandbox Live pendant le vol : une exécution vivante, sa phase et ses
+    // sous-agents. L'agent simulé ne lance aucun processus : ses mesures
+    // restent « inconnu » à l'image, et c'est exact.
+    await photographier(
+      'sandbox-en-vol',
+      async () => {
+        await naviguer('#/sandbox');
+        await page.locator('[data-testid="bd-detail"]').waitFor({ timeout: 15_000 });
       },
       { calmeMs: 150, plafondMs: 1_500 },
     );

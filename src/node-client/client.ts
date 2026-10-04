@@ -112,6 +112,10 @@ import type { ValidationsBac } from '../shared/validations-bac.js';
 import type { PorteSecurite } from '../shared/porte-securite.js';
 import { passerLaPorte } from './porte-securite.js';
 import { memoireDesBases, reglesAutorisationDeBase, validerProduction } from './validations-bac.js';
+import { COMMANDE_DIRECT_MAX, DIFF_DIRECT_MAX } from '../shared/bac-direct.js';
+import type { EtatDirect } from '../shared/bac-direct.js';
+import type { MinuteurSuspendable } from '../shared/minuteur-suspendable.js';
+import { PiloteExecution } from './pilote-execution.js';
 
 const MAX_PENDING_DELEGATIONS = 32;
 /**
@@ -470,6 +474,10 @@ export class HiveNodeClient {
   }
 
   private readonly active = new Map<string, AbortController>();
+  /** Le pilote Sandbox Live de chaque exécution en cours (`pilote-execution.ts`). */
+  private readonly pilotes = new Map<string, PiloteExecution>();
+  /** Le répertoire de chaque exécution en cours : le diff en direct s'y calcule. */
+  private readonly espaces = new Map<string, Workspace>();
   /**
    * Les dossiers de tâche en cours d'effacement, par tâche. L'effacement est
    * asynchrone (`effacerDossier`) et part APRÈS le résultat : la tâche quitte
@@ -601,7 +609,8 @@ export class HiveNodeClient {
     budget: DelegationBudget | undefined,
     ctrl: AbortController,
     onExceeded: () => void,
-  ): NodeJS.Timeout | null {
+    pilote: PiloteExecution,
+  ): MinuteurSuspendable | null {
     if (!budget) return null;
     const expire = (): void => {
       onExceeded();
@@ -611,9 +620,115 @@ export class HiveNodeClient {
       expire();
       return null;
     }
-    const timer = setTimeout(expire, budget.durationMs);
-    timer.unref?.();
-    return timer;
+    // Armé par le pilote : une pause de l'agent (Sandbox Live) suspend le
+    // budget avec lui — un enfant en pause ne consomme pas sa durée.
+    return pilote.minuteur(budget.durationMs, expire);
+  }
+
+  /**
+   * Le pilote Sandbox Live d'une exécution (`pilote-execution.ts`). Ce qu'il
+   * envoie part comme le progrès de l'adaptateur : seulement pour l'exécution
+   * EN COURS (même garde que `progresVersHub`), et la commande caviardée ICI,
+   * sur la machine qui porte les secrets — elle cite parfois le prompt.
+   */
+  private creerPilote(taskId: string, ctrl: AbortController): PiloteExecution {
+    this.pilotes.get(taskId)?.fermer();
+    const pilote = new PiloteExecution((direct: EtatDirect) => {
+      if (this.active.get(taskId) !== ctrl) return;
+      const etat: EtatDirect =
+        direct.commande === undefined
+          ? direct
+          : {
+              ...direct,
+              commande: borneApresCaviardage(
+                this.caviardeurDuNoeud().texte(direct.commande),
+                COMMANDE_DIRECT_MAX,
+              ),
+            };
+      this.send({ type: 'task_update', taskId, status: 'running', direct: etat });
+    });
+    // TOUTE annulation passe par le pilote — `annulerTache`, `stop()`, mais
+    // aussi le budget délégué épuisé et le drone qui perd sa course : un agent
+    // en pause (ou en train d'y entrer) est relancé, sinon il ne traiterait
+    // jamais le SIGTERM qui suit et resterait gelé (`pilote-execution.ts`).
+    ctrl.signal.addEventListener('abort', () => void pilote.arreter(), { once: true });
+    this.pilotes.set(taskId, pilote);
+    return pilote;
+  }
+
+  private oublierPilote(taskId: string, pilote: PiloteExecution): void {
+    pilote.fermer();
+    if (this.pilotes.get(taskId) === pilote) this.pilotes.delete(taskId);
+  }
+
+  /**
+   * Annule une tâche. L'agent est d'abord RÉVEILLÉ, qu'il dorme ou qu'une
+   * pause soit en vol (`arreter` attend le geste, qui se défait) : arrêté, il
+   * ne traiterait pas le SIGTERM de l'annulation, et un conteneur en pause ne
+   * recevrait pas le signal que `docker run` lui relaie. Attendre ne coûte
+   * qu'un geste borné (`pilote-execution.ts`).
+   */
+  private async annulerTache(taskId: string): Promise<void> {
+    await this.pilotes.get(taskId)?.arreter();
+    this.active.get(taskId)?.abort();
+  }
+
+  /**
+   * Suspendre ou reprendre, à la demande d'un écran. Sans pilote — la tâche
+   * attend une réquisition, aucun agent ne tourne —, le nœud le DIT
+   * (`pausable: false`) : sans réponse, l'écran afficherait « pause envoyée »
+   * pour un geste que personne n'a fait.
+   */
+  private async gestePause(taskId: string, geste: 'pause_task' | 'resume_task'): Promise<void> {
+    const pilote = this.pilotes.get(taskId);
+    if (pilote) {
+      await (geste === 'pause_task' ? pilote.suspendre() : pilote.reprendre());
+      return;
+    }
+    if (!this.active.has(taskId)) return;
+    this.send({
+      type: 'task_update',
+      taskId,
+      status: 'running',
+      direct: { pausable: false, enPause: false },
+    });
+  }
+
+  /**
+   * Le diff d'une exécution EN COURS, demandé par un écran (Sandbox Live). Par
+   * le registre de la ruche (`workspace.diffEnCours`, jamais le `.git` de
+   * l'agent), caviardé ici comme le diff d'un résultat, et borné : un écran
+   * qui le demande ne reçoit jamais plus de `DIFF_DIRECT_MAX`. Un diff qu'on
+   * n'a pas pu calculer le DIT (`erreur`) — un diff vide passerait pour
+   * « rien n'a changé ».
+   */
+  private async repondreDiffDirect(taskId: string, requestId: string): Promise<void> {
+    const espace = this.espaces.get(taskId);
+    const repondre = (diff: string, tronque: boolean, erreur?: string): void =>
+      this.send({
+        type: 'diff_direct',
+        taskId,
+        requestId,
+        diff,
+        tronque,
+        ...(erreur ? { erreur } : {}),
+      });
+    if (!espace || !this.active.has(taskId)) {
+      repondre('', false, 'aucune exécution en cours de cette tâche sur ce nœud');
+      return;
+    }
+    if (!espace.depot) {
+      repondre('', false, 'tâche sans dépôt git : pas de diff à calculer');
+      return;
+    }
+    try {
+      const diff = this.caviardeurDuNoeud().diff(await espace.diffEnCours());
+      repondre(diff.slice(0, DIFF_DIRECT_MAX), diff.length > DIFF_DIRECT_MAX);
+    } catch (err) {
+      const brut = err instanceof Error ? err.message : String(err);
+      const cause = motifLave(brut.trim().split('\n').at(-1) ?? brut);
+      repondre('', false, `diff impossible : ${cause}`.slice(0, LIMITS.arg));
+    }
   }
 
   private resultAfterDelegationBudget(
@@ -702,6 +817,10 @@ export class HiveNodeClient {
   stop(): void {
     this.closed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    // Réveillés AVANT l'annulation : un agent arrêté ne traite pas SIGTERM.
+    // `arreter` relance sur-le-champ (SIGCONT synchrone) ; une pause en vol
+    // se défait d'elle-même en concluant.
+    for (const pilote of this.pilotes.values()) void pilote.arreter();
     for (const ctrl of this.active.values()) ctrl.abort();
     for (const ctrl of this.activeMerges.values()) ctrl.abort();
     for (const ctrl of this.activeChantiers.values()) ctrl.abort();
@@ -1333,6 +1452,11 @@ export class HiveNodeClient {
         this.startHeartbeat();
         this.log(`enregistré dans la ruche (nodeId=${msg.nodeId.slice(0, 8)}…)`);
         this.proposerRequisitionCredentialsSiBesoin();
+        // Sandbox Live : la Reine a oublié l'état des exécutions que la
+        // coupure lui a fait remettre en file (ou tout, si ELLE a redémarré),
+        // puis les ré-adopte. Chaque pilote redit son état ENTIER — sans quoi
+        // un agent en pause perdait son bouton Reprendre (`pilote-execution.ts`).
+        for (const pilote of this.pilotes.values()) pilote.instantane();
         try {
           this.opts.surInscription?.({ ruche: msg.ruche ?? null });
         } catch (err) {
@@ -1352,7 +1476,14 @@ export class HiveNodeClient {
         void this.runPoseOutil(msg);
         break;
       case 'cancel_task':
-        this.active.get(msg.taskId)?.abort();
+        void this.annulerTache(msg.taskId);
+        break;
+      case 'pause_task':
+      case 'resume_task':
+        void this.gestePause(msg.taskId, msg.type);
+        break;
+      case 'demande_diff_direct':
+        void this.repondreDiffDirect(msg.taskId, msg.requestId);
         break;
       case 'error':
         this.log(`erreur du hub : ${msg.message}`);
@@ -1854,10 +1985,12 @@ export class HiveNodeClient {
     const started = Date.now();
     const caviardeur = this.caviardeurDuNoeud();
     let budgetExceeded = false;
-    let budgetTimer: NodeJS.Timeout | null = null;
+    let budgetTimer: MinuteurSuspendable | null = null;
     let usage: ExecutionUsage | undefined;
     let usageBefore: ReturnType<typeof capturerExecutionUsage> | null = null;
     this.send({ type: 'task_update', taskId: task.id, status: 'running' });
+    const pilote = this.creerPilote(task.id, ctrl);
+    pilote.phase('preparation');
     this.log(`butinage : ${task.title} (tentative ${task.attempts + 1})`);
 
     let workspace: Workspace | null = null;
@@ -1881,6 +2014,7 @@ export class HiveNodeClient {
           prolonger,
           this.adapter.configurationExecutee,
         );
+        this.espaces.set(task.id, workspace);
       } catch (err) {
         // Le dépôt ne s'est pas cloné ICI (identifiants de ce nœud, réseau,
         // dépôt muet) : l'agent n'a pas tourné. Un `task_result` en échec
@@ -1982,11 +2116,17 @@ export class HiveNodeClient {
         onProgress: progres,
         ...this.optionBacTache(task.id, reseauBac),
       });
-      budgetTimer = this.startDelegationBudget(delegationBudget, ctrl, () => {
-        budgetExceeded = true;
-      });
+      budgetTimer = this.startDelegationBudget(
+        delegationBudget,
+        ctrl,
+        () => {
+          budgetExceeded = true;
+        },
+        pilote,
+      );
       usageBefore = capturerExecutionUsage();
       const cwdTache = workspace.cwd;
+      pilote.phase('agent');
       const rawResult = await this.adapter.run(taskForAgent, {
         cwd: cwdTache,
         // Filtré : les identifiants de la passerelle y sont des leurres.
@@ -2015,6 +2155,7 @@ export class HiveNodeClient {
             ctrl.signal,
             echeanceRun,
           ),
+        pilote,
         onProgress: progres,
       });
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
@@ -2097,6 +2238,7 @@ export class HiveNodeClient {
         diff,
         workspace,
         ctrl,
+        pilote,
         reseauBac,
       );
       // Ce que la porte a trouvé se caviarde dans tout ce qui part — diff,
@@ -2151,12 +2293,16 @@ export class HiveNodeClient {
       });
       this.log(`✘ ${task.title} : ${message}`);
     } finally {
-      if (budgetTimer) clearTimeout(budgetTimer);
+      budgetTimer?.annuler();
+      // En attente de réquisition, la tâche vit encore — mais plus aucun agent
+      // ne tourne : rien à mesurer ni à suspendre. La reprise ouvre un pilote neuf.
+      this.oublierPilote(task.id, pilote);
       // Le proxy de la tâche se ferme avec elle, pause de réquisition
       // comprise : la reprise en rouvre un neuf (`reprendreApresRequisition`).
       await reseauOuvert?.fermer();
       if (!conserverWorkspace) {
         this.active.delete(task.id);
+        this.espaces.delete(task.id);
         this.clearDelegationsForParent(task.id);
         if (workspace) this.effacerEspace(task.id, workspace);
       }
@@ -2191,6 +2337,7 @@ export class HiveNodeClient {
     diff: string,
     workspace: Workspace,
     ctrl: AbortController,
+    pilote: PiloteExecution,
     /** Le réseau filtré de la tâche : ses validations tournent derrière le même proxy. */
     reseau?: ReseauBac,
   ): Promise<{
@@ -2198,6 +2345,9 @@ export class HiveNodeClient {
     porteSecurite?: PorteSecurite;
     caviardeur?: Caviardeur;
   }> {
+    // Sandbox Live : l'agent a rendu la main ; la porte de sécurité puis les
+    // validations jugent sa production — plus « Agent » à l'écran.
+    pilote.phase('validations');
     const duRepertoire = result.success && result.diff === '';
     const depot =
       workspace.depot && workspace.baseSha
@@ -2252,6 +2402,8 @@ export class HiveNodeClient {
       signal: ctrl.signal,
       surEtape,
       memoire: this.memoireDesBases,
+      // Chaque validation à l'écran dès qu'elle part, puis dès qu'elle conclut.
+      surControle: (cle, etat) => pilote.controle(cle, etat),
     });
     const etats = VALIDATION_KEYS.map((cle) => `${cle} ${validations.controles[cle].etat}`);
     this.log(`validations du bac : ${etats.join(' · ')}`);
@@ -2304,7 +2456,8 @@ export class HiveNodeClient {
     this.log(`↻ reprise de ${task.title} après réquisition accordée`);
     let caviardeur = this.caviardeurDuNoeud();
     let budgetExceeded = false;
-    let budgetTimer: NodeJS.Timeout | null = null;
+    let budgetTimer: MinuteurSuspendable | null = null;
+    const pilote = this.creerPilote(task.id, ctrl);
     let usage: ExecutionUsage | undefined;
     let usageBefore: ReturnType<typeof capturerExecutionUsage> | null = null;
     let reseauOuvert: Exclude<ReseauTache, { etat: 'impossible' }> | null = null;
@@ -2328,11 +2481,17 @@ export class HiveNodeClient {
       const taskForAgent = hiveContext
         ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }
         : task;
-      budgetTimer = this.startDelegationBudget(delegationBudget, ctrl, () => {
-        budgetExceeded = true;
-      });
+      budgetTimer = this.startDelegationBudget(
+        delegationBudget,
+        ctrl,
+        () => {
+          budgetExceeded = true;
+        },
+        pilote,
+      );
       usageBefore = capturerExecutionUsage();
       const cwdTache = workspace.cwd;
+      pilote.phase('agent');
       const rawResult = await this.adapter.run(taskForAgent, {
         cwd: cwdTache,
         env: reseauTache.env,
@@ -2358,6 +2517,7 @@ export class HiveNodeClient {
             ctrl.signal,
             echeanceRun,
           ),
+        pilote,
         onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
       });
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
@@ -2417,6 +2577,7 @@ export class HiveNodeClient {
         diff,
         workspace,
         ctrl,
+        pilote,
         reseauBac,
       );
       const sortant = verifie.caviardeur ?? caviardeur;
@@ -2462,10 +2623,12 @@ export class HiveNodeClient {
         ...(usage ? { usage } : {}),
       });
     } finally {
-      if (budgetTimer) clearTimeout(budgetTimer);
+      budgetTimer?.annuler();
+      this.oublierPilote(task.id, pilote);
       await reseauOuvert?.fermer();
       if (!this.attenteRequisition) {
         this.active.delete(task.id);
+        this.espaces.delete(task.id);
         this.clearDelegationsForParent(task.id);
         this.effacerEspace(task.id, workspace);
       }
@@ -2490,6 +2653,7 @@ export class HiveNodeClient {
     });
     this.log(`✘ ${task.title} : réquisition ${statut}`);
     this.active.delete(task.id);
+    this.espaces.delete(task.id);
     this.clearDelegationsForParent(task.id);
     this.effacerEspace(task.id, workspace);
   }

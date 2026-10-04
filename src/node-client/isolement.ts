@@ -326,6 +326,12 @@ export interface OptionsEnveloppe {
   noeud?: string;
   tache?: string;
   /**
+   * Le NOM du conteneur (`--name`) : ce par quoi le pilote Sandbox Live le
+   * suspend (`pause`/`unpause`) et le mesure (`stats`) pendant qu'il tourne.
+   * Absent : le moteur en choisit un, qu'on ne connaît pas.
+   */
+  nom?: string;
+  /**
    * Bubblewrap seulement : où l'hôte cherche les commandes (voir
    * `installationHote`). Défaut : l'hôte réel. Un banc le fixe pour que les
    * arguments ne dépendent pas des agents installés sur sa machine.
@@ -522,6 +528,7 @@ function enveloppeConteneur(
     // son client est mort. Le nœud relancé le retrouve par cette étiquette.
     ...(opts.noeud ? [`--label=${ETIQUETTE_NOEUD}=${opts.noeud}`] : []),
     ...(opts.tache ? [`--label=${ETIQUETTE_TACHE}=${opts.tache}`] : []),
+    ...(opts.nom ? [`--name=${opts.nom}`] : []),
 
     // ── Ce qui est visible ─────────────────────────────────────────────────
     // LE SEUL montage inscriptible. Pas de $HOME, pas de ~/.ssh, pas de socket

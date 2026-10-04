@@ -312,6 +312,31 @@ describe('écartée de l’arbre pendant l’exécution, remise avant le diff', 
     expect(await ws.collectDiff()).toBe(attendu);
   });
 
+  it('le diff EN COURS (Sandbox Live) la laisse écartée, et ne la montre pas supprimée', async () => {
+    // Demandé pendant que l'agent tourne : remettre la configuration ici lui
+    // rendrait les hooks du dépôt. Le diff de la revue, lui, la remet.
+    const ws = await prepareWorkspace(
+      dossierJetable(),
+      tache('diff-en-cours'),
+      amont(fichiersDuDepotPiege()),
+      [],
+      '',
+      false,
+      CONFIGURATION_EXECUTEE_CURSOR,
+    );
+    writeFileSync(path.join(ws.cwd, 'nouveau.txt'), 'nouveau\n');
+    const enCours = await ws.diffEnCours();
+    expect(enCours).toContain('nouveau.txt');
+    expect(enCours).not.toMatch(/\.cursor|\.claude/);
+    expect(charger('cursor', ws.cwd), 'toujours écartée pendant l’exécution').toEqual([]);
+    expect(existsSync(reserveDeConfiguration(ws.cwd))).toBe(true);
+    const final = await ws.collectDiff();
+    expect(final).toContain('nouveau.txt');
+    expect(final).not.toMatch(/\.cursor|\.claude/);
+    expect(existsSync(reserveDeConfiguration(ws.cwd))).toBe(false);
+    await ws.cleanup();
+  });
+
   it('ce que l’agent a écrit à ces chemins reste le sien, et le diff le montre', async () => {
     const ws = await prepareWorkspace(
       dossierJetable(),
