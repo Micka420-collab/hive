@@ -18,18 +18,23 @@
 // POSIX seulement : les faux outils sont des scripts à shebang.
 
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { simpleGit } from 'simple-git';
 import { poserRegistre } from '../src/node-client/git-hote.js';
-import type { Fournisseur } from '../src/node-client/isolement.js';
-import {
-  etiquetteDeLImage,
-  passerLaPorte,
-  versionSurHote,
-} from '../src/node-client/porte-securite.js';
+import { etiquetteImage, type Fournisseur } from '../src/node-client/isolement.js';
+import { passerLaPorte, versionPourLaPorte } from '../src/node-client/porte-securite.js';
+import { ETIQUETTE_PORTE } from '../src/shared/porte-securite.js';
 import { creerCaviardeur, formesDuSecret, SECRET_CAVIARDE } from '../src/shared/caviardage.js';
 import { appelsDuFauxBac, fauxBac } from './fixtures/faux-bac.js';
 import { appelsDesOutils, fauxOutilsPorte, type FauxOutils } from './fixtures/faux-outils-porte.js';
@@ -337,6 +342,40 @@ describe.runIf(POSIX)('passerLaPorte — ce qui ne se vérifie pas le DIT', () =
   });
 });
 
+describe.runIf(POSIX)(
+  'passerLaPorte — l’outil lancé est celui de l’HÔTE, jamais celui de la tâche',
+  () => {
+    // ─── LE BINAIRE QUE L'AGENT POSE DANS SA TÂCHE ─────────────────────────────
+    //
+    // Les outils tournaient par leur NOM, depuis le répertoire de la tâche. Or
+    // `execvp` lit une entrée vide du PATH (`PATH=/usr/bin:/bin:`) ou `.` comme
+    // le répertoire courant : un `betterleaks` écrit par l'agent à la racine de
+    // sa production y était trouvé AVANT le vrai — exécuté hors du bac, et libre
+    // de répondre « rien trouvé ».
+    it.each([
+      ['une entrée vide en fin de PATH', (d: string) => `${d}${path.delimiter}`],
+      ['`.` en tête du PATH', (d: string) => `.${path.delimiter}${d}`],
+    ])('%s : le `betterleaks` de la tâche ne se lance pas', async (_cas, chemin) => {
+      // Le vrai est absent de l'hôte : seul celui de l'agent pourrait répondre.
+      outils.mode('betterleaks', 'absent');
+      const p = await produire({ 'src/config.ts': CONFIG_BASE }, { 'src/config.ts': CONFIG_AWS });
+      const trace = path.join(p.cwd, '..', 'lance-par-la-porte');
+      writeFileSync(
+        path.join(p.cwd, 'betterleaks'),
+        `#!/bin/sh\necho lance > '${trace}'\necho 'betterleaks version 1.9.0'\n` +
+          'case "$1" in dir) shift; while [ "$1" != "--report-path" ]; do shift; done; echo "[]" > "$2";; esac\n',
+      );
+      chmodSync(path.join(p.cwd, 'betterleaks'), 0o755);
+      process.env.PATH = chemin(outils.dossier);
+
+      const { rapport } = await passerLaPorte({ ...p, caviardeur: creerCaviardeur([]) });
+
+      expect(existsSync(trace), 'le binaire de la tâche a été lancé par la porte').toBe(false);
+      expect(rapport.secrets).toMatchObject({ etat: 'non_verifie', raison: 'outil_absent' });
+    });
+  },
+);
+
 describe.runIf(POSIX)('passerLaPorte — dans le bac du nœud', () => {
   it('LES OUTILS PASSENT PAR LE MOTEUR, sans aucune variable de l’agent', async () => {
     const bac = fauxBac(dossiers);
@@ -355,14 +394,28 @@ describe.runIf(POSIX)('passerLaPorte — dans le bac du nœud', () => {
 });
 
 describe.runIf(POSIX)('les sondes de `hive doctor` — celles du nœud', () => {
-  it('`versionSurHote` dit la version de l’outil du PATH, ou null — jamais une version supposée', async () => {
-    expect(await versionSurHote('betterleaks')).toBe('1.9.0');
-    expect(await versionSurHote('osv-scanner')).toBe('2.6.0');
+  it('`versionPourLaPorte` dit ce que la PORTE trouverait, ou null — jamais une version supposée', async () => {
+    expect(await versionPourLaPorte('betterleaks')).toBe('1.9.0');
+    expect(await versionPourLaPorte('osv-scanner')).toBe('2.6.0');
     outils.mode('osv-scanner', 'absent');
-    expect(await versionSurHote('osv-scanner')).toBeNull();
+    expect(await versionPourLaPorte('osv-scanner')).toBeNull();
+    // Un `osv-scanner` dans le répertoire COURANT, atteint par une entrée
+    // relative du PATH : la porte ne le lancerait pas, le docteur ne le compte pas.
+    const ici = mkdtempSync(path.join(os.tmpdir(), 'hive-porte-cwd-'));
+    dossiers.push(ici);
+    writeFileSync(path.join(ici, 'osv-scanner'), '#!/bin/sh\necho "osv-scanner version: 2.6.0"\n');
+    chmodSync(path.join(ici, 'osv-scanner'), 0o755);
+    const cwdAvant = process.cwd();
+    process.chdir(ici);
+    try {
+      process.env.PATH = `.${path.delimiter}${outils.dossier}`;
+      expect(await versionPourLaPorte('osv-scanner')).toBeNull();
+    } finally {
+      process.chdir(cwdAvant);
+    }
   });
 
-  it('`etiquetteDeLImage` lit l’étiquette par le moteur, sans rien lancer dans l’image', async () => {
+  it('`etiquetteImage` lit l’étiquette par le moteur, sans rien lancer dans l’image', async () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'hive-faux-moteur-etiquette-'));
     dossiers.push(dir);
     const bin = path.join(dir, 'moteur');
@@ -386,13 +439,13 @@ describe.runIf(POSIX)('les sondes de `hive doctor` — celles du nœud', () => {
       writeFileSync(path.join(dir, 'etiquette'), etiquette);
       writeFileSync(path.join(dir, 'code'), String(code));
     };
+    const lire = (): Promise<string | null> =>
+      etiquetteImage(moteur, 'localhost/hive-agent:local', ETIQUETTE_PORTE);
     repondre('betterleaks=1.9.0 osv-scanner=2.6.0\n', 0);
-    expect(await etiquetteDeLImage(moteur, 'localhost/hive-agent:local')).toBe(
-      'betterleaks=1.9.0 osv-scanner=2.6.0',
-    );
+    expect(await lire()).toBe('betterleaks=1.9.0 osv-scanner=2.6.0');
     repondre('<no value>\n', 0);
-    expect(await etiquetteDeLImage(moteur, 'localhost/hive-agent:local')).toBe('');
+    expect(await lire()).toBe('');
     repondre('', 1);
-    expect(await etiquetteDeLImage(moteur, 'localhost/hive-agent:local')).toBeNull();
+    expect(await lire()).toBeNull();
   });
 });

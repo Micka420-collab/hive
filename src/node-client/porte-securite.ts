@@ -44,7 +44,6 @@
 // écrit — efface un constat par son empreinte ; sans `--ignore-gitleaks-allow`,
 // un commentaire `gitleaks:allow` sur la ligne suffit. Les trois sont fermés.
 
-import { execFile } from 'node:child_process';
 import {
   lstatSync,
   mkdirSync,
@@ -60,7 +59,6 @@ import type { Caviardeur, FichierDuDiff, LigneAjoutee } from '../shared/caviarda
 import type { DepotEpingle } from '../shared/git-protege.js';
 import {
   BORNES_PORTE,
-  ETIQUETTE_PORTE,
   LOCKFILES_SURVEILLES,
   REGLE_CAVIARDAGE_HIVE,
   lireRapportBetterleaks,
@@ -84,7 +82,7 @@ import type {
   SourceLue,
   Volet,
 } from '../shared/porte-securite.js';
-import { envMoteur, type BacExecution, type Fournisseur } from './isolement.js';
+import { surLePath, type BacExecution } from './isolement.js';
 import { runProc } from './merge-runner.js';
 import { fichierDeBase } from './validations-bac.js';
 import { buildSandboxEnv } from './workspace.js';
@@ -121,7 +119,12 @@ export interface PassagePorte {
   valeurs: string[];
 }
 
-type Lancer = (argv: string[], delaiMs: number) => ReturnType<typeof runProc>;
+/** Lance un outil de la porte avec ses arguments — résolu par `lanceur`, jamais par son appelant. */
+type Lancer = (
+  outil: OutilPorte,
+  args: readonly string[],
+  delaiMs: number,
+) => ReturnType<typeof runProc>;
 
 /** Fait passer la porte à une production. Ne lève jamais. */
 export async function passerLaPorte(opts: OptionsPorte): Promise<PassagePorte> {
@@ -131,7 +134,7 @@ export async function passerLaPorte(opts: OptionsPorte): Promise<PassagePorte> {
   // aucun lockfile ne lance aucun outil et n'écrit rien.
   const miroir: { chemin: string | null } = { chemin: null };
   const dossier = (): string => (miroir.chemin ??= creerMiroir(opts.cwd));
-  const lancer = lanceur(opts);
+  const lancer = lanceur(opts.cwd, buildSandboxEnv(opts.cwd), opts.bac, opts.signal);
   try {
     const secrets = await voletSecrets(lu.ajoutees, opts, dossier, lancer, valeurs);
     const dependances = await voletDependances(lu.fichiers, opts, dossier, lancer);
@@ -161,11 +164,46 @@ function creerMiroir(cwd: string): string {
  * Le lancement des outils : celui des validations (`runProc`, dans le bac
  * s'il y en a un, l'arbre entier tué au délai), sans aucune variable de
  * l'agent — ni relayée dans le bac, ni présente sur l'hôte.
+ *
+ * ─── L'OUTIL, PAR SON CHEMIN ABSOLU ──────────────────────────────────────────
+ *
+ * Sur l'hôte et sous bubblewrap, chaque outil est résolu UNE fois dans le PATH
+ * de l'hôte (`surLePath` : entrées relatives écartées), puis lancé par son
+ * chemin. Lancé par son NOM depuis le répertoire de la tâche, il était cherché
+ * par `execvp` jusque dans une entrée vide du PATH (`PATH=/usr/bin:/bin:`) ou
+ * `.` — la tâche elle-même, où l'agent pouvait poser un `betterleaks` à lui :
+ * exécuté hors du bac, et libre de répondre « rien trouvé ». Dans un
+ * conteneur, l'outil est celui de l'IMAGE : son nom s'y résout par le PATH que
+ * l'image déclare, pas par celui de l'hôte.
  */
-function lanceur(opts: OptionsPorte): Lancer {
-  const env = buildSandboxEnv(opts.cwd);
-  const bac = opts.bac ? { ...opts.bac, variables: [] } : undefined;
-  return (argv, delaiMs) => runProc(argv, opts.cwd, env, delaiMs, opts.signal, bac);
+function lanceur(
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  bac?: BacExecution,
+  signal?: AbortSignal,
+): Lancer {
+  const dansLImage = bac !== undefined && bac.fournisseur.bin !== 'bwrap';
+  const chemins = new Map<OutilPorte, string | null>();
+  return (outil, args, delaiMs) => {
+    if (!chemins.has(outil)) chemins.set(outil, dansLImage ? outil : surLePath(outil, env.PATH));
+    const bin = chemins.get(outil);
+    if (!bin) {
+      const introuvable: Awaited<ReturnType<Lancer>> = {
+        code: null,
+        output: `[hive] ${outil} : introuvable dans le PATH de l’hôte`,
+        arret: 'lancement',
+      };
+      return Promise.resolve(introuvable);
+    }
+    return runProc(
+      [bin, ...args],
+      cwd,
+      env,
+      delaiMs,
+      signal,
+      bac ? { ...bac, variables: [] } : undefined,
+    );
+  };
 }
 
 /**
@@ -176,60 +214,33 @@ function lanceur(opts: OptionsPorte): Lancer {
 async function sonder(
   outil: OutilPorte,
   lancer: Lancer,
+  delaiMs = DELAI_SONDE_MS,
 ): Promise<{ nom: OutilPorte; version: string } | { raison: 'annule' | 'delai' | 'outil_absent' }> {
-  const r = await lancer([outil, '--version'], DELAI_SONDE_MS);
+  const r = await lancer(outil, ['--version'], delaiMs);
   if (r.arret === 'annule' || r.arret === 'delai') return { raison: r.arret };
   const version = r.code === 0 ? versionDeSortie(r.output) : null;
   return version ? { nom: outil, version } : { raison: 'outil_absent' };
 }
 
 /**
- * L'étiquette `hive.porte-securite` d'une image (`hive doctor`) : `''` si
- * l'image ne la porte pas, `null` si le moteur ne répond pas. Une lecture de
- * métadonnées, avec l'environnement du moteur (`envMoteur`) : rien ne se
- * lance dans l'image.
+ * La version que la porte TROUVERAIT sur cet hôte (`hive doctor`), ou `null`.
+ *
+ * Pas une sonde à côté : celle de la porte (`sonder`), par son lanceur —
+ * même résolution dans le PATH, même `runProc`, donc même refus sous Windows
+ * (`shared/lanceur.ts`). Le docteur disait « ok » d'un outil que son propre
+ * `execFile` trouvait, pendant que la porte, elle, le voyait absent. Son
+ * environnement : le PATH et ce qu'exige Windows, aucun secret du nœud.
  */
-export function etiquetteDeLImage(
-  fournisseur: Fournisseur,
-  image: string,
-  delaiMs = 5_000,
+export async function versionPourLaPorte(
+  outil: OutilPorte,
+  delaiMs = 4_000,
 ): Promise<string | null> {
-  const format = `{{index .Config.Labels "${ETIQUETTE_PORTE}"}}`;
-  return new Promise((resolve) => {
-    try {
-      execFile(
-        fournisseur.bin,
-        ['image', 'inspect', '--format', format, image],
-        {
-          shell: false,
-          windowsHide: true,
-          timeout: delaiMs,
-          encoding: 'utf8',
-          env: envMoteur(fournisseur),
-        },
-        // Une clé absente s'imprime vide — ou `<no value>` selon le client.
-        (err, stdout) => resolve(err ? null : stdout.trim().replace(/^<no value>$/, '')),
-      );
-    } catch {
-      resolve(null);
-    }
-  });
-}
-
-/** La version d'un outil sur l'HÔTE (`hive doctor`), ou `null`. */
-export function versionSurHote(outil: OutilPorte, delaiMs = 4_000): Promise<string | null> {
-  return new Promise((resolve) => {
-    try {
-      execFile(
-        outil,
-        ['--version'],
-        { shell: false, windowsHide: true, timeout: delaiMs, encoding: 'utf8' },
-        (err, stdout, stderr) => resolve(err ? null : versionDeSortie(`${stdout}\n${stderr}`)),
-      );
-    } catch {
-      resolve(null);
-    }
-  });
+  const env: NodeJS.ProcessEnv = {};
+  for (const nom of ['PATH', 'SYSTEMROOT', 'SYSTEMDRIVE']) {
+    if (process.env[nom] !== undefined) env[nom] = process.env[nom];
+  }
+  const r = await sonder(outil, lanceur(process.cwd(), env), delaiMs);
+  return 'raison' in r ? null : r.version;
 }
 
 /** Un rapport écrit par un outil dans le miroir, relu sans suivre de lien. */
@@ -334,8 +345,8 @@ async function voletSecrets(
     // Relatifs à la tâche, en `/` : valables sur l'hôte comme dans le bac.
     const rel = path.basename(racine);
     const r = await lancer(
+      'betterleaks',
       [
-        'betterleaks',
         'dir',
         `${rel}/secrets`,
         '--config',
@@ -451,8 +462,8 @@ async function voletDependances(
         'base et tête — interroge osv.dev…',
     );
     const r = await lancer(
+      'osv-scanner',
       [
-        'osv-scanner',
         'scan',
         'source',
         ...lockfiles,

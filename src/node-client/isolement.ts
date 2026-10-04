@@ -780,15 +780,18 @@ function reel(chemin: string): string | null {
  * Le chemin où `execvp` trouverait `bin` — sans rien lancer.
  *
  * Une entrée RELATIVE du PATH (`.`, ou vide) est ignorée : elle se résoudrait
- * contre le cwd de Hive, pas contre un répertoire d'installation. Un `bin` qui
- * contient `/` n'est pas cherché ; relatif, il vise le répertoire de la tâche,
- * qui est déjà monté.
+ * contre le cwd du lanceur — celui de Hive, ou le répertoire d'une TÂCHE, où
+ * l'agent écrit ce qu'il veut. Un `bin` qui contient un séparateur n'est pas
+ * cherché ; relatif, il vise le répertoire de la tâche, qui est déjà monté.
+ * Sous Windows, seul `<bin>.exe` compte : un `.cmd` ne se lance pas sans
+ * interpréteur de commandes (`shared/lanceur.ts`).
  */
-function surLePath(bin: string, chemin: string | undefined): string | null {
-  if (bin.includes('/')) return path.isAbsolute(bin) ? bin : null;
+export function surLePath(bin: string, chemin: string | undefined): string | null {
+  if (bin.includes('/') || bin.includes(path.sep)) return path.isAbsolute(bin) ? bin : null;
+  const nom = process.platform === 'win32' && !/\.exe$/i.test(bin) ? `${bin}.exe` : bin;
   for (const dossier of (chemin ?? '').split(path.delimiter)) {
     if (!path.isAbsolute(dossier)) continue;
-    const candidat = path.join(dossier, bin);
+    const candidat = path.join(dossier, nom);
     try {
       accessSync(candidat, constants.X_OK);
       if (statSync(candidat).isFile()) return candidat;
@@ -1316,6 +1319,28 @@ export async function inspecterImage(
     return { etat: 'injoignable', motif: `${fournisseur.nom} injoignable${citation(r.erreurs)}` };
   }
   return { etat: 'absente' };
+}
+
+/**
+ * Une étiquette de l'image (`hive doctor` y lit `hive.porte-securite`) : `''`
+ * si l'image ne la porte pas, `null` si le moteur n'a rien dit. La question
+ * d'`inspecterImage`, par le même lanceur : rien ne se lance dans l'image, et
+ * le client du moteur ne reçoit que `envMoteur` — construit à partir de rien.
+ */
+export async function etiquetteImage(
+  fournisseur: Fournisseur,
+  image: string,
+  etiquette: string,
+  timeoutMs = INSPECTION_MAX_MS,
+): Promise<string | null> {
+  const format = `{{index .Config.Labels "${etiquette}"}}`;
+  const r = await eprouver(
+    { bin: fournisseur.bin, args: ['image', 'inspect', '--format', format, image] },
+    { cwd: tmpdir(), timeoutMs, garderSortie: true, env: envMoteur(fournisseur) },
+  );
+  if (r.issue !== 'sortie' || r.code !== 0) return null;
+  // Une clé absente s'imprime vide — ou `<no value>` selon le client.
+  return r.sortie.trim().replace(/^<no value>$/, '');
 }
 
 /**
