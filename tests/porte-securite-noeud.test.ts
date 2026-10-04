@@ -414,6 +414,30 @@ describe.runIf(POSIX)('passerLaPorte — ce qui ne se vérifie pas le DIT', () =
     expect(appelsDesOutils(outils)).toEqual([]);
   });
 
+  it('UNE PRODUCTION EN ÉCHEC : ses secrets sont lus, ses dépendances NON EXAMINÉES — osv-scanner ne tourne pas', async () => {
+    const p = await produire(
+      { 'src/config.ts': CONFIG_BASE, 'package-lock.json': verrou({ lodash: '4.17.20' }) },
+      {
+        'src/config.ts': CONFIG_AWS,
+        'package-lock.json': verrou({ lodash: '4.17.20', minimist: '1.2.0' }),
+      },
+    );
+    const { rapport, valeurs } = await passerLaPorte({
+      ...p,
+      caviardeur: creerCaviardeur([]),
+      dependances: 'production_en_echec',
+    });
+    expect(rapport.secrets).toMatchObject({ etat: 'constat', total: 2 });
+    expect(valeurs).toEqual(expect.arrayContaining([ID_AWS, SECRETE_AWS]));
+    expect(rapport.dependances).toEqual({
+      etat: 'non_verifie',
+      raison: 'production_en_echec',
+      constats: [],
+      total: 0,
+    });
+    expect(appelsDesOutils(outils).some((l) => l.startsWith('osv-scanner'))).toBe(false);
+  });
+
   it('UN LOCKFILE TOUCHÉ SANS COMMIT DE BASE : « non vérifié » — rien à quoi comparer', async () => {
     const p = await produire(
       { 'package-lock.json': verrou({ lodash: '4.17.20' }) },

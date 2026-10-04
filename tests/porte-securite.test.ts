@@ -660,6 +660,22 @@ describe('l’Evaluator — la porte parmi ses règles', () => {
     expect(v.reasons[0]).toMatch(/^la porte de sécurité a trouvé 1 secret\(s\) ajouté\(s\)/);
   });
 
+  it('UN RÉSULTAT EN ÉCHEC reste rejeté — et le secret qu’il ajoutait est nommé, pour la correction', () => {
+    const [ok] = accepte.results;
+    const v = evaluate({
+      ...accepte,
+      results: [{ ...ok!, success: false }],
+      securite: { porte: avecSecret, nodeId: 'n1' },
+    });
+    expect(v.decision).toBe('rejected');
+    expect(v.reasons[0]).toBe('le dernier résultat a échoué');
+    expect(v.reasons[1]).toMatch(/^la porte de sécurité a trouvé 1 secret\(s\) ajouté\(s\)/);
+    // Sans constat, l'échec reste seul.
+    expect(evaluate({ ...accepte, results: [{ ...ok!, success: false }] }).reasons).toEqual([
+      'le dernier résultat a échoué',
+    ]);
+  });
+
   it('CE QUE LA BORNE DU PROTOCOLE A LAISSÉ TOMBER est compté, pas tu', () => {
     const constats = Array.from({ length: MAX_CONSTATS_PORTE + 5 }, (_, i) => ({
       regle: 'generic-api-key',

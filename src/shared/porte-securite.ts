@@ -130,6 +130,16 @@ export const ETATS_PAR_RAISON_PORTE = {
   /** Une erreur inattendue du nœud a interrompu la porte. */
   interrompue: ['non_verifie'],
   /**
+   * Non examinées : la production a ÉCHOUÉ. Ses secrets, si — son diff part
+   * au hub comme un autre —, ses dépendances non : rien n'en sera livré.
+   */
+  production_en_echec: ['non_verifie'],
+  /**
+   * Non examinées : le diff n'est pas celui de l'arbre de la tâche (un
+   * adaptateur qui rend le sien) — il n'y a aucun lockfile d'après à lire.
+   */
+  diff_hors_arbre: ['non_verifie'],
+  /**
    * Le résultat n'a apporté AUCUN rapport — nœud antérieur à la porte,
    * production simulée, rapport mal formé écarté. Posé par la Reine.
    */
@@ -151,6 +161,14 @@ export const DIRE_RAISON_PORTE: Readonly<Record<RaisonPorte, readonly [string, s
   sans_base: ['aucun commit de base pour comparer', 'no base commit to compare with'],
   lockfile_illisible: ['lockfile illisible sans risque', 'lockfile not safely readable'],
   interrompue: ['erreur du nœud', 'node error'],
+  production_en_echec: [
+    'non examinées : la production a échoué',
+    'not examined: the production failed',
+  ],
+  diff_hors_arbre: [
+    'non examinées : le diff ne vient pas de l’arbre de la tâche',
+    'not examined: the diff does not come from the task tree',
+  ],
   rapport_absent: [
     'aucun rapport du nœud (nœud antérieur à la porte, ou production simulée)',
     'no report from the node (node older than the gate, or simulated production)',

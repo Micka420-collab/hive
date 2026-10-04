@@ -12,8 +12,11 @@
 //   · des outils absents → la porte est « non vérifiée », raison à l'appui,
 //     jamais « rien trouvé » ; en polyéthisme `strict`, la production attend
 //     un humain ;
-//   · un résultat qui n'apporte AUCUN rapport (un nœud antérieur à la porte,
-//     une production simulée) → « non vérifiée » aussi, jamais verte.
+//   · un diff que l'adaptateur rend lui-même (production simulée) → ses
+//     secrets sont lus, ses dépendances « non examinées » — jamais vertes ;
+//   · une production qui ÉCHOUE après avoir écrit une clé → la clé ne part
+//     pas au hub (le volet secrets lit tout résultat porteur d'un diff), et
+//     le verdict la nomme.
 //
 // Le nœud n'a pas de bac : les validations y sont `sans_bac` (rien du code de
 // l'agent ne tourne sur l'hôte), la porte, elle, tourne — elle n'exécute rien
@@ -106,15 +109,29 @@ const agentDuBanc: AgentAdapter = {
       );
       return Promise.resolve({ success: true, diff: '', logs: 'configuré', subAgents: [] });
     }
-    // Un adaptateur qui rend son propre diff, sans rien écrire : la porte ne
-    // juge pas un arbre que la production n'a pas touché — aucun rapport.
+    // Un adaptateur qui rend son propre diff, sans rien écrire : la porte en
+    // lit les secrets — c'est lui qui part au hub —, pas les dépendances d'un
+    // arbre que la production n'a pas touché.
     if (task.title.startsWith('Simuler')) {
       return Promise.resolve({
         success: true,
-        diff: "diff --git a/src/config.ts b/src/config.ts\n+export const region = 'eu-west-1';",
+        diff:
+          'diff --git a/src/config.ts b/src/config.ts\n--- a/src/config.ts\n+++ b/src/config.ts\n' +
+          "@@ -1 +1 @@\n-export const region = 'eu-west-3';\n+export const region = 'eu-west-1';\n",
         logs: 'simulé',
         subAgents: [],
       });
+    }
+    // Une production qui ÉCHOUE après avoir écrit une clé : son diff part au
+    // hub comme un autre.
+    if (task.title.startsWith('Échouer')) {
+      writeFileSync(
+        path.join(ctx.cwd, 'src', 'config.ts'),
+        CONFIG_BASE +
+          `export const awsAccessKeyId = '${ID_AWS}';\n` +
+          `export const awsSecretAccessKey = '${SECRETE_AWS}';\n`,
+      );
+      return Promise.resolve({ success: false, diff: '', logs: 'code 1', subAgents: [] });
     }
     if (task.title.startsWith('Régionaliser')) {
       writeFileSync(
@@ -290,25 +307,58 @@ describe.runIf(POSIX)('la porte de sécurité — du nœud producteur jusqu’à
   );
 
   it(
-    'UN RÉSULTAT SANS RAPPORT (nœud antérieur, production simulée) : « non vérifiée », jamais verte',
+    'UN DIFF QUE L’ADAPTATEUR REND LUI-MÊME : ses secrets sont lus, ses dépendances « non examinées » — jamais vertes',
     { timeout: 60_000 },
     async () => {
       const { produire } = await demarrer('strict');
       const { evaluation, tacheId } = await produire('Simuler la configuration');
-      for (const volet of ['secrets', 'dependances']) {
-        expect(evaluation.evidence.securite[volet]).toEqual({
-          etat: 'non_verifie',
-          raison: 'rapport_absent',
-          constats: [],
-          total: 0,
-        });
-      }
-      expect(evaluation.evidence.securiteNodeId).toBeUndefined();
+      expect(evaluation.evidence.securite.secrets).toEqual({
+        etat: 'rien_trouve',
+        raison: 'analyse_propre',
+        outil: { nom: 'betterleaks', version: '1.9.0' },
+        constats: [],
+        total: 0,
+      });
+      expect(evaluation.evidence.securite.dependances).toEqual({
+        etat: 'non_verifie',
+        raison: 'diff_hors_arbre',
+        constats: [],
+        total: 0,
+      });
       expect(evaluation.decision).toBe('human_review_required');
       expect(evaluation.reasons[0]).toContain('porte de sécurité non vérifiée, polyéthisme strict');
-      expect(evaluation.reasons[0]).toContain('aucun rapport du nœud');
-      expect(evaluation.reasons[1]).toContain('le nœud producteur');
-      expect(serveur?.store.evenementsDeTache(tacheId, ['security_gate_recorded'])).toEqual([]);
+      expect(evaluation.reasons[0]).toContain('le diff ne vient pas de l’arbre de la tâche');
+      expect(serveur?.store.evenementsDeTache(tacheId, ['security_gate_recorded'])).toHaveLength(1);
+    },
+  );
+
+  it(
+    'UNE PRODUCTION QUI ÉCHOUE APRÈS AVOIR ÉCRIT UNE CLÉ : la clé ne part pas au hub, et le verdict la nomme',
+    { timeout: 60_000 },
+    async () => {
+      // Le trou : la porte ne passait qu'après un succès. Le diff d'un délai ou
+      // d'un code non nul partait avec la clé en clair, rangé dans
+      // `results.diff`, montré à chaque écran.
+      const { s, produire } = await demarrer();
+      const { tacheId, evaluation, brut } = await produire('Échouer la configuration');
+
+      expect(evaluation.decision).toBe('rejected');
+      expect(evaluation.reasons[0]).toBe('le dernier résultat a échoué');
+      expect(evaluation.reasons[1]).toMatch(
+        /^la porte de sécurité a trouvé 2 secret\(s\) ajouté\(s\)/,
+      );
+      expect(evaluation.evidence.securite.dependances).toMatchObject({
+        etat: 'non_verifie',
+        raison: 'production_en_echec',
+      });
+      const diffs = s.store.resultsForTask(tacheId).map((r) => r.diff);
+      expect(diffs.length).toBeGreaterThan(0);
+      for (const valeur of [ID_AWS, SECRETE_AWS]) {
+        expect(brut).not.toContain(valeur);
+        for (const d of diffs) expect(d).not.toContain(valeur);
+        expect(JSON.stringify(s.store.listEvents(0, 5_000))).not.toContain(valeur);
+      }
+      expect(diffs[0]).toContain(`+export const awsSecretAccessKey = '${SECRET_CAVIARDE}';`);
     },
   );
 });

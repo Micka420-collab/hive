@@ -111,6 +111,14 @@ export interface OptionsPorte {
   surEtape?: (ligne: string) => void;
   /** Le caviardeur du nœud AVANT la porte : ce qu'il réécrirait en silence devient un constat. */
   caviardeur: Caviardeur;
+  /**
+   * Le volet dépendances LIT L'ARBRE de la tâche (ses lockfiles d'après) : il
+   * ne juge qu'une production RÉUSSIE dont le diff est celui de cet arbre.
+   * Sinon il n'est pas examiné, et sa raison le dit (`production_en_echec`,
+   * `diff_hors_arbre`). Le volet secrets, lui, lit le diff qui part au hub,
+   * quel qu'il soit — il n'exécute rien. Défaut : `examiner`.
+   */
+  dependances?: 'examiner' | 'production_en_echec' | 'diff_hors_arbre';
 }
 
 export interface PassagePorte {
@@ -141,7 +149,11 @@ export async function passerLaPorte(opts: OptionsPorte): Promise<PassagePorte> {
   const lancer = lanceur(opts.cwd, buildSandboxEnv(opts.cwd), opts.bac, opts.signal);
   try {
     const secrets = await voletSecrets(lu.ajoutees, opts, dossier, lancer, valeurs);
-    const dependances = await voletDependances(lu.fichiers, opts, dossier, lancer);
+    const examen = opts.dependances ?? 'examiner';
+    const dependances =
+      examen === 'examiner'
+        ? await voletDependances(lu.fichiers, opts, dossier, lancer)
+        : voletSans<ConstatDependance>(examen);
     return { rapport: { secrets, dependances }, valeurs };
   } finally {
     if (miroir.chemin !== null) {

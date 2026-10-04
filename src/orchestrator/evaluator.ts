@@ -391,12 +391,15 @@ export function evaluate(input: EvaluatorInput): EvaluationResult {
     return result(input.taskId, 'correction_required', false, true, [motif], evidence);
   }
   if (!latest.success) {
+    // La porte lit aussi le diff d'un échec (son volet secrets n'exécute
+    // rien) : une clé que l'agent a écrite avant d'échouer est nommée ici, et
+    // la critique de la correction le dira.
     return result(
       input.taskId,
       'rejected',
       false,
       true,
-      ['le dernier résultat a échoué'],
+      ['le dernier résultat a échoué', ...motifsDeLaPorte(securite, input.securite?.nodeId)],
       evidence,
     );
   }
