@@ -573,6 +573,24 @@ describe('les décisions se lisent comme des décisions — jamais par leur type
       'verdict de l’Evaluator (human_review_required) passé outre pour livrer (tache-12)',
     ],
     [
+      'une tâche close avant tout envoi dit sa cause',
+      'task_failed',
+      {
+        taskId: 'tache-1234abcd',
+        reason: 'depot_illisible',
+        motif: 'URL de dépôt du projet illisible (caractère de contrôle) — recréez le projet',
+      },
+      'fr',
+      'échouée (tache-12) — URL de dépôt du projet illisible (caractère de contrôle) — recréez le projet',
+    ],
+    [
+      'la même, en anglais : la cause rangée en français reste dite',
+      'task_failed',
+      { taskId: 'tache-1234abcd', reason: 'depot_illisible', motif: 'URL illisible' },
+      'en',
+      'failed (tache-12) — URL illisible',
+    ],
+    [
       'un Conseil tranché sans piste',
       'council_decided',
       { sessionId: 's1', propositionId: null, titre: null },

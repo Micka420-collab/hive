@@ -170,6 +170,7 @@ import {
   isValidLocalRepoPath,
   isValidRemoteRepoUrl,
   LIMITS,
+  motifDepotIllisible,
   octetsDe,
   parseClientMessage,
 } from '../shared/protocol.js';
@@ -1978,6 +1979,9 @@ async function monterReine(
     if (parent.status !== 'assigned' && parent.status !== 'running') return;
     const socket = nodeSockets.get(parent.assignedNodeId);
     if (!socket) return;
+    // Le motif lisible d'un échec qui en porte un (`depot_illisible`), plutôt
+    // que son code.
+    const dit = typeof fait.motif === 'string' && fait.motif.length > 0 ? fait.motif : reason;
     const motif =
       reason === 'root_cost_budget_exhausted'
         ? `budget coût de la racine épuisé (${LIMITES_DELEGATION_DEFAUT.maxCostMicros} µUSD de ` +
@@ -1988,8 +1992,8 @@ async function monterReine(
             'travail toi-même'
           : reason === 'no_working_agent'
             ? 'aucun agent fonctionnel ne l’a exécutée — refais ce travail toi-même ou délègue autrement'
-            : typeof reason === 'string' && reason.length > 0
-              ? reason
+            : typeof dit === 'string' && dit.length > 0
+              ? dit
               : issue === 'annulee'
                 ? 'annulée'
                 : 'échouée';
@@ -4118,11 +4122,15 @@ async function monterReine(
         taskId,
       };
     }
+    // Le `motif` lisible d'abord, quand le fait en porte un (`depot_illisible`) :
+    // son code seul ne dit rien à qui lit le canal.
+    const cause =
+      typeof p.motif === 'string' ? p.motif : typeof p.reason === 'string' ? p.reason : 'échec';
     return {
       kind: 'blocage',
       projectId: task.projectId,
       titre: `Tâche en échec — ${task.title}`,
-      corps: `Motif : ${typeof p.reason === 'string' ? p.reason : 'échec'}`,
+      corps: `Motif : ${cause}`,
       taskId,
     };
   };
@@ -11025,6 +11033,10 @@ async function monterReine(
       // Cette route est aussi appelée avec le jeton partagé aux nœuds. Un
       // chemin local serait donc résolu sur une machine qui n'est pas celle
       // de l'appelant : seules les sources distantes franchissent cette porte.
+      // Une adresse que le protocole refuse dit d'abord pourquoi.
+      const illisible =
+        req.body.repoUrl === undefined ? null : motifDepotIllisible(req.body.repoUrl);
+      if (illisible !== null) return reply.code(400).send({ error: illisible });
       if (req.body.repoUrl !== undefined && !isValidRemoteRepoUrl(req.body.repoUrl)) {
         return reply.code(400).send({
           error: 'repoUrl invalide : une URL Git distante est requise',
@@ -11878,6 +11890,12 @@ async function monterReine(
     corps: CorpsMerge,
     livraison?: DemandeLivraisonMission,
   ): RefusMerge | { mergeId: string; nodeId: string; nodeName: string } => {
+    // Un dépôt que le protocole refuse : le nœud jetterait l'assignation, et le
+    // merge attendrait son délai sans cause. La porte des deux routes de merge.
+    const depot = motifDepotIllisible(project.repoUrl);
+    if (depot !== null) {
+      return { refus: { code: 409, corps: { code: 'depot_illisible', error: depot } } };
+    }
     // ─── UNE LIVRAISON NE PARTAGE PAS SON PROJET ────────────────────────────
     // `/merge/result` garde UN résultat par projet. Un merge d'essai qui
     // finirait après une livraison écraserait son rapport : l'écran et la CLI,
@@ -12368,6 +12386,10 @@ async function monterReine(
       if (!project.repoUrl) {
         return reply.code(400).send({ error: 'le projet doit avoir un dépôt (repoUrl)' });
       }
+      // Un dépôt que le protocole refuse : le miroir le copierait peut-être (un
+      // chemin local au caractère de contrôle), le nœud jetterait l'assignation.
+      const depot = motifDepotIllisible(project.repoUrl);
+      if (depot !== null) return reply.code(409).send({ code: 'depot_illisible', error: depot });
       // La préparation s'exécute sur la machine d'un membre, et une
       // installation exécute les scripts de ce qu'elle installe.
       if (req.body?.prepareCommand) {
@@ -14743,12 +14765,17 @@ async function monterReine(
     async (req, reply) => {
       if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
       const repoUrl = req.body.repoUrl;
+      // Ce que le protocole reproche à l'adresse, d'abord : un administrateur
+      // dont le chemin porte un caractère de contrôle lisait « un chemin local
+      // est réservé à un administrateur ».
+      const illisible = repoUrl === undefined ? null : motifDepotIllisible(repoUrl);
+      if (illisible !== null) return reply.code(400).send({ error: illisible });
       const cheminLocalAdmin =
         repoUrl !== undefined && isValidLocalRepoPath(repoUrl) && roleDe(req)?.role === 'admin';
       if (repoUrl !== undefined && !isValidRemoteRepoUrl(repoUrl) && !cheminLocalAdmin) {
         return reply.code(400).send({
           error:
-            'repoUrl invalide : une URL Git distante est requise ; un chemin local est réservé à un administrateur',
+            'repoUrl invalide : une URL Git distante est requise ; un chemin local, absolu et sans « .. », est réservé à un administrateur',
         });
       }
       const userId = (req as AuthRequest).userId!;
@@ -16245,11 +16272,15 @@ async function monterReine(
             break;
           }
           case 'task_reject': {
-            // Refus d'assignation (saturation, agent en panne ou dépôt qui ne
-            // se clone pas → infra) : requeue sans brûler de tentative ; le
-            // token-failover gère l'infra. retryAfterMs (Night Shift) allonge
-            // le cooldown de re-sollicitation.
-            const infra = msg.avantAgent ? 'avant_agent' : (msg.infra ?? false);
+            // Refus d'assignation (saturation, agent en panne, dépôt qui ne
+            // se clone pas ou assignation illisible → infra) : requeue sans
+            // brûler de tentative ; le token-failover gère l'infra.
+            // retryAfterMs (Night Shift) allonge le cooldown de re-sollicitation.
+            const infra = msg.illisible
+              ? 'illisible'
+              : msg.avantAgent
+                ? 'avant_agent'
+                : (msg.infra ?? false);
             scheduler.rejectTask(
               nodeId,
               msg.taskId,

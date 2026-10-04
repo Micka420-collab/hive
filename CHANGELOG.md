@@ -26,6 +26,16 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   l'environnement — le clone est refusé, en le disant (`hive doctor` : `git`).
   Une URL au mot de passe sans nom (`https://:jeton@…`) est refusée aussi : git
   n'envoie pas de compte au nom vide ; `https://<jeton>@…` convient (#551).
+- **Un projet dont l'URL de dépôt porte un caractère de contrôle** (rangée
+  avant #551, ou chemin local d'administrateur) ne part plus vers les
+  ouvrières : ses tâches échouent avant tout envoi, la cause au Journal
+  (« URL de dépôt du projet illisible (caractère de contrôle) — recréez le
+  projet avec une URL valide »), et ses merges, chantiers et courses sont
+  refusés de même. Jusqu'ici, chaque ouvrière jetait l'assignation sans un mot
+  et la tâche restait assignée pour toujours. Recréez le projet. Une ouvrière
+  à jour refuse aussi, en le disant, toute assignation qu'elle ne sait pas
+  lire (des versions différentes, ou un champ hors des bornes du protocole) :
+  gardez la Reine et ses ouvrières à la même version (#554).
 
 ## [0.5.0] — 2026-09-28
 

@@ -39,7 +39,12 @@ import { estOrdreArret } from '../shared/demarrage.js';
 import { plateformeDepuis } from '../shared/machine.js';
 import { laverIdentifiantsDuTexte } from '../shared/projet-public.js';
 import { ligneArretBudgetaire, usdDeMicros } from '../shared/arret-budgetaire.js';
-import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
+import {
+  assignationIllisible,
+  ID_PATTERN,
+  LIMITS,
+  parseServerMessage,
+} from '../shared/protocol.js';
 import type {
   AssignChantierMsg,
   AssignMergeMsg,
@@ -1265,7 +1270,10 @@ export class HiveNodeClient {
 
   private onMessage(raw: string): void {
     const msg = parseServerMessage(raw);
-    if (!msg) return;
+    if (!msg) {
+      this.direIllisible(raw);
+      return;
+    }
     switch (msg.type) {
       case 'registered':
         this.nodeId = msg.nodeId;
@@ -1372,6 +1380,42 @@ export class HiveNodeClient {
       default:
         break; // state/event : réservés au dashboard
     }
+  }
+
+  /**
+   * Un message du hub que ce nœud ne sait pas lire ne tombe plus sans un mot.
+   * Une assignation reçoit le refus que la Reine attend pour CE travail
+   * (`assignationIllisible`), sauf s'il tourne déjà ici ; sans identifiant sûr
+   * à lui renvoyer, ce journal est sa seule trace. Jamais le message lui-même :
+   * il peut porter le jeton d'un projet.
+   */
+  private direIllisible(raw: string): void {
+    const illisible = assignationIllisible(raw);
+    if (!illisible) {
+      this.log('message du hub illisible : ignoré');
+      return;
+    }
+    const { reponse } = illisible;
+    const ligne = `✘ assignation illisible (${illisible.type}) : ${illisible.motif} →`;
+    if (!reponse) {
+      this.log(`${ligne} aucun identifiant sûr, rien à lui répondre`);
+      return;
+    }
+    // Le garde-doublon de runTask, runMergeJob et runChantierJob : ce travail
+    // tourne ICI, et la Reine prendrait le refus (`rejectTask` accepte une
+    // tâche `running`) — remise en file, et double exécution.
+    const enCours =
+      reponse.type === 'task_reject'
+        ? this.active.has(reponse.taskId)
+        : reponse.type === 'merge_result'
+          ? this.activeMerges.has(reponse.mergeId)
+          : this.activeChantiers.has(reponse.chantierId);
+    if (enCours) {
+      this.log(`${ligne} ce travail tourne déjà ici, aucun refus envoyé`);
+      return;
+    }
+    this.send(reponse);
+    this.log(`${ligne} refusée auprès de la Reine`);
   }
 
   private startHeartbeat(): void {

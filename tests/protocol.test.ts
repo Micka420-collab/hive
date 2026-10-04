@@ -3,11 +3,13 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  assignationIllisible,
   isValidLocalRepoPath,
   isValidRemoteRepoUrl,
   isValidRepoUrl,
   isValidTask,
   LIMITS,
+  motifDepotIllisible,
   parseClientMessage,
   parseServerMessage,
 } from '../src/shared/protocol.js';
@@ -330,6 +332,26 @@ describe('parseClientMessage', () => {
     });
     expect(refus({ avantAgent: true })).not.toHaveProperty('avantAgent');
     expect(refus({ infra: true, avantAgent: 'oui' })).toBeNull();
+  });
+
+  it('task_reject : « illisible » ne voyage qu’avec un refus avant l’agent', () => {
+    // Ce n'est pas une panne : la température et les fantômes l'écartent. Sans
+    // `avantAgent`, rien ne dit qu'aucun agent n'a tourné — le drapeau tombe.
+    const refus = (extra: Record<string, unknown>) =>
+      parseClientMessage(
+        JSON.stringify({ type: 'task_reject', taskId: 't1', reason: 'illisible', ...extra }),
+      );
+    expect(refus({ infra: true, avantAgent: true, illisible: true })).toEqual({
+      type: 'task_reject',
+      taskId: 't1',
+      reason: 'illisible',
+      infra: true,
+      avantAgent: true,
+      illisible: true,
+    });
+    expect(refus({ infra: true, illisible: true })).not.toHaveProperty('illisible');
+    expect(refus({ illisible: true })).not.toHaveProperty('illisible');
+    expect(refus({ infra: true, avantAgent: true, illisible: 'oui' })).toBeNull();
   });
 
   it('accepte task_reject et register avec activeTasks, rejette les invalides', () => {
@@ -771,10 +793,113 @@ describe('isValidRepoUrl', () => {
       'https://github.com/o/\tr.git',
       'git@github.com:o/r\r.git',
       '/home/user/re\u0000po',
+      '/srv/dé\tpôt',
+      'C:\\depots\\dé\u007fpôt',
       'https://github.com/o/r.git\u007f',
     ]) {
       expect(isValidRepoUrl(url), JSON.stringify(url)).toBe(false);
       expect(isValidRemoteRepoUrl(url), JSON.stringify(url)).toBe(false);
+      // Le chemin local d'un administrateur suit la même règle : accepté, il
+      // faisait refuser par chaque nœud toutes les assignations du projet.
+      expect(isValidLocalRepoPath(url), JSON.stringify(url)).toBe(false);
+    }
+  });
+
+  it('motifDepotIllisible : LA cause du refus, par la même règle — jamais l’adresse', () => {
+    const cas: Array<[unknown, string | null]> = [
+      ['https://github.com/x/y.git', null],
+      ['/home/user/repo', null],
+      ['', 'absente'],
+      [42, 'absente'],
+      [`https://h/${'x'.repeat(500)}`, 'plus de 500 caractères'],
+      ['-oProxyCommand=evil', 'tiret initial'],
+      ['https://u:SECRET-DU-PROJET@h/o/r.git\nX', 'caractère de contrôle'],
+      ["ext::sh -c 'id'", 'transport non permis'],
+      ['file:///etc/passwd', 'transport non permis'],
+    ];
+    for (const [url, defaut] of cas) {
+      const motif = motifDepotIllisible(url);
+      expect(motif, JSON.stringify(url)).toBe(
+        defaut === null
+          ? null
+          : `URL de dépôt du projet illisible (${defaut}) — recréez le projet avec une URL valide`,
+      );
+      // Une seule règle : la garde et sa cause ne peuvent pas diverger.
+      expect(isValidRepoUrl(url), JSON.stringify(url)).toBe(defaut === null);
+      if (motif === null || typeof url !== 'string' || url === '') continue;
+      // C'est la raison d'un `task_reject` : au-delà, la Reine refuserait le refus.
+      expect(motif.length).toBeLessThanOrEqual(LIMITS.name);
+      expect(motif, 'le motif recopie l’adresse').not.toContain(url.slice(0, 12));
+      // Ni la suite : c'est là, dans les identifiants, que vit le jeton.
+      expect(motif, 'le motif recopie le jeton').not.toContain('SECRET');
+    }
+  });
+});
+
+describe('assignationIllisible — ce que le nœud répond à ce qu’il ne sait pas lire', () => {
+  const URL_ILLISIBLE = 'https://marie:ghp_SECRET0123456789@h.invalid/o/r.git\nX';
+  const MOTIF =
+    'URL de dépôt du projet illisible (caractère de contrôle) — recréez le projet avec une URL valide';
+  const HORS_PROTOCOLE =
+    'assignation illisible pour ce nœud — versions Reine/nœud différentes, ou champ hors bornes (titre, consigne, plafond)';
+
+  it('UN REFUS QUE LA REINE SAIT LIRE, pour chaque travail et chaque cause — sans le jeton', () => {
+    const cas: Array<[Record<string, unknown>, string]> = [
+      [{ type: 'assign_task', task: validTask, repoUrl: URL_ILLISIBLE }, MOTIF],
+      [{ type: 'assign_merge', mergeId: 'm1', repoUrl: URL_ILLISIBLE, diffs: [] }, MOTIF],
+      [{ type: 'assign_chantier', chantierId: 'c1', repoUrl: URL_ILLISIBLE, nom: 'test' }, MOTIF],
+      // Sans dépôt reproché (absent, ou nul pour une tâche), un champ hors
+      // protocole : un niveau qu'un nœud plus ancien ne connaît pas — aligner
+      // les versions —, un titre qu'un producteur n'a pas borné — qu'aucune
+      // mise à jour ne lève. Le motif dit les deux.
+      [{ type: 'assign_task', task: validTask, repoUrl: null, effort: 'inconnu' }, HORS_PROTOCOLE],
+      [
+        { type: 'assign_task', task: { ...validTask, title: 'x'.repeat(LIMITS.title + 1) } },
+        HORS_PROTOCOLE,
+      ],
+    ];
+    for (const [message, motif] of cas) {
+      const brut = JSON.stringify(message);
+      const nom = `${String(message.type)} → ${motif.slice(0, 40)}`;
+      expect(parseServerMessage(brut), `prémisse : ${nom} est illisible`).toBeNull();
+      const illisible = assignationIllisible(brut);
+      expect(illisible?.motif, nom).toBe(motif);
+      // La Reine relit la réponse avec SON parseur : une réponse qu'il
+      // refuserait (une raison au-delà de `LIMITS.name`) serait un second silence.
+      const reponse = illisible?.reponse;
+      expect(reponse, nom).not.toBeNull();
+      expect(parseClientMessage(JSON.stringify(reponse)), nom).toEqual(reponse);
+      expect(JSON.stringify(illisible), nom).not.toContain('ghp_SECRET');
+    }
+  });
+
+  it('SANS IDENTIFIANT SÛR, AUCUNE RÉPONSE — et ce qui n’est pas une assignation ne la concerne pas', () => {
+    expect(
+      assignationIllisible(
+        JSON.stringify({
+          type: 'assign_task',
+          task: { ...validTask, id: '../x' },
+          repoUrl: URL_ILLISIBLE,
+        }),
+      ),
+    ).toEqual({ type: 'assign_task', motif: MOTIF, reponse: null });
+    for (const message of [
+      { type: 'assign_task', repoUrl: URL_ILLISIBLE },
+      { type: 'assign_merge', mergeId: '../m', repoUrl: URL_ILLISIBLE, diffs: [] },
+      { type: 'assign_chantier', chantierId: 'c1', repoUrl: URL_ILLISIBLE, nom: '--evil' },
+    ]) {
+      expect(assignationIllisible(JSON.stringify(message))?.reponse, message.type).toBeNull();
+    }
+    // Une pose n'est illisible que par ses identifiants : jamais de réponse sûre.
+    expect(
+      assignationIllisible(JSON.stringify({ type: 'poser_outil', poseId: '../p', outilId: 'x' })),
+    ).toEqual({
+      type: 'poser_outil',
+      motif: 'identifiant de pose ou d’outil mal formé',
+      reponse: null,
+    });
+    for (const brut of ['pas du json', '[]', JSON.stringify({ type: 'cancel_task' }), 42]) {
+      expect(assignationIllisible(brut), String(brut)).toBeNull();
     }
   });
 });
