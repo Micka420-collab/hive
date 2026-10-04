@@ -44,7 +44,7 @@
 
 .cerveau-titre h2 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: var(--fs-lg);
   font-weight: 650;
   letter-spacing: -0.02em;
   display: inline-flex;
@@ -64,7 +64,7 @@
 
 .cerveau-titre p {
   margin: 0.15rem 0 0;
-  font-size: 0.78rem;
+  font-size: var(--fs-xs);
   color: var(--ce-texte-doux);
   max-width: 62ch;
   font-style: normal;
@@ -90,19 +90,21 @@
   background: var(--ce-carte);
   border: 1px solid var(--ce-bord);
   font: inherit;
-  color: inherit;
+  /* La couleur de la carte nocturne, pas celle de la page : héritée, elle
+     rendait des chiffres sombres sur ces tuiles sombres dans le thème clair. */
+  color: #f4eee0;
   box-shadow: none;
 }
 
 .cerveau-tuile b {
   font-family: ui-monospace, monospace;
-  font-size: 1.15rem;
+  font-size: var(--fs-xl);
   line-height: 1.1;
   font-weight: 600;
 }
 
 .cerveau-tuile span {
-  font-size: 0.68rem;
+  font-size: var(--fs-2xs);
   color: var(--ce-texte-doux);
   white-space: nowrap;
 }
@@ -137,7 +139,7 @@
   border-radius: 6px;
   background: #3a201a;
   color: #f4b3a4;
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
 }
 
 /* ─── Barre d'outils ──────────────────────────────────────────────────────── */
@@ -156,7 +158,7 @@
   border: 1px solid var(--ce-bord);
   background: var(--ce-carte);
   color: inherit;
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
 }
 
 .cerveau-recherche:focus-visible {
@@ -180,7 +182,7 @@
   border: 1px solid var(--ce-bord);
   background: transparent;
   color: var(--ce-texte-doux);
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
   font-weight: 500;
   cursor: pointer;
   transition:
@@ -231,7 +233,7 @@
   background: transparent;
   border: 0;
   color: var(--ce-texte-doux);
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   font-weight: 500;
   cursor: pointer;
 }
@@ -247,7 +249,7 @@
   border: 1px solid var(--ce-bord);
   background: transparent;
   color: var(--ce-texte-doux);
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   font-weight: 500;
   cursor: pointer;
 }
@@ -305,7 +307,7 @@
   background: rgba(20, 16, 11, 0.96);
   border: 1px solid color-mix(in srgb, var(--miel) 22%, var(--ce-bord-clair));
   box-shadow: 0 1px 0 color-mix(in srgb, var(--miel) 12%, transparent);
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   line-height: 1.35;
 }
 
@@ -316,7 +318,7 @@
 
 .cerveau-bulle span {
   color: var(--ce-texte-doux);
-  font-size: 0.68rem;
+  font-size: var(--fs-2xs);
 }
 
 .cerveau-rien {
@@ -327,7 +329,7 @@
   justify-content: center;
   margin: 0;
   color: var(--ce-texte-doux);
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
   font-style: normal;
   pointer-events: none;
 }
@@ -347,14 +349,14 @@
 .cerveau-liste {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.78rem;
+  font-size: var(--fs-xs);
 }
 
 .cerveau-liste caption {
   padding: 0.5rem 0.7rem;
   text-align: left;
   color: var(--ce-texte-doux);
-  font-size: 0.72rem;
+  font-size: var(--fs-xs);
 }
 
 .cerveau-liste th,
@@ -370,7 +372,7 @@
   background: var(--ce-carte);
   color: var(--ce-texte-doux);
   font-weight: 500;
-  font-size: 0.7rem;
+  font-size: var(--fs-2xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   z-index: 1;
@@ -422,7 +424,7 @@
   border-radius: var(--r-sm);
   border: 1px dashed var(--ce-bord);
   color: var(--ce-texte-doux);
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   font-style: normal;
   line-height: 1.45;
 }
@@ -446,7 +448,7 @@
   border-radius: 6px;
   background: transparent;
   color: var(--ce-texte-doux);
-  font-size: 1rem;
+  font-size: var(--fs-lg);
   line-height: 1;
   cursor: pointer;
 }
@@ -457,7 +459,7 @@
 }
 
 .cerveau-genre {
-  font-size: 0.67rem;
+  font-size: var(--fs-2xs);
   text-transform: uppercase;
   letter-spacing: 0.07em;
   font-weight: 600;
@@ -465,12 +467,12 @@
 
 .cerveau-fiche h3 {
   margin: 0.15rem 2rem 0.2rem 0;
-  font-size: 0.88rem;
+  font-size: var(--fs-md);
   line-height: 1.3;
 }
 
 .cerveau-fiche code {
-  font-size: 0.66rem;
+  font-size: var(--fs-2xs);
   color: #948871;
   word-break: break-all;
 }
@@ -480,7 +482,7 @@
   grid-template-columns: auto 1fr;
   gap: 0.12rem 0.5rem;
   margin: 0.55rem 0 0;
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
 }
 
 .cerveau-fiche dt {
@@ -495,7 +497,7 @@
 
 .cerveau-fiche h4 {
   margin: 0.7rem 0 0.3rem;
-  font-size: 0.7rem;
+  font-size: var(--fs-2xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--ce-texte-doux);
@@ -521,7 +523,7 @@
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 0.74rem;
+  font-size: var(--fs-xs);
   text-align: left;
   cursor: pointer;
 }
@@ -544,7 +546,7 @@
   border-radius: var(--r-sm);
   background: #33201a;
   border: 1px solid #5a3328;
-  font-size: 0.73rem;
+  font-size: var(--fs-xs);
   font-style: normal;
 }
 
@@ -568,7 +570,7 @@
   margin: 0;
   padding-left: 1rem;
   font-family: ui-monospace, monospace;
-  font-size: 0.68rem;
+  font-size: var(--fs-2xs);
 }
 
 .cerveau-alerte em {
@@ -606,14 +608,14 @@
 
 .cerveau-vide-detail {
   color: var(--ce-texte-doux);
-  font-size: 0.78rem !important;
+  font-size: var(--fs-xs) !important;
   max-width: 46ch;
   font-style: normal;
 }
 
 .cerveau-vide code {
   margin-top: 0.5rem;
-  font-size: 0.7rem;
+  font-size: var(--fs-2xs);
   color: #948871;
 }
 

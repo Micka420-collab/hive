@@ -3,6 +3,7 @@
 //
 //   npm run captures                                  → captures-ecran/fr/
 //   npm run captures -- --langue en                   → captures-ecran/en/
+//   npm run captures -- --theme sombre                → captures-ecran/fr-sombre/
 //   npm run captures -- --vues ruche,chambre.mobile   → seulement celles-là
 //
 // La série publiée (`docs/images/captures/`) se refait avec la commande écrite
@@ -95,7 +96,7 @@ const PREREQUIS = 2;
 const MAL_APPELE = 64;
 
 const USAGE =
-  'usage : npm run captures -- [--langue fr|en] [--sortie <dossier du dépôt>] [--vues <vue>[.<format>],…]';
+  'usage : npm run captures -- [--langue fr|en] [--theme clair|sombre] [--sortie <dossier du dépôt>] [--vues <vue>[.<format>],…]';
 
 /**
  * Ce qui doit être rendu, quoi qu'il arrive — y compris sur ^C. Rendu dans
@@ -218,7 +219,7 @@ async function principal() {
     console.error(`✘ ${options.erreur}\n${USAGE}`);
     return MAL_APPELE;
   }
-  const { langue, sortie, vues } = options;
+  const { langue, theme, sortie, vues } = options;
   const arbre = provenance();
 
   // Du Node nu jusqu'ici : si les dépendances manquent, l'amorce le dit en
@@ -343,7 +344,9 @@ async function principal() {
       isMobile: format.isMobile,
       hasTouch: format.hasTouch,
       locale: langue === 'fr' ? 'fr-FR' : 'en-US',
-      colorScheme: 'light',
+      // Le thème passe par la préférence du SYSTÈME : aucun choix n'est
+      // mémorisé, la feuille suit `prefers-color-scheme` seule (theme.ts).
+      colorScheme: theme === 'sombre' ? 'dark' : 'light',
       // Les animations figées : deux exécutions photographient la même image,
       // et un sous-agent à mi-battement ne se lit pas comme un défaut.
       reducedMotion: 'reduce',
@@ -563,6 +566,7 @@ async function principal() {
     genere: new Date().toISOString(),
     ...arbre,
     langue,
+    theme,
     formats: FORMATS.map((f) => ({
       nom: f.nom,
       largeur: f.viewport.width,
