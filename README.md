@@ -444,7 +444,7 @@ dépôt privé (`https://user:jeton@…`) n'atteint git que par l'environnement 
 commandes du nœud — clone, livraison — ; ni `.git/config`, ni une ligne de
 commande, ni l'assistant d'identifiants du membre ne le voient, et un
 `git push` lancé depuis la tâche ne trouve rien de ce que la ruche a reçu.
-Jusqu'à cette correction, ce jeton était lisible par chaque agent et confié à
+Jusqu'à la 0.5.0 comprise, ce jeton était lisible par chaque agent et confié à
 l'assistant du membre : **faites-le tourner** chez l'hébergeur (`hive doctor`
 cherche ceux qui traînent sur la machine). Chaque refus apparaît au
 journal de la tâche. Sans bac, ou avec un moteur dans une machine virtuelle,

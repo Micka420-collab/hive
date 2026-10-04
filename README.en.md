@@ -268,8 +268,8 @@ repository's URL carries (`https://user:token@…`) reaches git only through the
 environment of the node's own commands — clone, delivery —; neither
 `.git/config`, nor any command line, nor the member's credential helper sees
 it, and a `git push` launched from the task finds nothing the hive received.
-Until this fix, that token was readable by every agent and handed to the
-member's helper: **rotate it** at the host (`hive doctor` looks for the ones
+Up to and including 0.5.0, that token was readable by every agent and handed
+to the member's helper: **rotate it** at the host (`hive doctor` looks for the ones
 left on the machine). Each refusal shows in the task log. Without a sandbox, or with an engine inside a
 virtual machine, the network is not filtered, and each task says so. Set
 `HIVE_ISOLEMENT=exige` — the node will refuse to work without a sandbox and a
