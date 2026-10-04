@@ -11033,6 +11033,10 @@ async function monterReine(
       // Cette route est aussi appelée avec le jeton partagé aux nœuds. Un
       // chemin local serait donc résolu sur une machine qui n'est pas celle
       // de l'appelant : seules les sources distantes franchissent cette porte.
+      // Une adresse que le protocole refuse dit d'abord pourquoi.
+      const illisible =
+        req.body.repoUrl === undefined ? null : motifDepotIllisible(req.body.repoUrl);
+      if (illisible !== null) return reply.code(400).send({ error: illisible });
       if (req.body.repoUrl !== undefined && !isValidRemoteRepoUrl(req.body.repoUrl)) {
         return reply.code(400).send({
           error: 'repoUrl invalide : une URL Git distante est requise',
@@ -14761,12 +14765,17 @@ async function monterReine(
     async (req, reply) => {
       if (!authorizedUser(req)) return reply.status(401).send({ error: 'Non authentifié' });
       const repoUrl = req.body.repoUrl;
+      // Ce que le protocole reproche à l'adresse, d'abord : un administrateur
+      // dont le chemin porte un caractère de contrôle lisait « un chemin local
+      // est réservé à un administrateur ».
+      const illisible = repoUrl === undefined ? null : motifDepotIllisible(repoUrl);
+      if (illisible !== null) return reply.code(400).send({ error: illisible });
       const cheminLocalAdmin =
         repoUrl !== undefined && isValidLocalRepoPath(repoUrl) && roleDe(req)?.role === 'admin';
       if (repoUrl !== undefined && !isValidRemoteRepoUrl(repoUrl) && !cheminLocalAdmin) {
         return reply.code(400).send({
           error:
-            'repoUrl invalide : une URL Git distante est requise ; un chemin local est réservé à un administrateur',
+            'repoUrl invalide : une URL Git distante est requise ; un chemin local, absolu et sans « .. », est réservé à un administrateur',
         });
       }
       const userId = (req as AuthRequest).userId!;

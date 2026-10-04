@@ -330,4 +330,23 @@ describe('lire un dépôt précis', () => {
       }) as unknown as Response;
     await expect(lireUnDepot({ jeton: 'j', fetcheur: f }, 'a/b')).rejects.toThrow(/illisible/);
   });
+
+  it('une adresse de clonage que le protocole refuse dit sa cause — sans la recopier', async () => {
+    // « GitHub a répondu quelque chose d'inattendu » laissait chercher : la
+    // cause est celle que chaque nœud opposerait aux assignations du projet.
+    const f = async (): Promise<Response> =>
+      ({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => brut({ clone_url: 'https://github.com/moi/projet.git\n' }),
+      }) as unknown as Response;
+    const erreur = await lireUnDepot({ jeton: 'j', fetcheur: f }, 'moi/projet').catch(
+      (e: unknown) => e,
+    );
+    expect(erreur).toBeInstanceOf(ErreurGithub);
+    expect((erreur as ErreurGithub).conseil).toBe(
+      'URL de dépôt du projet illisible (caractère de contrôle) — recréez le projet avec une URL valide',
+    );
+  });
 });
