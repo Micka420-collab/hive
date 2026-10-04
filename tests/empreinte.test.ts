@@ -701,6 +701,10 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
       '<workdir>/tasks/<id>.git — le git dir de la ruche, voisin de la tâche et ' +
       'effacé avec elle ; et `info/attributes` dans le git dir d’un clone de fusion',
     'src/orchestrator/miroir.ts': '<données>/rayons — les miroirs git',
+    'src/shared/effacement.ts':
+      'n’écrit rien, il EFFACE — et seulement ce que ses appelants lui désignent ' +
+      '(l’espace d’une tâche et ses voisins, les clones et le transit d’une fusion, ' +
+      'les miroirs de la Reine), chacun déclaré ici sous sa racine',
     'src/service-reel.ts':
       'le fichier de service — unité systemd, LaunchAgent ou tâche planifiée. ' +
       'Décidé ici plutôt que subi : c’est le seul écrit de Hive dans le dossier ' +
@@ -771,6 +775,36 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
         'ajoutez-le à `src/shared/empreinte.ts` — donc à `hive desinstaller` et ' +
         'à `docs/INSTALLATION.md` — puis à la liste AUTORISES de ce test.',
     ).toEqual(Object.keys(AUTORISES).sort());
+
+    // ─── « LA SEULE PORTE » NE TIENT PAS QUE PAR SON COMMENTAIRE ──────────────
+    //
+    // `effacement.ts` se dit « la seule porte » par laquelle la ruche efface
+    // récursivement ce qu’un fichier tenu peut retenir. Un commentaire ne tient
+    // rien : la dérive de #538 l’a montré — six sites de la Reine avaient gardé
+    // l’ancien `fs.rm` après que le nœud en était sorti. `fs.rm` (et un `rm`
+    // importé de `fs/promises`) multiplie ses reprises par la profondeur de
+    // l’arbre ; `effacerDossier` reprend au sommet, une seule fois. Cette
+    // assertion rougit si le motif revient ailleurs que dans la porte.
+    const PORTE = 'src/shared/effacement.ts';
+    const appelRm = /\b(?:fs|fsp|promises|fsPromises)\.rm\s*\(/;
+    const importRm =
+      /\bimport\b[^;]*\{[^}]*\brm\b[^}]*\}[^;]*from\s*['"](?:node:)?fs\/promises['"]/;
+    for (const f of sources()) {
+      if (f.chemin === PORTE) continue;
+      expect(
+        appelRm.test(nu(f.texte)),
+        `${f.chemin} efface par \`fs.rm\` — passez par \`effacerDossier\` (src/shared/effacement.ts)`,
+      ).toBe(false);
+      expect(
+        importRm.test(f.texte),
+        `${f.chemin} importe \`rm\` de \`fs/promises\` — passez par \`effacerDossier\``,
+      ).toBe(false);
+    }
+    // Et la porte, elle, l’utilise bien : sinon la garde ne garderait rien.
+    const porte = sources().find((f) => f.chemin === PORTE);
+    expect(porte && appelRm.test(nu(porte.texte)), '`effacement.ts` n’appelle plus `fs.rm`').toBe(
+      true,
+    );
   });
 
   it('`os.homedir()` n’apparaît QUE là où c’est déclaré, et jamais pour ÉCRIRE', () => {

@@ -146,9 +146,9 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   {
     categorie: 'securite',
     motif:
-      /^tests\/(security-invariants|engagement-projet|suppression-projet|mission-rejouable|missions-rejouables-[^/]+|connecteurs-[^/]+|shadow-bench|banc-ombre-ruche|configuration-inerte[^/]*|join-porte|retention-journal|livraison-locale[^/]*|clone-sans-identifiants)\.test\.tsx?$/,
+      /^tests\/(security-invariants|engagement-projet|suppression-projet|mission-rejouable|missions-rejouables-[^/]+|connecteurs-[^/]+|shadow-bench|banc-ombre-ruche|configuration-inerte[^/]*|join-porte|retention-journal|livraison-locale[^/]*|clone-sans-identifiants|miroir-tenu|dossier-tache-tenu|miroir-amont-muet)\.test\.tsx?$/,
     pourquoi:
-      'les bancs qui verrouillent les gardes (routes, effacement, rejeux, connecteurs, banc d’ombre, configuration inerte, adhésion, rétention, poussée, clone sans identifiants de push) : les affaiblir retire le garde-fou',
+      'les bancs qui verrouillent les gardes (routes, effacement, rejeux, connecteurs, banc d’ombre, configuration inerte, adhésion, rétention, poussée, clone sans identifiants de push, effacement borné du miroir et de la tâche, butoir de l’amont du miroir) : les affaiblir retire le garde-fou',
   },
   {
     categorie: 'securite',
@@ -372,8 +372,9 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   {
     categorie: 'auto-execution',
     motif:
-      /^src\/node-client\/(workspace|merge-runner|pose-runner)\.ts$|^src\/(shared\/lanceur|lanceur-reel)\.ts$|^src\/orchestrator\/fabrique\.ts$/,
-    pourquoi: 'ateliers, fusions, poses d’outils et lanceurs côté machine',
+      /^src\/node-client\/(workspace|merge-runner|pose-runner)\.ts$|^src\/(shared\/lanceur|lanceur-reel)\.ts$|^src\/orchestrator\/fabrique\.ts$|^src\/shared\/effacement\.ts$/,
+    pourquoi:
+      'ateliers, fusions, poses d’outils et lanceurs côté machine, et l’effacement de ce que git y a rempli (tâches, fusions, miroir de la Reine) : ses reprises bornées au sommet sont ce qui empêche un fichier tenu de figer une tâche ou une suppression de projet',
   },
   {
     categorie: 'auto-execution',
