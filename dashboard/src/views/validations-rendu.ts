@@ -22,18 +22,27 @@ import { formatDuree } from '../ui';
 /** Traduire, tel que `useT` le rend : `t(fr, en)`. */
 export type Traduire = (fr: string, en: string) => string;
 
+/** Les mots de chaque raison — vus comme ce qu'ils sont au réseau : peut-être une raison inconnue. */
+const MOTS_DES_RAISONS: Readonly<Record<string, readonly [string, string] | undefined>> =
+  DIRE_RAISON_PORTE;
+
 /**
  * La porte de sécurité, volet par volet : son état, sa raison, l'outil qui a
- * tourné. Une Reine antérieure à la porte n'en rend pas — la ligne le dit,
- * plutôt que de laisser croire à un « rien trouvé ».
+ * tourné, les paquets qui n'ont pas pu être interrogés. Une Reine antérieure à
+ * la porte n'en rend pas — la ligne le dit, plutôt que de laisser croire à un
+ * « rien trouvé ». Une Reine PLUS RÉCENTE peut rendre une raison que cet écran
+ * ne connaît pas : elle s'affiche telle quelle, le panneau ne tombe pas.
  */
 export function resumePorte(porte: PorteSecurite | undefined, t: Traduire): string {
   if (!porte) return t('non rapportée par cette Reine', 'not reported by this Queen');
   const volet = (nom: string, v: PorteSecurite['secrets'] | PorteSecurite['dependances']) => {
-    const [fr, en] = DIRE_RAISON_PORTE[v.raison];
+    const [fr, en] = MOTS_DES_RAISONS[v.raison] ?? [String(v.raison), String(v.raison)];
     const combien = v.etat === 'constat' ? ` ×${v.total}` : '';
     const outil = v.outil ? ` · ${v.outil.nom} ${v.outil.version}` : '';
-    return `${nom} ${v.etat}${combien} (${t(fr, en)}${outil})`;
+    const exclus = v.nonInterroges
+      ? t(` · ${v.nonInterroges} non interrogé(s)`, ` · ${v.nonInterroges} not queried`)
+      : '';
+    return `${nom} ${v.etat}${combien} (${t(fr, en)}${outil}${exclus})`;
   };
   return [
     volet(t('secrets', 'secrets'), porte.secrets),
