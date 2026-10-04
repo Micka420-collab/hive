@@ -296,8 +296,11 @@ async function lancerLePlan(
       sortie: r.output,
     });
     controles[cle] = controle;
+    // La panne reconnue se dit dès cette ligne : « missing (environnement :
+    // memoire, code 137) » renvoie l'opérateur vers le nœud, pas vers le code.
     opts.surEtape?.(
       `validation ${cle} : ${controle.etat} (${controle.raison}` +
+        `${controle.panne === undefined ? '' : ` : ${controle.panne}`}` +
         `${controle.code === undefined ? '' : `, code ${controle.code}`})`,
     );
   }

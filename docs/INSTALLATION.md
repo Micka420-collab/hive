@@ -1,7 +1,35 @@
 # Installer Hive
 
-> **Prérequis unique : Node.js ≥ 24.** Rien d'autre. Pas de compilateur, pas de
-> `sudo`, pas de service système.
+> **Prérequis unique : Node.js ≥ 24.18.** Rien d'autre. Pas de compilateur, pas
+> de `sudo`, pas de service système. Sous Linux, une glibc ≥ 2.34 (Ubuntu 22.04+,
+> Debian 12+) — voir [plus bas](#linux--glibc--234).
+
+---
+
+## Application de bureau — sans Node, sans terminal
+
+Un installeur par système, attaché à chaque [version publiée](https://github.com/Micka420-collab/hive/releases) :
+`Hive-Setup-X.Y.Z.exe` (Windows, pour vous seul, sans droits administrateur),
+`Hive-X.Y.Z-arm64.dmg` ou `-x64.dmg` (macOS), `hive_X.Y.Z_amd64.deb` ou
+`Hive-X.Y.Z-x86_64.AppImage` (Linux). L'app embarque son propre Node : rien
+de ce qui suit n'est nécessaire pour elle.
+
+- **Données** : `%APPDATA%\Hive\ruche` (Windows),
+  `~/Library/Application Support/Hive/ruche` (macOS), `~/.config/Hive/ruche`
+  (Linux) — `.env`, `data/hive.db`, `.hive-work/` ; journaux dans `logs/`.
+- **Paquets non signés** : SmartScreen → _Informations complémentaires_ →
+  _Exécuter quand même_ ; Gatekeeper → _Réglages Système → Confidentialité et
+  sécurité → Ouvrir quand même_.
+- **Ubuntu 24.04 et suivants** : préférez le `.deb` (bac à sable de Chromium
+  conservé) ; l'AppImage y tourne en `--no-sandbox`.
+- **Une ruche `~/hive` existe déjà** : au premier lancement, l'app propose de
+  l'ouvrir (si sa Reine tourne), d'en importer une copie, ou de commencer une
+  ruche neuve — la source n'est jamais modifiée.
+- **Désinstaller** : les données restent par défaut ; l'installeur Windows
+  propose une case décochée pour les effacer.
+
+Tout le détail — premier lancement, barre système, mises à jour, signature :
+**[APPLICATION.md](APPLICATION.md)**.
 
 ---
 
@@ -234,24 +262,47 @@ table à connaître.
 
 ---
 
-## Pourquoi Node 24 et pas moins
+## Pourquoi Node 24.18 et pas moins
 
 Ce n'est pas une préférence pour le neuf : **ça retire une panne**.
 
-`better-sqlite3` est un module natif. Sous Node 20, aucun binaire prébuilt
-n'existe pour cette ABI — npm doit le **compiler**, ce qui exige un outillage
-C++. Sur une machine Windows sans Visual Studio Build Tools, la compilation
-échoue… **et `npm install` réussit quand même**, parce que la dépendance est
-déclarée optionnelle. On se retrouve avec une installation « verte » et un
-`hive start` qui meurt sur `ERR_MODULE_NOT_FOUND`.
+`better-sqlite3` est un module natif. Depuis sa version 13, son binaire (N-API)
+est **livré dans le paquet npm** — rien à télécharger, rien à compiler, sur
+Linux, macOS et Windows, en x64 comme en arm64. Mais le paquet garde un
+`binding.gyp`, dont npm déduit un `node-gyp rebuild` : Hive le refuse
+(`allowScripts` dans `package.json`), et **seul npm ≥ 11.16 lit ce refus**.
 
-Sous Node 24, le binaire prébuilt existe : rien à compiler, aucun compilateur à
-installer, sur aucun système. Les deux comportements ont été mesurés côte à côte
-dans notre propre CI, sur le même commit.
+Node 24.0 à 24.17 embarquent npm 11.3 à 11.13 (source : `dist/index.json` de
+nodejs.org). Là, npm tente la compilation ; sur une machine sans python3 — un
+Windows neuf, une image `slim` — elle échoue… **et `npm install` réussit quand
+même**, parce que la dépendance est déclarée optionnelle. On se retrouve avec
+une installation « verte » et un `hive start` qui meurt sur
+`Cannot find module 'better-sqlite3'`. **Node 24.18.0 est le premier Node 24
+livré avec npm 11.16.**
 
-C'est pour ça que les installeurs vérifient la version **avant** de lancer quoi
-que ce soit, plutôt que de vous laisser découvrir le problème deux étapes plus
-loin.
+C'est pour ça que les installeurs vérifient la version — mineur compris —
+**avant** de lancer quoi que ce soit, et que la CI installe et démarre la ruche
+sous Node 24.18.0 exactement (job `plancher`).
+
+### Linux : glibc ≥ 2.34
+
+Le binaire Linux de `better-sqlite3` 13 exige **glibc 2.34** et
+**GLIBCXX 3.4.29** : Ubuntu 22.04+, Debian 12+, Fedora 35+, RHEL 9+. Sur
+Ubuntu 20.04 ou Debian 11 (glibc 2.31), il ne se charge pas — `GLIBC_2.34 not
+found` — et aucune compilation de secours ne prend le relais. `hive doctor` le
+détecte et le dit. Deux issues : mettre le système à jour, ou faire tourner la
+ruche dans son [image Docker](#dans-un-conteneur) (Debian 12, glibc 2.36).
+
+Les autres causes d'un module introuvable, et leur geste :
+
+| Ce que dit l'erreur                                        | Cause                                          | Geste                                               |
+| ---------------------------------------------------------- | ---------------------------------------------- | --------------------------------------------------- |
+| `Cannot find module 'better-sqlite3'`                      | `--omit=optional`, ou npm < 11.16 sans python3 | Node ≥ 24.18, puis `npm install --include=optional` |
+| `version 'GLIBC_2.34' not found`                           | glibc trop ancienne                            | système à jour, ou l'image Docker                   |
+| `Cannot find module '…/build/Release/better_sqlite3.node'` | plateforme sans binaire (ni x64 ni arm64)      | l'image Docker                                      |
+
+`npm rebuild better-sqlite3` ne répare **aucune** de ces trois causes : le
+script est refusé, il ne fait rien.
 
 ---
 
@@ -312,10 +363,17 @@ s'y ouvrir. **Sans bac, Codex a besoin du sien**, et donc :
 Le dépôt de la tâche est **toujours** lancé comme non fiable (`untrusted`) :
 son `.codex/config.toml`, ses crochets et ses règles ne sont jamais chargés,
 et Codex n'inscrit plus le répertoire de chaque tâche dans votre
-`config.toml`. Contrepartie, dite : **l'`AGENTS.md` du dépôt n'atteint plus
-Codex** (Codex ne le lit que pour un dépôt de confiance). Ses conventions ne
-lui sont pas transmises tant que Hive ne les reprend pas comme simple donnée,
-comme il le fait déjà pour le `CLAUDE.md` de Claude Code.
+`config.toml`. Codex ne lit l'`AGENTS.md` que d'un dépôt de confiance : Hive
+le relit donc lui-même (celui de la racine, ou son `AGENTS.override.md`, sans
+suivre de lien, borné) et le transmet à Codex comme **simple donnée**, en
+tête du prompt de la tâche — au même rang que Codex donne à l'`AGENTS.md` d'un
+dépôt de confiance, jamais au-dessus de la consigne — comme il le fait pour le
+`CLAUDE.md` de Claude Code ; le journal de la tâche le dit. Ceux des
+sous-dossiers, Codex les lit lui-même quand il y travaille. Votre propre
+configuration n'est pas touchée : vos `developer_instructions` et votre
+`AGENTS.md` personnel (`~/.codex/AGENTS.md`) s'appliquent toujours. Un
+`AGENTS.md` (ou `CLAUDE.md`) qui est un lien symbolique, même vers un fichier du
+dépôt, n'est pas repris : Hive ne suit aucun lien, et le journal le dit.
 
 ## Si quelque chose ne va pas
 
@@ -329,7 +387,7 @@ qui ne va pas. Un thermomètre qui ne propose rien ne sert qu'à nommer la peine
 ```
 🩺 hive doctor
 
-  ✔ node_version  Node 24 (≥ 24 exigé)
+  ✔ node_version  Node 24.21.0 (≥ 24.18.0 exigé)
   ✔ moteur        paquets de la ruche complète tous chargeables
   ✘ env_present   aucun fichier .env
        → cp .env.example .env
@@ -379,19 +437,74 @@ votre machine.
 ## Dans un conteneur
 
 ```sh
-cp .env.example .env    # posez-y votre HIVE_TOKEN
-docker compose up -d
+cp .env.example .env    # posez-y HIVE_TOKEN et HIVE_JWT_SECRET
+docker compose up -d --wait
 ```
 
-L'image est en **Node 24 sur Debian slim**, pas sur Alpine : `better-sqlite3`
-publie des binaires prébuilts pour la glibc, pas pour la musl d'Alpine. Sur
-Alpine, npm devrait le **compiler** — et comme la dépendance est optionnelle,
-un échec de compilation produirait une image « réussie » dont le démarrage
-meurt sur `ERR_MODULE_NOT_FOUND`. C'est la panne que Node 24 a supprimée côté
-poste de travail ; on ne la réintroduit pas ici.
+Le tableau de bord est alors sur `http://127.0.0.1:7777`. Le `.env` peut être
+celui d'une ruche posée sur l'hôte : ce qui décrit le conteneur (adresse
+d'écoute, port, base, fichier de clés) est reposé par `docker-compose.yml`, qui
+prime. Pour publier sur un autre port de l'hôte, changez la partie gauche de
+`ports` (`127.0.0.1:8080:7777`), pas `HIVE_PORT`.
+
+### Le compose démarre une Reine — pas d'ouvrière
+
+`docker compose up` ne démarre **aucune machine qui travaille**. Les ouvrières
+font tourner les agents de codage (Claude Code, Codex, Cursor…) avec les
+identifiants de leur machine ; les enfermer dans le conteneur de la Reine leur
+donnerait une maison sans clés. Sans ouvrière, les tâches attendent, et l'écran
+le dit. Pour en rattacher une :
+
+- **sur cette machine**, depuis le dépôt (Node 24) — le nœud lit le même `.env`,
+  dont `HIVE_URL=ws://localhost:7777/ws` vise justement le port publié :
+
+  ```sh
+  npm ci
+  npm run node
+  ```
+
+- **depuis une autre machine** : le port n'est publié que sur la boucle locale,
+  il faut donc une adresse que l'autre machine peut joindre. `npm run cli --
+tunnel`, lancé sur cet hôte depuis le dépôt, en ouvre une chiffrée sans
+  toucher au pare-feu et imprime le billet à transmettre ; Hive Cloud la donne
+  derrière Caddy ([`CLOUD.md`](CLOUD.md)). L'autre machine lance alors
+  `npx github:Micka420-collab/hive join hive2_…` (voir
+  [Rejoindre la ruche d'un ami](#rejoindre-la-ruche-dun-ami)).
+
+### Mettre à jour
+
+L'image se construit ici, depuis le dépôt : il n'y a pas d'image publiée à
+tirer. Sauvegardez d'abord — la base, puis les clés posées depuis la Chambre,
+qui vivent dans le volume (ce fichier naît avec la première clé : sans clé
+posée, la troisième commande n'a rien à copier) :
+
+```sh
+docker compose exec ruche node dist/cli.js sauvegarde
+docker compose cp ruche:/app/data/sauvegardes ./sauvegardes
+docker compose cp ruche:/app/data/queen.env ./queen.env.sauvegarde
+```
+
+Puis :
+
+```sh
+git pull --ff-only                  # ou : git fetch --tags && git checkout vX.Y.Z
+docker compose build --pull ruche
+docker compose up -d --wait
+```
+
+Le volume `hive-donnees` n'est pas touché : la nouvelle Reine rouvre la même
+base. Le détail, les versions et le retour arrière : [`RELEASING.md`](RELEASING.md).
+
+L'image est en **Node 24 sur Debian slim** (glibc 2.36). `better-sqlite3` 13
+livre aussi des binaires musl : Alpine ne forcerait plus de compilation. `slim`
+reste la base que la CI mesure — l'image, la montée de version, l'atelier —, et
+un changement de libc se mesure avant de se faire.
 
 Le **bureau de recette** (écran, CDP, outils) est un profil à part :
-[`docs/ATELIER.md`](ATELIER.md). Il ne remplace pas `HIVE_ISOLEMENT`.
+[`docs/ATELIER.md`](ATELIER.md). Il ne remplace pas `HIVE_ISOLEMENT`. Avec une
+Reine en conteneur, on l'allume **depuis l'hôte**
+(`docker compose --profile atelier up -d atelier`) : `HIVE_ATELIER=auto` et le
+bouton « Allumer l'atelier » ne valent que pour une Reine lancée sur l'hôte.
 
 Ce que `docker-compose.yml` décide pour vous, et pourquoi :
 
@@ -399,15 +512,9 @@ Ce que `docker-compose.yml` décide pour vous, et pourquoi :
   Linux, Docker écrit ses règles directement dans netfilter, **en amont de la
   plupart des pare-feu** : un `ports: - '7777:7777'` ouvre la ruche sur
   Internet sans que `ufw status` le montre. Pour l'ouvrir vraiment, il y a
-  `hive tunnel`, ou — si tu vends l'hébergement — **Hive Cloud** :
-  `docker compose -f docker-compose.cloud.yml up -d` (TLS via Caddy, voir
-  [`docs/CLOUD.md`](CLOUD.md)).
-
-Community (0 €, chez soi) et Cloud (payant, sur TES serveurs) partagent le
-même image Docker. Seuls l'édition, le secret de webhook et le reverse proxy
-changent.
-`hive tunnel` — chiffré et révocable ;
-
+  `hive tunnel` — chiffré et révocable —, ou, si tu vends l'hébergement,
+  **Hive Cloud** : `docker compose -f docker-compose.cloud.yml up -d` (TLS via
+  Caddy, voir [`docs/CLOUD.md`](CLOUD.md)) ;
 - **les secrets viennent d'un fichier**, jamais de la ligne de commande : un
   `docker run -e HIVE_TOKEN=…` se lit dans le `ps` de n'importe quel compte de
   la machine ;
@@ -415,10 +522,117 @@ changent.
   l'a éteint est un logiciel qu'on ne contrôle pas ;
 - **le conteneur ne tourne pas en root**, son système de fichiers est en
   lecture seule sauf le volume de données, et toutes les capacités sont
-  retirées.
+  retirées ;
+- **un vrai PID 1** (`init: true`) : la Reine lance git pour le Rayon, et un
+  init ramasse les orphelins que `node` laisserait s'empiler.
+
+Community (0 €, chez soi) et Cloud (payant, sur TES serveurs) partagent la
+même image Docker. Seuls l'édition, le secret de webhook et le reverse proxy
+changent.
 
 La CI **construit l'image et y démarre la ruche** à chaque PR — un Dockerfile
-qu'on ne construit jamais est une promesse que rien n'exerce.
+qu'on ne construit jamais est une promesse que rien n'exerce. Elle fait aussi
+tourner ce compose comme un opérateur : `up --wait` depuis un `.env` copié de
+l'exemple, puis un compte, un projet, une clé de la Chambre et le code du
+projet relus après `docker compose restart`, après un `kill -9` de la Reine
+depuis l'hôte (relevée par `unless-stopped`) et après `down` puis `up`
+(travail `compose`, `scripts/essai-conteneurs.mjs`).
+
+---
+
+## Systèmes et bacs à sable : ce que la CI prouve
+
+Un nœud exécute son agent **sans bac** (le processus nu, dans son répertoire de
+tâche) ou dans un **bac** : bubblewrap, Podman ou Docker, retenu par le
+preflight (`HIVE_ISOLEMENT`). Ce tableau dit ce que la CI exerce pour de vrai à
+chaque PR — pas ce qui « devrait marcher ».
+
+|             | Sans bac                                     | bubblewrap                | Podman                                              | Docker                                              |
+| ----------- | -------------------------------------------- | ------------------------- | --------------------------------------------------- | --------------------------------------------------- |
+| **Linux**   | **prouvé** (suite complète, vrais processus) | **prouvé** (vrai `bwrap`) | **prouvé** (rootless, `keep-id`)                    | **prouvé** (démon du runner)                        |
+| **macOS**   | **prouvé** (suite complète, vrais processus) | sans objet (Linux seul)   | non prouvé — aucun moteur en CI                     | non prouvé — aucun moteur en CI                     |
+| **Windows** | **prouvé** (suite complète, vrais processus) | sans objet (Linux seul)   | refusé pour Claude Code et Codex ; non prouvé sinon | refusé pour Claude Code et Codex ; non prouvé sinon |
+
+Ce qui fonde chaque case :
+
+- **sans bac, les trois systèmes** : la suite entière tourne sur
+  `ubuntu-latest`, `macos-latest` et `windows-latest`. L'arrêt d'un agent y est
+  éprouvé sur de vrais processus, **petits-enfants compris** — annulation,
+  délai dépassé, agent sorti en laissant un descendant
+  (`tests/arbre-processus.test.ts`) ; arrêt du nœud à la RÉCEPTION de l'ordre
+  IPC que `npm run ruche` lui envoie sous Windows
+  (`tests/noeud-arret-signal.test.ts`, un superviseur de banc envoie l'ordre)
+  et de la Reine (`tests/reine-demarrage.test.ts`) ; merges et chantiers en
+  cours (`tests/arret-noeud-travaux.test.ts`). Linux et macOS seulement :
+  SIGTERM sur les deux portes du nœud (`tests/noeud-arret-signal.test.ts`),
+  l'arrêt par `npm run ruche` lui-même (`tests/lanceur-ruche.test.ts`) et la
+  reprise après un `kill -9` (`tests/resilience-processus.test.ts`). L'ENVOI
+  de l'ordre par `scripts/ruche.mjs` sous Windows (canal IPC, `taskkill` de
+  l'écran, balayage final) n'est éprouvé par aucun banc ;
+- **bubblewrap** : le vrai `bwrap`, sur un agent installé dans un HOME comme
+  chez un membre (`tests/isolement-runtime.integration.test.ts`). Sur la jambe
+  Linux, `HIVE_BWRAP_REQUIS=1` fait **échouer** le banc si bubblewrap manque,
+  au lieu de le sauter ;
+- **Podman et Docker sous Linux** : le job `image` construit l'image des agents
+  (`npm run bac:image`) et y passe le preflight réel de Hive, une fois par
+  moteur — Docker du runner, puis Podman rootless (`--userns=keep-id`) ;
+- **macOS avec un moteur** : les runners macOS n'en ont aucun. Le preflight
+  décide sur la machine du membre, et le pont de délégation (un socket Unix
+  dans le dossier monté) n'a jamais été éprouvé à travers la machine virtuelle
+  de Docker Desktop ou de `podman machine` ;
+- **Windows avec un moteur** : le nœud **refuse** le bac pour Claude Code et
+  Codex — leur pont MCP local n'est pas partageable avec un conteneur
+  (`raisonPontMcpDansBac`). Pour les autres agents, rien n'est prouvé : le
+  Docker Desktop du runner sert des conteneurs Windows, et le banc
+  d'intégration s'y déclare indisponible plutôt que d'inventer un résultat.
+
+### Arrêter un nœud : ce qui part avec lui
+
+Chaque agent, commande de test de merge, chantier, validation et pose d'outil
+est lancé comme la tête d'un **arbre** que le nœud possède (`src/shared/arbre-processus.ts`) :
+
+- **Linux, macOS** : chef de son propre groupe de processus. Annulé ou
+  expiré, tout le groupe reçoit SIGTERM, puis SIGKILL deux secondes plus tard ;
+- **Windows** : `taskkill /T /F` emporte l'arbre des parents.
+
+Un nœud qui s'arrête — Ctrl+C, SIGTERM d'un superviseur, terminal fermé
+(SIGHUP), ou l'ordre de `npm run ruche` par son canal IPC, seul arrêt propre
+sous Windows — annule tout ce qu'il mène, laisse deux secondes aux arbres pour
+finir (sous Linux et macOS, `docker run` relaie l'arrêt à son conteneur), puis
+abat ce qui reste en sortant.
+
+Ce qui échappe encore, et qu'il faut savoir :
+
+- un nœud tué **net** — `kill -9`, panne, ou sous Windows un
+  `TerminateProcess` venu d'ailleurs (Gestionnaire des tâches, `taskkill /F`
+  sur le nœud, arrêt de la tâche planifiée de `hive service`) : aucune ligne
+  du nœud ne tourne plus. Ses conteneurs sont supprimés au démarrage suivant
+  (étiquette du nœud) ; un agent sans bac tourne jusqu'à sa propre fin ;
+- un conteneur qui ne s'arrête pas dans les deux secondes : son client
+  `docker run` (ou `podman run`) est abattu, et le conteneur est supprimé au
+  démarrage suivant du nœud ;
+- sous Windows, **toute** tâche en bac conteneur annulée ou expirée :
+  `taskkill /T /F` abat le client `docker run` (ou `podman run`) sans étape
+  SIGTERM, donc sans relayer l'arrêt — le conteneur tourne (et peut consommer
+  des crédits d'API) jusqu'au démarrage suivant du nœud, qui le supprime par
+  son étiquette ;
+- un descendant qui quitte le groupe de lui-même (`setsid`, un démon) ;
+- sous Windows, les descendants d'un agent **sorti de lui-même** : son pid est
+  libéré et peut déjà nommer un autre processus — le nœud cesse d'attendre
+  leur sortie, il ne tue rien à l'aveugle.
+
+### Noms réservés de Windows
+
+`CON`, `PRN`, `AUX`, `NUL`, `COM1`…`COM9`, `LPT1`…`LPT9` désignent des
+périphériques dans tout dossier Windows, avec ou sans extension. Sous Windows,
+un nœud dont le nom (`HIVE_NODE_NAME`, sinon celui de la machine) serait l'un
+d'eux travaille dans `.hive-work/<nom>~` (sous Linux et macOS, où c'est un nom
+ordinaire, son dossier — et donc son identité — ne change pas) ; un
+`HIVE_WORKDIR` dont un segment est réservé, ou finit par un point ou une
+espace, est refusé au démarrage, segment nommé, plutôt que remappé en silence.
+Sur tous les systèmes, un identifiant de tâche, de merge, de chantier ou de
+projet réservé devient `<id>~` dans les chemins du nœud. L'identifiant, lui, ne
+change pas.
 
 ---
 
@@ -573,10 +787,11 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
   tentative, authentifié pour elle seule et effacé à sa fin. Il vit hors de
   `.hive-work` parce qu'un chemin de socket Unix est limité à 104–108 octets :
   depuis un dossier profond, le pont ne pouvait plus s'ouvrir. Le dossier part
-  à l'arrêt du nœud — Ctrl-C, ou le SIGTERM d'un superviseur (`hive service`,
-  systemd, launchd, arrêt d'un conteneur) ; celui d'un nœud tué (`kill -9`, ou
-  sous Windows, où un SIGTERM tue net) reste jusqu'au prochain démarrage d'un
-  nœud de ce compte, qui le balaie.
+  à l'arrêt du nœud — Ctrl-C, le SIGTERM d'un superviseur (`hive service`,
+  systemd, launchd, arrêt d'un conteneur), l'ordre de `npm run ruche` ; celui
+  d'un nœud tué net (`kill -9`, ou sous Windows un `TerminateProcess` venu
+  d'ailleurs) reste jusqu'au prochain démarrage d'un nœud de ce compte, qui le
+  balaie.
   Si `TMPDIR` lui-même est trop profond, le nœud le dit dès son démarrage.
   Sous Windows, le pont écoute sur un pipe nommé `\\.\pipe\hive-pont-*`.
   Rien de ce pont n'entre dans le répertoire de la tâche, donc dans un diff.
@@ -588,6 +803,12 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
   le nœud calcule le diff de revue et relit le dépôt pour les validations du
   bac : un crochet, un filtre ou un `core.fsmonitor` écrit par l'agent dans
   son dépôt ne s'exécute donc jamais sur votre machine, hors du bac.
+- `<installation>/.hive-work/tasks/<task-id>.inerte` : pour Cursor et Cline,
+  qui n'ont pas d'option pour ignorer les hooks d'un projet, la configuration
+  d'agent du dépôt (`.cursor/hooks.json`, `.claude/settings*.json`,
+  `.clinerules/hooks`, `.cline/hooks`, `.cline/plugins`) attend ici pendant que
+  l'agent tourne, hors du bac, puis retourne dans la tâche avant le diff. Le
+  dossier est effacé avec la tâche.
 - **un dépôt privé par SSH** (`git@hôte:…`) : le nœud clone — et, pour une
   livraison locale, liste et pousse — en mode lot
   (`ssh -o BatchMode=yes`), sans jamais attendre une invite. La clé d'hôte
@@ -646,6 +867,19 @@ l'historique du shell de l'invité et dans sa table des processus — sur SA
 machine, pas sur le réseau ni chez l'hôte. Un billet à usage unique referme
 cette fenêtre dès l'entrée ; c'est le réglage à préférer pour inviter une seule
 personne.
+
+### Sur le même réseau local, sans billet
+
+Si la ruche écoute le réseau (`HIVE_DECOUVERTE=1`, `HIVE_HOST=0.0.0.0`), la
+machine à ajouter peut se signaler au lieu d'attendre un billet :
+
+```sh
+hive join --decouvrable        # ou : npm run join -- --decouvrable
+```
+
+Elle affiche un **code d'appariement** ; l'hôte clique **Inviter** → « Sur votre
+réseau local » → **Rejoindre** et le recopie. Détails et garanties :
+[FONCTIONNALITES.md](FONCTIONNALITES.md#la-machine-dà-côté-sans-billet-à-copier-réseau-local).
 
 ### Les réglages
 

@@ -1,0 +1,77 @@
+// Le connecteur webhook générique — pousser des faits de la ruche vers une URL.
+//
+// Le plus petit connecteur utile, et le socle des autres : un POST JSON signé
+// HMAC vers une URL que l'hôte configure. Il ne reçoit RIEN (aucune boucle
+// entrante), donc il est `lecture_seule` du point de vue de la ruche — il ne
+// peut structurellement rien y changer, même si l'humain lui accordait la
+// notification d'une approbation : il la POSTE, il ne l'applique jamais.
+//
+// Deux secrets Queen, dans le `.env` (jamais en base, jamais au nœud) :
+//   · l'URL de destination ;
+//   · le secret HMAC qui signe le corps — sans lui, n'importe qui ayant l'URL
+//     forgerait un faux « décision approuvée ». La signature porte sur les
+//     octets exacts (`abonnement.ts`, même schéma `t=…,v1=…`).
+
+import type { DefinitionConnecteur } from '../contrat.js';
+
+/** Le nom d'env qui porte l'URL de destination du webhook. */
+export const ENV_WEBHOOK_URL = 'HIVE_CONNECTEUR_WEBHOOK_URL';
+/** Le nom d'env qui porte le secret HMAC de signature du webhook sortant. */
+export const ENV_WEBHOOK_SECRET = 'HIVE_CONNECTEUR_WEBHOOK_SECRET';
+
+export const DEF_WEBHOOK: DefinitionConnecteur = Object.freeze({
+  id: 'webhook',
+  libelleFr: 'Webhook générique',
+  libelleEn: 'Generic webhook',
+  hintFr: 'Pousse décisions, blocages, résumés et demandes d’approbation en JSON signé HMAC',
+  hintEn: 'Pushes decisions, blockers, summaries and approval requests as HMAC-signed JSON',
+  // Sortant seulement : il ne reçoit aucune interaction, donc il ne peut rien
+  // changer dans la ruche. `notification` uniquement — pas d'`approbation`
+  // accordable, car il n'a aucune boucle pour la refermer.
+  mode: 'lecture_seule',
+  porteesPossibles: ['notification'] as const,
+  secrets: [
+    {
+      envVar: ENV_WEBHOOK_URL,
+      libelleFr: 'URL de destination',
+      libelleEn: 'Destination URL',
+      hintFr: 'https://… — l’endpoint qui reçoit les POST JSON',
+      hintEn: 'https://… — the endpoint that receives the JSON POSTs',
+      requis: true,
+    },
+    {
+      envVar: ENV_WEBHOOK_SECRET,
+      libelleFr: 'Secret HMAC',
+      libelleEn: 'HMAC secret',
+      hintFr: 'Signe chaque corps ; le récepteur le vérifie (en-tête X-Hive-Signature)',
+      hintEn: 'Signs every body; the receiver verifies it (X-Hive-Signature header)',
+      requis: true,
+    },
+  ],
+});
+
+/**
+ * L'URL de destination est-elle une adresse `https://` complète — ou `http://`
+ * vers la boucle locale seulement ? Le secret se pose en texte libre ; sans ce
+ * contrôle, une URL mal collée ne se révèlerait qu'au premier envoi, en
+ * `echec` au journal, loin de l'écran où l'humain l'a saisie. Et un corps
+ * signé qui part en clair sur le réseau — titres de tâches, décisions — se lit
+ * et se rejoue par quiconque est sur le chemin : `http://` ne vaut que pour un
+ * récepteur sur la même machine.
+ */
+export function urlWebhookValide(brut: string): boolean {
+  try {
+    const url = new URL(brut);
+    if (url.hostname === '') return false;
+    if (url.protocol === 'https:') return true;
+    return url.protocol === 'http:' && estBoucle(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** `localhost`, 127/8 ou `::1` : la même machine. */
+function estBoucle(hote: string): boolean {
+  const h = hote.toLowerCase().replace(/^\[|\]$/g, '');
+  return h === 'localhost' || h === '::1' || /^127(\.\d{1,3}){3}$/.test(h);
+}

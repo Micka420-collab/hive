@@ -186,15 +186,27 @@ function roleDans(e: EntreeWarRoom, p: PreuvesDeParticipation): RoleDebat | null
       if (p.avisRendus.has(e.id)) return 'relecteur';
       return aProduit(e.resultId, p);
     case 'contre_expertise':
+    case 'contre_impossible':
     case 'renvoi_evaluator':
     case 'renvoi_refuse':
+    case 'evaluator_force':
       return aProduit(e.resultId, p);
     case 'revue_humaine':
       return p.seulProducteur.has(e.taskId) ? 'auteur' : null;
-    default:
+    case 'conseil_ouvert':
+    case 'conseil_tour':
+    case 'conseil_clos':
+    case 'conseil_decide':
       // Ouverture, tour, clôture et décision d'un Conseil ne portent aucun
       // nœud : les attribuer à chaque éclaireuse inventerait une participation.
       return null;
+    default: {
+      // Un genre AJOUTÉ à la War Room se tranche ici, à la compilation : par un
+      // `default` muet, `contre_impossible` et `evaluator_force` sortaient en
+      // silence de la fiche alors qu'ils portent sur une production exacte.
+      const nonTranche: never = e;
+      return nonTranche;
+    }
   }
 }
 

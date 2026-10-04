@@ -29,11 +29,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { CORPUS_AIGUILLAGE } from '../src/orchestrator/aiguillage.js';
 import { ATTENTE_RELECTEUR_ABSENT_MS } from '../src/orchestrator/scheduler.js';
 import { createServer } from '../src/orchestrator/server.js';
 import { HiveStore } from '../src/orchestrator/store.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
+import { TRENTE_JOURS_MS, fenetreSeule } from './aide/journal-retenu.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-issue-terminale-assez-long';
 const headers = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -78,29 +79,21 @@ async function ruche(): Promise<HiveServer> {
 
 async function noeud(srv: HiveServer, nodeId: string, agentType: string): Promise<FauxNoeud> {
   const recues: Assignation[] = [];
-  const ws = new WebSocket(`ws://127.0.0.1:${srv.port}/ws`);
-  sockets.push(ws);
-  ws.on('message', (data) => {
-    const m = JSON.parse(data.toString()) as Assignation;
-    if (m.type === 'assign_task') recues.push(m);
-  });
-  await new Promise<void>((r, j) => {
-    ws.once('open', () => r());
-    ws.once('error', j);
-  });
-  ws.send(
-    JSON.stringify({
-      type: 'register',
+  const { ws } = await brancherFauxNoeud<Assignation>(
+    srv.port,
+    {
       token: TOKEN,
       name: nodeId,
       ownerName: 'banc',
       agentType,
       maxConcurrency: 1,
       nodeId,
-    }),
+    },
+    (m) => {
+      if (m.type === 'assign_task') recues.push(m);
+    },
   );
-  // L'inscription est traitée quand le nœud apparaît au store.
-  await attendre(() => (srv.store.getNode(nodeId) ? true : undefined));
+  sockets.push(ws);
   const rendre = (taskId: string, resultat: { success: boolean; finalText?: string }): void =>
     ws.send(
       JSON.stringify({
@@ -602,7 +595,9 @@ describe('une contre-revue qui tombe aboutit toujours à une issue visible', () 
 // et l'annonce de lancement le filigrane qui rattache une clôture à son
 // résultat. Élagués comme un événement ordinaire, une production en attente
 // d'humain retombait en « preuves manquantes » dès que la ruche avait
-// journalisé 5 000 autres choses.
+// journalisé 5 000 autres choses. Ce sont des PREUVES : la rétention du journal
+// les garde avec leur production (`shared/retention-journal.ts`), tout le
+// dossier, tant qu'elle attend quelqu'un — puis trente jours après sa clôture.
 /** Le lien de relecture tel que `lancerRelectures` l'inscrit. */
 function lier(store: HiveStore, relectureTaskId: string, productionTaskId: string): void {
   store.inscrireRelecture({
@@ -614,8 +609,8 @@ function lier(store: HiveStore, relectureTaskId: string, productionTaskId: strin
   });
 }
 
-describe('l’élagage du journal garde la contre-revue du dernier résultat', () => {
-  it('L’IMPOSSIBILITÉ ET LES LANCEMENTS DU DERNIER RÉSULTAT SURVIVENT, PAS CEUX D’AVANT', () => {
+describe('l’élagage du journal garde le dossier de contre-revue avec sa production', () => {
+  it('TANT QU’ELLE ATTEND UN HUMAIN, TOUT SON DOSSIER SURVIT ; CLOSE DEPUIS TRENTE JOURS, IL PART AVEC ELLE', () => {
     const store = new HiveStore(':memory:');
     try {
       const projet = store.createProject({ name: 'P' });
@@ -652,30 +647,40 @@ describe('l’élagage du journal garde la contre-revue du dernier résultat', (
       store.patchTask(t.id, { status: 'done' });
       for (let i = 0; i < 20; i += 1) store.appendEvent('bruit', { i });
 
-      store.pruneEvents(5);
+      store.pruneEvents(fenetreSeule(5));
 
       expect(store.contreRevueImpossible(t.id, dernier)).toBe('codex a échoué (3 tentative(s))');
       expect(store.eventForRelecture('r1')?.payload.resultId).toBe(dernier);
-      expect(store.contreRevueImpossible(t.id, ancien), 'la borne ne tient plus').toBeNull();
-      expect(store.eventForRelecture('r0')).toBeNull();
+      // Le résultat d'avant aussi : la borne n'est plus un compte de productions
+      // récentes, c'est la vie de la production elle-même.
+      expect(store.contreRevueImpossible(t.id, ancien)).toBe('ancienne cause');
+      expect(store.eventForRelecture('r0')?.payload.resultId).toBe(ancien);
+
+      // Un humain rejette sans nouvel essai : la production est close. Trente
+      // jours plus tard, son dossier part — la borne tient.
+      store.setTaskReview(t.id, 'rejected');
+      store.pruneEvents(fenetreSeule(5), Date.now() + TRENTE_JOURS_MS + 60_000);
+      expect(store.contreRevueImpossible(t.id, dernier), 'la borne ne tient plus').toBeNull();
+      expect(store.eventForRelecture('r1')).toBeNull();
     } finally {
       store.close();
     }
   });
 
-  // La borne promet `CORPUS_AIGUILLAGE` PRODUCTIONS. Comptée sur toute tâche
-  // `done`, les relectures elles-mêmes (une à deux par production) prenaient
-  // les places : une production plus ancienne perdait son impossibilité, et
-  // l'Evaluator retombait sur « pas de contre-revue » sans dire pourquoi.
-  it('LES RELECTURES RENDUES NE PRENNENT PAS LA PLACE DES PRODUCTIONS DANS LA BORNE', () => {
+  // Une relecture rendue est CLOSE — rendue à la production qu'elle relisait, et
+  // jamais livrée elle-même. La production, elle, attend encore un humain. Les
+  // compter pareil laisserait les relectures (une à deux par production)
+  // occuper la place que le plafond doit garder aux productions, et garder
+  // leurs propres faits aussi longtemps qu'une production qui attend.
+  it('LES RELECTURES RENDUES SONT CLOSES ; LA PRODUCTION QU’ELLES RELISENT NE L’EST PAS', () => {
     const store = new HiveStore(':memory:');
     try {
       const projet = store.createProject({ name: 'P' });
       const tache = (titre: string): string =>
         store.createTask({ projectId: projet.id, title: titre, prompt: 'p' }).id;
-      const ancienne = tache('Ancienne');
+      const production = tache('Production');
       const resultId = store.insertResult({
-        taskId: ancienne,
+        taskId: production,
         nodeId: 'n',
         success: true,
         diff: 'd',
@@ -683,28 +688,28 @@ describe('l’élagage du journal garde la contre-revue du dernier résultat', (
         durationMs: 1,
         subAgents: [],
       });
-      lier(store, 'r-ancienne', ancienne);
       store.appendEvent('contre_expertise_impossible', {
-        taskId: ancienne,
+        taskId: production,
         resultId,
         cause: 'codex a échoué (3 tentative(s))',
       });
-      store.patchTask(ancienne, { status: 'done' }, 1_000);
-
-      // Une production plus récente, relue autant de fois que la borne compte
-      // de places : ses relectures rendues sont toutes plus récentes.
-      const recente = tache('Récente');
-      store.patchTask(recente, { status: 'done' }, 2_000);
-      for (let i = 0; i < CORPUS_AIGUILLAGE; i += 1) {
+      store.patchTask(production, { status: 'done' }, 1_000);
+      const relectures: string[] = [];
+      for (let i = 0; i < 3; i += 1) {
         const relecture = tache(`Relecture ${i}`);
-        lier(store, relecture, recente);
+        lier(store, relecture, production);
+        store.appendEvent('task_done', { taskId: relecture, nodeId: 'nr' });
         store.patchTask(relecture, { status: 'done' }, 3_000 + i);
+        relectures.push(relecture);
       }
       for (let i = 0; i < 20; i += 1) store.appendEvent('bruit', { i });
 
-      store.pruneEvents(5);
+      const bilan = store.pruneEvents(fenetreSeule(5), 10_000 + TRENTE_JOURS_MS);
 
-      expect(store.contreRevueImpossible(ancienne, resultId)).toBe(
+      expect(bilan.parMotif.echue, 'les trois relectures rendues, closes depuis trente jours').toBe(
+        3,
+      );
+      expect(store.contreRevueImpossible(production, resultId)).toBe(
         'codex a échoué (3 tentative(s))',
       );
     } finally {

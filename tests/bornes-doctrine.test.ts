@@ -92,6 +92,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
   machines_noeuds: 'une ligne par machine provisionnée',
   modeles_noeuds:
     'une liste de modèles par machine — clé primaire nodeId, écrasée à la ré-inscription',
+  efforts_noeuds:
+    'les efforts qu’une machine sait commander à son CLI — clé primaire nodeId, écrasée à la ré-inscription, effacée quand ils ne sont pas redits',
   outils_noeuds:
     'les outils IA constatés par une machine — clé primaire nodeId, écrasée à la ré-inscription ; le JSON est borné en amont par estOutilsConstates (32 entrées)',
   isolements_noeuds:
@@ -105,12 +107,20 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
   essaim: 'clé primaire `projectId` — une seule ligne par projet, par construction',
   garde_fous:
     'clé primaire `projectId` — un consentement humain (opt-in + bornes), une seule ligne par projet',
+  banc_ombre:
+    'clé primaire `projectId` — le consentement humain du banc d’ombre (opt-in + budget), une ligne par projet',
   balance_ledger_cache:
     'cache reconstructible, une ligne par projet AYANT DÉPENSÉ ; sa perte se rattrape',
   horloge_soldes:
     'un solde clos par projet — 1:1 avec projects ; l’élaguer rendrait des heures au client',
   motifs_projet:
     'procédures perso créées depuis la Chambre — poignée par projet, jamais auto-générées',
+  journal_elagages:
+    'un compteur cumulé par couple (type d’événement, motif d’élagage) — bornée par le vocabulaire FERMÉ des types que le code émet, jamais une ligne par événement ; l’élaguer effacerait ce que le Genome doit savoir de ses pertes',
+  connecteurs_projet:
+    'autorisation de connecteur par projet (src/connectors) — clé primaire (connecteurId, projectId), une poignée par projet, posée par l’humain et supprimée à la révocation ; jamais auto-générée',
+  identite_ruche:
+    'l’empreinte publique de la ruche — UNE ligne (CHECK id = 1), tirée au premier démarrage, jamais réécrite',
   configuration_initiale:
     'une seule ligne pour toute la ruche — clé primaire tenue par CHECK (cle = ruche), choix de l’hôte',
 };

@@ -31,7 +31,13 @@
 
 import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
-import { commandeSshDuMembre, gitHote } from '../shared/git-protege.js';
+import { CLONE_MS, DELAI_RESEAU_MS } from '../shared/butoirs-noeud.js';
+import {
+  EchecGitHote,
+  commandeSshDuMembre,
+  gitHote,
+  type DepotEpingle,
+} from '../shared/git-protege.js';
 import {
   TAILLE_MAX_FICHIER,
   cheminDemande,
@@ -76,13 +82,71 @@ export class RayonIndisponible extends Error {
 
 /**
  * `info/attributes` du git dir du miroir — il PRIME sur tout `.gitattributes`
- * de l'arbre (gitattributes(5)). Le dépôt NOMME des filtres ; la machine de
- * la Reine peut en DÉFINIR (Git for Windows inscrit `filter.lfs`) : sans
- * cette ligne, l'extraction lançait ce programme parce que le dépôt le
- * désignait. Le miroir montre les octets du dépôt — un fichier LFS s'y lit
- * comme son pointeur, jamais téléchargé.
+ * de l'arbre, attribut par attribut (gitattributes(5)). Le miroir sert les
+ * octets que le dépôt STOCKE, et rien d'autre :
+ *
+ *   · `-filter` : le dépôt NOMME des filtres, la machine de la Reine peut en
+ *     DÉFINIR (Git for Windows inscrit `filter.lfs`) — sans cet attribut,
+ *     l'extraction lançait le programme que le dépôt désignait. Un fichier
+ *     LFS s'y lit donc comme son POINTEUR, jamais téléchargé ;
+ *   · `-text` : ni `text eol=crlf` du dépôt, ni `core.autocrlf` de l'hôte —
+ *     sinon le miroir servait `a\r\nb\r\n` pour un blob `a\nb\n`, et deux
+ *     ruches sur le même dépôt ne voyaient pas le même code ;
+ *   · `-ident` : un `$Id$` reste `$Id$`, pas l'empreinte que git y développe ;
+ *   · `-working-tree-encoding` : un fichier stocké en UTF-8 que le dépôt fait
+ *     extraire en UTF-16 serait servi comme binaire (ses octets nuls).
+ *
+ * Un miroir dont le fichier diffère de celui-ci a été extrait sous d'autres
+ * règles : ses fichiers peuvent porter les conversions — on le refait.
  */
-const ATTRIBUTS_MIROIR = '* -filter\n';
+const ATTRIBUTS_MIROIR = '* -filter -text -ident -working-tree-encoding\n';
+
+/**
+ * Ce que dit l'amont de sa branche par défaut et de ses branches
+ * (`ls-remote --symref … HEAD 'refs/heads/*'`) :
+ *   · `vide` — AUCUNE branche : rien à montrer (un dépôt qu'on vient de créer) ;
+ *   · `branche` — HEAD désigne cette branche, et elle a un commit ;
+ *   · `inconnue` — un commit, sans le nom de la branche (un serveur « bête »
+ *     qui n'annonce pas les références symboliques) : on garde la nôtre ;
+ *   · `sans_tete` — des branches, mais un HEAD qui ne se résout pas (la
+ *     branche par défaut d'un dépôt nu effacée après la poussée d'une autre).
+ *
+ * `sans_tete` n'est PAS `vide`, et c'est pour les séparer qu'on demande les
+ * branches : `ls-remote … HEAD` seul rend la même sortie vide pour les deux.
+ * Confondus, un HEAD pendant faisait refaire le miroir en dépôt vide — le code
+ * d'hier effacé, un Rayon vide rendu comme un succès, sans un mot.
+ */
+type TeteAmont =
+  | { readonly etat: 'vide' }
+  | { readonly etat: 'branche'; readonly nom: string }
+  | { readonly etat: 'inconnue' }
+  | { readonly etat: 'sans_tete' };
+
+/** Lit la sortie de `git ls-remote --symref <dépôt> HEAD 'refs/heads/*'`. */
+function lireTeteAmont(sortie: string): TeteAmont {
+  let nom: string | null = null;
+  let commit = false;
+  let branches = false;
+  for (const brute of sortie.split('\n')) {
+    const ligne = brute.trimEnd();
+    const symref = /^ref: refs\/heads\/(.+)\tHEAD$/.exec(ligne)?.[1];
+    if (symref !== undefined) nom = symref;
+    else if (/^[0-9a-f]{40,64}\tHEAD$/.test(ligne)) commit = true;
+    else if (/^[0-9a-f]{40,64}\trefs\/heads\//.test(ligne)) branches = true;
+  }
+  if (!commit) return branches ? { etat: 'sans_tete' } : { etat: 'vide' };
+  return nom === null ? { etat: 'inconnue' } : { etat: 'branche', nom };
+}
+
+/** Où un reclone se prépare, à côté du miroir qu'il remplacera s'il réussit. */
+const voisinDeReclone = (dir: string): string =>
+  path.join(path.dirname(dir), `.neuf-${path.basename(dir)}`);
+
+/** Le dernier rafraîchissement d'un projet : quand, et son échec s'il a échoué. */
+interface Tentative {
+  readonly quand: number;
+  readonly echec?: unknown;
+}
 
 /**
  * Le miroir des dépôts, un répertoire par projet.
@@ -94,7 +158,7 @@ const ATTRIBUTS_MIROIR = '* -filter\n';
  */
 export class Miroir {
   private readonly enVol = new Map<string, Promise<void>>();
-  private readonly dernier = new Map<string, number>();
+  private readonly dernier = new Map<string, Tentative>();
 
   constructor(private readonly racine: string) {}
 
@@ -114,22 +178,73 @@ export class Miroir {
   }
 
   /**
-   * Met le miroir à jour, ou le crée. Au plus une fois par fenêtre.
+   * Efface le miroir d'un projet SUPPRIMÉ. Rend `absent` s'il n'y avait rien
+   * sur le disque ; lève si le disque refuse (l'appelant le dit).
+   *
+   * Un rafraîchissement en vol est ATTENDU d'abord : effacer sous un `git
+   * clone` qui écrit encore laisserait le clone recréer le répertoire juste
+   * après — un miroir orphelin, que plus aucune route ne désigne et que rien
+   * n'effacerait. Aucun rafraîchissement ne peut partir ensuite : les routes
+   * du Rayon vérifient le projet puis appellent `rafraichir` sans rien
+   * attendre entre les deux, et le projet n'existe déjà plus en base.
+   *
+   * `maxRetries` : sous Windows, un antivirus ou un `git` qui se termine tient
+   * parfois un fichier du pack une fraction de seconde (motif `workspace.ts`).
+   */
+  async effacer(projectId: string): Promise<'efface' | 'absent'> {
+    await this.enVol.get(projectId)?.catch(() => undefined);
+    this.dernier.delete(projectId);
+    const dir = this.dossier(projectId);
+    // Le reclone voisin (`recloner`) d'une Reine arrêtée en plein clone : seul
+    // le rafraîchissement suivant le retirait, et un projet supprimé n'en a
+    // plus — il restait pour toujours.
+    await fs.rm(voisinDeReclone(dir), { recursive: true, force: true, maxRetries: 10 });
+    if (!existsSync(dir)) return 'absent';
+    await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    return 'efface';
+  }
+
+  /**
+   * Met le miroir à jour, ou le crée. Au plus une TENTATIVE par fenêtre.
    *
    * `--depth 1` : on montre le code TEL QU'IL EST, pas son histoire. L'histoire
    * pèse parfois cent fois le contenu, et le tableau de bord ne l'affiche pas.
+   *
+   * Un échec compte comme une tentative. Un amont muet tient chaque essai
+   * jusqu'à son butoir (`CLONE_MS`, `DELAI_RESEAU_MS`) : sans cela, chaque
+   * visiteur suivant relançait un git qui pendait autant, et le Rayon du
+   * projet ne répondait plus qu'au rythme des délais. Dans la fenêtre, un
+   * miroir existant sert donc sa dernière copie, et un premier clone raté
+   * redit son échec — tout de suite, sans relancer git.
+   *
+   * La fenêtre part de la FIN de la tentative, pas de son début : un essai
+   * tenu jusqu'à son butoir (deux minutes, dix pour un clone) dure plus que
+   * la fenêtre. Datée de son début, sa fenêtre était déjà close quand il
+   * tombait, et le visiteur suivant relançait un git qui pendait autant.
+   * `maintenant` + la durée mesurée : l'horloge du test reste celle du test.
    */
   async rafraichir(projectId: string, repoUrl: string, maintenant = Date.now()): Promise<void> {
     const enCours = this.enVol.get(projectId);
     if (enCours) return enCours;
 
-    const vu = this.dernier.get(projectId) ?? 0;
-    if (this.existe(projectId) && maintenant - vu < FENETRE_RAFRAICHISSEMENT_MS) return;
+    const vu = this.dernier.get(projectId);
+    if (vu && maintenant - vu.quand < FENETRE_RAFRAICHISSEMENT_MS) {
+      if (this.existe(projectId)) return;
+      if (vu.echec !== undefined) throw vu.echec;
+    }
 
+    const debut = Date.now();
+    const fin = (): number => maintenant + (Date.now() - debut);
     const travail = this.faireRafraichir(projectId, repoUrl)
-      .then(() => {
-        this.dernier.set(projectId, maintenant);
-      })
+      .then(
+        () => {
+          this.dernier.set(projectId, { quand: fin() });
+        },
+        (echec: unknown) => {
+          this.dernier.set(projectId, { quand: fin(), echec });
+          throw echec;
+        },
+      )
       .finally(() => {
         this.enVol.delete(projectId);
       });
@@ -140,20 +255,21 @@ export class Miroir {
   /**
    * Clone ou rafraîchit, par la porte commune (`shared/git-protege.ts`) :
    * aucun crochet — pas même ceux qu'un `core.hooksPath` global relatif ferait
-   * lire dans l'arbre —, aucun moniteur, transport borné, jamais d'invite.
+   * lire dans l'arbre —, aucun moniteur, jamais d'invite. Et chaque appel au
+   * dépôt distant sous SON butoir, les mêmes que ceux du nœud : `gitHote` ne
+   * borne pas un clone qu'on ne borne pas, et un serveur qui accepte la
+   * connexion puis se tait gardait la promesse en vol — donc le Rayon du
+   * projet — jusqu'au redémarrage de la Reine.
    *
-   * Le clone se fait SANS extraction, et c'est ce qui laisse poser
-   * `info/attributes` avant que le moindre fichier ne sorte ; `--template=`
-   * vide : aucun crochet ni fichier d'un `init.templateDir` de l'hôte. Le
-   * git dir n'est alors écrit que par git et par nous. `core.autocrlf=false`
-   * est ÉCRIT dans sa configuration : sous Windows, git réécrirait sinon les
-   * fins de ligne, et le miroir servirait un code que le dépôt ne contient
-   * pas — un octet de plus par ligne, et deux ruches sur le même dépôt ne
-   * verraient pas le même code (vu sur la CI Windows :
-   * « export const a = 1;\r\n »).
-   *
-   * Un miroir sans `info/attributes` vient d'une version qui clonait sans ces
-   * précautions : c'est un cache, on le refait plutôt que de le réparer.
+   * Un miroir qu'on peut reprendre demande d'abord à l'amont où est sa tête
+   * (`ls-remote --symref`, une seule requête) : `--depth 1` implique une
+   * seule branche, et un `fetch` ne verrait jamais que la branche par défaut
+   * a changé (`main` → `trunk`) — le miroir servirait l'ancienne pour
+   * toujours. Tête déplacée, ou premiers commits d'un dépôt qui était vide
+   * (son clone n'a aucune branche à récupérer) : on refait le clone. Un amont
+   * toujours vide : rien à lancer de plus. Un HEAD qui ne se résout plus
+   * (`sans_tete`) est une PANNE de l'amont, pas un dépôt vide : on échoue, et
+   * la copie d'hier reste servie, avec l'avertissement du serveur.
    *
    * `fetch` puis `reset --hard` : le miroir n'a pas de travail local à
    * préserver, et un `pull` qui tomberait sur un rebase amont resterait
@@ -162,15 +278,81 @@ export class Miroir {
   private async faireRafraichir(projectId: string, repoUrl: string): Promise<void> {
     const dir = this.dossier(projectId);
     const depot = { gitDir: path.join(dir, '.git'), workTree: dir };
-    const attributs = path.join(depot.gitDir, 'info', 'attributes');
     // La racine d'abord : `commandeSshDuMembre` y lance git, et un cwd absent
     // la ferait retomber sur `ssh` au premier clone.
     await fs.mkdir(this.racine, { recursive: true });
     const ssh = await commandeSshDuMembre(this.racine);
-    if (this.existe(projectId) && existsSync(attributs)) {
-      await gitHote(['fetch', '--depth', '1', 'origin'], depot, { ssh });
-    } else {
-      await fs.rm(dir, { recursive: true, force: true });
+    if (this.existe(projectId) && (await this.reprenable(depot))) {
+      const amont = lireTeteAmont(
+        await gitHote(['ls-remote', '--symref', 'origin', 'HEAD', 'refs/heads/*'], depot, {
+          ssh,
+          delaiMs: DELAI_RESEAU_MS,
+        }),
+      );
+      if (amont.etat === 'sans_tete') {
+        throw new Error(
+          'miroir : la branche par défaut de l’amont (HEAD) ne désigne aucune branche existante',
+        );
+      }
+      const tete = await teteDuMiroir(depot);
+      const garni = await aUnCommit(depot, tete);
+      if (amont.etat === 'vide' && !garni) return;
+      const memeTete =
+        amont.etat === 'inconnue' || (amont.etat === 'branche' && amont.nom === tete);
+      if (garni && memeTete) {
+        await gitHote(['fetch', '--depth', '1', 'origin'], depot, {
+          ssh,
+          delaiMs: DELAI_RESEAU_MS,
+        });
+        await gitHote(['reset', '--hard', `origin/${tete}`], depot);
+        return;
+      }
+    }
+    await this.recloner(dir, repoUrl, ssh);
+  }
+
+  /**
+   * Un miroir se reprend s'il a été cloné sous les règles d'aujourd'hui : son
+   * `info/attributes` est exactement `ATTRIBUTS_MIROIR`. Absent ou différent,
+   * il vient d'une version qui clonait sans ces précautions — c'est un cache,
+   * on le refait plutôt que de le réparer.
+   */
+  private async reprenable(depot: DepotEpingle): Promise<boolean> {
+    const attributs = path.join(depot.gitDir, 'info', 'attributes');
+    return fs.readFile(attributs, 'utf8').then(
+      (contenu) => contenu === ATTRIBUTS_MIROIR,
+      () => false,
+    );
+  }
+
+  /**
+   * Le clone se fait SANS extraction, et c'est ce qui laisse poser
+   * `info/attributes` avant que le moindre fichier ne sorte ; `--template=`
+   * vide : aucun crochet ni fichier d'un `init.templateDir` de l'hôte. Le
+   * git dir n'est alors écrit que par git et par nous. `core.autocrlf=false`
+   * est ÉCRIT dans sa configuration, en plus de `-text` : sous Windows, git
+   * réécrirait sinon les fins de ligne (vu sur la CI Windows :
+   * « export const a = 1;\r\n »).
+   *
+   * Tout se fait dans un répertoire VOISIN, qui ne prend la place du miroir
+   * qu'une fois clone, attributs et extraction réussis. Un reclone déclenché
+   * par l'amont (tête déplacée, premiers commits) sur un serveur qui tombe
+   * ensuite effaçait d'abord la copie d'hier : le Rayon passait de « copie
+   * d'hier + avertissement » à un 409. Et un clone TUÉ à son butoir laissait
+   * un `.git` à moitié écrit, pris pour un miroir (`existe`) et servi comme un
+   * arbre vide. Le voisin commence par un point : aucun identifiant de projet
+   * n'en porte (`dossier`), il ne peut donc pas en être un.
+   *
+   * Un amont vide se clone — git prévient, sans échouer — mais n'a aucune
+   * branche à extraire : le miroir reste vide, et c'est la vérité.
+   */
+  private async recloner(dir: string, repoUrl: string, ssh: string): Promise<void> {
+    const neuf = voisinDeReclone(dir);
+    const depotNeuf = { gitDir: path.join(neuf, '.git'), workTree: neuf };
+    // Un voisin d'une Reine arrêtée en plein clone : les rafraîchissements
+    // d'un projet ne se chevauchent pas (`enVol`), celui-ci est donc à nous.
+    await fs.rm(neuf, { recursive: true, force: true });
+    try {
       await gitHote(
         [
           'clone',
@@ -183,16 +365,24 @@ export class Miroir {
           'core.autocrlf=false',
           '--',
           repoUrl,
-          dir,
+          neuf,
         ],
         this.racine,
-        { ssh },
+        { ssh, delaiMs: CLONE_MS },
       );
+      const attributs = path.join(depotNeuf.gitDir, 'info', 'attributes');
       await fs.mkdir(path.dirname(attributs), { recursive: true });
       await fs.writeFile(attributs, ATTRIBUTS_MIROIR);
+      const tete = await teteDuMiroir(depotNeuf);
+      if (await aUnCommit(depotNeuf, tete)) {
+        await gitHote(['reset', '--hard', `origin/${tete}`], depotNeuf);
+      }
+    } catch (e) {
+      await fs.rm(neuf, { recursive: true, force: true }).catch(() => undefined);
+      throw e;
     }
-    const tete = (await gitHote(['symbolic-ref', '--short', 'HEAD'], depot)).trim() || 'HEAD';
-    await gitHote(['reset', '--hard', `origin/${tete}`], depot);
+    await fs.rm(dir, { recursive: true, force: true });
+    await fs.rename(neuf, dir);
   }
 
   /**
@@ -320,4 +510,27 @@ export class Miroir {
       }
     }
   }
+}
+
+/** La branche que suit le miroir — celle que l'amont désignait à son clone. */
+async function teteDuMiroir(depot: DepotEpingle): Promise<string> {
+  return (await gitHote(['symbolic-ref', '--short', 'HEAD'], depot)).trim() || 'HEAD';
+}
+
+/**
+ * Le miroir a-t-il récupéré un commit de sa branche ? Non pour le clone d'un
+ * dépôt vide : `rev-parse -q --verify` rend 1, sans un mot — tout autre échec
+ * est une vraie panne, et remonte.
+ */
+async function aUnCommit(depot: DepotEpingle, tete: string): Promise<boolean> {
+  return gitHote(
+    ['rev-parse', '-q', '--verify', `refs/remotes/origin/${tete}^{commit}`],
+    depot,
+  ).then(
+    () => true,
+    (e: unknown) => {
+      if (e instanceof EchecGitHote && e.code === 1) return false;
+      throw e;
+    },
+  );
 }

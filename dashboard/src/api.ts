@@ -8,10 +8,28 @@ import {
   EVENEMENTS_NON_DIFFUSES,
   parseServerMessage,
 } from '../../src/shared/protocol';
-import type { HiveEvent, Project, StateSnapshot, Task, TaskResult } from '../../src/shared/types';
+import type {
+  HiveEvent,
+  Project,
+  StateSnapshot,
+  Task,
+  TaskResult,
+  TaskStatus,
+} from '../../src/shared/types';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
-import type { DecisionConseil, Desaccord, EntreeWarRoom } from '../../src/shared/war-room.js';
-export type { DecisionConseil, Desaccord, EntreeWarRoom } from '../../src/shared/war-room.js';
+import type { Constat } from '../../src/shared/critique-structuree.js';
+import type {
+  DecisionConseil,
+  Desaccord,
+  EntreeWarRoom,
+  FamilleWarRoom,
+} from '../../src/shared/war-room.js';
+export type {
+  DecisionConseil,
+  Desaccord,
+  EntreeWarRoom,
+  FamilleWarRoom,
+} from '../../src/shared/war-room.js';
 import type { WorkerSnapshot } from '../../src/orchestrator/workers.js';
 import type {
   DebatDuWorker,
@@ -27,6 +45,8 @@ import type {
 import type { Diagnostic } from '../../src/shared/doctor.js';
 import type { JournalOuvriere } from '../../src/orchestrator/journal-ouvriere.js';
 import type { RapportLivraisonLocale } from '../../src/shared/livraison-locale.js';
+import type { ConsigneRoutage } from '../../src/shared/consigne-routage.js';
+import type { LimitesDelegation } from '../../src/shared/limites-delegation.js';
 import type {
   EvaluationResult,
   ValidationEvidence,
@@ -52,6 +72,11 @@ export class ApiError extends Error {
     readonly status: number,
     /** Marche à suivre renvoyée par le serveur (501 GitHub, 401 jeton…), jamais le secret. */
     readonly detail?: string,
+    /**
+     * Le `code` du refus, quand la Reine en donne un : l'écran le LIT (ex.
+     * `rejeu_simule` : rien n'est parti, une validation humaine est offerte).
+     */
+    readonly code?: string,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -163,16 +188,23 @@ async function api<T>(
   if (!res.ok) {
     let message = tNow(`Erreur ${res.status}`, `Error ${res.status}`);
     let detail: string | undefined;
+    let code: string | undefined;
     try {
       // Endpoints custom → { error } (déjà précis). Validation de schéma Fastify
       // → { message } détaillé + { error: "Bad Request" } générique : le message
       // est alors le plus utile, on le préfère quand il est présent.
       // `detail` porte la marche à suivre (501 GitHub, 401 jeton de ruche) :
       // l'omettre laissait l'écran muet sur ce qu'il fallait faire.
-      const body = (await res.json()) as { error?: string; message?: string; detail?: string };
+      const body = (await res.json()) as {
+        error?: string;
+        message?: string;
+        detail?: string;
+        code?: unknown;
+      };
       const assemble = messageApi(body, res.status);
       message = assemble.message;
       detail = assemble.detail;
+      if (typeof body.code === 'string') code = body.code;
     } catch {
       /* corps non-JSON */
     }
@@ -181,7 +213,7 @@ async function api<T>(
       const expiree = expirerSession(jwt);
       if (expiree) throw expiree;
     }
-    throw new ApiError(message, res.status, detail);
+    throw new ApiError(message, res.status, detail, code);
   }
   return (await res.json()) as T;
 }
@@ -567,9 +599,11 @@ export function trancherConseil(
 export interface VueWarRoom {
   projectId: string | null;
   taskId: string | null;
+  /** La seule voix montrée, `null` pour toutes. Ne filtre jamais `desaccords`. */
+  famille: FamilleWarRoom | null;
   /** Du plus ancien au plus récent, bornées à `limite`. */
   entrees: EntreeWarRoom[];
-  /** Vrai quand des entrées plus anciennes existent au-delà de `limite`. */
+  /** Vrai quand des entrées plus anciennes (de cette famille) existent au-delà de `limite`. */
   tronque: boolean;
   desaccords: Desaccord[];
   taches: Record<string, { titre: string; projectId: string }>;
@@ -579,11 +613,17 @@ export interface VueWarRoom {
 }
 
 export function fetchWarRoom(
-  filtre: { projectId?: string | null; taskId?: string | null; limite?: number } = {},
+  filtre: {
+    projectId?: string | null;
+    taskId?: string | null;
+    famille?: FamilleWarRoom | null;
+    limite?: number;
+  } = {},
 ): Promise<VueWarRoom> {
   const q = new URLSearchParams();
   if (filtre.projectId) q.set('projectId', filtre.projectId);
   if (filtre.taskId) q.set('taskId', filtre.taskId);
+  if (filtre.famille) q.set('famille', filtre.famille);
   if (filtre.limite !== undefined) q.set('limite', String(filtre.limite));
   const qs = q.toString();
   // Lecture de projet : le compte ouvre les projets qui ont un propriétaire.
@@ -748,17 +788,57 @@ export interface DelegationEvent {
   payload: Record<string, unknown>;
 }
 
+/**
+ * L'enveloppe de la racine, telle que la Reine la tient : plafonds cumulés,
+ * réservations de tout l'arbre, dépense DÉCLARÉE (un plancher dès que
+ * `depense.sansCout > 0`). Absente d'une Reine d'avant les budgets par racine.
+ */
+export interface EnveloppeDelegation {
+  limites: LimitesDelegation;
+  reserve: { durationMs: number; costMicros: number; resourceUnits: number };
+  depense: { micros: number; tentatives: number; sansCout: number };
+  coutEpuise: boolean;
+}
+
 export interface TaskDelegationGraph {
   taskId: string;
   rootTaskId: string;
   graph: DelegationGraphNode[];
   delegations: DelegationRecord[];
   events: DelegationEvent[];
+  enveloppe?: EnveloppeDelegation;
 }
 
 /** Lecture authentifiée du graphe et de l’activité de délégation réelle. */
 export function fetchDelegationGraph(taskId: string): Promise<TaskDelegationGraph> {
   return api<TaskDelegationGraph>(`/api/tasks/${encodeURIComponent(taskId)}/delegation`);
+}
+
+/** La consigne de routage de l'opérateur sur une tâche (`null` : aucune). */
+export interface ConsigneRoutageRangee {
+  taskId: string;
+  consigne: ConsigneRoutage | null;
+  definiPar: string | null;
+  majA: number | null;
+  /** Faux pour une relecture : elle suit la famille désignée, aucune consigne ne s'y pose. */
+  applicable: boolean;
+  /** À la pose seulement : une tâche déjà partie garde son porteur. */
+  effet?: 'immediat' | 'prochaine_affectation';
+}
+
+export function fetchConsigneRoutage(taskId: string): Promise<ConsigneRoutageRangee> {
+  return api<ConsigneRoutageRangee>(`/api/tasks/${encodeURIComponent(taskId)}/consigne-routage`);
+}
+
+/** Pose — ou lève, avec `null` — la consigne : propriétaire ou administrateur. */
+export function poserConsigneRoutage(
+  taskId: string,
+  consigne: ConsigneRoutage | null,
+): Promise<ConsigneRoutageRangee> {
+  return api<ConsigneRoutageRangee>(`/api/tasks/${encodeURIComponent(taskId)}/consigne-routage`, {
+    method: 'PUT',
+    body: JSON.stringify({ consigne }),
+  });
 }
 
 export interface Memory {
@@ -856,6 +936,45 @@ export interface InviteResponse {
 export async function fetchInvite(url?: string): Promise<InviteResponse> {
   const query = url ? `?url=${encodeURIComponent(url)}` : '';
   return apiCompte<InviteResponse>(`/api/invite${query}`);
+}
+
+// ─── La découverte du réseau local ──────────────────────────────────────────
+//
+// Les machines qui se signalent (`hive join --decouvrable`) et le geste qui
+// les accueille — voir `src/shared/decouverte.ts` pour le contrat entier.
+
+export type { Decouvert, RelationRuche } from '../../src/orchestrator/decouverte-reseau';
+import type { Decouvert } from '../../src/orchestrator/decouverte-reseau';
+
+export interface DecouverteReseau {
+  /** La ruche écoute-t-elle (`HIVE_DECOUVERTE=1`, prise ouverte) ? */
+  active: boolean;
+  /** L'empreinte PUBLIQUE de cette ruche, telle que la machine l'affichera. */
+  empreinte: string;
+  decouverts: Decouvert[];
+  /** Éteinte : pourquoi, en code fermé — l'écran traduit d'après lui. */
+  motif?: 'eteinte' | 'indisponible';
+  /** `indisponible` : le message brut de la prise (jamais traduit : il vient du système). */
+  cause?: string;
+  /** Éteinte : comment l'allumer, ou pourquoi la prise ne s'est pas ouverte (en français). */
+  conseil?: string;
+  /** Allumée, mais aucune machine ne pourra joindre la ruche (écoute locale). */
+  injoignable?: string;
+}
+
+export function fetchDecouverte(): Promise<DecouverteReseau> {
+  return apiCompte<DecouverteReseau>('/api/decouverte');
+}
+
+/** « Rejoindre » : la ruche scelle un billet sous `code` et le dépose chez la machine. */
+export function rejoindreDecouvert(
+  id: string,
+  code: string,
+): Promise<{ ok: true; billetId: string; nom: string; detail: string }> {
+  return apiCompte(`/api/decouverte/${encodeURIComponent(id)}/rejoindre`, {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
 }
 
 // ─── Mission Control : endpoints d'observation et d'action ──────────────────
@@ -1253,9 +1372,52 @@ export function fetchEssaim(projectId: string): Promise<EtatEssaimUi> {
   return api<EtatEssaimUi>(`/api/projects/${projectId}/essaim`);
 }
 
-/** Projection authentifiée des nœuds Worker et du vécu Aiguillage. */
-export function fetchWorkers(): Promise<{ workers: WorkerSnapshot[] }> {
-  return api<{ workers: WorkerSnapshot[] }>('/api/workers');
+export type { BilanEconomique, FenetreLue } from '../../src/shared/economie';
+export type { QualiteWorker } from '../../src/orchestrator/workers';
+import type { BilanEconomique, FenetreLue } from '../../src/shared/economie';
+import type { QualiteWorker } from '../../src/orchestrator/workers';
+
+/**
+ * Projection authentifiée des nœuds Worker et du vécu Aiguillage.
+ * `fenetreEconomie` : la fenêtre du journal d'où vient l'économie de chaque
+ * Worker — absente d'une Reine plus ancienne.
+ */
+export function fetchWorkers(): Promise<{
+  workers: WorkerSnapshot[];
+  fenetreEconomie?: FenetreLue;
+}> {
+  return api<{ workers: WorkerSnapshot[]; fenetreEconomie?: FenetreLue }>('/api/workers');
+}
+
+/** Le bilan d'un Worker pour sa fiche : économie par modèle et qualité jugée par l'Evaluator. */
+export interface BilanWorker {
+  nodeId: string;
+  economie: {
+    total: BilanEconomique;
+    parModele: Array<{ modele: string } & BilanEconomique>;
+  };
+  qualite: QualiteWorker;
+  fenetre: FenetreLue;
+}
+
+export function fetchBilanWorker(nodeId: string): Promise<BilanWorker> {
+  return api<BilanWorker>(`/api/workers/${encodeURIComponent(nodeId)}/bilan`);
+}
+
+export type { AlerteCockpit, DepenseRuche } from '../../src/orchestrator/cockpit';
+import type { AlerteCockpit, DepenseRuche } from '../../src/orchestrator/cockpit';
+
+/** Le cockpit de l'accueil : décisions récentes, dépense des dernières 24 h, arrêts en cours. */
+export interface Cockpit {
+  decisions: Array<{ evenement: HiveEvent; titre: string | null }>;
+  depense: DepenseRuche;
+  alertes: AlerteCockpit[];
+  /** Nombre total d'alertes — la liste est bornée. */
+  total: number;
+}
+
+export function fetchCockpit(): Promise<Cockpit> {
+  return api<Cockpit>('/api/cockpit');
 }
 
 /**
@@ -1391,6 +1553,81 @@ export function reglerGardeFou(
   });
 }
 
+// ─── Le banc d'ombre : comparer deux modèles sur la même petite tâche ───────
+
+/** Pourquoi une tâche tirée au sort n'a pas eu d'ombre. Miroir de `MotifRefusOmbre`. */
+export type MotifRefusOmbreUi = MotifRefusOmbre;
+
+/**
+ * Ce que le GET `/banc-ombre` rend : le CONSENTEMENT posé (`null` : banc
+ * éteint), ce que l'écran propose pour l'allumer, ce que le banc a dépensé sur
+ * 24 h glissantes — et ce qui l'arrête —, et ses dernières ombres. Miroir de la
+ * réponse du serveur (`etatBancOmbre`), tenu à la main comme `EtatGardeFouUi`.
+ */
+export interface EtatBancOmbreUi {
+  actif: boolean;
+  reglage: {
+    tauxPourMille: number;
+    executionsParJour: number;
+    plafondCoutUsd: number;
+    definiPar: string | null;
+    updatedAt: number;
+  } | null;
+  propose: { tauxPourMille: number; executionsParJour: number; plafondCoutUsd: number };
+  bornes: {
+    tauxPourMille: { min: number; max: number };
+    executionsParJour: { min: number; max: number };
+    plafondCoutUsd: { max: number };
+  };
+  budget: {
+    fenetreMs: number;
+    executions: number;
+    enVol: number;
+    coutDeclareUsd: number;
+    executionsMuettes: number;
+    arret: MotifRefusOmbreUi | null;
+  };
+  ombres: Array<{
+    tacheOmbre: string;
+    tacheOriginale: string;
+    titre: string | null;
+    modeleOriginal: string;
+    modeleOmbre: string;
+    /** `null` : la tâche de l'ombre a été élaguée. */
+    statut: TaskStatus | null;
+    coutDeclareUsd: number;
+    executionsMuettes: number;
+    creeA: number;
+  }>;
+}
+
+export function fetchBancOmbre(projectId: string): Promise<EtatBancOmbreUi> {
+  return api<EtatBancOmbreUi>(`/api/projects/${projectId}/banc-ombre`);
+}
+
+/**
+ * Règle le banc d'ombre — geste HUMAIN de qui répond du projet. Le budget
+ * (`executionsParJour`, `plafondCoutUsd`) est exigé à chaque réglage : un banc
+ * ne s'allume jamais sans sa borne.
+ */
+export function reglerBancOmbre(
+  projectId: string,
+  // Éteindre n'envoie que `{ actif: false }` : le serveur garde le budget rangé.
+  reglage:
+    | {
+        actif: true;
+        tauxPourMille: number;
+        executionsParJour: number;
+        plafondCoutUsd: number;
+      }
+    | { actif: false; tauxPourMille?: number; executionsParJour?: number; plafondCoutUsd?: number },
+): Promise<EtatBancOmbreUi> {
+  return api<EtatBancOmbreUi>(`/api/projects/${projectId}/banc-ombre`, {
+    method: 'POST',
+    body: JSON.stringify(reglage),
+  });
+}
+
 export function fetchBalance(): Promise<BalanceState> {
   return api<BalanceState>('/api/balance');
 }
@@ -1426,6 +1663,28 @@ export function fetchReplay(since = 0): Promise<ReplayResult> {
  */
 export function fetchReport(projectId: string): Promise<ProjectReport> {
   return apiLecture<ProjectReport>(`/api/projects/${projectId}/report`);
+}
+
+export type {
+  IssueRelecture,
+  LigneMission,
+  RapportMission,
+  SourceReprise,
+} from '../../src/orchestrator/project-report';
+import type { RapportMission } from '../../src/orchestrator/project-report';
+
+/**
+ * Le rapport de MISSION d'un projet : décision de l'Evaluator, contre-revue,
+ * reprises par source, temps et dépense déclarée par tâche, faits Genome.
+ * `mission` est absent pour un lien de partage — il montre l'avancement, pas
+ * qui travaille ni ce que ça coûte.
+ */
+export function fetchRapportMission(
+  projectId: string,
+): Promise<ProjectReport & { mission?: RapportMission }> {
+  return apiLecture<ProjectReport & { mission?: RapportMission }>(
+    `/api/projects/${encodeURIComponent(projectId)}/report?detail=mission`,
+  );
 }
 
 /** Honeycomb Merge : plan d'intégration (advisory) d'un projet. */
@@ -1515,10 +1774,10 @@ export class RefusLivraison extends ApiError {
   constructor(
     message: string,
     status: number,
-    readonly code?: string,
+    code?: string,
     readonly bloquees: readonly { taskId: string; decision: string | null }[] = [],
   ) {
-    super(message, status);
+    super(message, status, undefined, code);
     this.name = 'RefusLivraison';
   }
 }
@@ -1539,6 +1798,8 @@ export async function livrerLocalement(
     testCommand?: string[];
     prepareCommand?: string[];
     forcer?: { raison: string };
+    /** Projet de rejeu : exécuter pour de vrai ce que la Reine simulerait (compte exigé). */
+    validerRejeu?: boolean;
   } = {},
 ): Promise<DepartLivraison> {
   const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/livraison-locale`, {
@@ -1549,6 +1810,7 @@ export async function livrerLocalement(
       ...(opts.prepareCommand?.length ? { prepareCommand: opts.prepareCommand } : {}),
       ...(opts.testCommand?.length ? { testCommand: opts.testCommand } : {}),
       ...(opts.forcer ? { forcer: opts.forcer } : {}),
+      ...(opts.validerRejeu ? { validerRejeu: true } : {}),
     }),
   });
   let corps: Record<string, unknown> = {};
@@ -1651,6 +1913,8 @@ export interface CritiqueReprise {
   objections: string[];
   raisons: string[];
   noteHumaine?: string;
+  /** Les constats non bloquants (mineur, info) de la contre-revue, s'il y en avait. */
+  remarques?: Constat[];
 }
 
 /**
@@ -1707,6 +1971,43 @@ export function fetchRoutage(
  */
 export function fetchGenome(): Promise<RegistreGenome> {
   return api<RegistreGenome>('/api/genome');
+}
+
+/**
+ * Le graphe d'expérience (cf. `src/shared/graphe-experience.ts`), tel que la
+ * Reine le rend : l'en-tête (portée lue, réglage de l'hôte pour les ouvrières,
+ * fenêtre du journal, comptes du graphe ENTIER), puis soit une liste de nœuds,
+ * soit le voisinage d'un nœud avec — pour une tâche — ses contextes
+ * similaires, marqués `correlation`.
+ */
+export interface VueExperience {
+  portee: 'projet' | 'ruche';
+  reglage: PorteeExperience;
+  lecture: GrapheExperience['lecture'];
+  comptes: ComptesExperience;
+  noeuds?: NoeudExperience[];
+  voisinage?: Voisinage;
+  similaires?: ContexteSimilaire[];
+}
+
+/**
+ * Le graphe d'UN projet (isolé à ce projet, quel que soit le réglage), ou —
+ * `'ruche'` — celui de toute la ruche, réservé à un compte qui voit tous les
+ * projets (d'où `apiCompte`).
+ */
+export function fetchExperience(
+  portee: { projectId: string } | 'ruche',
+  question: { noeud?: string; genre?: GenreNoeud } = {},
+): Promise<VueExperience> {
+  const q = new URLSearchParams();
+  if (question.noeud !== undefined) q.set('noeud', question.noeud);
+  if (question.genre !== undefined) q.set('genre', question.genre);
+  const suite = q.toString() ? `?${q.toString()}` : '';
+  return portee === 'ruche'
+    ? apiCompte<VueExperience>(`/api/admin/experience${suite}`)
+    : api<VueExperience>(
+        `/api/projects/${encodeURIComponent(portee.projectId)}/experience${suite}`,
+      );
 }
 
 /**
@@ -1777,6 +2078,87 @@ export function fetchMembresProjet(projectId: string): Promise<MembreProjet[]> {
  */
 export function adopterProjet(projectId: string): Promise<{ adopted: boolean }> {
   return apiCompte<{ adopted: boolean }>(`/api/projects/${projectId}/adopter`, { method: 'POST' });
+}
+
+/** Ce qu'une suppression de projet a fait, tel que la Reine le rend. */
+export interface ProjetSupprime {
+  supprime: true;
+  projectId: string;
+  name: string;
+  /** Tâches en vol annulées d'abord (`force`). */
+  annulees: number;
+  /** Lignes effacées, par table — seulement celles qui en avaient. */
+  effaces: Record<string, number>;
+  lignes: number;
+  /** Le miroir du Rayon : effacé, il n'y en avait pas, ou le disque a refusé. */
+  miroir: 'efface' | 'absent' | 'echec';
+  /**
+   * Les épisodes du Cerveau nés du projet (#527) : retirés (`episodes` en dit
+   * le nombre), ou le disque a refusé. Absent d'une Reine d'avant.
+   */
+  cerveau?: 'efface' | 'echec';
+  episodes?: number;
+}
+
+/**
+ * Le refus d'une suppression, avec ce que l'écran doit pouvoir LIRE.
+ *
+ * `code` distingue ce que l'humain peut lever lui-même en forçant
+ * (`taches_en_vol` : les annuler d'abord) de ce qu'il faut attendre
+ * (`travail_non_annulable`) ou régler ailleurs (`hebergement_actif`). Proposer
+ * « forcer » sur ces deux-là promettrait un geste que la Reine refusera.
+ */
+export class RefusSuppression extends ApiError {
+  constructor(
+    message: string,
+    status: number,
+    readonly code?: string,
+    readonly taches: readonly { id: string; title: string; status: string }[] = [],
+  ) {
+    super(message, status);
+    this.name = 'RefusSuppression';
+  }
+}
+
+/**
+ * Supprime un projet — pour de bon, sauf l'événement d'audit. `force` annule
+ * d'abord ses tâches en vol.
+ *
+ * Son propre `fetch` (motif `livrerLocalement`) : le refus 409 porte la liste
+ * des tâches qui tournent, que `api()` réduirait à une phrase.
+ */
+export async function supprimerProjet(
+  projectId: string,
+  opts: { force?: boolean } = {},
+): Promise<ProjetSupprime> {
+  const refus = gardeSession();
+  if (refus) return refus;
+  const res = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}${opts.force ? '?force=true' : ''}`,
+    { method: 'DELETE', headers: enTetesRuche() },
+  );
+  let corps: Record<string, unknown> = {};
+  try {
+    corps = (await res.json()) as Record<string, unknown>;
+  } catch {
+    /* corps non-JSON : le statut parlera seul */
+  }
+  if (!res.ok) {
+    const texte = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+    const { message } = messageApi(
+      {
+        ...(texte(corps.error) ? { error: texte(corps.error) } : {}),
+        ...(texte(corps.message) ? { message: texte(corps.message) } : {}),
+        ...(texte(corps.conseil) ? { detail: texte(corps.conseil) } : {}),
+      },
+      res.status,
+    );
+    const taches = Array.isArray(corps.taches)
+      ? (corps.taches as { id: string; title: string; status: string }[])
+      : [];
+    throw new RefusSuppression(message, res.status, texte(corps.code), taches);
+  }
+  return corps as unknown as ProjetSupprime;
 }
 
 export function admettreMembre(
@@ -1978,6 +2360,11 @@ export interface LivraisonVue {
   etat?: string;
   dit?: string;
   reprenable?: boolean;
+  /**
+   * Pourquoi une PR qui demande du travail n'offre pas « reprendre » : une
+   * reprise déjà en vol, ou le plafond atteint — ce que la route refuserait.
+   */
+  nonReprenable?: string;
   /** Présent quand la pull request n'a pas pu être lue — le dire vaut mieux. */
   illisible?: string;
 }
@@ -1985,6 +2372,66 @@ export interface LivraisonVue {
 /** Ce que deviennent les pull requests ouvertes par la ruche. */
 export function fetchLivraisons(projectId: string): Promise<{ livraisons: LivraisonVue[] }> {
   return api(`/api/projects/${encodeURIComponent(projectId)}/livraisons`);
+}
+
+// ─── Les missions rejouables et le Time Travel ──────────────────────────────
+
+export type {
+  ComparaisonMissions,
+  EcartDeclare,
+  PolitiqueRoutage,
+  ResumeMission,
+  SurchargesRejeu,
+} from '../../src/shared/mission-rejouable';
+import type {
+  ComparaisonMissions,
+  ResumeMission,
+  SurchargesRejeu,
+} from '../../src/shared/mission-rejouable';
+
+/** Une mission telle que `GET /api/projects/:id/missions` la liste. */
+export interface MissionVue {
+  id: string;
+  ouverteA: number;
+  closeA: number | null;
+  /** `null` : instantané d'une autre version, illisible — dit, pas deviné. */
+  tachesPlan: number | null;
+  rejouable: boolean;
+  manques: string[];
+  resume: ResumeMission | null;
+  /** Les projets de rejeu de cette mission que le lecteur peut ouvrir. */
+  rejeux: string[];
+}
+
+export interface RejeuVue {
+  missionSource: string;
+  projetSource: string | null;
+  surcharges: SurchargesRejeu;
+  creeA: number;
+  actions: Array<{ genre: string; cible: string; issue: 'simulee' | 'validee'; creeA: number }>;
+}
+
+export function fetchMissions(
+  projectId: string,
+): Promise<{ missions: MissionVue[]; rejeu: RejeuVue | null }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/missions`);
+}
+
+/** Rejoue une mission dans un projet neuf ; ses actions irréversibles sont simulées. */
+export function rejouerMission(
+  projectId: string,
+  missionId: string,
+  surcharges: SurchargesRejeu,
+): Promise<{ projet: Project; taches: Array<{ id: string; title: string }> }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/missions/${encodeURIComponent(missionId)}/rejouer`,
+    { method: 'POST', body: JSON.stringify(surcharges) },
+  );
+}
+
+/** Mission source contre rejeu, sur les seules données déclarées. */
+export function fetchComparaisonRejeu(projectId: string): Promise<ComparaisonMissions> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/rejeu/comparaison`);
 }
 
 /** Reprend une livraison : la CI ou la revue redeviennent du travail. */
@@ -2249,6 +2696,126 @@ export function revoquerBillet(billetId: string): Promise<{ ok: boolean }> {
   });
 }
 
+// ─── Les CONNECTEURS externes (src/connectors) ──────────────────────────────
+//
+// Le catalogue + la pose des secrets sont ADMIN (poser un jeton écrit dans
+// l'env de l'hôte) ; autoriser/tester par projet suivent qui répond du projet.
+// La valeur d'un secret ne revient JAMAIS : `presente` est un booléen.
+
+export type PorteeConnecteur = 'lecture' | 'notification' | 'approbation' | 'action';
+
+export interface SecretConnecteur {
+  envVar: string;
+  libelleFr: string;
+  libelleEn: string;
+  hintFr: string;
+  hintEn: string;
+  requis: boolean;
+  presente: boolean;
+}
+
+export interface ConnecteurCatalogue {
+  id: string;
+  libelleFr: string;
+  libelleEn: string;
+  hintFr: string;
+  hintEn: string;
+  mode: 'lecture_seule' | 'action';
+  portees: PorteeConnecteur[];
+  actif: boolean;
+  secrets: SecretConnecteur[];
+}
+
+export interface AutorisationConnecteur {
+  connecteurId: string;
+  portees: PorteeConnecteur[];
+  /** Absents pour qui ne règle pas le projet : la Reine ne les lui montre pas. */
+  canaux?: string[];
+  usagers?: string[];
+  actif: boolean;
+  majA: number;
+}
+
+export interface EntreeJournalConnecteur {
+  id: string;
+  connecteurId: string;
+  projectId: string | null;
+  portee: string;
+  acte: string;
+  cible: string | null;
+  resultat: 'ok' | 'echec' | 'refuse';
+  qui: string;
+  apercu: string;
+  chargeDigest: string;
+  creeA: number;
+}
+
+export interface ConnecteurProjetResume {
+  id: string;
+  libelleFr: string;
+  libelleEn: string;
+  mode: 'lecture_seule' | 'action';
+  portees: PorteeConnecteur[];
+  actif: boolean;
+}
+
+export function fetchConnecteurs(): Promise<{ connecteurs: ConnecteurCatalogue[] }> {
+  return apiCompte('/api/connecteurs');
+}
+
+export function poserSecretConnecteur(
+  connecteurId: string,
+  envVar: string,
+  valeur: string,
+): Promise<{ ok: boolean; envVar: string; actif: boolean }> {
+  return apiCompte(`/api/connecteurs/${encodeURIComponent(connecteurId)}/secrets`, {
+    method: 'POST',
+    body: JSON.stringify({ envVar, valeur }),
+  });
+}
+
+export function fetchConnecteursProjet(projectId: string): Promise<{
+  autorisations: AutorisationConnecteur[];
+  journal: EntreeJournalConnecteur[];
+  connecteurs: ConnecteurProjetResume[];
+  /** Présent quand l'appelant ne règle pas le projet : listes et journal tus. */
+  reserve?: true;
+}> {
+  return apiCompte(`/api/projects/${encodeURIComponent(projectId)}/connecteurs`);
+}
+
+export function autoriserConnecteurProjet(
+  projectId: string,
+  connecteurId: string,
+  corps: { portees: PorteeConnecteur[]; canaux?: string[]; usagers?: string[]; actif?: boolean },
+): Promise<{ ok: boolean; portees: PorteeConnecteur[] }> {
+  return apiCompte(
+    `/api/projects/${encodeURIComponent(projectId)}/connecteurs/${encodeURIComponent(connecteurId)}/autoriser`,
+    { method: 'POST', body: JSON.stringify(corps) },
+  );
+}
+
+export function revoquerConnecteurProjet(
+  projectId: string,
+  connecteurId: string,
+): Promise<{ ok: boolean; revoque: boolean }> {
+  return apiCompte(
+    `/api/projects/${encodeURIComponent(projectId)}/connecteurs/${encodeURIComponent(connecteurId)}`,
+    { method: 'DELETE' },
+  );
+}
+
+export function testerConnecteurProjet(
+  projectId: string,
+  connecteurId: string,
+  kind?: 'resume_mission' | 'decision' | 'blocage' | 'demande_approbation',
+): Promise<{ ok: boolean; envoye: boolean; motif?: string }> {
+  return apiCompte(
+    `/api/projects/${encodeURIComponent(projectId)}/connecteurs/${encodeURIComponent(connecteurId)}/test`,
+    { method: 'POST', body: JSON.stringify(kind ? { kind } : {}) },
+  );
+}
+
 // ─── Mon tableau de bord ────────────────────────────────────────────────────
 // Un seul appel : l'écran doit pouvoir dire d'un bloc « voici ce qui va vous
 // coûter quelque chose si vous ne faites rien ». Enchaîner une requête par
@@ -2303,9 +2870,11 @@ export interface FeedHandlers {
   ) => void;
   /**
    * Le rattrapage a trouvé un TROU : `manquants` événements émis pendant la
-   * coupure étaient déjà élagués par la Reine (elle ne garde que ses derniers
-   * événements). Le trou ne se comble plus ; il se DIT, pour que le Journal ne
-   * passe pas pour complet.
+   * coupure étaient déjà élagués par la Reine — sa rétention garde une fenêtre
+   * des derniers événements pour les traces, et sous elle les seules preuves
+   * des tâches qui comptent encore (`shared/retention-journal.ts`) : un curseur
+   * ancien traverse donc des preuves éparses, séparées de trous. Le trou ne se
+   * comble plus ; il se DIT, pour que le Journal ne passe pas pour complet.
    */
   onJournalIncomplet?: (manquants: number) => void;
 }
@@ -2530,6 +3099,16 @@ import type { ProjetPublic as ProjetPublicVue } from '../../src/shared/projet-pu
 import type { AffectationVue } from '../../src/shared/routage-vue';
 import type { ChronologieTache } from '../../src/shared/chronologie-tache';
 import type { RegistreGenome } from '../../src/shared/registre-genome';
+import type { MotifRefusOmbre } from '../../src/orchestrator/shadow-bench';
+import type {
+  ComptesExperience,
+  ContexteSimilaire,
+  GenreNoeud,
+  GrapheExperience,
+  NoeudExperience,
+  Voisinage,
+} from '../../src/shared/graphe-experience';
+import type { PorteeExperience } from '../../src/shared/reglages';
 export type { ProjetPublic as ProjetPublicVue } from '../../src/shared/projet-public';
 
 /**
@@ -2636,10 +3215,11 @@ export function lancerWorkflowGithub(
   projectId: string,
   workflowId: number,
   ref: string,
+  validerRejeu = false,
 ): Promise<{ workflow: Workflow; ref: string }> {
   return api(`/api/projects/${encodeURIComponent(projectId)}/workflows/${String(workflowId)}/run`, {
     method: 'POST',
-    body: JSON.stringify({ ref }),
+    body: JSON.stringify({ ref, ...(validerRejeu ? { validerRejeu: true } : {}) }),
   });
 }
 

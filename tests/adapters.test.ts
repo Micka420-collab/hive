@@ -3,7 +3,12 @@
 // respecte le contrat AgentAdapter (progrès, flaky, annulation).
 
 import { describe, expect, it } from 'vitest';
-import { argvClaude, createClaudeCodeAdapter } from '../src/adapters/claude-code.js';
+import {
+  argvClaude,
+  createClaudeCodeAdapter,
+  effortsDeLAide,
+  sonderEffortsClaude,
+} from '../src/adapters/claude-code.js';
 import { createCodexAdapter } from '../src/adapters/codex.js';
 import { createShellAdapter } from '../src/adapters/shell.js';
 import type { AdapterContext } from '../src/adapters/index.js';
@@ -70,6 +75,64 @@ describe('argvClaude — le modèle de l’Aiguillage passe à `claude --model`'
     // AVANT le séparateur `--` : sinon le nom serait lu comme du texte de prompt.
     expect(iModele, 'le modèle est une OPTION, avant `--`').toBeLessThan(argv.indexOf('--'));
     expect(argv[argv.length - 1], 'le prompt reste tout en dernier').toBe('mon prompt');
+  });
+
+  it('L’EFFORT ÉLU PART EN `--effort <niveau>`, lui aussi AVANT le `--`', () => {
+    const argv = argvClaude(
+      'mon prompt',
+      'claude-opus-5',
+      undefined,
+      undefined,
+      undefined,
+      'xhigh',
+    );
+    const iEffort = argv.indexOf('--effort');
+    expect(argv[iEffort + 1]).toBe('xhigh');
+    expect(iEffort, 'une OPTION, jamais du texte de prompt').toBeLessThan(argv.indexOf('--'));
+    expect(
+      argvClaude('mon prompt', 'claude-opus-5'),
+      'sans effort élu, aucun drapeau',
+    ).not.toContain('--effort');
+  });
+
+  it('L’ADAPTATEUR DÉCLARE LES NIVEAUX QUE LE `claude --help` INSTALLÉ DOCUMENTE — Codex, aucun', async () => {
+    // L'aide relevée sur Claude Code 2.1.283, au mot près, entre deux options.
+    const aide = [
+      '  --disallowedTools <tools...>          Comma or space-separated list',
+      '  --effort <level>                      Effort level for the current session',
+      '                                        (low, medium, high, xhigh, max)',
+      '  --environment <environment_id>        Create a new cloud session (a, b)',
+    ].join('\n');
+    expect(effortsDeLAide(aide)).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+    // Un CLI d'avant `xhigh` n'en reçoit pas ; un CLI d'avant `--effort`, aucun
+    // — la liste d'une AUTRE option n'est jamais lue pour la sienne.
+    expect(effortsDeLAide(aide.replace('xhigh, ', ''))).toEqual(['low', 'medium', 'high', 'max']);
+    expect(
+      effortsDeLAide(
+        aide
+          .split('\n')
+          .filter((l) => !/effort|low/.test(l))
+          .join('\n'),
+      ),
+    ).toEqual([]);
+    // La sonde : `claude --help`, jamais un prompt ; muette ou en échec, aucun effort.
+    const appels: string[][] = [];
+    const efforts = await sonderEffortsClaude((commande, args) => {
+      appels.push([...commande, ...args]);
+      return Promise.resolve({ code: 0, sortie: aide });
+    });
+    expect(appels).toEqual([['claude', '--help']]);
+    expect(efforts).toEqual(['low', 'medium', 'high', 'xhigh', 'max']);
+    expect(await sonderEffortsClaude(() => Promise.resolve(null)), 'sonde muette').toEqual([]);
+    expect(
+      await sonderEffortsClaude(() => Promise.resolve({ code: 1, sortie: aide })),
+      'sonde en échec',
+    ).toEqual([]);
+    // Codex n'en documente aucun (valeurs propres à chaque modèle) : un niveau
+    // refusé brûlerait la tentative sans verdict.
+    const jeton = 'un-vrai-token-de-ruche';
+    expect(createClaudeCodeAdapter(jeton).effortsDocumentes).toBeTypeOf('function');
+    expect(createCodexAdapter(jeton).effortsDocumentes).toBeUndefined();
   });
 });
 

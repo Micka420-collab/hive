@@ -42,6 +42,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import process from 'node:process';
+import { URLSearchParams } from 'node:url';
 // Explicites : ESLint ne déclare pas les globales de minuterie dans `scripts/*.mjs`
 // (cf. `ruche.mjs`).
 import { clearTimeout, setTimeout } from 'node:timers';
@@ -80,6 +81,39 @@ const HERITEES = new Set([
 
 /** Le nom de l'ouvrière photographiée — une démo, jamais le nom de la machine. */
 export const NOM_OUVRIERE = 'atelier-demo';
+
+/**
+ * La relectrice de démonstration (`scripts/captures-relectrice.mjs`) : une
+ * seconde famille d'agent, le temps du débat que la War Room photographie.
+ */
+export const NOM_RELECTRICE = 'relectrice-demo';
+
+/**
+ * Ce qui fait de l'ouvrière du laboratoire une RELECTRICE : l'adaptateur
+ * « commande libre », pointé sur le script de démonstration.
+ *
+ * `HIVE_AGENT_CMD` est découpé sur les espaces, sans shell (`custom.ts`, §5.1) :
+ * un chemin qui en contient se couperait en deux arguments, et la relectrice
+ * lancerait un programme qui n'existe pas. On le REFUSE ici, dit, plutôt que
+ * de photographier une War Room vide sans savoir pourquoi.
+ */
+export function envRelectrice(env, { racine, ws, node = process.execPath }) {
+  const commande = [node, path.join(racine, 'scripts', 'captures-relectrice.mjs'), '{prompt}'];
+  const espace = commande.find((morceau) => /\s/.test(morceau));
+  if (espace) {
+    throw new Error(
+      `la relectrice de démonstration exige un chemin sans espace (HIVE_AGENT_CMD est découpé sur les espaces) : « ${espace} »`,
+    );
+  }
+  return {
+    ...env,
+    HIVE_URL: ws,
+    HIVE_AGENT: 'custom',
+    HIVE_AGENT_CMD: commande.join(' '),
+    HIVE_NODE_NAME: NOM_RELECTRICE,
+    HIVE_MAX_CONCURRENCY: '1',
+  };
+}
 
 /**
  * L'environnement des deux processus de la ruche de laboratoire.
@@ -297,7 +331,29 @@ export async function lancerRucheIsolee({
     const entetes = { 'x-hive-token': jeton };
     demarrer({ noeud: true }, { ...env, HIVE_URL: adresse.ws });
     const noeudId = await attendreOuvriere(adresse.http, entetes, journal, abandon.signal);
-    return { ...adresse, entetes, noeudId, journal: journal.texte, arreter };
+    // La relectrice part par le MÊME lanceur que les deux autres : rangée dans
+    // `vivants`, un ^C l'emporte avec la ruche, même en plein débat.
+    const ajouterRelectrice = async () => {
+      const proc = demarrer({ noeud: true }, envRelectrice(env, { racine, ws: adresse.ws }));
+      const id = await attendreOuvriere(
+        adresse.http,
+        entetes,
+        journal,
+        abandon.signal,
+        NOM_RELECTRICE,
+      );
+      return {
+        noeudId: id,
+        arreter: async () => {
+          frapper(proc, 'SIGTERM');
+          if (!(await attendreFin(proc, 5_000))) {
+            frapper(proc, 'SIGKILL');
+            await attendreFin(proc, 2_000);
+          }
+        },
+      };
+    };
+    return { ...adresse, entetes, noeudId, journal: journal.texte, arreter, ajouterRelectrice };
   } catch (e) {
     await arreter();
     // Arrêtée de l'extérieur : c'est CETTE raison qu'on rend, pas l'« operation
@@ -360,19 +416,24 @@ async function demander(base, chemin, options = {}) {
   return texte === '' ? null : JSON.parse(texte);
 }
 
-async function attendreOuvriere(base, entetes, journal, signal, patienceMs = 60_000) {
+async function attendreOuvriere(
+  base,
+  entetes,
+  journal,
+  signal,
+  nom = NOM_OUVRIERE,
+  patienceMs = 60_000,
+) {
   const fin = Date.now() + patienceMs;
   while (Date.now() < fin) {
     signal.throwIfAborted();
     const etat = await demander(base, '/api/state', { headers: entetes, signal }).catch(() => null);
-    const noeud = (etat?.nodes ?? []).find(
-      (n) => n?.name === NOM_OUVRIERE && n?.status === 'online',
-    );
+    const noeud = (etat?.nodes ?? []).find((n) => n?.name === nom && n?.status === 'online');
     if (noeud) return noeud.id;
     await patienter(250, undefined, { signal });
   }
   throw new Error(
-    `l'ouvrière ${NOM_OUVRIERE} n'est pas en ligne après ${patienceMs / 1000} s\n${journal.texte()}`,
+    `l'ouvrière ${nom} n'est pas en ligne après ${patienceMs / 1000} s\n${journal.texte()}`,
   );
 }
 
@@ -535,4 +596,169 @@ export async function attendreTerminees(ruche, patienceMs = 120_000) {
     `${restantes.length} tâche(s) toujours en cours après ${patienceMs / 1000} s : ` +
       restantes.map((t) => `${t.title} (${t.status})`).join(', '),
   );
+}
+
+// ─── LE DÉBAT QUE LA WAR ROOM PHOTOGRAPHIE ──────────────────────────────────
+//
+// La War Room ne montre que des faits journalisés par les VRAIS producteurs :
+// on ne les écrit donc pas, on les PROVOQUE. Une seconde famille — la
+// relectrice de démonstration, `scripts/captures-relectrice.mjs` — relit les
+// productions du `shell`, et chaque tâche ci-dessous emprunte un chemin
+// différent du protocole (`docs/PROTOCOLE-DEBAT.md`) :
+//
+//   · « Validation des montants » : contestée à chaque essai — la ruche
+//     relance le producteur avec la critique jusqu'à épuiser ses essais, et
+//     la contestation reste EN TÊTE, à trancher ;
+//   · « Arrondi des taxes » : la relectrice se tait, aucune autre famille pour
+//     le secours — relecture impossible, l'Evaluator appelle un humain ;
+//   · « Export CSV des paiements » : validée, rejetée par un humain avec sa
+//     raison (la correction part avec elle), revalidée, puis approuvée ;
+//   · deux Conseils : le premier tranché par un humain, le second laissé tel
+//     qu'il se clôt — s'il n'a pas convergé, il attend quelqu'un.
+//
+// Les tâches passent UNE À UNE, et chacune va au bout de son chemin avant la
+// suivante : deux productions en vol mêleraient leurs relectures, et le
+// producteur ne serait plus forcément l'ouvrière `shell` (à charge égale, la
+// file départage par le nom — `atelier-demo` passe avant `relectrice-demo`).
+//
+// La relectrice est ARRÊTÉE à la fin : laissée en ligne, elle prendrait des
+// productions du lot « en vol » et y répondrait par une production vide. Les
+// vues la montrent donc hors ligne — ce qui est vrai.
+
+export const PROJET_DEBAT = {
+  name: 'Paiement — revue croisée',
+  description: 'Démonstration : une seconde famille relit, conteste, se tait ; un humain tranche.',
+};
+
+/** Le rejet humain de la démonstration, et la raison qui part avec la correction. */
+export const RAISON_REJET_DEMO =
+  'Les en-têtes doivent suivre le modèle comptable : date, montant, devise.';
+
+/** La question des deux Conseils de la démonstration. */
+export const QUESTION_DEBAT = 'Que faut-il changer en premier dans le module de paiement ?';
+
+/**
+ * Attend qu'une condition sur le fil d'une tâche soit vraie, et rend ce fil.
+ * Le fil vient de `GET /api/war-room` : on attend ce que l'écran montrera.
+ */
+async function attendreFil(ruche, filtre, condition, quoi, patienceMs = 180_000) {
+  const fin = Date.now() + patienceMs;
+  let vue = null;
+  while (Date.now() < fin) {
+    vue = await demander(ruche.http, `/api/war-room?${new URLSearchParams(filtre)}&limite=500`, {
+      headers: ruche.entetes,
+    });
+    if (condition(vue)) return vue;
+    await patienter(250);
+  }
+  // Le fil ENTIER, borné : c'est lui qui dit pourquoi le chemin a bifurqué
+  // (une relecture close sans avis nomme son motif, un refus sa raison).
+  const fil = JSON.stringify(vue?.entrees ?? []).slice(0, 4_000);
+  throw new Error(`jamais arrivé en ${patienceMs / 1000} s : ${quoi}\nfil : ${fil}`);
+}
+
+const aLeGenre =
+  (genre, n = 1) =>
+  (vue) =>
+    (vue?.entrees ?? []).filter((e) => e.genre === genre).length >= n;
+
+async function attendreConseilClos(ruche, sessionId, patienceMs = 240_000) {
+  const fin = Date.now() + patienceMs;
+  while (Date.now() < fin) {
+    const session = await demander(ruche.http, `/api/conseil/${encodeURIComponent(sessionId)}`, {
+      headers: ruche.entetes,
+    });
+    if (session?.etat === 'clos') return session;
+    await patienter(500);
+  }
+  throw new Error(`le Conseil ${sessionId} n'est pas clos après ${patienceMs / 1000} s`);
+}
+
+/**
+ * Joue le débat sur la ruche de laboratoire, relectrice comprise, et l'arrête.
+ * Rend `{ projetId, conseils }` — `conseils[i].issue` dit comment chaque
+ * Conseil s'est clos, puisque la démonstration ne le décide pas.
+ */
+export async function amorcerDebat(ruche, { verdicts }) {
+  const json = { ...ruche.entetes, 'content-type': 'application/json' };
+  const poster = (chemin, corps) =>
+    demander(ruche.http, chemin, { method: 'POST', headers: json, body: JSON.stringify(corps) });
+  const [contestee, muette] = Object.keys(verdicts);
+  if (!contestee || !muette)
+    throw new Error('la relectrice doit contester une tâche et en taire une');
+
+  const relectrice = await ruche.ajouterRelectrice();
+  try {
+    const projet = await poster('/api/projects', PROJET_DEBAT);
+    const creer = async (title, prompt) => {
+      const [tache] = await poster(`/api/projects/${encodeURIComponent(projet.id)}/tasks`, {
+        tasks: [{ title, prompt }],
+      });
+      const id = tache?.id;
+      if (!id) throw new Error(`la tâche « ${title} » n'a pas été créée`);
+      return id;
+    };
+    const revoir = (taskId, corps) =>
+      poster(`/api/tasks/${encodeURIComponent(taskId)}/review`, corps);
+
+    const t1 = await creer(
+      contestee,
+      'Refuser les montants négatifs et fixer la devise par défaut.',
+    );
+    await attendreFil(
+      ruche,
+      { taskId: t1 },
+      aLeGenre('renvoi_refuse'),
+      'la contestation sans renvoi',
+    );
+
+    const t2 = await creer(
+      muette,
+      'Arrondir les taxes au centime, montants à trois décimales compris.',
+    );
+    await attendreFil(
+      ruche,
+      { taskId: t2 },
+      aLeGenre('contre_impossible'),
+      'la relecture impossible',
+    );
+
+    const t3 = await creer(
+      'Export CSV des paiements',
+      'Exporter les paiements du mois au format CSV.',
+    );
+    await attendreFil(ruche, { taskId: t3 }, aLeGenre('contre_verdict'), 'la première relecture');
+    await attendreTerminees(ruche);
+    await revoir(t3, { state: 'rejected', raison: RAISON_REJET_DEMO });
+    await attendreFil(
+      ruche,
+      { taskId: t3 },
+      aLeGenre('contre_verdict', 2),
+      'la relecture de la correction',
+    );
+    await attendreTerminees(ruche);
+    await revoir(t3, { state: 'approved' });
+
+    const conseils = [];
+    for (const tranche of [true, false]) {
+      const ouvert = await poster(`/api/projects/${encodeURIComponent(projet.id)}/conseil`, {
+        question: QUESTION_DEBAT,
+      });
+      const clos = await attendreConseilClos(ruche, ouvert.id);
+      if (tranche) {
+        const piste = clos.danses?.[0] ?? null;
+        await poster(`/api/conseil/${encodeURIComponent(clos.id)}/decision`, {
+          propositionId: piste?.id ?? null,
+          justification: piste
+            ? 'Démonstration : la piste la mieux vérifiée, à confier à une tâche.'
+            : 'Démonstration : aucune piste ne tient, on ne change rien pour l’instant.',
+        });
+      }
+      conseils.push({ id: clos.id, issue: clos.issue, tranche });
+      await attendreTerminees(ruche);
+    }
+    return { projetId: projet.id, conseils };
+  } finally {
+    await relectrice.arreter();
+  }
 }

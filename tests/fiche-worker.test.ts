@@ -54,6 +54,8 @@ describe('debatsDuWorker — la participation se prouve', () => {
       relecteur: 'codex',
       conteste: true,
       objections: ['test manquant'],
+      criteres: [],
+      marqueurIllisible: false,
     },
     // Même famille, autre production que `moi` n'a PAS relue : pas à lui.
     {
@@ -64,6 +66,8 @@ describe('debatsDuWorker — la participation se prouve', () => {
       relecteur: 'codex',
       conteste: false,
       objections: [],
+      criteres: [],
+      marqueurIllisible: false,
     },
     // Sa propre production, renvoyée par l'Evaluator.
     {
@@ -74,6 +78,7 @@ describe('debatsDuWorker — la participation se prouve', () => {
       decision: 'correction_required',
       tentative: 1,
       maxTentatives: 3,
+      demandePar: null,
     },
     { ...base(7), genre: 'conseil_clos', sessionId: 's1', issue: 'quorum', retenue: 'p1' },
   ];
@@ -128,6 +133,8 @@ describe('debatsDuWorker — la participation se prouve', () => {
         relecteur: 'codex',
         conteste: true,
         objections: [],
+        criteres: [],
+        marqueurIllisible: false,
       },
       {
         ...base(22),
@@ -137,12 +144,27 @@ describe('debatsDuWorker — la participation se prouve', () => {
         decision: 'correction_required',
         tentative: 2,
         maxTentatives: 3,
+        demandePar: null,
       },
-      { ...base(23), genre: 'renvoi_refuse', taskId: 'T', resultId: 42, raison: 'max' },
+      {
+        ...base(23),
+        genre: 'renvoi_refuse',
+        taskId: 'T',
+        resultId: 42,
+        raison: 'max',
+        source: null,
+      },
       // Un renvoi sans `resultId` ne désigne personne : inconnu reste inconnu.
-      { ...base(24), genre: 'renvoi_refuse', taskId: 'T', resultId: null, raison: 'max' },
+      {
+        ...base(24),
+        genre: 'renvoi_refuse',
+        taskId: 'T',
+        resultId: null,
+        raison: 'max',
+        source: null,
+      },
       // Une revue humaine juge la TÂCHE : A n'en est pas le seul producteur.
-      { ...base(25), genre: 'revue_humaine', taskId: 'T', etat: 'rejected' },
+      { ...base(25), genre: 'revue_humaine', taskId: 'T', etat: 'rejected', raison: null },
       // Ce qui jugeait SON résultat 41 reste à lui.
       {
         ...base(26),
@@ -152,6 +174,7 @@ describe('debatsDuWorker — la participation se prouve', () => {
         decision: 'correction_required',
         tentative: 1,
         maxTentatives: 3,
+        demandePar: null,
       },
     ];
     const a = debatsDuWorker(surB, preuves({ resultats: new Set([41]), avisRendus: new Set() }));
@@ -188,6 +211,8 @@ describe('debatsDuWorker — la participation se prouve', () => {
         relecteur: 'codex',
         conteste: false,
         objections: [],
+        criteres: [],
+        marqueurIllisible: false,
       },
     ];
     const x = debatsDuWorker(avis, preuves({ resultats: new Set(), avisRendus: new Set([29]) }));
@@ -196,12 +221,60 @@ describe('debatsDuWorker — la participation se prouve', () => {
 
   it('une revue humaine est à l’auteur quand il est le SEUL producteur de la tâche', () => {
     const revue: EntreeWarRoom[] = [
-      { ...base(40), genre: 'revue_humaine', taskId: 'U', etat: 'approved' },
+      { ...base(40), genre: 'revue_humaine', taskId: 'U', etat: 'approved', raison: null },
     ];
     expect(debatsDuWorker(revue, preuves({ seulProducteur: new Set(['U']) }))[0]?.role).toBe(
       'auteur',
     );
     expect(debatsDuWorker(revue, preuves())).toEqual([]);
+  });
+
+  it('une relecture impossible ou un verdict passé outre va à l’auteur de CETTE production', () => {
+    // Deux genres venus à la War Room après la fiche : ils nomment un
+    // `resultId` exact, donc la même preuve qu'un renvoi de l'Evaluator — et
+    // la famille du relecteur tombé ne prouve toujours rien.
+    const surProductions: EntreeWarRoom[] = [
+      {
+        ...base(50),
+        genre: 'contre_impossible',
+        taskId: 'prod-moi',
+        resultId: 11,
+        relecteur: 'codex',
+        cause: 'relecteur_absent',
+      },
+      {
+        ...base(51),
+        genre: 'evaluator_force',
+        taskId: 'prod-moi',
+        resultId: 11,
+        geste: 'livraison',
+        decision: 'rejected',
+        raison: 'urgence',
+        par: { genre: 'jeton_de_ruche' },
+      },
+      {
+        ...base(52),
+        genre: 'contre_impossible',
+        taskId: 'prod-autre',
+        resultId: 9,
+        relecteur: 'codex',
+        cause: 'relecteur_absent',
+      },
+      {
+        ...base(53),
+        genre: 'evaluator_force',
+        taskId: 'prod-autre',
+        resultId: null,
+        geste: 'fusion',
+        decision: null,
+        raison: 'urgence',
+        par: { genre: 'jeton_de_ruche' },
+      },
+    ];
+    expect(debatsDuWorker(surProductions, preuves()).map((d) => [d.entree.id, d.role])).toEqual([
+      [51, 'auteur'],
+      [50, 'auteur'],
+    ]);
   });
 
   it('borne le fil à DEBATS_MAX entrées, les plus récentes', () => {
@@ -210,6 +283,7 @@ describe('debatsDuWorker — la participation se prouve', () => {
       genre: 'revue_humaine' as const,
       taskId: 'prod-moi',
       etat: 'approved' as const,
+      raison: null,
     }));
     const debats = debatsDuWorker(beaucoup, preuves({ seulProducteur: new Set(['prod-moi']) }));
     expect(debats).toHaveLength(DEBATS_MAX);

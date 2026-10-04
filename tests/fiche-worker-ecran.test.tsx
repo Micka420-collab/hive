@@ -142,6 +142,8 @@ function fiche(over: Partial<Fiche> = {}): Fiche {
           relecteur: 'claude-code',
           conteste: true,
           objections: ['test manquant'],
+          criteres: [],
+          marqueurIllisible: false,
         },
       },
     ],

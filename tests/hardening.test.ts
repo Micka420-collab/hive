@@ -13,6 +13,7 @@ import { createServer, findCycle } from '../src/orchestrator/server.js';
 import type { HiveServer, ServerConfig } from '../src/orchestrator/server.js';
 import { LIMITS } from '../src/shared/protocol.js';
 import type { Task, TaskResult } from '../src/shared/types.js';
+import { brancherFauxNoeud } from './aide/faux-noeud.js';
 
 const TOKEN = 'jeton-durcissement-assez-long';
 const jsonHeaders = { 'content-type': 'application/json', 'x-hive-token': TOKEN };
@@ -43,19 +44,6 @@ function closeCode(ws: WebSocket): Promise<number> {
 
 function send(ws: WebSocket, msg: unknown): void {
   ws.send(JSON.stringify(msg));
-}
-
-/** Collecte les messages JSON reçus sur un socket dans un tableau. */
-function collect(ws: WebSocket): Record<string, unknown>[] {
-  const msgs: Record<string, unknown>[] = [];
-  ws.on('message', (data) => {
-    try {
-      msgs.push(JSON.parse(data.toString()) as Record<string, unknown>);
-    } catch {
-      /* ignore */
-    }
-  });
-  return msgs;
 }
 
 async function waitFor(cond: () => Promise<boolean> | boolean, timeoutMs: number): Promise<void> {
@@ -381,8 +369,7 @@ describe('durcissement du serveur', () => {
   // ─── Ré-adoption après blip WS (verrou anti-régression) ───────────────────────
   it('un nœud qui blip puis se reconnecte en déclarant sa tâche la RÉ-ADOPTE (pas d’annulation)', async () => {
     const NODE = 'n-blip';
-    const register = (activeTasks: string[]) => ({
-      type: 'register',
+    const inscription = (activeTasks: string[]) => ({
       token: TOKEN,
       name: 'blip',
       ownerName: 'test',
@@ -405,10 +392,10 @@ describe('durcissement du serveur', () => {
       body: JSON.stringify({ tasks: [{ id: 'tblip', title: 'T', prompt: 'p' }] }),
     });
 
-    // 1) Le nœud rejoint, reçoit la tâche et la déclare en cours.
-    const ws1 = await rawConnect(server.port);
-    const in1 = collect(ws1);
-    send(ws1, register([]));
+    // 1) Le nœud rejoint (et bat, `aide/faux-noeud`), reçoit la tâche et la
+    //    déclare en cours.
+    const in1: { type: string }[] = [];
+    const { ws: ws1 } = await brancherFauxNoeud(server.port, inscription([]), (m) => in1.push(m));
     await waitFor(() => in1.some((m) => m.type === 'assign_task'), 8_000);
     send(ws1, { type: 'task_update', taskId: 'tblip', status: 'running' });
     await waitFor(async () => (await taskOf('tblip'))?.status === 'running', 8_000);
@@ -419,10 +406,10 @@ describe('durcissement du serveur', () => {
     await waitFor(async () => (await taskOf('tblip'))?.assignedNodeId === null, 8_000);
 
     // 3) Reconnexion : le nœud déclare qu'il exécute toujours tblip.
-    const ws2 = await rawConnect(server.port);
-    const in2 = collect(ws2);
-    send(ws2, register(['tblip']));
-    await waitFor(() => in2.some((m) => m.type === 'registered'), 8_000);
+    const in2: { type: string }[] = [];
+    const { ws: ws2 } = await brancherFauxNoeud(server.port, inscription(['tblip']), (m) =>
+      in2.push(m),
+    );
 
     // 4) La tâche est RÉ-ADOPTÉE : running sur le nœud, aucune tentative brûlée,
     //    et aucun cancel_task ne lui a été envoyé (pas de zombie).

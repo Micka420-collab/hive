@@ -277,7 +277,17 @@ describe('LE CADRE, CÔTÉ ÉCRAN — ce qu’aucun test unitaire ne verrouille'
     // `src="/api/…/apercu"` donnerait au cadre l'origine de la ruche, et donc
     // le localStorage où vit le jeton. `srcDoc` dans un cadre sans
     // `allow-same-origin` lui donne une origine opaque.
-    expect(VUE).toContain('srcDoc={apercu.html}');
+    expect(VUE).toContain('srcDoc: apercu.html');
     expect(VUE).not.toMatch(/<iframe[^>]*\bsrc=/);
+  });
+
+  it('la seule autre source est l’URL `apercu:` que rend l’app de bureau (#532)', () => {
+    // Dans l'app, la CSP de l'écran s'hérite dans un `srcdoc` et y bloque les
+    // scripts du site : la coquille sert le document depuis son propre schéma.
+    // Une URL qui viendrait d'ailleurs — la ruche, un paramètre — ne passe pas.
+    expect(VUE).toContain('{ src: srcApercu }');
+    expect(VUE).toMatch(
+      /\.hiveBureau\?\.apercu;\s*return apercu && servir \? servir\(apercu\.html\) : null;/,
+    );
   });
 });

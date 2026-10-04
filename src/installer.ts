@@ -27,7 +27,7 @@ import { randomBytes } from 'node:crypto';
 import { PORT_DASHBOARD_DEV } from './assistant.js';
 import { legendeCodes } from './codes-sortie.js';
 import { LONGUEUR_MIN_SECRET_JWT, SECRET_JWT_INTERDIT } from './orchestrator/auth.js';
-import { NODE_MINIMUM } from './shared/doctor.js';
+import { NODE_MAJEUR, NODE_MINIMUM, nodeSuffisant } from './shared/doctor.js';
 import { MIN_TOKEN_LENGTH } from './shared/types.js';
 
 /** Longueur du jeton engendré. Confortablement au-delà du minimum exigé. */
@@ -341,11 +341,12 @@ export function completerEnv(contenu: string, reglages: readonly Reglage[]): str
  */
 export const NODE_MIN = NODE_MINIMUM;
 
-/** `true` si la version courante suffit. Prend « v24.11.0 » comme « 24.11.0 ». */
-export function nodeSuffisant(version: string): boolean {
-  const majeure = Number(version.replace(/^v/, '').split('.')[0]);
-  return Number.isFinite(majeure) && majeure >= NODE_MIN;
-}
+/**
+ * `true` si la version courante suffit — la règle du docteur, pas une copie :
+ * le plancher se compare jusqu'au mineur (24.18), et deux comparaisons
+ * écrites séparément finiraient par diverger.
+ */
+export { nodeSuffisant };
 
 /**
  * Ce qu'on dit à quelqu'un dont le Node est trop vieux.
@@ -368,7 +369,7 @@ export function messagePrerequisNode(version: string): string[] {
   return [
     `Node ${version} — la ruche exige ${NODE_MIN} ou plus.`,
     'Installez une version récente depuis https://nodejs.org, puis relancez.',
-    `(Sur macOS/Linux, « nvm install ${NODE_MIN} » suffit si vous avez nvm.)`,
+    `(Sur macOS/Linux, « nvm install ${NODE_MAJEUR} » suffit si vous avez nvm.)`,
   ];
 }
 

@@ -78,7 +78,18 @@ const SEPARATEURS_DE_LIGNE = /[\r\n\t\v\f\u0085\u2028\u2029]+/gu;
  * souhaitable : un `\n` dans un nom déclaré par un tiers casse la mise en forme.
  */
 export function champSurUneLigne(texte: string, max: number): string {
-  return neutraliserDelimiteur(texte.replace(SEPARATEURS_DE_LIGNE, ' ')).slice(0, max);
+  return couperSansDemiPaire(neutraliserDelimiteur(texte.replace(SEPARATEURS_DE_LIGNE, ' ')), max);
+}
+
+/**
+ * Les `fin` premiers caractères de `texte`, un de moins si la coupe tombait
+ * entre les deux moitiés d'une paire de substitution (emoji, idéogramme hors
+ * du plan de base) : la moitié restée seule, JSON.stringify l'écrit `\udXXX`
+ * — SIX caractères pour un, et un caractère qui n'en est pas un.
+ */
+function couperSansDemiPaire(texte: string, fin: number): string {
+  const avant = texte.charCodeAt(fin - 1);
+  return texte.slice(0, avant >= 0xd800 && avant <= 0xdbff ? fin - 1 : fin);
 }
 
 /**
@@ -164,7 +175,14 @@ export function blocDonnees<L>(options: OptionsBlocDonnees<L>): string {
  * Tronque un champ texte pour libérer au moins `surplus` caractères, ellipse
  * comprise. Fabrique de `raccourcir` : les appelants n'ont plus qu'à désigner
  * leur champ volumineux.
+ *
+ * Jamais entre les deux moitiés d'une paire de substitution
+ * (`couperSansDemiPaire`) : la moitié seule s'écrit en six caractères, la
+ * ligne s'allongeait au lieu de raccourcir, et `blocDonnees`, qui compte sur
+ * « couper k caractères en retire au moins k », rendait alors un bloc VIDE :
+ * un CLAUDE.md en emoji disparaissait une fois sur deux selon la parité du
+ * budget.
  */
 export function tronquerChamp(valeur: string, surplus: number): string {
-  return `${valeur.slice(0, Math.max(0, valeur.length - surplus - 1))}…`;
+  return `${couperSansDemiPaire(valeur, Math.max(0, valeur.length - surplus - 1))}…`;
 }

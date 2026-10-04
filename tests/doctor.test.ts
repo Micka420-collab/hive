@@ -23,6 +23,7 @@ import {
   codeDeSortie,
   diagnostiquer,
   ESPACE_MINIMUM_OCTETS,
+  GLIBC_MINIMUM,
   NODE_MINIMUM,
   pire,
   RUCHE_COMPLETE,
@@ -37,7 +38,8 @@ const SAINE: Releve = {
   // devenu bloquant et trois tests l'ont dit. Un fixture qui cesse de
   // représenter ce qu'il prétend est un piège silencieux — celui-ci n'a pas
   // été silencieux.
-  nodeMajeur: 26,
+  versionNode: '26.10.0',
+  glibc: '2.36',
   fichierEnv: { present: true, lisible: true, permissions: 0o600 },
   secretSession: { utilisable: true, longueur: 64, publie: false, simulation: false },
   jeton: { present: true, longueur: 48, trivial: false },
@@ -57,6 +59,7 @@ const SAINE: Releve = {
   wsJoignable: true,
   reglages: { runner: 'off', bindPublic: false, gardiennes: 'strict', corsOuvert: false },
   espace: { octetsLibres: 40 * 1024 * 1024 * 1024, inscriptible: true },
+  decouverte: { ruche: false, machine: false, ecouteLocale: true },
 };
 
 /** Le relevé sain, avec un point dérangé. */
@@ -80,7 +83,8 @@ describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
     // Elle a tenu : `moteur` est arrivé après coup et s'y est plié sans qu'une
     // ligne de ce test change, à part le compte.
     const cassee: Releve = {
-      nodeMajeur: 18,
+      versionNode: '18.20.4',
+      glibc: '2.31',
       fichierEnv: { present: false, lisible: false, permissions: null },
       jeton: { present: false, longueur: 0, trivial: false },
       secretSession: { utilisable: false, longueur: 0, publie: false, simulation: false },
@@ -95,19 +99,25 @@ describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
       wsJoignable: false,
       reglages: { runner: 'on', bindPublic: true, gardiennes: 'off', corsOuvert: true },
       espace: { octetsLibres: 0, inscriptible: true },
+      // La découverte demandée sur une ruche qui n'écoute qu'elle-même.
+      decouverte: { ruche: true, machine: false, ecouteLocale: true },
     };
     const diags = diagnostiquer(cassee);
-    // ─── DOUZE, PUIS TREIZE ─────────────────────────────────────────────────
+    // ─── DOUZE, PUIS TREIZE, PUIS QUATORZE ──────────────────────────────────
     //
     // Le treizième est `secret_session`. Il est arrivé parce qu'un nouveau venu
     // pouvait suivre le docteur À LA LETTRE, ne plus voir aucun ✘ réparable,
     // taper `npm run ruche`, et voir la Reine mourir à la seconde sur une garde
     // qu'aucun des douze n'exerçait.
     //
+    // Le quatorzième est `decouverte`, placé en DERNIER : demander à la ruche
+    // de lister le réseau local alors qu'elle n'écoute qu'elle-même ne
+    // l'empêche pas de tourner, mais fait échouer chaque « Rejoindre ».
+    //
     // Ce compte est délibérément écrit en dur : ajouter un contrôle DOIT faire
     // rougir ce test, pour qu'on écrive aussi sa place dans l'ordre — l'ordre
     // est une information, pas une présentation.
-    expect(diags.length, 'les treize diagnostics de la mission').toBe(13);
+    expect(diags.length, 'les quatorze diagnostics de la mission').toBe(14);
 
     for (const d of diags) {
       expect(d.gravite, `${d.cle} devrait signaler quelque chose`).not.toBe('ok');
@@ -177,7 +187,7 @@ describe('LES DEUX RÈGLES QUI PORTENT TOUT LE MODULE', () => {
 
 describe('1. LA VERSION DE NODE', () => {
   it('sous le seuil, c’est bloquant — le reste ne sert à rien', () => {
-    const d = diag(avec({ nodeMajeur: NODE_MINIMUM - 1 }), 'node_version');
+    const d = diag(avec({ versionNode: '23.99.0' }), 'node_version');
     expect(d.gravite).toBe('bloquant');
 
     // LA COMMANDE EXACTE, et pas seulement « elle contient 20 ». La loupe a
@@ -187,7 +197,24 @@ describe('1. LA VERSION DE NODE', () => {
     // juste, elle ne répare rien — et c'est précisément ce que ce module
     // existe pour éviter. Une réparation fausse est pire qu'aucune : on la
     // tape, il ne se passe rien, et on cherche ailleurs.
-    expect(d.reparation).toBe(`nvm install ${NODE_MINIMUM} && nvm use ${NODE_MINIMUM}`);
+    //
+    // Le MAJEUR, pas le plancher figé : `nvm install 24` tire le dernier 24,
+    // `nvm install 24.18.0` figerait la machine sur le plus vieux accepté.
+    const majeur = NODE_MINIMUM.split('.')[0] ?? '';
+    expect(d.reparation).toBe(`nvm install ${majeur} && nvm use ${majeur}`);
+  });
+
+  it('LE MINEUR COMPTE : 24.17 est refusé, parce que son npm ignore `allowScripts`', () => {
+    // Node 24.0 à 24.17 embarquent npm 11.3 à 11.13, qui lancent le
+    // `node-gyp rebuild` de better-sqlite3 malgré le refus du paquet : sans
+    // python3, la dépendance tombe en silence. Un plancher « 24 » tout court
+    // les laissait passer.
+    const [majeur = '', mineur = ''] = NODE_MINIMUM.split('.');
+    const veille = `${majeur}.${String(Number(mineur) - 1)}.9`;
+    const d = diag(avec({ versionNode: veille }), 'node_version');
+    expect(d.gravite).toBe('bloquant');
+    expect(d.constat).toContain(NODE_MINIMUM);
+    expect(d.constat).toContain('npm ≥ 11.16');
   });
 
   it('AU SEUIL EXACT, ça passe — et c’est la version que fait tourner la CI', () => {
@@ -198,7 +225,7 @@ describe('1. LA VERSION DE NODE', () => {
     //
     // La même borne était testée pour l'espace disque et pas ici. Une
     // inégalité se retourne toujours là où on n'a pas regardé.
-    const d = diag(avec({ nodeMajeur: NODE_MINIMUM }), 'node_version');
+    const d = diag(avec({ versionNode: NODE_MINIMUM }), 'node_version');
     expect(d.gravite).toBe('ok');
     expect(d.reparation).toBeNull();
   });
@@ -449,10 +476,12 @@ describe('11. L’ESPACE DE TRAVAIL', () => {
 describe('12. LE MOTEUR — la panne que le docteur savait possible et taisait', () => {
   // ─── CE QUE CE BLOC RATTRAPE ───────────────────────────────────────────────
   //
-  // `better-sqlite3` ne publie AUCUN binaire prébuilt : chaque installation le
-  // compile. Sur une machine Windows neuve — pas d'outillage C++ — la
-  // compilation échoue, npm sort en 0 parce que le paquet est OPTIONNEL, et
-  // `hive start` meurt sur `ERR_MODULE_NOT_FOUND`.
+  // `better-sqlite3` 12 ne publiait AUCUN binaire prébuilt : chaque
+  // installation le compilait. Sur une machine Windows neuve — pas d'outillage
+  // C++ — la compilation échouait, npm sortait en 0 parce que le paquet est
+  // OPTIONNEL, et `hive start` mourait sur `ERR_MODULE_NOT_FOUND`. La 13 ne se
+  // compile plus ; le module peut encore manquer (`--omit=optional`, npm sous
+  // 11.16, glibc trop vieille, plateforme sans binaire).
   //
   // Le docteur connaissait ce cas : `baseIntegre()` importe paresseusement, et
   // son commentaire dit « c'est même un cas de panne fréquent ». Il était donc
@@ -474,7 +503,44 @@ describe('12. LE MOTEUR — la panne que le docteur savait possible et taisait',
     // La raison brute compte : « introuvable » sans le message d'origine
     // renvoie la personne deviner. C'est la première ligne, pas les cinquante.
     expect(d.constat).toContain("Cannot find package 'better-sqlite3'");
-    expect(d.reparation).toContain('--foreground-scripts');
+    expect(d.reparation).toContain('npm install --include=optional');
+  });
+
+  it('LE REMÈDE NOMME LES VRAIES CAUSES — plus d’outillage C++, plus de `rebuild`', () => {
+    // Avec la 13, le script est refusé (`allowScripts`) et le binaire vient du
+    // paquet : installer Visual Studio ou python ne répare rien, et
+    // `npm rebuild better-sqlite3` ne lance aucun script. Mesuré : il répond
+    // « rebuilt dependencies successfully » et la panne reste entière.
+    const r = diag(sansSqlite, 'moteur').reparation ?? '';
+    for (const faux of ['Visual Studio', 'build-essential', 'python3', 'rebuild']) {
+      expect(r, `le remède conseille encore « ${faux} »`).not.toContain(faux);
+    }
+    expect(r, 'npm sous 11.16 : mettre Node à jour').toContain(NODE_MINIMUM);
+    expect(r, 'plateforme sans binaire : l’image Docker').toContain('Docker');
+  });
+
+  it('UNE GLIBC SOUS LE PLANCHER EST NOMMÉE, avec le geste qui répare', () => {
+    // Le binaire Linux de la 13 exige GLIBC_2.34 : sur Ubuntu 20.04 ou
+    // Debian 11 (2.31) il ne se charge pas, et aucune compilation ne vient en
+    // secours. « npm install » n'y changerait rien — ce serait le conseil
+    // qu'on tape pour rien.
+    const vieille = avec({
+      glibc: '2.31',
+      moteur: {
+        manquants: ['better-sqlite3'],
+        raison: "/lib/x86_64-linux-gnu/libc.so.6: version `GLIBC_2.34' not found",
+      },
+    });
+    const r = diag(vieille, 'moteur').reparation ?? '';
+    expect(r).toContain('2.31');
+    expect(r).toContain(GLIBC_MINIMUM);
+    expect(r).toContain('Ubuntu 22.04');
+    expect(r).toContain('Docker');
+    expect(r).not.toContain('npm install');
+    // Au plancher pile, la glibc n'est pas la cause : on retombe sur le remède
+    // général.
+    const auPlancher = avec({ glibc: GLIBC_MINIMUM, moteur: vieille.moteur });
+    expect(diag(auPlancher, 'moteur').reparation).toContain('npm install --include=optional');
   });
 
   it('les QUATRE d’un coup se lisent « installation de nœud », pas « compilation ratée »', () => {
@@ -557,12 +623,12 @@ describe('LE VERDICT D’ENSEMBLE, ET LE CODE DE SORTIE', () => {
   it('le pire l’emporte, dans le bon ordre', () => {
     expect(pire(diagnostiquer(SAINE))).toBe('ok');
     expect(pire(diagnostiquer(avec({ dashboardConstruit: false })))).toBe('risque');
-    expect(pire(diagnostiquer(avec({ nodeMajeur: 18 })))).toBe('bloquant');
+    expect(pire(diagnostiquer(avec({ versionNode: '18.20.4' })))).toBe('bloquant');
     expect(pire(diagnostiquer(avec({ wsJoignable: null })))).toBe('inconnu');
   });
 
   it('un BLOQUANT couvre un risque, et un risque couvre un inconnu', () => {
-    const tout = avec({ nodeMajeur: 18, dashboardConstruit: false, wsJoignable: null });
+    const tout = avec({ versionNode: '18.20.4', dashboardConstruit: false, wsJoignable: null });
     expect(pire(diagnostiquer(tout))).toBe('bloquant');
   });
 
@@ -573,7 +639,7 @@ describe('LE VERDICT D’ENSEMBLE, ET LE CODE DE SORTIE', () => {
     expect(codeDeSortie(diagnostiquer(avec({ wsJoignable: null })))).toBe(0);
     expect(codeDeSortie(diagnostiquer(SAINE))).toBe(0);
     expect(codeDeSortie(diagnostiquer(avec({ dashboardConstruit: false })))).toBe(1);
-    expect(codeDeSortie(diagnostiquer(avec({ nodeMajeur: 18 })))).toBe(2);
+    expect(codeDeSortie(diagnostiquer(avec({ versionNode: '18.20.4' })))).toBe(2);
   });
 });
 
@@ -607,6 +673,8 @@ describe('CE QUE LE MODULE NE FAIT PAS', () => {
       'websocket',
       'reglages',
       'espace',
+      // En dernier : la découverte n'empêche jamais une ruche de tourner.
+      'decouverte',
     ]);
   });
 });
@@ -699,5 +767,50 @@ describe('LE TREIZIÈME CONTRÔLE — celui qui manquait au nouveau venu', () =>
     expect(secretJwtDepuisEnv({ HIVE_JWT_SECRET: 'x'.repeat(LONGUEUR_MIN_SECRET_JWT - 1) })).toBe(
       '',
     );
+  });
+});
+
+describe('LE QUATORZIÈME — la découverte du réseau local', () => {
+  // Deux consentements (`HIVE_DECOUVERTE` pour la ruche, `HIVE_DECOUVRABLE`
+  // pour la machine), tous deux éteints par défaut. Le docteur doit dire le
+  // chemin pour les allumer SANS faire du défaut un défaut — et crier le seul
+  // cas voué à l'échec : une ruche qui liste le réseau mais n'écoute qu'elle.
+
+  it('ÉTEINTE (le défaut) : ok, sans réparation — mais le constat nomme les deux réglages', () => {
+    const d = diag(SAINE, 'decouverte');
+    expect(d.gravite).toBe('ok');
+    expect(d.reparation, 'une ruche saine ne porte aucune réparation').toBeNull();
+    expect(d.constat).toContain('HIVE_DECOUVERTE=1');
+    expect(d.constat).toContain('--decouvrable');
+  });
+
+  it('DEMANDÉE sur une écoute locale : ⚠, et la réparation ouvre l’écoute', () => {
+    const d = diag(
+      avec({ decouverte: { ruche: true, machine: false, ecouteLocale: true } }),
+      'decouverte',
+    );
+    expect(d.gravite).toBe('risque');
+    expect(d.reparation).toContain('HIVE_HOST=0.0.0.0');
+  });
+
+  it('DEMANDÉE sur une écoute ouverte : ok, et elle le dit', () => {
+    const d = diag(
+      avec({ decouverte: { ruche: true, machine: false, ecouteLocale: false } }),
+      'decouverte',
+    );
+    expect(d).toMatchObject({ gravite: 'ok', reparation: null });
+    expect(d.constat).toContain('HIVE_DECOUVERTE=1');
+  });
+
+  it('LA MACHINE QUI SE SIGNALE dit ce qu’elle diffuse — et rien que ça', () => {
+    // Une machine qui se signale ne doit pas passer pour muette : l'opérateur
+    // lit ICI ce que son réseau apprend d'elle.
+    const d = diag(
+      avec({ decouverte: { ruche: false, machine: true, ecouteLocale: true } }),
+      'decouverte',
+    );
+    expect(d.gravite, 'se signaler n’exige pas d’écoute ouverte').toBe('ok');
+    expect(d.constat).toContain('HIVE_DECOUVRABLE=1');
+    expect(d.constat).toMatch(/nom, système, agents connectés, places, état/);
   });
 });

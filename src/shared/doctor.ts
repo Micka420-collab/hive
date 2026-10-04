@@ -75,8 +75,14 @@ export interface Diagnostic {
 // serait une mesure inventée.
 
 export interface Releve {
-  /** Version majeure de Node qui exécute la ruche. */
-  nodeMajeur: number;
+  /** Version de Node qui exécute la ruche (`process.versions.node`, « 24.18.0 »). */
+  versionNode: string;
+  /**
+   * Version de la glibc sous Linux (« 2.36 ») ; `null` ailleurs, sous musl, ou
+   * si on n'a pas su la lire. Le binaire Linux de `better-sqlite3` 13 exige
+   * `GLIBC_MINIMUM` : en dessous, il ne se charge pas.
+   */
+  glibc: string | null;
   fichierEnv: {
     present: boolean;
     lisible: boolean;
@@ -130,10 +136,14 @@ export interface Releve {
    * personne ne voit passer — **si leur installation échoue, npm continue en
    * silence et sort en 0.**
    *
-   * `better-sqlite3` ne publie AUCUN binaire prébuilt : chaque installation le
-   * COMPILE. Sur une machine Windows sans outillage C++ — c'est-à-dire une
-   * machine Windows neuve — la compilation échoue, npm dit « added 247
-   * packages », et `hive start` meurt sur `ERR_MODULE_NOT_FOUND`.
+   * `better-sqlite3` ne publiait alors AUCUN binaire prébuilt : chaque
+   * installation le COMPILAIT. Sur une machine Windows sans outillage C++ —
+   * c'est-à-dire une machine Windows neuve — la compilation échouait, npm
+   * disait « added 247 packages », et `hive start` mourait sur
+   * `ERR_MODULE_NOT_FOUND`. Depuis la 13 (ADR 0013), le binaire N-API voyage
+   * dans le paquet npm et ne se compile plus. Restent `--omit=optional`, un
+   * npm sous 11.16 (Node sous `NODE_MINIMUM`), une glibc sous
+   * `GLIBC_MINIMUM`, ou une plateforme sans binaire dans `prebuilds/`.
    *
    * Le docteur savait déjà que ça arrivait : `baseIntegre()` importe le module
    * PARESSEUSEMENT, en toutes lettres « pour que le docteur puisse tourner là
@@ -194,6 +204,19 @@ export interface Releve {
     octetsLibres: number | null;
     inscriptible: boolean;
   };
+  /**
+   * La découverte du réseau local — les DEUX consentements, lus comme la ruche
+   * (`loadConfigFromEnv`) et le nœud (`main.ts`, `join.ts`) les lisent : seul
+   * « 1 » allume.
+   */
+  decouverte: {
+    /** `HIVE_DECOUVERTE=1` : la Reine liste les machines qui se signalent. */
+    ruche: boolean;
+    /** `HIVE_DECOUVRABLE=1` : cette machine se signale. */
+    machine: boolean;
+    /** L'écoute de la ruche ne reçoit que la machine elle-même (`boucleLocale`). */
+    ecouteLocale: boolean;
+  };
 }
 
 /**
@@ -202,21 +225,62 @@ export interface Releve {
  * ─── POURQUOI 24, ET PAS 20 ──────────────────────────────────────────────────
  *
  * Ce n'est pas une préférence pour le neuf : c'est une panne d'installation en
- * moins, et la CI l'a mesurée sur le même commit.
+ * moins, et la CI l'a mesurée sur le même commit. Sous Node 20,
+ * `better-sqlite3` 12 ne trouvait aucun binaire pour cette ABI et retombait
+ * sur `node-gyp` — sous Windows un ÉCHEC, le `node-gyp` d'npm 10 ne sachant
+ * pas lire Visual Studio 2026.
  *
- * `better-sqlite3` est un module natif. Sous Node 20, `prebuild-install` ne
- * trouve aucun binaire pour cette ABI et retombe sur `node-gyp` — 42 lignes de
- * compilation sous Linux, et sous Windows un ÉCHEC : le `node-gyp` embarqué
- * dans npm 10 ne sait pas lire Visual Studio 2026, et npm 10 ne permet pas de
- * le remplacer. Sous Node 24, `prebuild-install` trouve le binaire de l'ABI :
- * zéro compilation, 28 secondes, aucun outillage C++ requis.
+ * ─── POURQUOI 24.18, ET PAS 24 TOUT COURT ────────────────────────────────────
  *
- * Le plancher à 24 supprime donc une classe entière de pannes d'installation
- * plutôt que de la diagnostiquer — ce que faisait, faute de mieux, le
- * diagnostic `moteur` juste au-dessus. Il reste utile : un `--omit=optional`
- * ou une ABI sans prébuilt le réveilleront.
+ * `better-sqlite3` 13 (N-API, ADR 0013) livre ses binaires DANS le paquet npm,
+ * mais garde un `binding.gyp` : npm en déduit un `node-gyp rebuild` implicite.
+ * `package.json` le refuse (`allowScripts: { "better-sqlite3": false }`) —
+ * et seul npm ≥ 11.16 lit ce refus. Node 24.0 à 24.17 embarquent npm 11.3 à
+ * 11.13 (nodejs.org, `dist/index.json`) : sans python3 — un Windows neuf,
+ * l'image `slim` —, la compilation y échoue, npm écarte la dépendance
+ * optionnelle EN SILENCE et sort en 0. Mesuré : 72 paquets au lieu de 74, et
+ * une Reine morte sur « Cannot find module ». 24.18.0 est le premier Node 24
+ * livré avec npm 11.16.0.
+ *
+ * Le job CI `plancher` installe et démarre la ruche sous CETTE version exacte,
+ * lue dans `engines.node` : le plancher ne peut plus reculer sans rougir.
  */
-export const NODE_MINIMUM = 24;
+export const NODE_MINIMUM = '24.18.0';
+
+/**
+ * La glibc sous laquelle le binaire Linux de `better-sqlite3` 13 ne se charge
+ * pas (`objdump -T` : `GLIBC_2.34`, `GLIBCXX_3.4.29`, x64 comme arm64).
+ * Ubuntu 22.04 et Debian 12 l'ont ; Ubuntu 20.04 et Debian 11 (2.31), non.
+ * Aucune compilation de secours : le script est refusé, et le binaire du
+ * paquet est choisi dès qu'il existe.
+ */
+export const GLIBC_MINIMUM = '2.34';
+
+/**
+ * `true` si `version` vaut au moins `plancher`, champ par champ.
+ *
+ * Prend « v24.18.0 », « 24.18.0-nightly… » ou « 2.35 ». Une chaîne illisible
+ * rend `false` : on ne déclare pas suffisante une version qu'on n'a pas lue.
+ */
+export function versionAuMoins(version: string, plancher: string): boolean {
+  const champs = (v: string): number[] => v.replace(/^v/, '').split(/[.-]/).slice(0, 3).map(Number);
+  const vus = champs(version);
+  const exiges = champs(plancher);
+  for (const [i, exige] of exiges.entries()) {
+    const vu = vus[i] ?? 0;
+    if (!Number.isFinite(vu)) return false;
+    if (vu !== exige) return vu > exige;
+  }
+  return true;
+}
+
+/** `true` si ce Node suffit à la ruche. Prend « v24.18.0 » comme « 24.18.0 ». */
+export function nodeSuffisant(version: string): boolean {
+  return versionAuMoins(version, NODE_MINIMUM);
+}
+
+/** Le majeur du plancher, pour `nvm install` : il tire le dernier 24, pas le 24.18.0 figé. */
+export const NODE_MAJEUR = NODE_MINIMUM.split('.')[0] ?? NODE_MINIMUM;
 
 /** En dessous, l'espace de travail se remplira avant la fin d'un merge. */
 export const ESPACE_MINIMUM_OCTETS = 500 * 1024 * 1024;
@@ -224,7 +288,7 @@ export const ESPACE_MINIMUM_OCTETS = 500 * 1024 * 1024;
 const go = (octets: number): string => `${(octets / (1024 * 1024 * 1024)).toFixed(1)} Go`;
 
 /**
- * Les treize diagnostics, dans l'ordre où ils se réparent.
+ * Les quatorze diagnostics, dans l'ordre où ils se réparent.
  *
  * L'ORDRE EST UNE INFORMATION, pas une présentation : Node d'abord, parce que
  * réparer un port quand on tourne sur Node 18 ne sert à rien. Qui lit de haut
@@ -251,6 +315,10 @@ export function diagnostiquer(r: Releve): Diagnostic[] {
     websocket(r),
     reglages(r),
     espace(r),
+    // En DERNIER : la découverte n'est jamais ce qui empêche une ruche de
+    // tourner. Elle ne se signale que quand elle est demandée ET vouée à
+    // l'échec ; sinon elle dit seulement comment l'allumer.
+    decouverte(r),
   ];
 }
 
@@ -276,22 +344,22 @@ export function codeDeSortie(diags: Diagnostic[]): number {
   return 0;
 }
 
-// ─── Les treize ─────────────────────────────────────────────────────────────
+// ─── Les quatorze ───────────────────────────────────────────────────────────
 
 function nodeVersion(r: Releve): Diagnostic {
-  if (r.nodeMajeur >= NODE_MINIMUM) {
+  if (nodeSuffisant(r.versionNode)) {
     return {
       cle: 'node_version',
       gravite: 'ok',
-      constat: `Node ${r.nodeMajeur} (≥ ${NODE_MINIMUM} exigé)`,
+      constat: `Node ${r.versionNode} (≥ ${NODE_MINIMUM} exigé)`,
       reparation: null,
     };
   }
   return {
     cle: 'node_version',
     gravite: 'bloquant',
-    constat: `Node ${r.nodeMajeur} — la ruche exige ${NODE_MINIMUM} ou plus`,
-    reparation: `nvm install ${NODE_MINIMUM} && nvm use ${NODE_MINIMUM}`,
+    constat: `Node ${r.versionNode} — la ruche exige ${NODE_MINIMUM} ou plus (npm ≥ 11.16)`,
+    reparation: `nvm install ${NODE_MAJEUR} && nvm use ${NODE_MAJEUR}`,
   };
 }
 
@@ -320,8 +388,8 @@ function moteur(r: Releve): Diagnostic {
     };
   }
   // LES QUATRE D'UN COUP est la signature d'un `--omit=optional` assumé — le
-  // README le documente comme une installation de NŒUD. Une compilation ratée,
-  // elle, n'en emporte qu'un. Ce ne sont pas les mêmes gestes, donc ce ne sont
+  // README le documente comme une installation de NŒUD. Un binaire natif qui
+  // ne se charge pas, lui, n'en emporte qu'un. Ce ne sont pas les mêmes gestes, donc ce ne sont
   // pas les mêmes phrases.
   if (manquants.length === RUCHE_COMPLETE.length) {
     return {
@@ -332,23 +400,46 @@ function moteur(r: Releve): Diagnostic {
         'npm install --include=optional   (rien à faire si cette machine ne doit faire tourner qu’un nœud : `hive node`)',
     };
   }
-  const pluriel = manquants.length > 1 ? 's' : '';
+  // « ne se charge pas », pas « introuvable » : sous une glibc trop vieille,
+  // le paquet est LÀ et c'est son binaire qui refuse de se charger.
+  const verbe = manquants.length > 1 ? 'ne se chargent pas' : 'ne se charge pas';
   return {
     cle: 'moteur',
     gravite: 'bloquant',
     constat:
-      `${manquants.join(', ')} introuvable${pluriel} — la ruche ne démarrera pas` +
+      `${manquants.join(', ')} ${verbe} — la ruche ne démarrera pas` +
       (r.moteur.raison === null ? '' : ` (${r.moteur.raison})`),
-    // `better-sqlite3` ne publie AUCUN binaire prébuilt : il se COMPILE à
-    // chaque installation. C'est pourquoi la réparation parle d'outillage C++
-    // et pas de réseau — et pourquoi `--foreground-scripts` est le premier
-    // geste : sans lui, npm avale l'erreur de compilation et sort en 0.
-    reparation:
-      'npm install --include=optional --foreground-scripts   ' +
-      '(la vraie erreur s’affiche alors ; il manque presque toujours l’outillage C++ : ' +
-      'sous Windows « Visual Studio Build Tools » + charge de travail « Desktop development with C++ », ' +
-      'sous Debian/Ubuntu « build-essential » et « python3 »)',
+    reparation: remedeMoteur(r),
   };
+}
+
+/**
+ * Le geste qui répare un module de la ruche complète introuvable.
+ *
+ * ─── POURQUOI PLUS UN MOT D'OUTILLAGE C++ ────────────────────────────────────
+ *
+ * Ce remède envoyait installer Visual Studio Build Tools, `build-essential` et
+ * `python3` : `better-sqlite3` 12 se compilait quand son binaire manquait.
+ * La 13 ne se compile plus du tout — le script est refusé (`allowScripts`) et
+ * le binaire vient du paquet. Installer un compilateur ne répare donc plus
+ * rien, et `npm rebuild better-sqlite3` non plus : il ne lance aucun script.
+ * Les vraies causes sont ailleurs, et chacune a son geste.
+ */
+function remedeMoteur(r: Releve): string {
+  if (!r.moteur.manquants.includes('better-sqlite3')) return 'npm install --include=optional';
+  if (r.glibc !== null && !versionAuMoins(r.glibc, GLIBC_MINIMUM)) {
+    return (
+      `glibc ${r.glibc} : le binaire de better-sqlite3 exige ${GLIBC_MINIMUM} ` +
+      '(Ubuntu 22.04+, Debian 12+) — mettez le système à jour, ou lancez la ruche ' +
+      'dans son image Docker (docs/INSTALLATION.md)'
+    );
+  }
+  return (
+    'npm install --include=optional   (s’il reste introuvable : npm ≥ 11.16 exigé, ' +
+    `donc Node ≥ ${NODE_MINIMUM} — « nvm install ${NODE_MAJEUR} » ; ` +
+    'sinon cette plateforme n’a pas de binaire better-sqlite3 — Linux, macOS, ' +
+    'Windows en x64 ou arm64 seulement : lancez la ruche dans son image Docker)'
+  );
 }
 
 /**
@@ -768,6 +859,46 @@ function espace(r: Releve): Diagnostic {
     cle: 'espace',
     gravite: 'ok',
     constat: `${go(r.espace.octetsLibres)} libres`,
+    reparation: null,
+  };
+}
+
+function decouverte(r: Releve): Diagnostic {
+  const d = r.decouverte;
+  // LE SEUL CAS QUI MÉRITE ⚠ : on a demandé à la ruche de lister les machines
+  // du réseau, mais elle n'écoute que sur elle-même. Chaque « Rejoindre »
+  // enverrait un billet vers une adresse où personne ne répond — la ruche le
+  // refuse d'ailleurs (`inviteInjoignable`), et c'est ICI qu'on apprend
+  // pourquoi, avant d'avoir cliqué.
+  if (d.ruche && d.ecouteLocale) {
+    return {
+      cle: 'decouverte',
+      gravite: 'risque',
+      constat:
+        'HIVE_DECOUVERTE=1, mais la ruche n’écoute que sur cette machine : une machine découverte ne pourra pas la joindre',
+      reparation:
+        'HIVE_HOST=0.0.0.0 dans .env (l’écoute s’ouvre au réseau local), puis relancez la ruche',
+    };
+  }
+  if (d.ruche || d.machine) {
+    const allumes: string[] = [];
+    if (d.ruche) allumes.push('la ruche liste les machines du réseau local (HIVE_DECOUVERTE=1)');
+    if (d.machine) {
+      allumes.push(
+        'cette machine se signale (HIVE_DECOUVRABLE=1 : nom, système, agents connectés, places, état — rien d’autre)',
+      );
+    }
+    return { cle: 'decouverte', gravite: 'ok', constat: allumes.join(' · '), reparation: null };
+  }
+  // Désactivée — le défaut. Rien à RÉPARER (une ruche saine ne porte aucune
+  // réparation : un docteur qui trouve toujours quelque chose apprend à être
+  // ignoré), mais un chemin à connaître : le constat le nomme, parce que le
+  // docteur est l'endroit où on le cherche.
+  return {
+    cle: 'decouverte',
+    gravite: 'ok',
+    constat:
+      'découverte du réseau local désactivée (défaut) — HIVE_DECOUVERTE=1 sur la ruche pour lister les machines, `hive join --decouvrable` sur celle à ajouter',
     reparation: null,
   };
 }

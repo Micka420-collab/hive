@@ -8,6 +8,7 @@ import { fetchMemories } from '../api';
 import type { Memory } from '../api';
 import { useT } from '../i18n';
 import { OpenAlexPanel } from '../OpenAlexPanel';
+import { GrapheExperience } from './GrapheExperience';
 import { EchecSondage, timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import './chronique.css';
@@ -21,7 +22,7 @@ interface SearchPage {
   memories: Memory[];
 }
 
-export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps) {
+export default function Memoire({ snapshot, onOpenTask, refreshTick, user }: ViewProps) {
   const t = useT();
   const [query, setQuery] = useState('');
   const [search, setSearch] = useState<SearchPage | null>(null);
@@ -185,6 +186,15 @@ export default function Memoire({ snapshot, onOpenTask, refreshTick }: ViewProps
           )}
         </ul>
       </section>
+
+      {/* Hive Mind garde ce que les tâches ont PRODUIT ; le graphe dit comment
+          ces faits tiennent ensemble — sans en recopier le contenu. */}
+      <GrapheExperience
+        projects={snapshot.projects}
+        user={user}
+        refreshTick={refreshTick}
+        onOpenTask={onOpenTask}
+      />
 
       {showOpenAlex && <OpenAlexPanel onClose={() => setShowOpenAlex(false)} />}
     </div>

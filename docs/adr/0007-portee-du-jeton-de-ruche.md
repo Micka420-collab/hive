@@ -258,3 +258,17 @@ typés, sans recopier les raisons de l'Evaluator, qui peuvent citer un agent.
 Enfin, le premier compte (futur administrateur) exige le jeton de ruche sur
 TOUTE ruche : l'adresse d'écoute ne disait pas qui parle, et un proxy posé sur
 la même machine relayait Internet par la boucle locale.
+
+**Supprimer n'est ni engager, ni régler : c'est un compte (#527).** La
+suppression d'un projet est sans retour — tâches, journal, mémoires, épisodes du
+Cerveau qui viennent de lui. Elle exige un COMPTE : le propriétaire, ou un
+administrateur, qui est le seul à pouvoir supprimer un projet orphelin. Le jeton
+de ruche seul ne supprime plus aucun projet, même orphelin : il se recopie sur
+chaque machine membre, et un geste sans retour ne se laisse pas à tout l'essaim.
+Il reçoit un 403 (`code: compte_requis`) qui dit quel compte il faut ; le tableau
+de bord ne propose le geste qu'au propriétaire et à l'administrateur.
+
+**Lire une tâche suit la porte de son projet.** `GET
+/api/tasks/:taskId/consigne-routage` passe par `lectureProjetPermise`, appliquée
+au projet de la tâche : le jeton de ruche, ou un compte qui lit ce projet ; un
+compte étranger à un projet privé reçoit le 404 de l'inexistence de la tâche.

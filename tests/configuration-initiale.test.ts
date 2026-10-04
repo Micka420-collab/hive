@@ -149,7 +149,9 @@ const jeton = { 'x-hive-token': TOKEN, 'content-type': 'application/json' };
 /** Un relevé du docteur tout vert, sauf ce qu'on y change. */
 function releveVert(): Releve {
   return {
-    nodeMajeur: 24,
+    // Au-dessus du plancher, comme le relevé sain de `doctor.test.ts`.
+    versionNode: '26.10.0',
+    glibc: '2.36',
     fichierEnv: { present: true, lisible: true, permissions: 0o600 },
     jeton: { present: true, longueur: TOKEN.length, trivial: false },
     secretSession: { utilisable: true, longueur: 64, publie: false, simulation: false },
@@ -164,6 +166,7 @@ function releveVert(): Releve {
     wsJoignable: true,
     reglages: { runner: 'off', bindPublic: false, gardiennes: 'consultatif', corsOuvert: false },
     espace: { octetsLibres: 10 * 1024 ** 3, inscriptible: true },
+    decouverte: { ruche: false, machine: false, ecouteLocale: true },
   };
 }
 

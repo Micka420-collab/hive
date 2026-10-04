@@ -138,13 +138,20 @@ esac
 # peut démarrer — c'est la leçon de l'image qui naissait morte : une dépendance
 # optionnelle écartée en silence, un `npm ci` vert, et un service qui ne
 # démarre jamais.
-if ! node -e "require('better-sqlite3'); require('fastify')" 2>/dev/null; then
+#
+# La sonde OUVRE une base : `better-sqlite3` 13 ne charge son binaire qu'au
+# premier `new Database`, et un `require` seul réussit sans lui.
+if ! node -e "new (require('better-sqlite3'))(':memory:').close(); require('fastify')" 2>/dev/null; then
   dire ""
   dire "✘ la ruche est configurée mais ne peut pas démarrer (code 2)"
-  dire "  « better-sqlite3 » ou « fastify » ne se charge pas. C'est le signe"
-  dire "  d'une dépendance optionnelle écartée en silence à l'installation."
+  dire "  « better-sqlite3 » ou « fastify » ne se charge pas. Le plus souvent,"
+  dire "  une dépendance optionnelle écartée en silence à l'installation"
+  dire "  (--omit=optional, ou npm sous 11.16 : Node ≥ 24.18 exigé) :"
   dire ""
-  dire "    npm install --no-fund --no-audit"
+  dire "    npm install --include=optional --no-fund --no-audit"
+  dire ""
+  dire "  Sous Linux, le binaire exige aussi glibc ≥ 2.34 (Ubuntu 22.04+,"
+  dire "  Debian 12+) — sinon, l'image Docker (docs/INSTALLATION.md)."
   exit 2
 fi
 

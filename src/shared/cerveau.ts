@@ -57,7 +57,13 @@
 // Aucun accès disque, aucune horloge : l'instant est un PARAMÈTRE. C'est ce
 // qui rend la consolidation et l'élagage vérifiables sans attendre un mois.
 
-import { blocDonnees, champSurUneLigne, tronquerChamp } from './donnees-non-fiables.js';
+import {
+  FERMETURE_DONNEES,
+  OUVERTURE_DONNEES,
+  blocDonnees,
+  champSurUneLigne,
+  tronquerChamp,
+} from './donnees-non-fiables.js';
 
 // ═══ CE QU'UNE NOTE PEUT ÊTRE ════════════════════════════════════════════════
 
@@ -84,6 +90,54 @@ export const SENS: Readonly<Record<Genre, string>> = {
     'Une observation brute : ce qui s’est passé une fois. Matière première de la ' +
     'consolidation, et la seule chose qui s’élague.',
 };
+
+/**
+ * Les trois portes par lesquelles un échec entre au Cerveau.
+ *
+ *   · `echec_worker`    — l'ouvrière a rendu un échec. C'était la SEULE porte :
+ *                         une production réussie puis rejetée ne laissait rien ;
+ *   · `contre_revue`    — une relectrice d'une autre famille a CONTESTÉ la
+ *                         production ; ses objections sont l'échec, dans ses mots ;
+ *   · `rejet_evaluator` — l'Evaluator a rejeté une production réussie pour un
+ *                         autre motif : Gardiennes, validations, revue humaine…
+ *
+ * Sans les deux dernières, le Cerveau n'apprenait que des pannes qui se voient
+ * dans un code de sortie — jamais de celles qu'un relecteur ou un test trouve,
+ * c'est-à-dire des plus coûteuses.
+ */
+export const SOURCES_EPISODE = ['echec_worker', 'contre_revue', 'rejet_evaluator'] as const;
+export type SourceEpisode = (typeof SOURCES_EPISODE)[number];
+
+/**
+ * QUI a échoué, sur QUELLE production — l'occurrence la plus RÉCENTE.
+ *
+ * Une note d'épisode agrège les récurrences d'une même panne ; l'en-tête ne
+ * porte que la dernière, et le journal (`cerveau_episode`) garde chacune.
+ * C'est le pointeur qui manquait pour remonter d'un épisode à sa pièce à
+ * conviction (`resultId`), et pour dire si une panne ne frappe qu'un agent ou
+ * qu'un modèle — la première question qu'on pose devant une récurrence.
+ *
+ * Seuls `source` et `taskId` sont requis : un fait inconnu reste ABSENT (un
+ * nœud qui ne déclare aucun modèle n'en reçoit pas un par défaut), et un
+ * en-tête sans les deux n'est pas une attribution du tout.
+ */
+export interface OrigineEpisode {
+  readonly source: SourceEpisode;
+  readonly taskId: string;
+  /**
+   * Le projet de la tâche. Il vit dans l'EN-TÊTE d'attribution, jamais dans le
+   * prompt (`contexte` ne lit que genre, titre, règle et corps) : c'est par lui
+   * qu'un épisode né d'un projet PRIVÉ n'est servi qu'aux tâches de ce projet,
+   * et part avec lui quand on le supprime (#527). Absent sur un épisode écrit
+   * avant lui.
+   */
+  readonly projectId?: string;
+  readonly resultId?: number;
+  readonly nodeId?: string;
+  readonly agentType?: string;
+  /** Le modèle COMMANDÉ par la Reine pour cette tentative (l'Aiguillage). */
+  readonly modele?: string;
+}
 
 export interface Note {
   /** Identifiant stable et lisible — c'est aussi le nom du fichier. */
@@ -123,8 +177,12 @@ export interface Note {
    * contexte d'une tâche. C'est ce qui permet d'élaguer sur l'usage plutôt que
    * sur l'âge : un épisode vieux de six mois consulté la semaine dernière vaut
    * mieux qu'un épisode d'hier que personne n'a jamais relu.
+   *
+   * Posé par `pourLaTache` (cerveau-reel.ts), au plus une fois par jour.
    */
   readonly serviLe?: string;
+  /** D'où vient un épisode écrit par la ruche. Absent d'une note écrite à la main. */
+  readonly origine?: OrigineEpisode;
 }
 
 // ═══ LIRE ET ÉCRIRE UNE NOTE ═════════════════════════════════════════════════
@@ -186,6 +244,34 @@ const uneListe = (v: string | string[] | undefined): string[] =>
   Array.isArray(v) ? v : typeof v === 'string' && v !== '' ? [v] : [];
 
 /**
+ * L'attribution lue dans l'en-tête, ou `undefined`.
+ *
+ * Même position que pour le genre : une source inconnue n'est pas devinée, et
+ * un `resultId` qui n'est pas un entier positif est écarté plutôt que lu à
+ * moitié — c'est un identifiant de production, pas une quantité.
+ */
+function origineDe(champs: Map<string, string | string[]>): OrigineEpisode | undefined {
+  const brute = unTexte(champs.get('source'));
+  const source = SOURCES_EPISODE.find((s) => s === brute);
+  const taskId = unTexte(champs.get('taskId'));
+  if (source === undefined || taskId === undefined) return undefined;
+  const projectId = unTexte(champs.get('projectId'));
+  const resultId = Number(unTexte(champs.get('resultId')));
+  const nodeId = unTexte(champs.get('nodeId'));
+  const agentType = unTexte(champs.get('agentType'));
+  const modele = unTexte(champs.get('modele'));
+  return {
+    source,
+    taskId,
+    ...(projectId === undefined ? {} : { projectId }),
+    ...(Number.isSafeInteger(resultId) && resultId > 0 ? { resultId } : {}),
+    ...(nodeId === undefined ? {} : { nodeId }),
+    ...(agentType === undefined ? {} : { agentType }),
+    ...(modele === undefined ? {} : { modele }),
+  };
+}
+
+/**
  * Les `[[liens]]` du corps.
  *
  * Un lien peut porter un alias — `[[id|ce qu'on affiche]]` — comme chez
@@ -216,6 +302,7 @@ export function analyser(id: string, texte: string): Note | null {
     .join('\n')
     .trim();
   const recurrences = Number(unTexte(champs.get('recurrences')) ?? '1');
+  const origine = origineDe(champs);
 
   return {
     id,
@@ -246,6 +333,7 @@ export function analyser(id: string, texte: string): Note | null {
     ...(unTexte(champs.get('serviLe')) === undefined
       ? {}
       : { serviLe: unTexte(champs.get('serviLe')) as string }),
+    ...(origine === undefined ? {} : { origine }),
   };
 }
 
@@ -259,6 +347,19 @@ export function analyser(id: string, texte: string): Note | null {
  */
 export function rendre(note: Note): string {
   const sur1 = (v: string): string => champSurUneLigne(v, 500);
+  const o = note.origine;
+  const origine =
+    o === undefined
+      ? []
+      : [
+          `source: ${o.source}`,
+          `taskId: ${sur1(o.taskId)}`,
+          ...(o.projectId === undefined ? [] : [`projectId: ${sur1(o.projectId)}`]),
+          ...(o.resultId === undefined ? [] : [`resultId: ${o.resultId}`]),
+          ...(o.nodeId === undefined ? [] : [`nodeId: ${sur1(o.nodeId)}`]),
+          ...(o.agentType === undefined ? [] : [`agentType: ${sur1(o.agentType)}`]),
+          ...(o.modele === undefined ? [] : [`modele: ${sur1(o.modele)}`]),
+        ];
   const entete = [
     SEPARATEUR,
     `genre: ${note.genre}`,
@@ -268,10 +369,49 @@ export function rendre(note: Note): string {
     `creee: ${sur1(note.creee)}`,
     `recurrences: ${note.recurrences}`,
     ...(note.serviLe === undefined ? [] : [`serviLe: ${sur1(note.serviLe)}`]),
+    ...origine,
     SEPARATEUR,
     '',
   ];
   return `${entete.join('\n')}${note.corps}\n`;
+}
+
+/**
+ * Le texte d'une note avec `serviLe` posé à `maintenant` — et RIEN d'autre de
+ * changé.
+ *
+ * ─── POURQUOI RETOUCHER UNE LIGNE, ET PAS `rendre(analyser(…))` ──────────────
+ *
+ * Les invariants, leçons et décisions s'écrivent À LA MAIN, dans Obsidian :
+ * leurs en-têtes portent des clés que ce module ignore (`aliases`, `tags`…),
+ * leur corps une mise en forme à laquelle il ne touche pas. Relire puis
+ * réécrire la note effacerait tout ce qu'`analyser` ne sait pas lire — chaque
+ * jour, sur chaque note servie, dans le dossier même dont on promet que
+ * `git diff` montre ce que la ruche a APPRIS. On remplace donc la seule ligne
+ * `serviLe:` de l'en-tête, ou on l'ajoute juste avant sa fermeture ; tous les
+ * autres octets restent ceux de l'auteur, fins de ligne comprises.
+ *
+ * `null` quand le texte n'a pas l'en-tête qu'`analyser` exige : ce n'est pas
+ * une note, et on ne répare pas ce qu'on ne comprend pas.
+ */
+export function marquerServie(texte: string, maintenant: string): string | null {
+  const lignes = texte.split('\n');
+  const premiere = lignes[0];
+  // Les deux gardes d'`analyser`, au caractère près : la première ligne
+  // ROGNÉE, la fermeture EXACTE (une fin de ligne Windows mise à part).
+  if (premiere?.trim() !== SEPARATEUR) return null;
+  const fin = lignes.findIndex((l, i) => i > 0 && l.replace(/\r$/, '') === SEPARATEUR);
+  if (fin < 0) return null;
+  const crlf = lignes[fin]?.endsWith('\r') === true ? '\r' : '';
+  const ligne = `serviLe: ${champSurUneLigne(maintenant, 500)}${crlf}`;
+  // `lireEntete` coupe au PREMIER `:` et rogne la clé : `  serviLe :` en est
+  // une. Toutes les occurrences sont remplacées — la dernière gagnait.
+  const cle = /^\s*serviLe\s*:/;
+  const entete = lignes.slice(1, fin);
+  const nouvelEntete = entete.some((l) => cle.test(l))
+    ? entete.map((l) => (cle.test(l) ? ligne : l))
+    : [...entete, ligne];
+  return [premiere, ...nouvelEntete, ...lignes.slice(fin)].join('\n');
 }
 
 /**
@@ -533,6 +673,26 @@ export function contexte(selection: Selection, max = 12_000): string {
     moinsImportante: 'derniere',
     raccourcir: (ligne, surplus) => ({ ...ligne, corps: tronquerChamp(ligne.corps, surplus) }),
   });
+}
+
+/**
+ * Les notes que `bloc` porte VRAIMENT — un préfixe de `selection.retenues`.
+ *
+ * `selectionner` compte en caractères de note ; `contexte` y ajoute l'enveloppe
+ * JSON, et retire des notes ENTIÈRES par la queue quand elle déborde. Dire
+ * « servie » d'une note tombée là inventerait un usage : `serviLe` la
+ * soustrairait à l'élagage sans qu'aucune ouvrière l'ait jamais lue.
+ *
+ * Le compte se LIT dans le bloc — une ligne JSON par note entre les deux
+ * délimiteurs, le contrat unique de `blocDonnees` — plutôt que recalculé : une
+ * seconde règle de débordement finirait par dire autre chose que la première.
+ */
+export function servies(selection: Selection, bloc: string): readonly Note[] {
+  const lignes = bloc.split('\n');
+  const debut = lignes.indexOf(OUVERTURE_DONNEES);
+  const fin = lignes.lastIndexOf(FERMETURE_DONNEES);
+  if (debut < 0 || fin <= debut) return [];
+  return selection.retenues.slice(0, fin - debut - 1);
 }
 
 // ═══ L'ÉLAGAGE — la borne arrive avec la fonctionnalité ═════════════════════

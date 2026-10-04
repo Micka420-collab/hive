@@ -40,6 +40,7 @@ import type {
   MotifPerso,
 } from '../api';
 import { useLang, useT } from '../i18n';
+import { BilanWorker } from '../BilanWorker';
 import { demanderFocusFichier } from '../focus-vue';
 import { libelleMetier, METIERS } from '../../../src/orchestrator/metier.js';
 import type { MetierCycle } from '../../../src/orchestrator/metier.js';
@@ -840,6 +841,11 @@ export default function Chambre({
                         {errMetier && <p className="ch-err">{errMetier}</p>}
                       </div>
                     )}
+                    {/* Ce qu'elle a coûté, et ce que l'Evaluator a fait de son
+                        travail — après l'identité : on dit qui elle est avant
+                        de dire ce que ça a donné. `key` : une autre ouvrière
+                        est un autre bilan, relu tout de suite. */}
+                    {nodeId && <BilanWorker key={nodeId} nodeId={nodeId} />}
                   </>
                 )}
 

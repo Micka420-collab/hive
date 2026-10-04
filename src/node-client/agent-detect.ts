@@ -10,6 +10,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { argvAgent } from '../shared/agent-windows.js';
+import { emporterArbre } from '../shared/arbre-processus.js';
 
 /**
  * Les agents dont la ruche connaît la FORME des identifiants.
@@ -578,12 +579,13 @@ export type LanceurStatut = (
 ) => Promise<{ code: number | null; sortie: string } | null>;
 
 /**
- * Le lanceur réel. Même garde que la sonde de présence : aucun secret dans
+ * Le lanceur réel — exporté pour l'autre sonde sans prompt qu'un adaptateur
+ * lance (`claude --help`, cf. `effortsDeLAide`). Même garde que la sonde de présence : aucun secret dans
  * l'environnement (`envSonde`) — la session vit dans le HOME, que l'on garde,
  * et une clé posée se juge sans rien lancer. La sortie de `claude auth status`
  * nomme le compte : elle est bornée, lue pour UN booléen, jamais écrite nulle part.
  */
-const lancerStatut: LanceurStatut = (commande, argsStatut) =>
+export const lancerStatut: LanceurStatut = (commande, argsStatut) =>
   new Promise((resolve) => {
     let fini = false;
     const finir = (r: { code: number | null; sortie: string } | null): void => {
@@ -608,13 +610,16 @@ const lancerStatut: LanceurStatut = (commande, argsStatut) =>
       finir(null);
       return;
     }
+    // 64 Kio : une commande de statut tient en quelques lignes, mais l'aide de
+    // `claude` en fait 22 Ko (2.1.283) et grandit à chaque option.
     const lire = (bout: Buffer): void => {
-      if (sortie.length < 8_192) sortie += bout.toString();
+      if (sortie.length < 65_536) sortie += bout.toString();
     };
     enfant.stdout?.on('data', lire);
     enfant.stderr?.on('data', lire);
     const minuteur = setTimeout(() => {
-      tuerArbre(enfant.pid);
+      // La commande de statut ET ses descendants (`arbre-processus.ts`).
+      emporterArbre(enfant, 'SIGKILL');
       finir(null);
     }, STATUT_MAX_MS);
     minuteur.unref?.();
@@ -627,28 +632,6 @@ const lancerStatut: LanceurStatut = (commande, argsStatut) =>
       finir({ code, sortie });
     });
   });
-
-/**
- * Tue une commande de statut ET ses descendants : le groupe entier sous POSIX
- * (elle en est la cheffe, `detached`), l'arbre par `taskkill /T` sous Windows.
- */
-function tuerArbre(pid: number | undefined): void {
-  if (pid === undefined) return;
-  try {
-    if (process.platform === 'win32') {
-      spawn('taskkill', ['/T', '/F', '/PID', String(pid)], {
-        stdio: 'ignore',
-        shell: false,
-        windowsHide: true,
-        env: envSonde(process.env),
-      });
-    } else {
-      process.kill(-pid, 'SIGKILL');
-    }
-  } catch {
-    // déjà parti
-  }
-}
 
 /** Aucune commande lancée : la session reste inconnue. Le défaut d'une sonde injectée. */
 const statutMuet: LanceurStatut = () => Promise.resolve(null);

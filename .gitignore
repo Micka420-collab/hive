@@ -29,3 +29,10 @@ rapport-tests.json
 # Les captures d'écran de `npm run captures` — refaites en une commande, sur
 # l'arbre courant. Celles qu'on publie sont COPIÉES exprès sous docs/images.
 captures-ecran/
+
+# L'application de bureau (desktop/) : ce qui se reconstruit en une commande.
+# `desktop/build/installer.nsh` et `desktop/branding/*/sorties/` sont versionnés.
+desktop/dist/
+desktop/marque/
+desktop/build/hive/
+desktop/release/

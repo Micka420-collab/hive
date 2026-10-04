@@ -345,6 +345,31 @@
   text-transform: uppercase;
 }
 
+/* L'économie d'une ouvrière : même registre discret que ses limites
+   d'autonomie — des faits déclarés, pas une note mise en avant. */
+.es-economie {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  color: var(--faint);
+  font-size: var(--fs-2xs);
+  line-height: 1.35;
+}
+
+.es-economie-label {
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.es-model-eco {
+  display: block;
+  color: var(--faint);
+  font-size: var(--fs-2xs);
+}
+
 .es-history {
   display: flex;
   flex-direction: column;

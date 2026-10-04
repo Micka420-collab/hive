@@ -45,6 +45,7 @@ import type { Translate } from '../i18n';
 import { GesteIrreversible } from '../ui';
 import { EchecSondage, timeShort, useApiPoll } from './shared';
 import type { Poll, ViewProps } from './shared';
+import { SectionConnecteurs } from './Connecteurs';
 import './intendance.css';
 
 /** Libellés des états. Le mot brut de la base ne se montre pas à un humain. */
@@ -83,7 +84,7 @@ function dateOu(ts: number): string {
   return `${new Date(ts).toLocaleDateString()} ${timeShort(ts)}`;
 }
 
-export default function Intendance({ user, refreshTick }: ViewProps) {
+export default function Intendance({ user, refreshTick, snapshot }: ViewProps) {
   const t = useT();
   const admin = estAdmin(user);
 
@@ -116,7 +117,7 @@ export default function Intendance({ user, refreshTick }: ViewProps) {
     );
   }
 
-  return <Salle moiId={user.id} refreshTick={refreshTick} />;
+  return <Salle moiId={user.id} refreshTick={refreshTick} projets={snapshot.projects} />;
 }
 
 /**
@@ -134,7 +135,15 @@ export default function Intendance({ user, refreshTick }: ViewProps) {
  * démarrent avec le bon fetcher. C'est aussi ce qui garantit qu'aucun appel
  * d'intendance ne part pour un compte qui n'y a pas droit.
  */
-function Salle({ moiId, refreshTick }: { moiId: string; refreshTick: number }) {
+function Salle({
+  moiId,
+  refreshTick,
+  projets,
+}: {
+  moiId: string;
+  refreshTick: number;
+  projets: { id: string; name: string }[];
+}) {
   const serveurs = useApiPoll(fetchServeurs, 30_000, refreshTick);
   const membres = useApiPoll(fetchMembres, 60_000, refreshTick);
 
@@ -148,6 +157,9 @@ function Salle({ moiId, refreshTick }: { moiId: string; refreshTick: number }) {
           butine. Les confondre ferait révoquer l'un en croyant retirer
           l'autre. */}
       <SectionCles refreshTick={refreshTick} />
+      {/* Les connecteurs externes : activer, autoriser par projet, tester, et
+          lire le journal d'audit des appels sortants et des approbations. */}
+      <SectionConnecteurs projets={projets.map((p) => ({ id: p.id, name: p.name }))} />
     </div>
   );
 }
