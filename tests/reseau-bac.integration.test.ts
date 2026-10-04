@@ -185,28 +185,34 @@ describe.skipIf(!sonde.filtre)(`réseau filtré en vrai sous bubblewrap (${sonde
 // Train 7 — le réseau COUPÉ des passes hors ligne de la porte de sécurité
 // (`reseauCoupe`) : en vrai, le bac n'a que sa boucle, et rien n'y écoute — ni
 // relais, ni proxy. Le même programme sans le drapeau voit le réseau de l'hôte
-// (`--share-net`) : c'est ce qui prouve que le banc saurait voir une fuite.
+// (`--share-net`) : c'est ce qui prouve que le banc saurait voir une fuite. Ce
+// contrôle ne lit QUE les interfaces : sur un hôte sans route vers
+// 192.168.1.1 (un runner de CI), une connexion y attendrait le délai de TCP.
 describe.skipIf(!sonde.filtre)(`réseau coupé en vrai sous bubblewrap (${sonde.motif})`, () => {
   const SONDE_COUPEE = String.raw`
 const os = require('node:os'), net = require('node:net');
 const essayer = (port, hote) => new Promise((r) => {
-  const s = net.connect(port, hote); s.on('connect', () => { s.destroy(); r('OUVERT'); });
-  s.on('error', (e) => r(e.code));
+  const s = net.connect(port, hote);
+  const t = setTimeout(() => { s.destroy(); r('DELAI'); }, 3000);
+  s.on('connect', () => { clearTimeout(t); s.destroy(); r('OUVERT'); });
+  s.on('error', (e) => { clearTimeout(t); r(e.code); });
 });
 (async () => {
-  process.stdout.write(JSON.stringify({
-    interfaces: Object.keys(os.networkInterfaces()).sort(),
-    relais: await essayer(3128, '127.0.0.1'),
-    lan: await essayer(80, '192.168.1.1'),
-  }) + '\n');
+  const rapport = { interfaces: Object.keys(os.networkInterfaces()).sort() };
+  if (process.argv[1] === 'sonder') {
+    rapport.relais = await essayer(3128, '127.0.0.1');
+    rapport.lan = await essayer(80, '192.168.1.1');
+  }
+  process.stdout.write(JSON.stringify(rapport) + '\n');
 })();
 `;
   const lancer = async (
     coupe: boolean,
-  ): Promise<{ interfaces: string[]; relais: string; lan: string }> => {
+  ): Promise<{ interfaces: string[]; relais?: string; lan?: string }> => {
     const tache = mkdtempSync(path.join(os.tmpdir(), 'hive-tache-coupee-'));
     try {
-      const lance = envelopper(process.execPath, ['-e', SONDE_COUPEE], {
+      const sonder = coupe ? ['sonder'] : [];
+      const lance = envelopper(process.execPath, ['-e', SONDE_COUPEE, ...sonder], {
         fournisseur: BWRAP,
         cwdHote: tache,
         variables: [],
@@ -229,8 +235,8 @@ const essayer = (port, hote) => new Promise((r) => {
       });
       return JSON.parse(sortie.trim().split('\n').at(-1) ?? '{}') as {
         interfaces: string[];
-        relais: string;
-        lan: string;
+        relais?: string;
+        lan?: string;
       };
     } finally {
       rmSync(tache, { recursive: true, force: true });
