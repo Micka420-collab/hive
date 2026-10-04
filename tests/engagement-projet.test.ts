@@ -41,6 +41,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { instantaneDe } from '../src/orchestrator/missions.js';
+import { validerRoutine } from '../src/orchestrator/routines.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
@@ -54,6 +55,7 @@ interface Cible {
   motifPerso: string;
   sauvegarde: string;
   mission: string;
+  routine: string;
 }
 
 interface Acte {
@@ -82,6 +84,16 @@ const p = (suite: string) => (c: Cible) => `/api/projects/${c.projet}/${suite}`;
  * exactement ce qui est arrivé à la première version de ce fichier.
  */
 const ENGAGEMENTS: readonly Acte[] = [
+  {
+    // Lancer une routine maintenant pose du travail, comme une tâche à la
+    // main : un engagement. Le travail part ensuite avec l'autorité de la
+    // routine (ADR 0014), relue par le moteur — pas celle de qui clique.
+    nom: 'routines/:routineId/declencher',
+    methode: 'POST',
+    route: '/api/projects/:projectId/routines/:routineId/declencher',
+    url: (c) => `/api/projects/${c.projet}/routines/${c.routine}/declencher`,
+    refus: 'projet',
+  },
   {
     nom: 'tasks',
     methode: 'POST',
@@ -340,6 +352,42 @@ const DECISIONS: readonly Acte[] = [
 /** Les actes qui RÈGLENT un projet : propriétaire ou administrateur. */
 const REGLAGES: readonly Acte[] = [
   {
+    // Créer une routine, c'est autoriser À L'AVANCE une dépense que personne
+    // ne redemandera (ADR 0014) : un réglage, comme le plafond ou le banc
+    // d'ombre. La mettre en pause, la supprimer, régénérer sa clé : aussi.
+    nom: 'routines (créer)',
+    methode: 'POST',
+    route: '/api/projects/:projectId/routines',
+    url: p('routines'),
+    corps: () => ({ nom: 'Veille', consigne: 'Regarder.', declencheur: 'webhook' }),
+    refus: 'projet',
+    succes: 201,
+  },
+  {
+    nom: 'routines/:routineId (pause)',
+    methode: 'PUT',
+    route: '/api/projects/:projectId/routines/:routineId',
+    url: (c) => `/api/projects/${c.projet}/routines/${c.routine}`,
+    corps: () => ({ actif: false }),
+    refus: 'projet',
+  },
+  {
+    nom: 'routines/:routineId/secret',
+    methode: 'POST',
+    route: '/api/projects/:projectId/routines/:routineId/secret',
+    url: (c) => `/api/projects/${c.projet}/routines/${c.routine}/secret`,
+    refus: 'projet',
+  },
+  {
+    // Idempotente (`supprimee: false` la seconde fois) : elle peut partager
+    // la cible des autres tables sans les priver de leur 200.
+    nom: 'routines/:routineId (supprimer)',
+    methode: 'DELETE',
+    route: '/api/projects/:projectId/routines/:routineId',
+    url: (c) => `/api/projects/${c.projet}/routines/${c.routine}`,
+    refus: 'projet',
+  },
+  {
     nom: 'essaim (niveau d’autonomie)',
     methode: 'POST',
     route: '/api/projects/:projectId/essaim',
@@ -456,6 +504,8 @@ const HORS_ENGAGEMENT: Readonly<Record<string, string>> = {
     'un lien de LECTURE, par un compte qui a affaire au projet (`peutEngager`)',
   'DELETE /api/projects/:projectId/partages/:partageId':
     'révoquer : le créateur du lien, ou qui répond du projet (`peutRegler`)',
+  'POST /api/projects/:projectId/routines/:routineId/webhook':
+    'ni jeton ni compte : la signature HMAC de la clé propre à la routine (révocable), qui part avec l’autorité de son créateur, relue à chaque déclenchement (ADR 0014)',
 };
 
 describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', () => {
@@ -478,6 +528,7 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     motifPerso: 'motif-qui-nexiste-pas',
     sauvegarde: 'sauvegarde-qui-nexiste-pas',
     mission: 'mission-qui-nexiste-pas',
+    routine: 'routine-qui-nexiste-pas',
   };
 
   const inscrire = async (
@@ -559,7 +610,23 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     const membres = [tache];
     const debut = instantaneDe(s, s.getProject(projet)!, ouverture, 'debut', Date.now(), membres);
     s.ouvrirMission({ ...ouverture, projectId: projet, membres, debut: JSON.stringify(debut) });
-    return { projet, tache, fabrique: fabrique.id, motifPerso: motif.id, sauvegarde, mission };
+    // Une routine rangée : la régler, la lancer, la supprimer doit pouvoir
+    // réussir — sans quoi ses gardes ne seraient éprouvées que sur des refus.
+    const routine = validerRoutine(
+      { nom: 'Routine', consigne: 'Faire quelque chose.', declencheur: 'webhook' },
+      { projectId: projet, creePar: null, repoGithub: false, now: Date.now() },
+    );
+    if (!routine.ok) throw new Error(routine.motif);
+    s.creerRoutine(routine.routine);
+    return {
+      projet,
+      tache,
+      fabrique: fabrique.id,
+      motifPerso: motif.id,
+      sauvegarde,
+      mission,
+      routine: routine.routine.id,
+    };
   };
 
   beforeAll(async () => {

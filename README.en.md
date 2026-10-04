@@ -332,6 +332,7 @@ task is refused before the agent runs, with the reason.
 | ------------------------------------------------------------ | ---------------------------------------------------------- |
 | **[docs/FEATURES.en.md](docs/FEATURES.en.md)**               | Each part in detail, with its trade-offs                   |
 | **[docs/BANC-OMBRE.md](docs/BANC-OMBRE.md)**                 | Shadow bench: two models, one task, never delivered (FR)   |
+| **[docs/ROUTINES.md](docs/ROUTINES.md)**                     | Routines: scheduled, signed-webhook or red-CI work (FR)    |
 | **[docs/APPLICATION.md](docs/APPLICATION.md)**               | The desktop app: install, update, signing (FR + EN)        |
 | **[docs/INSTALLATION.md](docs/INSTALLATION.md)**             | Install, uninstall, service, container, backups (FR)       |
 | **[docs/CLOUD.md](docs/CLOUD.md)**                           | Community free vs Cloud paid on your servers               |

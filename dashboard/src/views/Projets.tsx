@@ -65,6 +65,7 @@ import type { ViewProps } from './shared';
 import { argv, useSuiviMerge } from './suivi-merge';
 import { LivraisonMission } from './LivraisonMission';
 import { MissionsProjet } from './MissionsRejeu';
+import { RoutinesProjet } from './RoutinesProjet';
 import { MergeReport } from './MergeReport';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
 import { ISSUES_A_TRANCHER, JUSTIFICATION_MAX } from '../../../src/shared/war-room';
@@ -2267,6 +2268,10 @@ function ProjectCard({
       {/* Les missions, APRÈS les livraisons : ce que le travail a donné, puis
           comment le refaire autrement — et comparer. Lecture sur demande. */}
       <MissionsProjet project={project} />
+
+      {/* Les routines, APRÈS les missions : ce qui relancera du travail sans
+          clic — planifié, sur webhook signé, ou sur CI rouge (ADR 0014). */}
+      <RoutinesProjet project={project} />
 
       {/* Le Conseil en dernier : c'est d'abord une lecture de délibération. Il
           ne s'affiche que si ce projet a délibéré — ou si l'on demande à le

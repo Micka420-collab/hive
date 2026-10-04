@@ -279,6 +279,22 @@ import {
   tentativeAutorisee,
 } from './comptes.js';
 import type { Compteur, Role } from './comptes.js';
+import { analyserCron, prochaineEcheance } from './cron.js';
+import {
+  CONCURRENCES,
+  contexteDeWebhook,
+  DECLENCHEURS,
+  lireEtatCi,
+  MAX_CONSIGNE,
+  MAX_NOM_ROUTINE,
+  MoteurRoutines,
+  RATTRAPAGES,
+  ROUTINES_RUNS_CONSERVES,
+  tirerSecretRoutine,
+  validerRoutine,
+  vueRoutine,
+} from './routines.js';
+import type { CorpsRoutine, Routine, VerdictAutorite } from './routines.js';
 import {
   ETATS,
   PLANS,
@@ -1030,6 +1046,8 @@ export interface ServerConfig {
   wsVieMs?: number;
   /** Périodicité du tick du scheduler (ms). */
   tickMs?: number;
+  /** Périodicité du tour des Routines (ms). Défaut : 30 s — la minute du cron, à moitié. */
+  routinesTickMs?: number;
   /**
    * Espacement minimum entre deux re-livraisons d'une MÊME tâche muette.
    *
@@ -1229,6 +1247,8 @@ export interface HiveServer {
   /** Port réellement écouté (utile avec port 0 dans les tests). */
   port: number;
   url: string;
+  /** Le moteur des Routines : les bancs le font tourner à l'instant qu'ils choisissent. */
+  routines: MoteurRoutines;
   stop: () => Promise<void>;
   /**
    * Le garde de PR (garde-pr.ts). `passe` joue UNE passe maintenant — la
@@ -9010,6 +9030,332 @@ async function monterReine(
     return { applique: true, etat: suivant.etat, heures: d.heures };
   });
 
+  // ─── Les ROUTINES : du travail planifié ou déclenché (ADR 0014) ────────────
+  //
+  // La décision, et ce qu'elle ne change PAS : la ruche ne se remet toujours
+  // pas au travail sur la foi d'un webhook QUELCONQUE. Elle le fait sur la foi
+  // d'une routine, que quelqu'un qui répond du projet a créée — ce geste-là
+  // autorise la dépense à l'avance, et la routine part avec l'autorité de SON
+  // compte, relue à chaque déclenchement (`autoriteRoutine`).
+  //
+  // Les portes, toutes classées dans tests/engagement-projet.test.ts :
+  //   · LIRE la liste : la porte des lectures ;
+  //   · CRÉER, mettre en pause, supprimer, régénérer la clé : un RÉGLAGE —
+  //     décider de ce que le projet dépensera sans qu'on le lui redemande,
+  //     comme le plafond ou le banc d'ombre ;
+  //   · LANCER MAINTENANT : un ENGAGEMENT, comme poser une tâche à la main ;
+  //   · le WEBHOOK : ni jeton ni compte — la signature HMAC de la clé propre
+  //     à la routine, révocable, jamais le jeton de ruche.
+
+  /** Le compte (ou le jeton) dont la routine porte l'autorité en répond-il encore ? */
+  const autoriteRoutine = (r: Routine): VerdictAutorite => {
+    const projet = store.getProject(r.projectId);
+    if (!projet) return 'projet_absent';
+    if (r.creePar === null) return ouvertAuJetonDeRuche(projet) ? 'permis' : 'autorite_perdue';
+    if (!store.getUserById(r.creePar)) return 'autorite_perdue';
+    const brut = store.getRole(r.creePar);
+    const role: Role = ROLES.includes(brut as Role) ? (brut as Role) : 'membre';
+    const lecteur = { userId: r.creePar, voitTout: peut(role, 'voir_tous_les_projets') };
+    return peut(role, 'regler_autonomie') && peutRegler(projet, lecteur)
+      ? 'permis'
+      : 'autorite_perdue';
+  };
+
+  const moteurRoutines = new MoteurRoutines({
+    store,
+    emettre: emitEvent,
+    autorite: autoriteRoutine,
+    apresLancement: () => {
+      scheduler.tick();
+      stateDirty = true;
+    },
+    ...(jetonGithub
+      ? {
+          lireCi: (r: Routine, projet: Project) => {
+            const depot = projet.repoUrl ? fullNameDepuisUrl(projet.repoUrl) : null;
+            if (!depot) return Promise.reject(new Error('le projet n’a plus de dépôt GitHub'));
+            return lireEtatCi(
+              {
+                jeton: jetonGithub,
+                ...(apiGithub ? { api: apiGithub } : {}),
+                ...(config.githubFetcher ? { fetcheur: config.githubFetcher } : {}),
+              },
+              depot,
+              r.branche ?? 'main',
+            );
+          },
+        }
+      : {}),
+  });
+
+  /** La routine d'un projet, ou rien : celle d'un AUTRE projet a la forme de l'inexistence. */
+  const routineDuProjet = (projectId: string, routineId: string): Routine | undefined => {
+    const r = store.getRoutine(routineId);
+    return r && r.projectId === projectId ? r : undefined;
+  };
+
+  const vueDe = (r: Routine) =>
+    vueRoutine(
+      r,
+      store.runsDeRoutine(r.id, 10),
+      r.creePar === null ? null : (store.getUserById(r.creePar)?.displayName ?? null),
+    );
+
+  const PARAMS_ROUTINE = {
+    type: 'object',
+    required: ['projectId', 'routineId'],
+    properties: {
+      projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+      routineId: { type: 'string', minLength: 1, maxLength: LIMITS.id },
+    },
+  } as const;
+
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/routines',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      return {
+        routines: store.listRoutines(req.params.projectId).map(vueDe),
+        // Dit, pas deviné : sans jeton GitHub, « CI rouge » ne peut rien lire.
+        ciDisponible: jetonGithub !== '',
+      };
+    },
+  );
+
+  app.post<{ Params: { projectId: string }; Body: CorpsRoutine }>(
+    '/api/projects/:projectId/routines',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['projectId'],
+          properties: { projectId: { type: 'string', minLength: 1, maxLength: LIMITS.id } },
+        },
+        body: {
+          type: 'object',
+          required: ['nom', 'consigne', 'declencheur'],
+          additionalProperties: false,
+          properties: {
+            nom: { type: 'string', minLength: 1, maxLength: MAX_NOM_ROUTINE },
+            consigne: { type: 'string', minLength: 1, maxLength: MAX_CONSIGNE },
+            declencheur: { type: 'string', enum: [...DECLENCHEURS] },
+            expression: { type: 'string', minLength: 1, maxLength: 120 },
+            fuseau: { type: 'string', minLength: 1, maxLength: 64 },
+            branche: { type: 'string', minLength: 1, maxLength: 200 },
+            plage: {
+              type: ['object', 'null'],
+              required: ['jours', 'debut', 'fin'],
+              additionalProperties: false,
+              properties: {
+                jours: { type: 'array', maxItems: 7, items: { type: 'integer' } },
+                debut: { type: 'string', maxLength: 5 },
+                fin: { type: 'string', maxLength: 5 },
+              },
+            },
+            concurrence: { type: 'string', enum: [...CONCURRENCES] },
+            rattrapage: { type: 'string', enum: [...RATTRAPAGES] },
+          },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      const projet = store.getProject(req.params.projectId);
+      if (!projet) return reply.code(404).send({ error: 'projet inconnu' });
+      const now = Date.now();
+      const v = validerRoutine(req.body, {
+        projectId: projet.id,
+        // LE COMPTE QUI CRÉE EN RÉPOND. `authorizedUser` d'abord : un compte
+        // qui présente AUSSI le jeton reste un compte, et la routine est à lui.
+        creePar: authorizedUser(req) ? ((req as AuthRequest).userId ?? null) : null,
+        repoGithub: projet.repoUrl !== null && fullNameDepuisUrl(projet.repoUrl) !== null,
+        now,
+      });
+      if (!v.ok) return reply.code(400).send({ error: v.motif });
+      store.creerRoutine(v.routine);
+      emitEvent('routine_created', {
+        routineId: v.routine.id,
+        projectId: projet.id,
+        declencheur: v.routine.declencheur,
+      });
+      return reply.code(201).send({
+        routine: vueDe(v.routine),
+        // REMISE UNE FOIS : aucune lecture ne la rendra plus. Perdue, elle se
+        // régénère (`/secret`) — ce qui révoque l'ancienne.
+        ...(v.routine.secret ? { secret: v.routine.secret } : {}),
+      });
+    },
+  );
+
+  app.put<{ Params: { projectId: string; routineId: string }; Body: { actif: boolean } }>(
+    '/api/projects/:projectId/routines/:routineId',
+    {
+      schema: {
+        params: PARAMS_ROUTINE,
+        body: {
+          type: 'object',
+          required: ['actif'],
+          additionalProperties: false,
+          properties: { actif: { type: 'boolean' } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      const r = routineDuProjet(req.params.projectId, req.params.routineId);
+      if (!r) return reply.code(404).send({ error: 'routine inconnue' });
+      const now = Date.now();
+      if (req.body.actif && !r.actif) {
+        // Reprendre ne rend pas l'autorité perdue : la routine part au nom de
+        // son créateur, et s'il ne répond plus du projet, elle se recrée.
+        const autorite = autoriteRoutine(r);
+        if (autorite !== 'permis') {
+          return reply.code(409).send({
+            code: autorite,
+            error:
+              'le compte qui a créé cette routine ne répond plus du projet : supprimez-la et recréez-la',
+          });
+        }
+        // Le curseur repart de MAINTENANT : une pause n'est pas une panne, et
+        // ses créneaux ne se rattrapent pas.
+        const prochaineA =
+          r.expression === null
+            ? null
+            : prochaineEcheance(analyserCron(r.expression), r.fuseau, now);
+        store.majRoutine(r.id, { actif: true, prochaineA, derniereErreur: null }, now);
+      } else if (!req.body.actif && r.actif) {
+        store.majRoutine(r.id, { actif: false }, now);
+      }
+      emitEvent(req.body.actif ? 'routine_resumed' : 'routine_paused', {
+        routineId: r.id,
+        projectId: r.projectId,
+      });
+      return { routine: vueDe(store.getRoutine(r.id) ?? r) };
+    },
+  );
+
+  app.delete<{ Params: { projectId: string; routineId: string } }>(
+    '/api/projects/:projectId/routines/:routineId',
+    { schema: { params: PARAMS_ROUTINE } },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      // IDEMPOTENT : supprimer ce qui n'est plus là rend `supprimee: false`,
+      // pas une erreur — un double clic ne doit pas afficher une panne.
+      const r = routineDuProjet(req.params.projectId, req.params.routineId);
+      const supprimee = r ? store.supprimerRoutine(r.id) : false;
+      if (supprimee) {
+        emitEvent('routine_deleted', { routineId: req.params.routineId, projectId: r!.projectId });
+      }
+      return { supprimee };
+    },
+  );
+
+  app.post<{ Params: { projectId: string; routineId: string } }>(
+    '/api/projects/:projectId/routines/:routineId/secret',
+    { schema: { params: PARAMS_ROUTINE } },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      const r = routineDuProjet(req.params.projectId, req.params.routineId);
+      if (!r) return reply.code(404).send({ error: 'routine inconnue' });
+      if (r.declencheur !== 'webhook') {
+        return reply.code(400).send({ error: 'seule une routine « webhook » a une clé' });
+      }
+      // Remplacer la clé RÉVOQUE l'ancienne dans le même geste : il n'existe
+      // aucune fenêtre où les deux signent.
+      const secret = tirerSecretRoutine();
+      store.majRoutine(r.id, { secret }, Date.now());
+      emitEvent('routine_secret_rotated', { routineId: r.id, projectId: r.projectId });
+      return { secret };
+    },
+  );
+
+  app.post<{ Params: { projectId: string; routineId: string } }>(
+    '/api/projects/:projectId/routines/:routineId/declencher',
+    { schema: { params: PARAMS_ROUTINE } },
+    async (req, reply) => {
+      const permis = engagementProjetPermis(req, req.params.projectId);
+      if (permis !== 'permis') return refuserProjet(reply, permis);
+      const r = routineDuProjet(req.params.projectId, req.params.routineId);
+      if (!r) return reply.code(404).send({ error: 'routine inconnue' });
+      const now = Date.now();
+      const issue = moteurRoutines.declencher(
+        r,
+        { source: 'manuel', cle: null, instant: now },
+        now,
+      );
+      return issue.statut === 'doublon'
+        ? { statut: issue.statut }
+        : { statut: issue.statut, motif: issue.run.motif, taches: issue.run.taches };
+    },
+  );
+
+  /**
+   * Le webhook d'une routine — sur le modèle de celui de l'abonnement.
+   *
+   * La SIGNATURE authentifie (`t=<s>,v1=<hmac>`, fenêtre de cinq minutes :
+   * `verifierSignature`), sur le corps BRUT et avec la clé de CETTE routine.
+   * Une routine inconnue, d'un autre projet ou sans clé rend exactement le
+   * même 401 qu'une signature fausse : la route ne dit pas ce qui existe.
+   *
+   * LA DÉDUPLICATION : `x-hive-delivery` (ou `x-github-delivery`) nomme la
+   * livraison ; rejouée, elle rend 200 `doublon` sans rien refaire — un
+   * émetteur qui retente après un délai d'attente ne double pas la mission.
+   * Sans identifiant, la signature elle-même en tient lieu : elle porte son
+   * horodatage, donc deux envois distincts ne la partagent pas.
+   */
+  app.post<{ Params: { projectId: string; routineId: string } }>(
+    '/api/projects/:projectId/routines/:routineId/webhook',
+    async (req, reply) => {
+      const brut = (req as { rawBody?: string }).rawBody ?? '';
+      const entete = String(req.headers['x-hive-signature'] ?? '');
+      const now = Date.now();
+      const r = routineDuProjet(String(req.params.projectId), String(req.params.routineId));
+      const secret = r?.declencheur === 'webhook' ? (r.secret ?? '') : '';
+      const v = verifierSignature({ charge: brut, entete, secret, now });
+      if (!r || !v.valide) {
+        app.log.warn({ motif: v.motif }, 'webhook de routine refusé');
+        return reply.code(401).send({ error: 'signature refusée' });
+      }
+      const livraison = String(
+        req.headers['x-hive-delivery'] ?? req.headers['x-github-delivery'] ?? '',
+      ).slice(0, 200);
+      const cle = livraison !== '' ? `webhook:${livraison}` : `signature:${entete.slice(0, 200)}`;
+      const issue = moteurRoutines.declencher(
+        r,
+        { source: 'webhook', cle, instant: now, contexte: contexteDeWebhook(req.body) },
+        now,
+      );
+      if (issue.statut === 'doublon') return { doublon: true };
+      return reply.code(202).send({ statut: issue.statut, run: issue.run.id });
+    },
+  );
+
+  const routinesTimer = setInterval(() => {
+    moteurRoutines.tick(Date.now()).catch((err: unknown) => {
+      console.error(
+        `[hive] erreur des routines : ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
+  }, config.routinesTickMs ?? 30_000);
+  routinesTimer.unref();
+
   // ─── L'administration des comptes ─────────────────────────────────────────
   //
   // Toutes ces routes exigent un COMPTE (JWT), pas seulement le jeton de ruche.
@@ -13216,6 +13562,9 @@ async function monterReine(
   //     C'est un GESTE, comme prendre une issue et comme fusionner. La ruche ne
   //     se remet pas au travail toute seule sur la foi d'un webhook : ce serait
   //     la seule dépense qu'aucun humain n'aurait demandée.
+  //     Une ROUTINE (ADR 0014) n'y fait pas exception : c'est une dépense
+  //     qu'un humain a demandée À L'AVANCE, en la créant, et qui part avec
+  //     l'autorité de son compte — pas une reprise sur la foi d'un webhook.
 
   /** Les faits d'une livraison, lus chez GitHub et repliés en un état. */
   const etatDeLivraison = async (l: {
@@ -16467,6 +16816,9 @@ async function monterReine(
     // Les missions rejouables : orphelines, puis au-delà du plafond par
     // projet — sauf celles qu'un rejeu rangé compare encore.
     etape('pruneMissions', () => store.pruneMissions(MISSIONS_PAR_PROJET));
+    // Les routines : l'historique des runs, borné par routine. Les curseurs
+    // vivent sur la routine — élaguer ne relance rien (voir le schéma).
+    etape('pruneRoutines', () => store.pruneRoutines(ROUTINES_RUNS_CONSERVES));
     // ─── LE JOURNAL A UN SEUL PROPRIÉTAIRE DE RÉTENTION ────────────────────
     //
     // Fenêtre pour les traces, vie de la tâche pour les preuves, plafond en
@@ -16647,6 +16999,7 @@ async function monterReine(
     clearInterval(tickTimer);
     clearInterval(flushTimer);
     clearInterval(elagageTimer);
+    clearInterval(routinesTimer);
     // Coupe le Socket Mode Slack et sa reconnexion AVANT de fermer le reste :
     // un socket laissé ouvert relancerait une connexion pendant l'arrêt.
     hubConnecteurs.fermer();
@@ -16666,6 +17019,7 @@ async function monterReine(
     config,
     port,
     url: `http://${config.host}:${port}`,
+    routines: moteurRoutines,
     stop,
     gardePr: { passe: passeGardePr },
   };

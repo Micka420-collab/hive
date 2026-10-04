@@ -85,6 +85,7 @@ import {
   type MotifRefusHorizon,
 } from './horizon.js';
 import { validerMotifPerso, type MotifPersoRefus } from './motifs.js';
+import type { PlageHoraire, Routine, RunRoutine } from './routines.js';
 import { rankMemoriesHybrid, suiteSouvenir } from './hive-mind.js';
 import type {
   IssueSouvenir,
@@ -1687,6 +1688,75 @@ CREATE TABLE IF NOT EXISTS missions_taches (
 );
 CREATE INDEX IF NOT EXISTS idx_missions_taches_tache ON missions_taches(taskId);
 
+-- ─── Les ROUTINES (src/orchestrator/routines.ts, ADR 0014) ──────────────────
+--
+-- Deux tables NEUVES et LATÉRALES : une base d'avant les gagne vides à
+-- l'ouverture, et n'y perd rien.
+--
+-- routines : ce qu'une routine lance (consigne), QUAND (déclencheur, fuseau,
+-- plage d'heures ouvrées), et ses politiques. creePar est le compte dont
+-- elle porte l'autorité (NULL : le jeton de ruche, sur un projet orphelin) —
+-- relue à CHAQUE déclenchement, jamais présumée. Les curseurs vivent sur la
+-- ligne et non dans l'historique des runs : prochaineA (le prochain
+-- créneau cron non traité) et dernierSha (le dernier commit rouge de la
+-- branche déjà signalé). Élaguer l'historique ne peut donc JAMAIS relancer un
+-- créneau ou un commit déjà traité. secret : la clé HMAC du webhook de la
+-- routine, tirée au sort, remise une fois, remplacée pour la révoquer.
+--
+-- routines_runs : UNE ligne par déclenchement reçu, quelle qu'en soit l'issue
+-- (lancé, fusionné, sauté, manqué, ignoré hors heures, refusé) — un
+-- déclencheur qui ne produit rien doit quand même le DIRE. L'index unique
+-- partiel (routineId, cle) est la déduplication : une livraison de webhook
+-- rejouée (même identifiant) ne s'écrit pas deux fois.
+--
+-- Pas de REFERENCES, à dessein (comme missions) : les deux tables sont
+-- dans EFFACEMENT_PROJET, et l'élagueur retire les runs orphelins.
+--
+-- BORNE D'ÉLAGAGE (règle 3), dans le MÊME changement : pruneRoutines — les
+-- runs dont la routine a disparu, puis au-delà de ROUTINES_RUNS_CONSERVES
+-- par routine, les plus anciens d'abord. La déduplication des webhooks n'en
+-- souffre pas : une livraison élaguée a un horodatage signé hors de la
+-- fenêtre de cinq minutes bien avant de sortir de l'historique.
+CREATE TABLE IF NOT EXISTS routines (
+  id             TEXT PRIMARY KEY,
+  projectId      TEXT NOT NULL,
+  nom            TEXT NOT NULL,
+  consigne       TEXT NOT NULL,
+  declencheur    TEXT NOT NULL,
+  expression     TEXT,
+  fuseau         TEXT NOT NULL DEFAULT 'UTC',
+  branche        TEXT,
+  plage          TEXT,
+  concurrence    TEXT NOT NULL,
+  rattrapage     TEXT NOT NULL,
+  actif          INTEGER NOT NULL DEFAULT 1,
+  creePar        TEXT,
+  secret         TEXT,
+  prochaineA     INTEGER,
+  dernierSha     TEXT,
+  sondeeA        INTEGER,
+  derniereErreur TEXT,
+  creeA          INTEGER NOT NULL,
+  majA           INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_routines_projet ON routines(projectId, creeA);
+
+CREATE TABLE IF NOT EXISTS routines_runs (
+  id           TEXT PRIMARY KEY,
+  routineId    TEXT NOT NULL,
+  projectId    TEXT NOT NULL,
+  source       TEXT NOT NULL,
+  cle          TEXT,
+  statut       TEXT NOT NULL,
+  motif        TEXT NOT NULL DEFAULT '',
+  taches       TEXT NOT NULL DEFAULT '[]',
+  fusionneDans TEXT,
+  creeA        INTEGER NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_routines_runs_cle
+  ON routines_runs(routineId, cle) WHERE cle IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_routines_runs_routine ON routines_runs(routineId, creeA DESC);
+
 -- L'empreinte PUBLIQUE de la ruche (shared/empreinte-ruche.ts) : UNE ligne,
 -- tirée au sort au premier démarrage, jamais réécrite. Rangée ici parce
 -- qu'elle doit survivre aux redémarrages (sinon les membres de la ruche lui
@@ -1697,6 +1767,42 @@ CREATE TABLE IF NOT EXISTS identite_ruche (
   empreinte TEXT NOT NULL
 );
 `;
+
+interface LigneRoutine {
+  id: string;
+  projectId: string;
+  nom: string;
+  consigne: string;
+  declencheur: string;
+  expression: string | null;
+  fuseau: string;
+  branche: string | null;
+  plage: string | null;
+  concurrence: string;
+  rattrapage: string;
+  actif: number;
+  creePar: string | null;
+  secret: string | null;
+  prochaineA: number | null;
+  dernierSha: string | null;
+  sondeeA: number | null;
+  derniereErreur: string | null;
+  creeA: number;
+  majA: number;
+}
+
+interface LigneRunRoutine {
+  id: string;
+  routineId: string;
+  projectId: string;
+  source: string;
+  cle: string | null;
+  statut: string;
+  motif: string;
+  taches: string;
+  fusionneDans: string | null;
+  creeA: number;
+}
 
 interface ProjectRow {
   id: string;
@@ -2446,6 +2552,10 @@ const EFFACEMENT_PROJET = [
     `missionId IN (SELECT id FROM missions WHERE projectId = @p) OR taskId IN (${TACHES_DU_PROJET})`,
   ],
   ['missions', 'projectId = @p'],
+  // Les routines (ADR 0014) : l'historique d'abord, puis la routine — une
+  // routine qui survivrait à son projet se déclencherait sur un fantôme.
+  ['routines_runs', 'projectId = @p'],
+  ['routines', 'projectId = @p'],
   ['rejeux', 'projectId = @p'],
   ['rejeux_actions', 'projectId = @p'],
   ['taches_ombre', `projectId = @p OR tacheOmbre IN (${TACHES_DU_PROJET})`],
@@ -9438,6 +9548,195 @@ export class HiveStore {
            )`,
         )
         .run(Math.max(1, parProjet) * 10).changes;
+      return n;
+    });
+  }
+
+  // ─── Les routines (ADR 0014) ────────────────────────────────────────────────
+  //
+  // Le magasin RANGE et RELIT ; il ne décide rien. Quand une routine part,
+  // quelle politique s'applique et qui en répond : `routines.ts`.
+
+  private routineDeLigne(l: LigneRoutine): Routine {
+    let plage: PlageHoraire | null;
+    try {
+      plage = l.plage ? (JSON.parse(l.plage) as PlageHoraire) : null;
+    } catch {
+      // Une plage illisible n'ouvre pas la routine à toute heure : elle la
+      // ferme (jours vides), et `routines.ts` le dit à la place d'un run.
+      plage = { jours: [], debut: '00:00', fin: '00:00' };
+    }
+    return {
+      id: l.id,
+      projectId: l.projectId,
+      nom: l.nom,
+      consigne: l.consigne,
+      declencheur: l.declencheur as Routine['declencheur'],
+      expression: l.expression,
+      fuseau: l.fuseau,
+      branche: l.branche,
+      plage,
+      concurrence: l.concurrence as Routine['concurrence'],
+      rattrapage: l.rattrapage as Routine['rattrapage'],
+      actif: l.actif === 1,
+      creePar: l.creePar,
+      secret: l.secret,
+      prochaineA: l.prochaineA,
+      dernierSha: l.dernierSha,
+      sondeeA: l.sondeeA,
+      derniereErreur: l.derniereErreur,
+      creeA: l.creeA,
+      majA: l.majA,
+    };
+  }
+
+  creerRoutine(r: Routine): void {
+    this.db
+      .prepare(
+        `INSERT INTO routines (id, projectId, nom, consigne, declencheur, expression, fuseau,
+           branche, plage, concurrence, rattrapage, actif, creePar, secret, prochaineA,
+           dernierSha, sondeeA, derniereErreur, creeA, majA)
+         VALUES (@id, @projectId, @nom, @consigne, @declencheur, @expression, @fuseau, @branche,
+           @plage, @concurrence, @rattrapage, @actif, @creePar, @secret, @prochaineA,
+           @dernierSha, @sondeeA, @derniereErreur, @creeA, @majA)`,
+      )
+      .run({ ...r, plage: r.plage ? JSON.stringify(r.plage) : null, actif: r.actif ? 1 : 0 });
+  }
+
+  getRoutine(id: string): Routine | undefined {
+    const l = this.db.prepare('SELECT * FROM routines WHERE id = ?').get(id) as
+      LigneRoutine | undefined;
+    return l ? this.routineDeLigne(l) : undefined;
+  }
+
+  listRoutines(projectId?: string): Routine[] {
+    const lignes = (
+      projectId === undefined
+        ? this.db.prepare('SELECT * FROM routines ORDER BY creeA, id').all()
+        : this.db
+            .prepare('SELECT * FROM routines WHERE projectId = ? ORDER BY creeA, id')
+            .all(projectId)
+    ) as LigneRoutine[];
+    return lignes.map((l) => this.routineDeLigne(l));
+  }
+
+  /** Change les champs VIVANTS d'une routine ; sa définition ne bouge pas. */
+  majRoutine(
+    id: string,
+    champs: Partial<
+      Pick<Routine, 'actif' | 'secret' | 'prochaineA' | 'dernierSha' | 'sondeeA' | 'derniereErreur'>
+    >,
+    now: number,
+  ): void {
+    const cles = Object.keys(champs) as (keyof typeof champs)[];
+    if (cles.length === 0) return;
+    const valeurs: Record<string, unknown> = { id, majA: now };
+    for (const k of cles) valeurs[k] = k === 'actif' ? (champs.actif ? 1 : 0) : (champs[k] ?? null);
+    this.db
+      .prepare(
+        `UPDATE routines SET ${cles.map((k) => `${k} = @${k}`).join(', ')}, majA = @majA WHERE id = @id`,
+      )
+      .run(valeurs);
+  }
+
+  /** Supprime une routine ET son historique. `false` : elle n'existait pas. */
+  supprimerRoutine(id: string): boolean {
+    return this.enTransaction(() => {
+      this.db.prepare('DELETE FROM routines_runs WHERE routineId = ?').run(id);
+      return this.db.prepare('DELETE FROM routines WHERE id = ?').run(id).changes > 0;
+    });
+  }
+
+  private runDeLigne(l: LigneRunRoutine): RunRoutine {
+    let taches: string[] = [];
+    try {
+      const lu: unknown = JSON.parse(l.taches);
+      if (Array.isArray(lu)) taches = lu.filter((t): t is string => typeof t === 'string');
+    } catch {
+      taches = [];
+    }
+    return {
+      id: l.id,
+      routineId: l.routineId,
+      projectId: l.projectId,
+      source: l.source as RunRoutine['source'],
+      cle: l.cle,
+      statut: l.statut as RunRoutine['statut'],
+      motif: l.motif,
+      taches,
+      fusionneDans: l.fusionneDans,
+      creeA: l.creeA,
+    };
+  }
+
+  /** Range un run. `false` : cette clé est déjà rangée (livraison rejouée). */
+  ajouterRunRoutine(run: RunRoutine): boolean {
+    return (
+      this.db
+        .prepare(
+          `INSERT OR IGNORE INTO routines_runs
+             (id, routineId, projectId, source, cle, statut, motif, taches, fusionneDans, creeA)
+           VALUES (@id, @routineId, @projectId, @source, @cle, @statut, @motif, @taches,
+             @fusionneDans, @creeA)`,
+        )
+        .run({ ...run, taches: JSON.stringify(run.taches) }).changes > 0
+    );
+  }
+
+  /** La clé est-elle déjà rangée pour cette routine ? */
+  runRoutineConnu(routineId: string, cle: string): boolean {
+    return (
+      this.db
+        .prepare('SELECT 1 FROM routines_runs WHERE routineId = ? AND cle = ?')
+        .get(routineId, cle) !== undefined
+    );
+  }
+
+  /** Les derniers runs d'une routine, le plus récent d'abord. */
+  runsDeRoutine(routineId: string, limite: number): RunRoutine[] {
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM routines_runs WHERE routineId = ?
+            ORDER BY creeA DESC, rowid DESC LIMIT ?`,
+        )
+        .all(routineId, Math.max(1, limite)) as LigneRunRoutine[]
+    ).map((l) => this.runDeLigne(l));
+  }
+
+  /** Le dernier run qui a LANCÉ du travail — celui qu'une fusion rejoint. */
+  dernierRunLance(routineId: string): RunRoutine | undefined {
+    const l = this.db
+      .prepare(
+        `SELECT * FROM routines_runs WHERE routineId = ? AND statut = 'lancee'
+          ORDER BY creeA DESC, rowid DESC LIMIT 1`,
+      )
+      .get(routineId) as LigneRunRoutine | undefined;
+    return l ? this.runDeLigne(l) : undefined;
+  }
+
+  /**
+   * La borne de l'historique des routines (règle 3) : les runs dont la routine
+   * a disparu, puis, par routine, tout ce qui dépasse les `parRoutine` plus
+   * récents. Les curseurs vivent sur la routine : rien ici ne peut relancer un
+   * créneau ou un commit déjà traité (voir le schéma).
+   */
+  pruneRoutines(parRoutine: number): number {
+    return this.enTransaction(() => {
+      let n = this.db
+        .prepare('DELETE FROM routines_runs WHERE routineId NOT IN (SELECT id FROM routines)')
+        .run().changes;
+      n += this.db
+        .prepare(
+          `DELETE FROM routines_runs WHERE rowid IN (
+             SELECT rowid FROM (
+               SELECT rowid, ROW_NUMBER() OVER (
+                 PARTITION BY routineId ORDER BY creeA DESC, rowid DESC) AS rang
+                 FROM routines_runs
+             ) WHERE rang > ?
+           )`,
+        )
+        .run(Math.max(1, parRoutine)).changes;
       return n;
     });
   }

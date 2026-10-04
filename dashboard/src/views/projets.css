@@ -1692,6 +1692,52 @@
   flex-wrap: wrap;
 }
 
+/* Les routines (ADR 0014) réutilisent le formulaire du rejeu : seuls s'y
+   ajoutent la consigne (une zone de texte), la case des heures ouvrées — qui
+   ne doit pas s'étirer sur toute la ligne comme un champ — et la clé du
+   webhook, longue, qui doit se couper plutôt que d'élargir la page. */
+.pj-rejeu-form textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+
+.pj-rejeu-form input[type='checkbox'] {
+  width: auto;
+}
+
+.pj-rejeu-form label.pj-routines-case {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.pj-rejeu-form code {
+  overflow-wrap: anywhere;
+}
+
+.pj-routines-runs {
+  flex: 1 1 100%;
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0 0 0 10px;
+  border-left: 2px solid var(--border);
+  color: var(--muted);
+}
+
+/* Une ligne de texte par run : la règle flex des lignes de la liste
+   parente ne doit pas couper la date du reste. */
+.pj-liv-liste .pj-routines-runs li {
+  display: block;
+}
+
 /* Le bandeau d'un projet de rejeu : il doit se voir avant tout le reste. */
 .pj-rejeu-bandeau {
   display: flex;
