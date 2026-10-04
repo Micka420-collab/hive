@@ -124,11 +124,18 @@ describe('le choix du thème', () => {
 
   it('le script d’index.html pose le CHOIX avant la première peinture — mêmes valeurs que theme.ts', () => {
     // Le module de l'application tourne après l'analyse du document : sans ce
-    // script, un choix contraire à l'OS flasherait le temps d'une image.
-    const html = readFileSync(fileURLToPath(new UrlNode('../index.html', import.meta.url)), 'utf8');
-    const script = /<script>([\s\S]*?)<\/script>/.exec(html)?.[1];
-    expect(script, 'index.html sans script de thème en ligne').toBeDefined();
-    const jouer = new Function(script ?? '') as () => void;
+    // script, un choix contraire à l'OS flasherait le temps d'une image. Il
+    // est CLASSIQUE (bloquant, dans <head>) et servi à part : la coquille de
+    // bureau pose `script-src 'self'` (desktop/src/csp.ts), et un script en
+    // ligne y était refusé — une violation de CSP pour son banc de fumée.
+    const lire = (rel: string): string =>
+      readFileSync(fileURLToPath(new UrlNode(rel, import.meta.url)), 'utf8');
+    const html = lire('../index.html');
+    expect(html.slice(0, html.indexOf('</head>'))).toContain(
+      '<script src="/theme-initial.js"></script>',
+    );
+    expect(html, 'aucun script en ligne').not.toMatch(/<script(?![^>]*\ssrc=)[^>]*>/);
+    const jouer = new Function(lire('../public/theme-initial.js')) as () => void;
     for (const choix of CHOIX_THEMES) {
       document.documentElement.removeAttribute('data-theme');
       if (choix === 'systeme') localStorage.removeItem(CLE_THEME);
