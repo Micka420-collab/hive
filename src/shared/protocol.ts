@@ -19,11 +19,11 @@ import { estEffort, estListeEfforts, type Effort } from './effort.js';
 import type { ValidationsBac } from './validations-bac.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
-import { NIVEAUX_ISOLEMENT } from './types.js';
+import { NIVEAUX_ISOLEMENT, RAISONS_SANS_MESURE } from './types.js';
 import type {
-  ExecutionUsage,
   HiveEvent,
   IsolementDeclare,
+  RessourcesExecution,
   StateSnapshot,
   SubAgent,
   Task,
@@ -317,8 +317,14 @@ export interface TaskResultMsg {
   logs: string;
   durationMs: number;
   subAgents: SubAgent[];
-  /** Compteurs locaux du Worker, optionnels pour les nœuds plus anciens. */
-  usage?: ExecutionUsage;
+  /**
+   * Les ressources de l'AGENT (`RessourcesExecution`). Un nœud plus ancien
+   * envoyait à la place `usage` — les compteurs de SON processus Node : le
+   * parseur le lit comme `{ portee: 'aucune', raison: 'noeud_ancien' }`
+   * (`ressourcesLues`), et le nœud n'envoie plus `usage`, qu'une Reine plus
+   * ancienne exige complet sous peine de rejeter le résultat entier.
+   */
+  ressources?: RessourcesExecution;
   /** Déclaration du CLI de l'agent (coût, temps modèle), jamais estimée. */
   fournisseur?: UsageFournisseur;
   /**
@@ -686,7 +692,8 @@ export interface DelegationResultMsg {
   logs: string;
   durationMs: number;
   resultId?: number;
-  usage?: ExecutionUsage;
+  /** Comme `TaskResultMsg.ressources` — une Reine plus ancienne envoie `usage`. */
+  ressources?: RessourcesExecution;
 }
 
 /**
@@ -869,15 +876,69 @@ function isSubAgents(v: unknown): v is SubAgent[] {
   });
 }
 
-function isExecutionUsage(v: unknown): v is ExecutionUsage {
+/** Un pétaoctet, un million de relevés : au-delà, ce n'est pas une mesure. */
+const PIC_OCTETS_MAX = 2 ** 50;
+const RELEVES_MAX = 1_000_000;
+
+/** Les ressources d'une exécution, telles qu'un nœud les rend ; `null` hors contrat. */
+function ressourcesDepuis(v: unknown): RessourcesExecution | null {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
+  const r = v as Record<string, unknown>;
+  if (r.portee === 'aucune') {
+    const raison = RAISONS_SANS_MESURE.find((x) => x === r.raison);
+    return raison ? { portee: 'aucune', raison } : null;
+  }
+  if (r.portee !== 'arbre' && r.portee !== 'conteneur') return null;
+  const cpuMs = isInt(r.cpuMs, 0, Number.MAX_SAFE_INTEGER) ? r.cpuMs : undefined;
+  const picOctets = isInt(r.picOctets, 0, PIC_OCTETS_MAX) ? r.picOctets : undefined;
+  // Un relevé sans aucun nombre n'en est pas un, et un champ présent mais faux
+  // ment ou bogue : le tout tombe, jamais un nombre à moitié lu.
+  if (
+    !isInt(r.releves, 1, RELEVES_MAX) ||
+    (r.cpuMs !== undefined && cpuMs === undefined) ||
+    (r.picOctets !== undefined && picOctets === undefined) ||
+    (cpuMs === undefined && picOctets === undefined) ||
+    (r.picNoyau !== undefined && (r.picNoyau !== true || picOctets === undefined))
+  ) {
+    return null;
+  }
+  return {
+    portee: r.portee,
+    releves: r.releves,
+    ...(cpuMs !== undefined ? { cpuMs } : {}),
+    ...(picOctets !== undefined ? { picOctets } : {}),
+    ...(r.picNoyau === true ? { picNoyau: true as const } : {}),
+  };
+}
+
+/**
+ * La mesure d'un nœud d'avant celle-ci (`usage`, ses cinq compteurs) : elle
+ * décrivait le processus Node du NŒUD — l'agent, son enfant, n'y était pas, et
+ * `maxRssBytes` était le pic du nœud depuis son démarrage. Reconnue pour dire
+ * POURQUOI rien n'est mesuré, jamais affichée comme les ressources de l'agent.
+ */
+function estUsageDuNoeud(v: unknown): boolean {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
-  const usage = v as Record<string, unknown>;
+  const u = v as Record<string, unknown>;
+  return ['userCpuMicros', 'systemCpuMicros', 'maxRssBytes', 'rssBytes', 'heapUsedBytes'].every(
+    (cle) => isInt(u[cle], 0, Number.MAX_SAFE_INTEGER),
+  );
+}
+
+/**
+ * Les ressources d'une exécution, d'où qu'elles viennent : la forme d'un nœud
+ * à jour (`nouvelles`), sinon la mesure d'un nœud plus ancien (`anciennes`),
+ * lue comme `noeud_ancien`. Un message, un événement rangé, un résumé de tâche
+ * relu : la même lecture partout. `undefined` : rien de lisible — et jamais
+ * un résultat perdu pour autant (le champ tombe seul).
+ */
+export function ressourcesLues(
+  nouvelles: unknown,
+  anciennes: unknown,
+): RessourcesExecution | undefined {
   return (
-    isInt(usage.userCpuMicros, 0, Number.MAX_SAFE_INTEGER) &&
-    isInt(usage.systemCpuMicros, 0, Number.MAX_SAFE_INTEGER) &&
-    isInt(usage.maxRssBytes, 0, Number.MAX_SAFE_INTEGER) &&
-    isInt(usage.rssBytes, 0, Number.MAX_SAFE_INTEGER) &&
-    isInt(usage.heapUsedBytes, 0, Number.MAX_SAFE_INTEGER)
+    ressourcesDepuis(nouvelles) ??
+    (estUsageDuNoeud(anciennes) ? { portee: 'aucune', raison: 'noeud_ancien' } : undefined)
   );
 }
 
@@ -1289,8 +1350,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         isStrAllowEmpty(m.diff, LIMITS.diff) &&
         isStrAllowEmpty(m.logs, LIMITS.log) &&
         isInt(m.durationMs, 0, 86_400_000) &&
-        isSubAgents(m.subAgents) &&
-        (m.usage === undefined || isExecutionUsage(m.usage))
+        isSubAgents(m.subAgents)
       ) {
         const fournisseur = usageFournisseurDepuis(m.fournisseur);
         const finalText = texteFinalDepuis(m.finalText);
@@ -1298,6 +1358,9 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         // elles redeviennent `missing`, ce qu'elles étaient sans rapport.
         const validations =
           m.validations === undefined ? null : validationsBacDepuis(m.validations);
+        // Une mesure hors contrat tombe seule, comme la déclaration du CLI :
+        // perdre le résultat pour elle laisserait la tâche pendue.
+        const ressources = ressourcesLues(m.ressources, m.usage);
         return {
           type: 'task_result',
           taskId: m.taskId,
@@ -1306,7 +1369,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           logs: m.logs,
           durationMs: m.durationMs,
           subAgents: m.subAgents,
-          ...(m.usage !== undefined ? { usage: m.usage } : {}),
+          ...(ressources ? { ressources } : {}),
           ...(fournisseur ? { fournisseur } : {}),
           ...(finalText !== undefined ? { finalText } : {}),
           ...(validations ? { validations } : {}),
@@ -1598,8 +1661,7 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         !isStrAllowEmpty(m.diff, LIMITS.diff) ||
         !isStrAllowEmpty(m.logs, LIMITS.log) ||
         !isInt(m.durationMs, 0, Number.MAX_SAFE_INTEGER) ||
-        (m.resultId !== undefined && !isInt(m.resultId, 1, Number.MAX_SAFE_INTEGER)) ||
-        (m.usage !== undefined && !isExecutionUsage(m.usage))
+        (m.resultId !== undefined && !isInt(m.resultId, 1, Number.MAX_SAFE_INTEGER))
       ) {
         return null;
       }
@@ -1613,7 +1675,10 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         durationMs: m.durationMs,
       };
       if (m.resultId !== undefined) msg.resultId = m.resultId;
-      if (m.usage !== undefined) msg.usage = m.usage as ExecutionUsage;
+      // Comme pour `task_result` : la mesure tombe seule — un parent qui
+      // perdrait le résultat de son enfant attendrait jusqu'à son échéance.
+      const ressources = ressourcesLues(m.ressources, m.usage);
+      if (ressources) msg.ressources = ressources;
       return msg;
     }
     case 'task_output':

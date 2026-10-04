@@ -11,7 +11,16 @@ import type {
   RaceVictory,
   TaskDelegationGraph,
 } from './api';
-import type { ExecutionUsage, HiveNode, Task, TaskResult } from '../../src/shared/types';
+import type {
+  HiveNode,
+  RaisonSansMesure,
+  RessourcesExecution,
+  Task,
+  TaskResult,
+} from '../../src/shared/types';
+import { INTERVALLE_METRIQUES_MS } from '../../src/shared/bac-direct';
+import { ressourcesLues } from '../../src/shared/protocol';
+import { octetsLisibles } from './views/bac-direct-rendu';
 import { useLang, useT } from './i18n';
 import { formatMs, StatusBadge, useDialog } from './ui';
 import { direAnnonce, direDuree } from '../../src/shared/horloge-chantier';
@@ -145,51 +154,86 @@ function consommationDelegation(
     );
   }
   const duree = formatMs(durationMs);
-  const usage = event?.payload.usage;
-  if (typeof usage === 'object' && usage !== null) {
-    const mesure = usage as Record<string, unknown>;
-    const userCpuMicros = mesure.userCpuMicros;
-    const systemCpuMicros = mesure.systemCpuMicros;
-    const maxRssBytes = mesure.maxRssBytes;
-    if (
-      typeof userCpuMicros === 'number' &&
-      Number.isFinite(userCpuMicros) &&
-      typeof systemCpuMicros === 'number' &&
-      Number.isFinite(systemCpuMicros) &&
-      typeof maxRssBytes === 'number' &&
-      Number.isFinite(maxRssBytes)
-    ) {
-      return t(
-        `Dernière exécution mesurée : ${duree} · processus Worker : ${(userCpuMicros + systemCpuMicros) / 1_000} ms CPU · ${(maxRssBytes / (1024 * 1024)).toFixed(1)} MiB RSS · coût fournisseur non mesuré`,
-        `Last measured run: ${duree} · Worker process: ${(userCpuMicros + systemCpuMicros) / 1_000} ms CPU · ${(maxRssBytes / (1024 * 1024)).toFixed(1)} MiB RSS · provider cost not measured`,
-      );
-    }
-  }
+  // Le journal garde aussi les mesures d'AVANT celle de l'agent (`usage`, les
+  // compteurs du nœud) : lues `noeud_ancien`, jamais affichées comme les siennes.
+  const ressources = ressourcesLues(event?.payload.ressources, event?.payload.usage);
   return t(
-    `Dernière exécution mesurée : ${duree} · coût non mesuré · ressources non mesurées`,
-    `Last measured run: ${duree} · cost not measured · resources not measured`,
+    `Dernière exécution mesurée : ${duree} · ${direRessources(ressources, t)} · coût fournisseur non mesuré`,
+    `Last measured run: ${duree} · ${direRessources(ressources, t)} · provider cost not measured`,
   );
 }
 
-// Les ressources du processus Worker (CPU, mémoire) ne sont PAS un coût : le
-// coût fournisseur a sa propre ligne, dans « Où est passé le temps », avec ce
-// que le CLI de l'agent déclare — ou « inconnu ». Le dire ici « non mesuré »
+const RAISON_SANS_MESURE: Record<RaisonSansMesure, readonly [string, string]> = {
+  plateforme: [
+    'Windows hors conteneur, sans table des processus lisible',
+    'Windows without a container has no readable process table',
+  ],
+  aucun_processus: ['aucun processus d’agent lancé', 'no agent process was started'],
+  aucun_releve: ['aucun relevé de l’agent n’a abouti', 'no sample of the agent succeeded'],
+  noeud_ancien: [
+    'nœud d’une version antérieure, qui ne mesurait que lui-même',
+    'node from an earlier version, which only measured itself',
+  ],
+};
+
+/**
+ * Les ressources de l'AGENT, telles que son nœud les a relevées : l'arbre de
+ * ses processus ou son conteneur — la mesure de Sandbox Live, cumulée. Le CPU
+ * est un plancher (« au moins ») : ce qui a suivi le dernier relevé n'y est
+ * pas. Un pic échantillonné est dit tel ; celui du noyau aussi. Ce qui ne se
+ * mesure pas est dit avec sa raison, jamais remplacé par un autre chiffre.
+ */
+function direRessources(r: RessourcesExecution | undefined, t: ReturnType<typeof useT>): string {
+  if (!r) return t('ressources de l’agent non mesurées', 'agent’s resources not measured');
+  if (r.portee === 'aucune') {
+    const [fr, en] = RAISON_SANS_MESURE[r.raison];
+    return t(
+      `ressources de l’agent non mesurées — ${fr}`,
+      `agent’s resources not measured — ${en}`,
+    );
+  }
+  const sujet =
+    r.portee === 'arbre'
+      ? t('arbre de processus de l’agent', 'agent’s process tree')
+      : t('conteneur de l’agent', 'agent’s container');
+  const cpu =
+    r.cpuMs !== undefined
+      ? t(`au moins ${formatMs(r.cpuMs)} CPU`, `at least ${formatMs(r.cpuMs)} CPU`)
+      : t(
+          'CPU non mesuré (le moteur n’en tient pas le cumul)',
+          'CPU not measured (the engine keeps no total)',
+        );
+  const pic = r.picOctets !== undefined ? octetsLisibles(r.picOctets) : null;
+  const memoire =
+    pic === null
+      ? t('mémoire non mesurée', 'memory not measured')
+      : r.picNoyau
+        ? t(`pic mémoire ${pic} (noyau)`, `memory peak ${pic} (kernel)`)
+        : r.portee === 'arbre'
+          ? t(`pic RSS échantillonné ${pic}`, `sampled RSS peak ${pic}`)
+          : t(`pic mémoire échantillonné ${pic}`, `sampled memory peak ${pic}`);
+  const s = INTERVALLE_METRIQUES_MS / 1000;
+  const releves = t(
+    `${r.releves} relevé${r.releves > 1 ? 's' : ''} toutes les ${s} s`,
+    `${r.releves} sample${r.releves > 1 ? 's' : ''} every ${s} s`,
+  );
+  return `${sujet} : ${cpu} · ${memoire} · ${releves}`;
+}
+
+// Les ressources de l'agent (CPU, mémoire) ne sont PAS un coût : le coût
+// fournisseur a sa propre ligne, dans « Où est passé le temps », avec ce que le
+// CLI de l'agent déclare — ou « inconnu ». Le dire ici « non mesuré »
 // contredirait ce panneau dès qu'un CLI déclare un montant.
 function ressourcesObservees(
-  usage: ExecutionUsage | undefined,
+  ressources: RessourcesExecution | undefined,
   t: ReturnType<typeof useT>,
 ): string {
-  if (!usage)
-    return t(
-      'Non mesurées · coût fournisseur à part (« Où est passé le temps »)',
-      'Not measured · provider cost shown separately (“Where the time went”)',
-    );
-  const cpuMs = (usage.userCpuMicros + usage.systemCpuMicros) / 1_000;
-  const rssMiB = usage.maxRssBytes / (1024 * 1024);
-  return t(
-    `processus Worker : ${formatMs(cpuMs)} CPU · ${rssMiB.toFixed(1)} MiB RSS · coût fournisseur à part (« Où est passé le temps »)`,
-    `Worker process: ${formatMs(cpuMs)} CPU · ${rssMiB.toFixed(1)} MiB RSS · provider cost shown separately (“Where the time went”)`,
+  const dit = direRessources(ressources, t);
+  const cout = t(
+    'coût fournisseur à part (« Où est passé le temps »)',
+    'provider cost shown separately (“Where the time went”)',
   );
+  return `${dit.charAt(0).toUpperCase()}${dit.slice(1)} · ${cout}`;
 }
 
 // L'éditeur (CodeMirror) est chargé à la demande — pesant seulement quand on
@@ -391,7 +435,7 @@ export function TaskDrawer({
           <dd>{task.result ? formatMs(task.result.durationMs) : '—'}</dd>
           <dt>{t('Ressources observées', 'Observed resources')}</dt>
           <dd data-testid="task-observed-resources">
-            {ressourcesObservees(task.result?.usage, t)}
+            {ressourcesObservees(task.result?.ressources, t)}
           </dd>
           {horloge?.annonce && (
             <>

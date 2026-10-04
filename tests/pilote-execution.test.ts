@@ -26,6 +26,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCommand } from '../src/adapters/exec.js';
 import type { EtatDirect } from '../src/shared/bac-direct.js';
+import type { ProcessusVu } from '../src/node-client/mesure-processus.js';
 import { PiloteExecution, SONDES_REELLES } from '../src/node-client/pilote-execution.js';
 import type { SondesPilote } from '../src/node-client/pilote-execution.js';
 
@@ -422,6 +423,169 @@ describe('le pilote — là où il ne sait pas, et le conteneur', () => {
     expect(tardif.restant()).toBeLessThan(figes[1]!);
     budget.annuler();
     tardif.annuler();
+    pilote.fermer();
+  });
+});
+
+describe('le pilote — le BILAN que porte le résultat : l’agent, ou pourquoi rien', () => {
+  const ID = 'c'.repeat(64);
+  const DOSSIER = `/sys/fs/cgroup/system.slice/docker-${ID}.scope`;
+
+  it('rien de lancé, Windows hors conteneur, aucun relevé : la RAISON, jamais un zéro', async () => {
+    expect(
+      new PiloteExecution(() => undefined, sondesDeBanc().sondes, 60_000).ressources(),
+    ).toEqual({ portee: 'aucune', raison: 'aucun_processus' });
+
+    const windows = new PiloteExecution(
+      () => undefined,
+      sondesDeBanc({ plateforme: 'win32' }).sondes,
+      60_000,
+    );
+    windows.attacher({ pid: 4242, commande: 'claude -p' })();
+    expect(windows.ressources()).toEqual({ portee: 'aucune', raison: 'plateforme' });
+
+    // POSIX, mais la racine n'a jamais été vue (sortie avant le premier relevé).
+    const r = recueil();
+    const bref = new PiloteExecution(
+      r.envoyer,
+      sondesDeBanc({ table: async () => [] }).sondes,
+      60_000,
+    );
+    const detacher = bref.attacher({ pid: 77, commande: 'agent' });
+    await attendre(() => r.envois.some((e) => 'metriques' in e), 'aucun relevé tenté');
+    detacher();
+    expect(bref.ressources()).toEqual({ portee: 'aucune', raison: 'aucun_releve' });
+    for (const p of [windows, bref]) p.fermer();
+  });
+
+  it('plusieurs processus attachés l’un après l’autre : leurs CPU s’ajoutent, le pic est le plus haut', async () => {
+    let table: ProcessusVu[] = [];
+    const r = recueil();
+    const pilote = new PiloteExecution(
+      r.envoyer,
+      sondesDeBanc({ table: async () => table }).sondes,
+      60_000,
+    );
+    const relevesFaits = () => r.envois.filter((e) => e.metriques).length;
+    table = [{ pid: 1, ppid: 0, cpuMs: 200, cpuEnfantsMs: 100, rssOctets: 5_000 }];
+    const premier = pilote.attacher({ pid: 1, commande: 'preparer' });
+    await attendre(() => relevesFaits() === 1, 'premier relevé');
+    premier();
+    table = [{ pid: 2, ppid: 0, cpuMs: 50, cpuEnfantsMs: 0, rssOctets: 9_000 }];
+    const second = pilote.attacher({ pid: 2, commande: 'agent' });
+    await attendre(() => relevesFaits() === 2, 'second relevé');
+    second();
+    expect(pilote.ressources()).toEqual({
+      portee: 'arbre',
+      releves: 2,
+      cpuMs: 350,
+      picOctets: 9_000,
+    });
+    pilote.fermer();
+  });
+
+  it('CONTENEUR sans cgroup lisible : le pic du `stats` (échantillonné), et PAS de CPU inventé', async () => {
+    const b = sondesDeBanc({
+      plateforme: 'darwin',
+      moteur: (_bin, args) =>
+        Promise.resolve(
+          args[0] === 'stats'
+            ? { code: 0, sortie: '180.00%|1.5GiB / 8GiB|9\n' }
+            : { code: 0, sortie: '' },
+        ),
+    });
+    const r = recueil();
+    const pilote = new PiloteExecution(r.envoyer, b.sondes, 60_000);
+    const detacher = pilote.attacher({
+      pid: 99,
+      commande: 'docker run',
+      conteneur: { bin: 'docker', nom: 'hive-t-1', env: {} },
+    });
+    await attendre(() => r.envois.some((e) => e.metriques), 'aucune mesure du moteur');
+    detacher();
+    expect(pilote.ressources()).toEqual({
+      portee: 'conteneur',
+      releves: 1,
+      picOctets: 1.5 * 1024 ** 3,
+    });
+    pilote.fermer();
+  });
+
+  it('CONTENEUR, Linux : le cgroup du conteneur — CPU de TOUT ce qui y a tourné, pic du noyau', async () => {
+    const lus: string[] = [];
+    const fichiers: Record<string, string> = {
+      '/proc/4242/cgroup': `0::/system.slice/docker-${ID}.scope\n`,
+      [`${DOSSIER}/cpu.stat`]: 'usage_usec 2500000\nuser_usec 2000000\nsystem_usec 500000\n',
+      [`${DOSSIER}/memory.peak`]: `${700 * 1024 * 1024}\n`,
+    };
+    const b = sondesDeBanc({
+      moteur: (_bin, args) => {
+        b.moteur.push([...args]);
+        if (args[0] === 'inspect') return Promise.resolve({ code: 0, sortie: `${ID} 4242\n` });
+        return Promise.resolve({ code: 0, sortie: '50.00%|300MiB / 8GiB|4\n' });
+      },
+      lireFichier: (chemin) => {
+        lus.push(chemin);
+        const contenu = fichiers[chemin];
+        return contenu === undefined
+          ? Promise.reject(new Error(`ENOENT ${chemin}`))
+          : Promise.resolve(contenu);
+      },
+    });
+    const r = recueil();
+    const pilote = new PiloteExecution(r.envoyer, b.sondes, 60_000);
+    const detacher = pilote.attacher({
+      pid: 99,
+      commande: 'docker run',
+      conteneur: { bin: 'docker', nom: 'hive-t-2', env: {} },
+    });
+    await attendre(() => r.envois.some((e) => e.metriques), 'aucune mesure');
+    detacher();
+    expect(b.moteur).toContainEqual(['inspect', '--format', '{{.Id}} {{.State.Pid}}', 'hive-t-2']);
+    expect(lus).toContain(`${DOSSIER}/cpu.stat`);
+    // Le pic du noyau (700 Mio) l'emporte sur le relevé du moteur (300 Mio).
+    expect(pilote.ressources()).toEqual({
+      portee: 'conteneur',
+      releves: 1,
+      cpuMs: 2_500,
+      picOctets: 700 * 1024 * 1024,
+      picNoyau: true,
+    });
+    pilote.fermer();
+  });
+
+  it('un cgroup qui ne porte PAS l’identifiant du conteneur n’est pas lu — ni recherché à chaque relevé', async () => {
+    let inspects = 0;
+    const lus: string[] = [];
+    const b = sondesDeBanc({
+      moteur: (_bin, args) => {
+        if (args[0] === 'inspect') {
+          inspects += 1;
+          return Promise.resolve({ code: 0, sortie: `${ID} 31\n` });
+        }
+        return Promise.resolve({ code: 0, sortie: '1.00%|64MiB / 8GiB|2\n' });
+      },
+      // Le pid 31 de la VM du moteur est, sur l'hôte, un processus quelconque.
+      lireFichier: (chemin) => {
+        lus.push(chemin);
+        return Promise.resolve('0::/user.slice/user-1000.slice/session-2.scope\n');
+      },
+    });
+    const r = recueil();
+    const pilote = new PiloteExecution(r.envoyer, b.sondes, 20);
+    const detacher = pilote.attacher({
+      pid: 99,
+      commande: 'docker run',
+      conteneur: { bin: 'docker', nom: 'hive-t-3', env: {} },
+    });
+    await attendre(() => r.envois.filter((e) => e.metriques).length >= 3, 'trois relevés');
+    detacher();
+    expect(inspects).toBe(1);
+    expect(lus).toEqual(['/proc/31/cgroup']);
+    const bilan = pilote.ressources();
+    expect(bilan).toMatchObject({ portee: 'conteneur', picOctets: 64 * 1024 * 1024 });
+    expect(bilan).not.toHaveProperty('cpuMs');
+    expect(bilan).not.toHaveProperty('picNoyau');
     pilote.fermer();
   });
 });

@@ -51,7 +51,7 @@ import {
   MIN_TOKEN_LENGTH,
   NODE_TIMEOUT_MS,
 } from '../shared/types.js';
-import type { ExecutionUsage, IsolementDeclare, SubAgent, Task } from '../shared/types.js';
+import type { IsolementDeclare, RessourcesExecution, SubAgent, Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
 import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
@@ -74,7 +74,6 @@ import type {
   WorkerDelegationOutcome,
   WorkerDelegationResult,
 } from '../adapters/index.js';
-import { capturerExecutionUsage, executionUsageDepuis } from './execution-usage.js';
 import { VALIDATION_KEYS } from '../shared/validations-bac.js';
 import type { ValidationsBac } from '../shared/validations-bac.js';
 import { validerProduction } from './validations-bac.js';
@@ -1503,8 +1502,10 @@ export class HiveNodeClient {
     const caviardeur = this.caviardeurDuNoeud();
     let budgetExceeded = false;
     let budgetTimer: MinuteurSuspendable | null = null;
-    let usage: ExecutionUsage | undefined;
-    let usageBefore: ReturnType<typeof capturerExecutionUsage> | null = null;
+    // Les ressources de l'AGENT, relevées par son pilote — jamais celles du
+    // processus du nœud (`pilote-execution.ts`). Absentes tant qu'il n'est pas lancé.
+    let ressources: RessourcesExecution | undefined;
+    let agentLance = false;
     this.send({ type: 'task_update', taskId: task.id, status: 'running' });
     const pilote = this.creerPilote(task.id, ctrl);
     pilote.phase('preparation');
@@ -1574,7 +1575,7 @@ export class HiveNodeClient {
         },
         pilote,
       );
-      usageBefore = capturerExecutionUsage();
+      agentLance = true;
       pilote.phase('agent');
       const rawResult = await this.adapter.run(taskForAgent, {
         cwd: workspace.cwd,
@@ -1605,7 +1606,7 @@ export class HiveNodeClient {
         budgetExceeded && delegationBudget
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
           : rawResult;
-      usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
+      ressources = pilote.ressources();
       // Échec d'INFRASTRUCTURE : réquisition mid-task si credentials, sinon failover.
       // Le genre se lit sur ce que l'échec DIT, pas sur les logs bruts : la
       // ligne `init` du stream-json porte `apiKeySource`, et un simple 429 y
@@ -1683,7 +1684,7 @@ export class HiveNodeClient {
           result.subAgents.slice(0, LIMITS.subAgents),
           caviardeur,
         ),
-        ...(usage ? { usage } : {}),
+        ...(ressources ? { ressources } : {}),
         ...declarationsDuResultat(result, caviardeur),
         ...(validations ? { validations } : {}),
       });
@@ -1692,7 +1693,7 @@ export class HiveNodeClient {
       // Lavé : une exception de git ou d'un adaptateur peut citer une URL à
       // identifiants, et ces logs partent au hub, donc à tout l'écran.
       const message = laverIdentifiantsDuTexte(err instanceof Error ? err.message : String(err));
-      usage = usageBefore ? executionUsageDepuis(usageBefore, capturerExecutionUsage()) : undefined;
+      ressources = agentLance ? pilote.ressources() : undefined;
       this.send({
         type: 'task_result',
         taskId: task.id,
@@ -1704,7 +1705,7 @@ export class HiveNodeClient {
             : caviardeur.texte(`[nœud] exception : ${message}`),
         durationMs: Date.now() - started,
         subAgents: [],
-        ...(usage ? { usage } : {}),
+        ...(ressources ? { ressources } : {}),
       });
       this.log(`✘ ${task.title} : ${message}`);
     } finally {
@@ -1805,8 +1806,8 @@ export class HiveNodeClient {
     let budgetExceeded = false;
     let budgetTimer: MinuteurSuspendable | null = null;
     const pilote = this.creerPilote(task.id, ctrl);
-    let usage: ExecutionUsage | undefined;
-    let usageBefore: ReturnType<typeof capturerExecutionUsage> | null = null;
+    let ressources: RessourcesExecution | undefined;
+    let agentLance = false;
     try {
       try {
         process.loadEnvFile('.env');
@@ -1828,7 +1829,7 @@ export class HiveNodeClient {
         },
         pilote,
       );
-      usageBefore = capturerExecutionUsage();
+      agentLance = true;
       pilote.phase('agent');
       const rawResult = await this.adapter.run(taskForAgent, {
         cwd: workspace.cwd,
@@ -1856,7 +1857,7 @@ export class HiveNodeClient {
         budgetExceeded && delegationBudget
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
           : rawResult;
-      usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
+      ressources = pilote.ressources();
       if (!result.success && result.infra) {
         const encore = this.requisitionApresEchecInfra(
           texteDEchec(result.logs, result.finalText),
@@ -1909,7 +1910,7 @@ export class HiveNodeClient {
           result.subAgents.slice(0, LIMITS.subAgents),
           caviardeur,
         ),
-        ...(usage ? { usage } : {}),
+        ...(ressources ? { ressources } : {}),
         ...declarationsDuResultat(result, caviardeur),
         ...(validations ? { validations } : {}),
       });
@@ -1918,7 +1919,7 @@ export class HiveNodeClient {
       // Lavé : une exception de git ou d'un adaptateur peut citer une URL à
       // identifiants, et ces logs partent au hub, donc à tout l'écran.
       const message = laverIdentifiantsDuTexte(err instanceof Error ? err.message : String(err));
-      usage = usageBefore ? executionUsageDepuis(usageBefore, capturerExecutionUsage()) : undefined;
+      ressources = agentLance ? pilote.ressources() : undefined;
       this.send({
         type: 'task_result',
         taskId: task.id,
@@ -1930,7 +1931,7 @@ export class HiveNodeClient {
             : caviardeur.texte(`[nœud] reprise après réquisition : ${message}`),
         durationMs: Date.now() - started,
         subAgents: [],
-        ...(usage ? { usage } : {}),
+        ...(ressources ? { ressources } : {}),
       });
     } finally {
       budgetTimer?.annuler();

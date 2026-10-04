@@ -32,12 +32,12 @@ const complet = () => ({
       success: true,
       nodeId: 'n1',
       durationMs: 9_000,
-      usage: {
-        userCpuMicros: 40_000,
-        systemCpuMicros: 10_000,
-        maxRssBytes: 64 * 1_048_576,
-        rssBytes: 1,
-        heapUsedBytes: 1,
+      ressources: {
+        portee: 'conteneur',
+        releves: 4,
+        cpuMs: 50,
+        picOctets: 64 * 1_048_576,
+        picNoyau: true,
       },
     },
   },
@@ -86,7 +86,9 @@ describe('preuve V2 Alpha — le verdict', () => {
     expect(etat(v, 'A-bac').detail).toBe('conteneur (podman), déclaré par le nœud');
     expect(etat(v, 'B').detail).toBe('0.0421 $ déclarés par le CLI');
     expect(etat(v, 'C').detail).toContain('modèle 6.5 s');
-    expect(etat(v, 'D').detail).toBe('50 ms CPU · 64.0 MiB RSS (processus Worker)');
+    expect(etat(v, 'D').detail).toBe(
+      'conteneur de l’agent : au moins 50 ms CPU · pic 64.0 MiB (noyau) · 4 relevé(s)',
+    );
     expect(etat(v, 'E').detail, 'le Genome du modèle ÉLU, pas un autre').toContain(
       '1 rendu(s) rangé(s) sous « sonnet » (exact : claude-sonnet-4-5)',
     );
@@ -95,6 +97,22 @@ describe('preuve V2 Alpha — le verdict', () => {
       'décision « accepted » · tests ✔ typecheck ✔ build ✔ lint ✔, fusion après geste humain',
     );
     expect(missionReelleProuvee(v)).toBe(true);
+  });
+
+  it('LES RESSOURCES D’UN NŒUD D’AVANT NE PROUVENT RIEN — elles étaient celles du nœud', () => {
+    const f = complet();
+    // Ce que la Reine relit d'un résumé `usage` (les compteurs du NŒUD).
+    f.tache.result.ressources = { portee: 'aucune', raison: 'noeud_ancien' };
+    expect(etat(jugerV2Alpha(f), 'D')).toMatchObject({
+      etat: 'inconnu',
+      detail: 'non mesurées : nœud d’une version antérieure, qui ne mesurait que lui-même',
+    });
+    f.tache.result.ressources = { portee: 'arbre', releves: 2, cpuMs: 1_500, picOctets: 1_048_576 };
+    expect(etat(jugerV2Alpha(f), 'D')).toMatchObject({
+      etat: 'prouve',
+      detail:
+        'arbre de processus de l’agent : au moins 1.5 s CPU · pic 1.0 MiB échantillonné · 2 relevé(s)',
+    });
   });
 
   it('UNE DÉCISION N’EST PAS UNE ACCEPTATION — seul `accepted` avec quatre validations vertes est prouvé', () => {

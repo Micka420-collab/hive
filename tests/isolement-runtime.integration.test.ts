@@ -14,7 +14,7 @@ import os from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createClaudeCodeAdapter } from '../src/adapters/claude-code.js';
 import { HIVE_DELEGATE_TOOL, HIVE_WAIT_TOOL } from '../src/adapters/delegation-bridge.js';
-import type { AgentAdapter } from '../src/adapters/index.js';
+import type { AdapterContext, AdapterResult, AgentAdapter } from '../src/adapters/index.js';
 import { runCommand } from '../src/adapters/exec.js';
 import { agentCredentialEnv } from '../src/node-client/agent-detect.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
@@ -31,8 +31,10 @@ import {
 } from '../src/node-client/isolement.js';
 import { buildSandboxEnv } from '../src/node-client/workspace.js';
 import { preparerBac } from '../src/node-client/bac.js';
+import { PiloteExecution, SONDES_REELLES } from '../src/node-client/pilote-execution.js';
 import { createServer } from '../src/orchestrator/server.js';
 import { FAUX_CLAUDE_MCP } from './aide/faux-claude-mcp.js';
+import type { RessourcesExecution } from '../src/shared/types.js';
 
 const imageDemandee = process.env.HIVE_ISOLEMENT_IMAGE?.trim() || '';
 /**
@@ -82,6 +84,60 @@ const runtime = runtimeDisponible();
  * production (`preparerBac`), avec les vrais moteurs du runner.
  */
 const imageDefautConstruite = process.env.HIVE_TEST_IMAGE_DEFAUT === '1';
+
+const MIO = 1024 * 1024;
+
+/**
+ * Un agent qui fait brûler 300 ms de CPU à un ENFANT — moissonné avant la fin :
+ * son CPU ne vit plus que dans le `cutime` de son parent —, puis tient 50 Mio
+ * écrits, donc résidents, jusqu'au SIGNAL du banc : un fichier du workspace,
+ * posé quand la mesure a vu ce travail (`jusquALaMesure`) — jamais un délai
+ * deviné, que l'intervalle des relevés ou une machine lente feraient mentir.
+ */
+const AGENT_QUI_TRAVAILLE = [
+  "const fs = require('node:fs');",
+  "const { spawnSync } = require('node:child_process');",
+  'const brule = "const d = process.cpuUsage(); const ms = () => { const u = process.cpuUsage(d); return (u.user + u.system) / 1000; }; while (ms() < 300) {}";',
+  "spawnSync(process.execPath, ['-e', brule], { stdio: 'ignore' });",
+  `globalThis.tas = Buffer.alloc(${50 * MIO}, 1);`,
+  "setInterval(() => { if (fs.existsSync('/hive/tache/fin')) process.exit(0); }, 50);",
+  'setTimeout(() => process.exit(3), 120_000);',
+].join('\n');
+
+/**
+ * Lance l'agent sous `pilote`, attend que son bilan ait vu le travail (`vu`)
+ * — ou `delaiMs` au plus, ou sa fin —, puis lui donne le signal de fin.
+ */
+async function jusquALaMesure(
+  workspace: string,
+  pilote: PiloteExecution,
+  ctx: Pick<AdapterContext, 'env' | 'bac'>,
+  vu: (r: RessourcesExecution) => boolean,
+  delaiMs: number,
+): Promise<AdapterResult> {
+  let sorti = false;
+  const fin = runCommand(
+    'node',
+    ['-e', AGENT_QUI_TRAVAILLE],
+    {
+      ...ctx,
+      cwd: workspace,
+      attempt: 1,
+      signal: new AbortController().signal,
+      onProgress: () => {},
+      pilote,
+    },
+    120_000,
+  ).finally(() => {
+    sorti = true;
+  });
+  const limite = Date.now() + delaiMs;
+  while (!sorti && Date.now() < limite && !vu(pilote.ressources())) {
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  writeFileSync(path.join(workspace, 'fin'), '');
+  return fin;
+}
 
 describe('isolement — intégration runtime réel', () => {
   it.skipIf(!imageDefautConstruite || !moteurImpose)(
@@ -200,6 +256,56 @@ describe('isolement — intégration runtime réel', () => {
         expect(readFileSync(secretPath, 'utf8')).toContain('ne doit jamais être visible');
       } finally {
         rmSync(root, { recursive: true, force: true, maxRetries: 3 });
+      }
+    },
+    120_000,
+  );
+
+  it.skipIf(!runtime || !imageDemandee)(
+    'mesure l’AGENT dans son conteneur — par son cgroup, quand l’hôte le voit',
+    async () => {
+      if (!runtime || !imageDemandee) return;
+      const workspace = mkdtempSync(path.join(os.tmpdir(), 'hive-sandbox-mesure-'));
+      const pilote = new PiloteExecution(() => undefined, SONDES_REELLES, 200);
+      try {
+        // Docker : jusqu'à ce que le cgroup ait vu le travail. Podman rootless,
+        // dont le cgroup peut manquer : quinze secondes au plus.
+        const r = await jusquALaMesure(
+          workspace,
+          pilote,
+          {
+            env: { PATH: process.env.PATH },
+            bac: { fournisseur: runtime, image: imageDemandee, variables: [] },
+          },
+          (m) =>
+            m.portee === 'conteneur' && (m.cpuMs ?? 0) >= 280 && (m.picOctets ?? 0) >= 50 * MIO,
+          runtime.nom === 'docker' ? 90_000 : 15_000,
+        );
+        expect(r.success, r.logs).toBe(true);
+        const mesure = pilote.ressources();
+        console.info(`[mesure du conteneur ${runtime.nom}] ${JSON.stringify(mesure)}`);
+        if (runtime.nom === 'docker') {
+          // Docker sur l'hôte (cgroup v2, pilote systemd) : le cgroup du
+          // conteneur se lit — TOUT son CPU, enfant moissonné compris, et
+          // le pic que tient le noyau.
+          expect(mesure).toMatchObject({ portee: 'conteneur', picNoyau: true });
+          if (mesure.portee !== 'conteneur') return;
+          expect(mesure.cpuMs).toBeGreaterThanOrEqual(280);
+          expect(mesure.picOctets).toBeGreaterThanOrEqual(50 * MIO);
+          return;
+        }
+        // Podman rootless : un cgroup à lui seulement si systemd lui en délègue
+        // un. Sinon le `stats` seul, ou rien — jamais un chiffre d'autre chose.
+        if (mesure.portee === 'aucune') {
+          expect(mesure.raison).toBe('aucun_releve');
+          return;
+        }
+        expect(mesure.portee).toBe('conteneur');
+        if (mesure.cpuMs !== undefined) expect(mesure.cpuMs).toBeGreaterThanOrEqual(280);
+        if (mesure.picNoyau) expect(mesure.picOctets).toBeGreaterThanOrEqual(50 * MIO);
+      } finally {
+        pilote.fermer();
+        rmSync(workspace, { recursive: true, force: true, maxRetries: 3 });
       }
     },
     120_000,
@@ -586,6 +692,38 @@ describe('isolement — intégration bubblewrap réelle', () => {
         readFileSync(path.join(workspace, 'constat.json'), 'utf8'),
       ) as Constat;
       expect(constat).toEqual(constatAttendu);
+    },
+    60_000,
+  );
+
+  it.skipIf(!bwrap && !bwrapRequis)(
+    'mesure l’AGENT à travers bubblewrap : son arbre, enfant moissonné compris',
+    async () => {
+      expect(bwrap, 'HIVE_BWRAP_REQUIS=1 exige un bubblewrap qui démarre').not.toBeNull();
+      racine = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'hive-bwrap-mesure-')));
+      const pilote = new PiloteExecution(() => undefined, SONDES_REELLES, 100);
+      try {
+        const r = await jusquALaMesure(
+          racine,
+          pilote,
+          {
+            env: buildSandboxEnv(racine, []),
+            bac: { fournisseur: bwrap!, image: 'sans objet pour bubblewrap', variables: [] },
+          },
+          (m) => m.portee === 'arbre' && (m.cpuMs ?? 0) >= 280 && (m.picOctets ?? 0) >= 50 * MIO,
+          45_000,
+        );
+        expect(r.success, r.logs).toBe(true);
+        // L'espace de pid de bubblewrap est vu de l'hôte : l'arbre se mesure,
+        // de son init jusqu'à l'agent et à l'enfant qu'il a moissonné.
+        const mesure = pilote.ressources();
+        expect(mesure).toMatchObject({ portee: 'arbre' });
+        if (mesure.portee !== 'arbre') return;
+        expect(mesure.cpuMs).toBeGreaterThanOrEqual(280);
+        expect(mesure.picOctets).toBeGreaterThanOrEqual(50 * MIO);
+      } finally {
+        pilote.fermer();
+      }
     },
     60_000,
   );

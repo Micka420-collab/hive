@@ -32,10 +32,14 @@ import { creerMinuteurSuspendable } from '../src/shared/minuteur-suspendable.js'
 import type { HorlogeMinuteur } from '../src/shared/minuteur-suspendable.js';
 import { parseClientMessage, parseServerMessage } from '../src/shared/protocol.js';
 import {
+  cpuDuCgroup,
   descendance,
+  dossierCgroup,
   dureePs,
+  lireInspect,
   lireSortiePs,
   lireStatProc,
+  picDuCgroup,
   taillePageAuxv,
   lireStatsMoteur,
   MesureArbre,
@@ -257,19 +261,89 @@ describe('l’arbre des sous-agents', () => {
 
 describe('lire une mesure — telle qu’elle est, ou pas du tout', () => {
   it('/proc/<pid>/stat : un nom de commande à parenthèses et espaces ne décale rien', () => {
-    const champs = ['S', '41', ...Array(9).fill('0'), '150', '50', ...Array(8).fill('0'), '256'];
+    // utime 150, stime 50 ; cutime 30, cstime 10 (les enfants moissonnés) ; rss 256.
+    const champs = [
+      'S',
+      '41',
+      ...Array(9).fill('0'),
+      '150',
+      '50',
+      '30',
+      '10',
+      ...Array(6).fill('0'),
+      '256',
+    ];
     const ligne = `42 (node (agent) x) ${champs.join(' ')}`;
     expect(lireStatProc(42, ligne, 4096)).toEqual({
       pid: 42,
       ppid: 41,
       cpuMs: 2_000,
+      cpuEnfantsMs: 400,
       rssOctets: 256 * 4096,
     });
     // Un noyau arm64 en pages de 16 Kio : la même ligne pèse quatre fois plus.
     expect(lireStatProc(42, ligne, 16_384)?.rssOctets).toBe(256 * 16_384);
     // Taille de page inconnue : la mémoire est INCONNUE, pas convertie au jugé.
-    expect(lireStatProc(42, ligne, null)).toEqual({ pid: 42, ppid: 41, cpuMs: 2_000 });
+    expect(lireStatProc(42, ligne, null)).toEqual({
+      pid: 42,
+      ppid: 41,
+      cpuMs: 2_000,
+      cpuEnfantsMs: 400,
+    });
     expect(lireStatProc(1, 'illisible', 4096)).toBeNull();
+  });
+
+  it('le BILAN de l’arbre : enfants moissonnés comptés, orphelin gardé, pic échantillonné', () => {
+    const m = new MesureArbre(10);
+    expect(m.bilan(), 'aucun relevé : aucun nombre').toEqual({ releves: 0 });
+    // 11 travaille ; 10 a déjà moissonné 400 ms d'enfants brefs, jamais vus vivants.
+    m.relever(
+      [
+        { pid: 10, ppid: 1, cpuMs: 100, cpuEnfantsMs: 400, rssOctets: 100 },
+        { pid: 11, ppid: 10, cpuMs: 300, cpuEnfantsMs: 0, rssOctets: 900 },
+        { pid: 99, ppid: 1, cpuMs: 9_999, rssOctets: 9_999 },
+      ],
+      0,
+    );
+    expect(m.bilan()).toEqual({ releves: 1, cpuMs: 800, picOctets: 1_000 });
+    // 11 a fini et 10 l'a moissonné : son CPU PASSE dans le `cutime` de 10,
+    // compté une fois. Le pic, lui, reste le plus haut relevé.
+    m.relever([{ pid: 10, ppid: 1, cpuMs: 150, cpuEnfantsMs: 750, rssOctets: 100 }], 1_000);
+    expect(m.bilan()).toEqual({ releves: 2, cpuMs: 900, picOctets: 1_000 });
+    // Sous `ps` (pas de `cutime`), un processus sorti garde son dernier CPU vu.
+    const ps = new MesureArbre(20);
+    ps.relever(
+      [
+        { pid: 20, ppid: 1, cpuMs: 100, rssOctets: 10 },
+        { pid: 21, ppid: 20, cpuMs: 500, rssOctets: 10 },
+      ],
+      0,
+    );
+    ps.relever([{ pid: 20, ppid: 1, cpuMs: 120, rssOctets: 10 }], 1_000);
+    expect(ps.bilan()).toEqual({ releves: 2, cpuMs: 620, picOctets: 20 });
+  });
+
+  it('le cgroup d’un conteneur : le SIEN, ou rien — jamais celui d’un inconnu', () => {
+    const id = 'a'.repeat(64);
+    expect(lireInspect(`${id} 4242\n`)).toEqual({ id, pid: 4242 });
+    // Pas encore lancé (pid 0), ou sortie illisible : à réessayer, pas à deviner.
+    expect(lireInspect(`${id} 0`)).toBeNull();
+    expect(lireInspect('Error: No such object')).toBeNull();
+    expect(dossierCgroup(id, `0::/system.slice/docker-${id}.scope\n`)).toBe(
+      `/sys/fs/cgroup/system.slice/docker-${id}.scope`,
+    );
+    expect(dossierCgroup(id, `0::/user.slice/libpod-${id}.scope/container`)).toBe(
+      `/sys/fs/cgroup/user.slice/libpod-${id}.scope/container`,
+    );
+    // Le pid d'une VM (Docker Desktop) ou d'un autre espace nomme un INCONNU
+    // sur l'hôte : son cgroup ne porte pas l'identifiant, on ne le lit pas.
+    expect(dossierCgroup(id, '0::/user.slice/user-1000.slice/session-2.scope')).toBeNull();
+    expect(dossierCgroup(id, `0::/x/../${id}`)).toBeNull();
+    expect(dossierCgroup(id, `12:cpu:/docker/${id}`), 'cgroup v1 : pas lu').toBeNull();
+    expect(cpuDuCgroup('usage_usec 1234567\nuser_usec 1000000\n')).toBe(1_234);
+    expect(cpuDuCgroup('user_usec 1')).toBeNull();
+    expect(picDuCgroup('52428800\n')).toBe(50 * 1024 * 1024);
+    expect(picDuCgroup('max')).toBeNull();
   });
 
   it('la taille de page vient du vecteur auxiliaire du noyau, jamais d’une constante', () => {
