@@ -8,7 +8,7 @@
 // restaure quand ça va mieux. Comme pulse.ts et ghost.ts, ce module est PUR :
 // aucune I/O, une vue dérivée du journal d'événements, déterministe.
 
-import { estArretBudgetaire } from '../shared/types.js';
+import { arreteeParSonBudget } from '../shared/arret-budgetaire.js';
 
 /** Bandes de température, de la plus calme à la plus critique. */
 export type BandeThermo = 'froide' | 'normale' | 'chaude' | 'surchauffe';
@@ -95,10 +95,7 @@ export function lireTemperature(
         signaux.succes += 1;
         break;
       case 'task_failed':
-        if (
-          e.payload?.reason !== 'dependency_failed' &&
-          !estArretBudgetaire(e.payload?.arretBudgetaire)
-        ) {
+        if (e.payload?.reason !== 'dependency_failed' && !arreteeParSonBudget(e.payload)) {
           signaux.echecs += 1;
         }
         break;

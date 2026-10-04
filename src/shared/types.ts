@@ -6,6 +6,7 @@ import type { PlateformeNoeud } from './machine.js';
 import type { OutilConstate } from './protocol.js';
 import type { ValidationsBac } from './validations-bac.js';
 import type { Effort } from './effort.js';
+import type { ArretBudgetaire } from './arret-budgetaire.js';
 
 /** Cycle de vie : pending → ready (dépendances done) → assigned → running → done | failed. */
 export type TaskStatus = 'pending' | 'ready' | 'assigned' | 'running' | 'done' | 'failed';
@@ -99,6 +100,12 @@ export interface TaskResultSummary {
   durationMs: number;
   /** Mesure locale du processus Worker, absente sur les anciens résultats. */
   usage?: ExecutionUsage;
+  /**
+   * Cette tentative — la dernière — s'est arrêtée dans la boucle de son agent,
+   * sur le plafond que la Reine lui avait passé : la tâche a fini sur sa borne,
+   * pas sur un échec (`arreteeParSonBudget`, shared/arret-budgetaire.ts).
+   */
+  arretBudgetaire?: ArretBudgetaire;
 }
 
 /**
@@ -163,21 +170,6 @@ export interface Task {
   ombre?: true;
 }
 
-/**
- * Une tentative ARRÊTÉE PAR SON BUDGET, dans la boucle même de l'agent : son
- * CLI a atteint le plafond de coût (`cout` — Claude Code `error_max_budget_usd`)
- * ou de tours (`tours` — `error_max_turns`) qu'il avait reçu. Ni un échec de
- * l'agent, ni une panne d'infrastructure : une borne tenue. La tâche finit
- * `failed` sans reprise — sa réservation est dépensée —, et le registre Genome
- * la compte interrompue, jamais en échec (`registre-genome.ts`).
- */
-export const ARRETS_BUDGETAIRES = ['cout', 'tours'] as const;
-export type ArretBudgetaire = (typeof ARRETS_BUDGETAIRES)[number];
-
-export function estArretBudgetaire(v: unknown): v is ArretBudgetaire {
-  return (ARRETS_BUDGETAIRES as readonly unknown[]).includes(v);
-}
-
 /** Résultat complet remonté par un nœud. Le diff reste soumis à revue humaine. */
 export interface TaskResult {
   /** Identifiant SQLite de la production — présent quand elle vient du store. */
@@ -207,8 +199,9 @@ export interface TaskResult {
   validations?: ValidationsBac;
   /**
    * La tentative s'est arrêtée sur le plafond que Hive lui avait passé — à la
-   * réception seulement, et seulement pour une tentative plafonnée par la
-   * Reine (`server.ts`, `plafonneeParHive`).
+   * réception seulement, et seulement quand la Reine le croit (`arretCru`,
+   * server.ts : la tentative qu'elle a plafonnée, en échec, au coût déclaré
+   * arrivé sur ce plafond).
    */
   arretBudgetaire?: ArretBudgetaire;
 }

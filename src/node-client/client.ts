@@ -11,7 +11,12 @@ import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { Effort } from '../shared/effort.js';
-import type { AdapterProgress, AdapterResult, AgentAdapter } from '../adapters/index.js';
+import type {
+  AdapterContext,
+  AdapterProgress,
+  AdapterResult,
+  AgentAdapter,
+} from '../adapters/index.js';
 import { borneTexteFinal } from '../adapters/texte-final.js';
 import {
   agentBinairePresent,
@@ -32,10 +37,12 @@ import type { NightShiftPolicy } from '../shared/night-shift.js';
 import { estOrdreArret } from '../shared/demarrage.js';
 import { plateformeDepuis } from '../shared/machine.js';
 import { laverIdentifiantsDuTexte } from '../shared/projet-public.js';
+import { ligneArretBudgetaire, usdDeMicros } from '../shared/arret-budgetaire.js';
 import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
 import type {
   AssignChantierMsg,
   AssignMergeMsg,
+  AssignTaskMsg,
   ClientMessage,
   DelegationBudget,
   DelegationAcceptedMsg,
@@ -147,6 +154,33 @@ function declarationsDuResultat(
     ...(finalText ? { finalText } : {}),
     ...(result.arretBudgetaire ? { arretBudgetaire: result.arretBudgetaire } : {}),
   };
+}
+
+/**
+ * Les logs que `task_result` transporte, caviardés puis bornés à leur TÊTE
+ * (`LIMITS.log`) — mêmes deux chemins d'envoi que `declarationsDuResultat`.
+ *
+ * Une tentative ARRÊTÉE SUR SON PLAFOND les ouvre sur la ligne qui le dit
+ * (`ligneArretBudgetaire`) : le hub et le pont MCP n'en gardent aussi que la
+ * tête, et c'est là que le parent qui attend cet enfant la lit — la dépense,
+ * le diff partiel s'il y en a un, et quoi faire. Écrite ICI, une fois le diff
+ * connu : l'adaptateur, lui, ne voit pas le dépôt.
+ */
+function logsDuResultat(
+  result: AdapterResult,
+  diff: string,
+  plafondMicros: number | undefined,
+  caviardeur: Caviardeur,
+): string {
+  const tete =
+    result.arretBudgetaire && plafondMicros !== undefined
+      ? `${ligneArretBudgetaire({
+          plafondMicros,
+          coutUsd: result.fournisseur?.coutUsd,
+          diffJoint: diff.trim() !== '',
+        })}\n`
+      : '';
+  return caviardeur.texte(`${tete}${result.logs}`).slice(0, LIMITS.log);
 }
 
 export interface NodeClientOptions {
@@ -898,6 +932,10 @@ export class HiveNodeClient {
         // configurés à la main) : redits à chaque inscription, absents quand
         // l'agent n'en a aucun.
         ...(this.efforts.length > 0 ? { efforts: [...this.efforts] } : {}),
+        // Un plafond de coût tenu dans la boucle de l'agent : la capacité de
+        // l'ADAPTATEUR. La version du CLI, elle, se vérifie à chaque tentative
+        // plafonnée (`plafondTenu`) — un CLI se met à jour sous un nœud en marche.
+        ...(this.adapter.plafondCout ? { plafondCout: true } : {}),
         // Ce que ce poste porte réellement — des CONSTATS, pas un verdict. Le
         // hub en tire sa conclusion avec son catalogue ; ici on ne fait que
         // rapporter ce qu'on a vu. Absent tant que le diagnostic n'a pas
@@ -1005,18 +1043,7 @@ export class HiveNodeClient {
         }
         break;
       case 'assign_task':
-        void this.runTask(
-          msg.task,
-          msg.repoUrl ?? null,
-          msg.hiveContext,
-          msg.modele,
-          msg.delegationBudget,
-          msg.relecture === true,
-          msg.delegationRootTaskId,
-          msg.effort,
-          msg.prolonger === true,
-          msg.plafondCoutMicros,
-        );
+        void this.runTask(msg);
         break;
       case 'assign_merge':
         void this.runMergeJob(msg);
@@ -1309,19 +1336,38 @@ export class HiveNodeClient {
     };
   }
 
+  /**
+   * Le plafond de coût que CETTE tentative passera à son agent : celui de la
+   * Reine, si le CLI qui tournera le tient (`AgentAdapter.plafondCout`) —
+   * sinon aucun, et le journal de la tâche dit pourquoi et quoi faire.
+   * Interrogé AVANT le minuteur de durée de l'enfant : la sonde (un bac qui
+   * démarre peut la faire attendre) ne se paie pas sur son budget.
+   */
+  private async plafondTenu(
+    plafond: number | undefined,
+    sonde: AdapterContext,
+  ): Promise<number | undefined> {
+    if (plafond === undefined) return undefined;
+    const verdict = (await this.adapter.plafondCout?.(sonde)) ?? {
+      tenu: false as const,
+      motif: `l’adaptateur ${this.adapter.name} ne tient aucun plafond de coût`,
+    };
+    if (verdict.tenu) return plafond;
+    sonde.onProgress({
+      log:
+        `plafond de ${usdDeMicros(plafond)} USD NON passé à l’agent : ${verdict.motif} — seule ` +
+        'l’enveloppe de la racine le borne, après chaque tentative rendue',
+    });
+    return undefined;
+  }
+
   // ─── Exécution d'une tâche ───────────────────────────────────────────────
-  private async runTask(
-    task: Task,
-    repoUrl: string | null,
-    hiveContext?: string,
-    modele?: string,
-    delegationBudget?: DelegationBudget,
-    relecture = false,
-    delegationRootTaskId?: string,
-    effort?: Effort,
-    prolonger = false,
-    plafondCoutMicros?: number,
-  ): Promise<void> {
+  /** Le message entier : ses champs, nommés, plutôt que dix positions à tenir. */
+  private async runTask(msg: AssignTaskMsg): Promise<void> {
+    const { task, hiveContext, modele, delegationBudget, delegationRootTaskId, effort } = msg;
+    const repoUrl = msg.repoUrl ?? null;
+    const relecture = msg.relecture === true;
+    const prolonger = msg.prolonger === true;
     // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
     // fait pas confiance au hub (anti path-traversal si le hub était compromis).
     if (!ID_PATTERN.test(task.id)) {
@@ -1438,6 +1484,17 @@ export class HiveNodeClient {
       const taskForAgent = hiveContext
         ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }
         : task;
+      const progres = this.progresVersHub(task.id, ctrl, caviardeur);
+      // Le plafond de coût de CETTE tentative, si la Reine en a passé un et que
+      // le CLI le tient — sondé avant que le minuteur de durée ne parte.
+      const plafond = await this.plafondTenu(msg.plafondCoutMicros, {
+        cwd: workspace.cwd,
+        env: workspace.env,
+        attempt: task.attempts + 1,
+        signal: ctrl.signal,
+        onProgress: progres,
+        ...this.optionBacTache(task.id),
+      });
       budgetTimer = this.startDelegationBudget(delegationBudget, ctrl, () => {
         budgetExceeded = true;
       });
@@ -1452,15 +1509,14 @@ export class HiveNodeClient {
         ...(modele ? { modele } : {}),
         // L'effort, seulement si l'Aiguillage en a commandé un.
         ...(effort ? { effort } : {}),
-        // Le plafond de coût de CETTE tentative, si la Reine en a passé un.
-        ...(plafondCoutMicros !== undefined ? { plafondCoutMicros } : {}),
+        ...(plafond !== undefined ? { plafondCoutMicros: plafond } : {}),
         ...this.optionBacTache(task.id),
         ...(relecture ? { role: 'relecture' as const } : {}),
         delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
         rendezVous: this.rendezVous,
-        onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
+        onProgress: progres,
       });
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
       // validations du bac comptent dans la durée d'un enfant délégué — son
@@ -1491,7 +1547,8 @@ export class HiveNodeClient {
             modele,
             effort,
             delegationBudget,
-            ...(plafondCoutMicros !== undefined ? { plafondCoutMicros } : {}),
+            // Le plafond DÉJÀ jugé tenu : la reprise ne le resonde pas.
+            ...(plafond !== undefined ? { plafondCoutMicros: plafond } : {}),
             relecture,
             workspace,
             started,
@@ -1538,7 +1595,7 @@ export class HiveNodeClient {
         success: result.success,
         // Caviardés AVANT d'être tronqués (voir `declarationsDuResultat`).
         diff: caviardeur.diff(diff).slice(0, LIMITS.diff),
-        logs: caviardeur.texte(result.logs).slice(0, LIMITS.log),
+        logs: logsDuResultat(result, diff, plafond, caviardeur),
         durationMs,
         subAgents: HiveNodeClient.sousAgentsCaviardes(
           result.subAgents.slice(0, LIMITS.subAgents),
@@ -1743,7 +1800,7 @@ export class HiveNodeClient {
         success: result.success,
         // Caviardés AVANT d'être tronqués (voir `declarationsDuResultat`).
         diff: caviardeur.diff(diff).slice(0, LIMITS.diff),
-        logs: caviardeur.texte(result.logs).slice(0, LIMITS.log),
+        logs: logsDuResultat(result, diff, plafondCoutMicros, caviardeur),
         durationMs,
         subAgents: HiveNodeClient.sousAgentsCaviardes(
           result.subAgents.slice(0, LIMITS.subAgents),

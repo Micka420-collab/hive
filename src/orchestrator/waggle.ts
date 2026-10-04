@@ -10,7 +10,7 @@
 // journal d'événements (source de vérité) : aucune I/O, aucun état global —
 // donc testable et réutilisable côté serveur comme dashboard.
 
-import { estArretBudgetaire } from '../shared/types.js';
+import { arreteeParSonBudget } from '../shared/arret-budgetaire.js';
 import type { HiveEvent } from '../shared/types.js';
 
 /** Contribution d'un nœud, dérivée du journal. */
@@ -145,7 +145,7 @@ export function buildWaggleBoard(events: HiveEvent[]): WaggleBoard {
       case 'task_failed': {
         // Seuls les échecs imputables à un nœud comptent (pas les dépendances,
         // ni un arrêt budgétaire : la borne a tenu, le nœud n'a rien raté).
-        if (nodeId && !estArretBudgetaire(p.arretBudgetaire)) ensure(accs, nodeId).tasksFailed += 1;
+        if (nodeId && !arreteeParSonBudget(p)) ensure(accs, nodeId).tasksFailed += 1;
         break;
       }
       case 'drone_won': {

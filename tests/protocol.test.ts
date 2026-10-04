@@ -614,10 +614,12 @@ describe('parseServerMessage — validation des messages du hub (anti-traversal/
         }),
       );
     expect(resultat('cout')).toMatchObject({ type: 'task_result', arretBudgetaire: 'cout' });
-    expect(resultat('tours')).toMatchObject({ arretBudgetaire: 'tours' });
-    const inconnu = resultat('duree');
-    expect(inconnu).toMatchObject({ type: 'task_result', success: false });
-    expect(inconnu).not.toHaveProperty('arretBudgetaire');
+    // Hive ne passe aucun plafond de tours : `tours` n'est pas un arrêt connu.
+    for (const inconnu of ['tours', 'duree']) {
+      const lu = resultat(inconnu);
+      expect(lu, inconnu).toMatchObject({ type: 'task_result', success: false });
+      expect(lu, inconnu).not.toHaveProperty('arretBudgetaire');
+    }
   });
 
   it('rejette assign_task sans task ou avec un task.id malveillant (path traversal)', () => {

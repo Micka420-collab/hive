@@ -147,7 +147,7 @@ describe('pont MCP de délégation Worker → CLI', () => {
           title: 'Revue',
           prompt: 'Vérifie le changement',
           durationMs: 0,
-          costMicros: 0,
+          costMicros: 1,
           resourceUnits: 0,
         },
       },
@@ -238,7 +238,7 @@ describe('pont MCP de délégation Worker → CLI', () => {
       ok: false,
       code: 'arguments_invalid',
       message: expect.stringContaining(
-        `costMicros : entier de 0 à ${LIMITES_DELEGATION_DEFAUT.maxCostMicros}`,
+        `costMicros : entier de 1 à ${LIMITES_DELEGATION_DEFAUT.maxCostMicros}`,
       ),
     });
   });

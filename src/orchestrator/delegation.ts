@@ -1,6 +1,11 @@
 import type { DelegationBudget } from '../shared/protocol.js';
 import type { TaskStatus } from '../shared/types.js';
-import { LIMITES_DELEGATION_DEFAUT, type LimitesDelegation } from '../shared/limites-delegation.js';
+import {
+  COUT_MIN_MICROS,
+  COUT_UNE_REPONSE_MICROS,
+  LIMITES_DELEGATION_DEFAUT,
+  type LimitesDelegation,
+} from '../shared/limites-delegation.js';
 
 export type OrigineDelegation = 'hive' | 'native';
 
@@ -95,8 +100,8 @@ export type VerdictDelegation =
       motif: string;
     };
 
-const entierBorne = (value: number, max: number): boolean =>
-  Number.isSafeInteger(value) && value >= 0 && value <= max;
+const entierBorne = (value: number, min: number, max: number): boolean =>
+  Number.isSafeInteger(value) && value >= min && value <= max;
 
 /** Ce que les enfants Hive d'une racine ont déjà réservé sur son enveloppe. */
 export function reserveRacine(
@@ -140,18 +145,18 @@ export function budgetCoutEpuise(
  * Une tentative au coût inconnu ne se retranche pas (Hive n'invente aucun
  * montant) : le plafond est alors un majorant, comme la dépense un plancher.
  *
- * Jamais moins d'un micro-USD : le CLI refuse `--max-budget-usd 0`, et un
- * refus à l'analyse des options brûlerait chaque tentative sans rien dire.
- * Réservation dépensée, l'agent s'arrête donc après sa première réponse — le
- * dépassement d'une réponse que le CLI documente, choisi ici plutôt qu'une
- * seconde porte qui empêcherait l'envoi : il ne survient qu'après un
- * dépassement que le CLI n'a pas tenu (version d'avant le plafond, course).
+ * NUL OU NÉGATIF : la réservation est dépensée. Aucun plafond ne part alors —
+ * le CLI refuse `--max-budget-usd 0`, et un plancher d'un micro-USD paierait
+ * encore une réponse entière pour rien. Le planificateur clôt l'enfant avant
+ * tout envoi (`reservationDepensee`, scheduler.ts) : un arrêt budgétaire, dit
+ * au parent. Une réservation est d'au moins un micro-USD (`jugerDelegation`) :
+ * seul un coût DÉCLARÉ peut la dépenser.
  */
 export function plafondCoutTentative(
   reservationMicros: number,
   depense: Readonly<DepenseDeclaree>,
 ): number {
-  return Math.max(1, reservationMicros - depense.micros);
+  return reservationMicros - depense.micros;
 }
 
 /** La dépense, dite telle qu'elle est connue : un plancher quand des coûts manquent. */
@@ -259,12 +264,18 @@ export function jugerDelegation(
     };
   }
   const reserve = reserveRacine(graphe, parent.rootTaskId);
+  // La réservation de coût est aussi le PLAFOND de l'enfant dans la boucle de
+  // son agent (`plafondCoutTentative`) : nulle, elle n'en serait pas un — le
+  // CLI refuse `--max-budget-usd 0` —, et un enfant Codex travaillerait quand
+  // un enfant Claude Code s'arrêterait. D'où son minimum de 1, et un refus
+  // qui dit de quoi réserver.
   const budgets = [
     [
       'duree',
       'temps',
       'ms',
       'durationMs',
+      0,
       demande.durationMs,
       reserve.durationMs,
       limites.maxDurationMs,
@@ -274,6 +285,7 @@ export function jugerDelegation(
       'coût',
       'µUSD',
       'costMicros',
+      COUT_MIN_MICROS,
       demande.costMicros,
       reserve.costMicros,
       limites.maxCostMicros,
@@ -283,17 +295,24 @@ export function jugerDelegation(
       'ressources',
       'unités',
       'resourceUnits',
+      0,
       demande.resourceUnits,
       reserve.resourceUnits,
       limites.maxResourceUnits,
     ],
   ] as const;
-  for (const [code, nom, unite, champ, demandee, reservee, max] of budgets) {
-    if (!entierBorne(demandee, max)) {
+  for (const [code, nom, unite, champ, min, demandee, reservee, max] of budgets) {
+    if (!entierBorne(demandee, min, max)) {
+      const conseil =
+        code === 'cout'
+          ? ' — c’est aussi le plafond de l’enfant dans la boucle de son agent, et une seule ' +
+            `réponse coûte déjà de ${COUT_UNE_REPONSE_MICROS.min} à ${COUT_UNE_REPONSE_MICROS.max} ` +
+            'µUSD sur le plus petit modèle'
+          : '';
       return {
         ok: false,
         code,
-        motif: `${champ} invalide : entier de 0 à ${max} ${unite} attendu`,
+        motif: `${champ} invalide : entier de ${min} à ${max} ${unite} attendu${conseil}`,
       };
     }
     if (reservee + demandee > max) {

@@ -17,9 +17,9 @@ import { estEffort, estListeEfforts, type Effort } from './effort.js';
 import type { ValidationsBac } from './validations-bac.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
-import { estArretBudgetaire, NIVEAUX_ISOLEMENT } from './types.js';
+import { estArretBudgetaire, type ArretBudgetaire } from './arret-budgetaire.js';
+import { NIVEAUX_ISOLEMENT } from './types.js';
 import type {
-  ArretBudgetaire,
   ExecutionUsage,
   HiveEvent,
   IsolementDeclare,
@@ -212,6 +212,15 @@ export interface RegisterMsg {
    * correction fausse. Le hub ne confie donc une reprise qu'à qui le déclare.
    */
   prolonge?: boolean;
+  /**
+   * L'adaptateur du nœud sait tenir un plafond de coût DANS LA BOUCLE de son
+   * agent (`AgentAdapter.plafondCout` — Claude Code : `--max-budget-usd`).
+   * Absent : il n'en tient aucun — Codex, Cursor, Cline, shell, ou un nœud
+   * d'avant ce contrat, qui perdrait `plafondCoutMicros` sans le dire. La Reine
+   * ne passe un plafond qu'à qui le déclare, et journalise à l'envoi celui qui
+   * ne sera pas tenu.
+   */
+  plafondCout?: boolean;
 }
 
 /** Un constat brut sur un outil, tel que le nœud le voit. */
@@ -313,7 +322,8 @@ export interface TaskResultMsg {
   /**
    * Le CLI s'est arrêté sur le plafond que la Reine avait passé à cette
    * tentative (`AssignTaskMsg.plafondCoutMicros`) — voir `ArretBudgetaire`. La
-   * Reine ne le croit que pour une tentative qu'elle a plafonnée.
+   * Reine ne le croit que de la tentative qu'elle a plafonnée, en échec, au
+   * coût déclaré arrivé sur ce plafond (`arretCru`, server.ts).
    */
   arretBudgetaire?: ArretBudgetaire;
 }
@@ -520,7 +530,8 @@ export interface AssignTaskMsg {
    * précédentes (`plafondCoutTentative`, delegation.ts). Le nœud le passe à
    * son adaptateur, qui l'impose dans la boucle de l'agent (Claude Code :
    * `--max-budget-usd`). Absent : aucun plafond — racine, revue, drone d'une
-   * course. Jamais nul : le CLI refuse `0`.
+   * course, nœud qui n'en tient pas (`RegisterMsg.plafondCout`). Jamais nul :
+   * une réservation dépensée n'est plus envoyée, la Reine clôt l'enfant.
    */
   plafondCoutMicros?: number;
   /**
@@ -1159,6 +1170,10 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         if (m.prolonge !== undefined) {
           if (typeof m.prolonge !== 'boolean') return null;
           msg.prolonge = m.prolonge;
+        }
+        if (m.plafondCout !== undefined) {
+          if (typeof m.plafondCout !== 'boolean') return null;
+          msg.plafondCout = m.plafondCout;
         }
         // Les constats d'outils : mêmes règles que les deux champs au-dessus.
         // Une liste mal formée est un client qui ment ou qui bogue, et les deux

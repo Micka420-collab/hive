@@ -18,7 +18,12 @@ import path from 'node:path';
 import { SECRETS_JAMAIS_SONDES } from '../node-client/agent-detect.js';
 import { MONTAGE_PONT } from '../node-client/isolement.js';
 import { CheminSocketTropLong } from '../node-client/rendez-vous-pont.js';
-import { FORMAT_ID_ENFANT, LIMITES_DELEGATION_DEFAUT } from '../shared/limites-delegation.js';
+import {
+  COUT_MIN_MICROS,
+  COUT_UNE_REPONSE_MICROS,
+  FORMAT_ID_ENFANT,
+  LIMITES_DELEGATION_DEFAUT,
+} from '../shared/limites-delegation.js';
 import type { SubAgent } from '../shared/types.js';
 import type {
   AdapterContext,
@@ -106,13 +111,15 @@ export function definitionsOutilsDelegation(
           },
           costMicros: {
             type: 'integer',
-            minimum: 0,
+            minimum: COUT_MIN_MICROS,
             maximum: maxCostMicros,
             description:
               `Coût réservé en micro-USD (1 000 000 = 1 USD), sur ${maxCostMicros} cumulés ` +
               'par racine. C’est aussi le plafond de l’enfant : un agent Claude Code s’arrête ' +
-              'dans sa boucle quand sa dépense l’atteint, tentatives précédentes déduites — ' +
-              'réserve ce que la sous-tâche coûtera.',
+              'dans sa boucle quand sa dépense l’atteint, tentatives précédentes déduites. Une ' +
+              `seule réponse coûte déjà ${COUT_UNE_REPONSE_MICROS.min} à ` +
+              `${COUT_UNE_REPONSE_MICROS.max} µUSD sur le plus petit modèle : réserve moins, et ` +
+              'l’enfant s’arrête après sa première réponse.',
           },
           resourceUnits: {
             type: 'integer',
@@ -263,6 +270,7 @@ const MAX_REASON_LENGTH = 1000;
 const MAX_TITLE_LENGTH = ${MAX_TITLE_LENGTH};
 const MAX_PROMPT_LENGTH = ${MAX_PROMPT_LENGTH};
 const MAX_TEXT_LENGTH = 8192;
+const MIN_BUDGET = ${JSON.stringify({ durationMs: 0, costMicros: COUT_MIN_MICROS, resourceUnits: 0 })};
 const MAX_BUDGET = ${JSON.stringify({
   durationMs: LIMITES_DELEGATION_DEFAUT.maxDurationMs,
   costMicros: LIMITES_DELEGATION_DEFAUT.maxCostMicros,
@@ -358,7 +366,7 @@ if (!endpoint || !token || !parentTaskId) {
 
   const text = (value, max = MAX_TEXT_LENGTH) => typeof value === 'string' && value.length > 0 && value.length <= max ? value : null;
   const id = (value) => typeof value === 'string' && ID_ENFANT.test(value) ? value : null;
-  const entier = (value, max) => Number.isSafeInteger(value) && value >= 0 && value <= max;
+  const entier = (value, min, max) => Number.isSafeInteger(value) && value >= min && value <= max;
   // Le PREMIER champ fautif, nommé avec sa borne : « arguments invalides » ne
   // disait pas lequel, et le modèle recommençait à l'aveugle.
   const fauteDelegation = (args, input) => {
@@ -369,8 +377,8 @@ if (!endpoint || !token || !parentTaskId) {
     // La même borne que l'inputSchema annonce : au-delà, le guichet du nœud ne
     // rendait qu'un « demande mal formée » sans champ ni borne.
     for (const champ of ['durationMs', 'costMicros', 'resourceUnits']) {
-      if (!entier(input[champ], MAX_BUDGET[champ])) {
-        return champ + ' : entier de 0 à ' + MAX_BUDGET[champ] + ' (plafond cumulé par racine)';
+      if (!entier(input[champ], MIN_BUDGET[champ], MAX_BUDGET[champ])) {
+        return champ + ' : entier de ' + MIN_BUDGET[champ] + ' à ' + MAX_BUDGET[champ] + ' (plafond cumulé par racine)';
       }
     }
     if (args.preferredAgent !== undefined && !input.preferredAgent) return 'preferredAgent : texte non vide de ' + MAX_NAME_LENGTH + ' caractères au plus';
@@ -529,7 +537,7 @@ function validDelegationInput(value: unknown): value is WorkerDelegationInput {
     !text(value.title, MAX_TITLE_LENGTH) ||
     !text(value.prompt, MAX_PROMPT_LENGTH) ||
     !finiteBudget(value.durationMs, true) ||
-    !finiteBudget(value.costMicros, true) ||
+    !finiteBudget(value.costMicros) ||
     !finiteBudget(value.resourceUnits, true)
   ) {
     return false;

@@ -71,7 +71,7 @@ import type {
 import { declarationDe, sommeDeclaree } from './declaration-fournisseur.js';
 import { mediane } from './economie.js';
 import type { SommeDeclaree } from './declaration-fournisseur.js';
-import { estArretBudgetaire } from './types.js';
+import { arreteeParSonBudget } from './arret-budgetaire.js';
 import type { HiveEvent, TaskStatus } from './types.js';
 import type { ValidationState } from './validations-bac.js';
 
@@ -105,8 +105,8 @@ export interface FaitsGenome {
   refus: number;
   /**
    * Interrompue sans verdict sur le modèle : nœud perdu, annulation, reprise au
-   * boot — ou arrêtée sur son plafond de coût ou de tours (`arretBudgetaire`
-   * de `task_failed`), une borne tenue que rien n'impute au modèle.
+   * boot — ou arrêtée sur son plafond de coût (`arreteeParSonBudget`), une
+   * borne tenue que rien n'impute au modèle.
    */
   interrompues: number;
   /**
@@ -485,7 +485,7 @@ export function registreGenomeDepuisEvenements(
         // Un arrêt budgétaire est une borne TENUE, pas un échec du modèle :
         // interrompu, sans verdict — sa dépense, elle, reste déclarée.
         const faits = accumulateur(issue).faits;
-        if (estArretBudgetaire(p.arretBudgetaire)) faits.interrompues += 1;
+        if (arreteeParSonBudget(p)) faits.interrompues += 1;
         else faits.echecs += 1;
         consignerDeclaration(accumulateur(issue), p);
         solder();

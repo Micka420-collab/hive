@@ -4,13 +4,8 @@
 
 import type { PresenceFichier } from '../shared/presence.js';
 import type { Effort } from '../shared/effort.js';
-import type {
-  ArretBudgetaire,
-  ExecutionUsage,
-  SubAgent,
-  Task,
-  UsageFournisseur,
-} from '../shared/types.js';
+import type { ArretBudgetaire } from '../shared/arret-budgetaire.js';
+import type { ExecutionUsage, SubAgent, Task, UsageFournisseur } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
 import { createClineAdapter } from './cline.js';
 import { createCodexAdapter } from './codex.js';
@@ -125,12 +120,18 @@ export interface AdapterContext {
   role?: 'relecture';
   /**
    * Ce que cette tentative peut encore dépenser, en micro-USD (≥ 1), dit par
-   * la Reine (`AssignTaskMsg.plafondCoutMicros`). Un adaptateur qui sait le
-   * tenir dans la boucle de son agent le lui passe (Claude Code :
-   * `--max-budget-usd`), et le DIT quand il ne le peut pas. Absent : aucun.
+   * la Reine (`AssignTaskMsg.plafondCoutMicros`) — posé par le nœud seulement
+   * quand `plafondCout` l'a dit TENU par le CLI qui tournera. L'adaptateur le
+   * passe à son agent (Claude Code : `--max-budget-usd`). Absent : aucun.
    */
   plafondCoutMicros?: number;
 }
+
+/**
+ * Le CLI qui tournera tient-il un plafond de coût dans sa boucle ? Sinon,
+ * pourquoi — et quoi faire : le motif part tel quel au journal de la tâche.
+ */
+export type VerdictPlafond = { tenu: true } | { tenu: false; motif: string };
 
 export interface AdapterResult {
   success: boolean;
@@ -159,7 +160,7 @@ export interface AdapterResult {
    */
   finalText?: string;
   /**
-   * Le CLI s'est arrêté sur son plafond de coût ou de tours — ce qu'IL a
+   * Le CLI s'est arrêté sur le plafond de coût qu'il avait reçu — ce qu'IL a
    * déclaré (le `subtype` de son résultat), jamais déduit des logs.
    */
   arretBudgetaire?: ArretBudgetaire;
@@ -181,6 +182,14 @@ export interface AgentAdapter {
    * aucun, ou des drapeaux le lui interdisent (Claude Code, `claude-code.ts`).
    */
   configurationExecutee?: readonly string[];
+  /**
+   * Un plafond de coût tenu DANS LA BOUCLE de l'agent. Présente, le nœud
+   * déclare la capacité à son inscription (`RegisterMsg.plafondCout`) et
+   * l'interroge avant chaque tentative plafonnée — HORS du budget de durée de
+   * l'enfant : la version du CLI qui tournera dit s'il le tient. Absente :
+   * l'adaptateur n'en tient aucun, et la Reine le dit à l'envoi.
+   */
+  plafondCout?: (ctx: AdapterContext) => Promise<VerdictPlafond>;
   run(task: Task, ctx: AdapterContext): Promise<AdapterResult>;
 }
 
