@@ -93,8 +93,10 @@ capot. Le Rayon ouvre le capot.
 projet (`data/rayons/<id>`), rafraîchi au plus une fois par minute. Passer par
 l'API GitHub aurait exigé le **jeton de l'hôte** — montrer le code à une abeille
 dépenserait pour elle un droit qui n'est pas le sien. **`.git` n'est jamais
-servi** : il contient `config`, donc l'URL distante, donc les identifiants du
-dépôt privé ; ni `.env`, `.npmrc`, `id_rsa` et les extensions de clés.
+servi** (configuration, objets bruts, références) — les identifiants d'un dépôt
+privé n'y sont d'ailleurs pas écrits : le miroir clone l'adresse nue, et l'accès
+ne vit que le temps de chaque appel à l'amont ; ni `.env`, `.npmrc`, `id_rsa`
+et les extensions de clés.
 Le miroir montre les **octets que le dépôt stocke** : aucun filtre ni
 conversion du `.gitattributes` (fins de ligne, `$Id$`, encodage) n'est
 appliqué, et **un fichier Git LFS apparaît comme son pointeur** (quelques
@@ -246,9 +248,11 @@ npm run cli -- livrer-local <projectId> --prolonger=1         # corriger : avanc
   `origin` est le dépôt du projet, identifiants retirés) : `git fetch` depuis ce
   chemin, ou `git -C … push origin hive/mission-…` sur l'ouvrière.
 - **Avec `--pousser`**, l'ouvrière pousse vers l'adresse du projet que la
-  ruche lui a envoyée, avec **ses** identifiants git — ceux du clone —, jamais
-  en force, jamais une autre branche. Un dépôt qui ne répond pas en deux
-  minutes (des identifiants attendus ?) fait échouer la poussée, qui le dit.
+  ruche lui a envoyée, avec les identifiants du clone — le compte que porte
+  l'URL du projet, sinon ceux de l'ouvrière —, jamais en force, jamais une
+  autre branche. Un dépôt qui ne répond pas en deux minutes (injoignable ou
+  muet) fait échouer la poussée, qui le dit ; un jeton refusé aussi, avec ce
+  qu'il faut changer.
   Elle ne le fait que si son opérateur l'a lancée avec
   `HIVE_LIVRAISON_POUSSER=1` : le dépôt et le diff viennent du hub, et le jeton
   de ruche circule sur chaque machine membre. Et seul l'hôte le demande (jeton

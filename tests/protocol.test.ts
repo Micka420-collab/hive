@@ -759,6 +759,24 @@ describe('isValidRepoUrl', () => {
     expect(isValidRepoUrl('')).toBe(false);
     expect(isValidRepoUrl(42)).toBe(false);
   });
+
+  it('rejette un caractère de contrôle — où qu’il soit, l’URL entière', () => {
+    // Mesuré (git 2.53) : un saut de ligne dans les identifiants faisait
+    // citer à git la clé de configuration ENTIÈRE, jeton compris — et le
+    // lavage s'arrête au premier blanc. La route de création refuse donc
+    // l'URL, et un message du hub qui en porterait une est écarté.
+    for (const url of [
+      'https://u:SECRET\nX@github.com/o/r.git',
+      'https://github.com/o/r.git\n',
+      'https://github.com/o/\tr.git',
+      'git@github.com:o/r\r.git',
+      '/home/user/re\u0000po',
+      'https://github.com/o/r.git\u007f',
+    ]) {
+      expect(isValidRepoUrl(url), JSON.stringify(url)).toBe(false);
+      expect(isValidRemoteRepoUrl(url), JSON.stringify(url)).toBe(false);
+    }
+  });
 });
 
 describe('isValidTask', () => {

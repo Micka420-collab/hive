@@ -61,6 +61,8 @@ const RELEVE_QUELCONQUE: Releve = {
   dashboardConstruit: false,
   agent: 'shell',
   agentsNonConnectes: [],
+  versionGit: null,
+  identifiantsGit: { enClair: [], illisibles: [], gestionnaireWindows: null },
   isolement: 'aucun',
   imageBac: null,
   wsJoignable: false,

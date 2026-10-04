@@ -188,6 +188,9 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['tests/reseau-projet.test.ts', 'securite'],
     ['tests/budget-boucle.test.ts', 'securite'],
     ['tests/budget-essaim.test.ts', 'securite'],
+    // La suite de G12 : le clone d'une tâche ne porte aucun identifiant de
+    // push — son banc, et la porte git qui l'assure (déjà nommée plus haut).
+    ['tests/clone-sans-identifiants.test.ts', 'securite'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');

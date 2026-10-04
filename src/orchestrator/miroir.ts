@@ -35,7 +35,10 @@ import { CLONE_MS, DELAI_RESEAU_MS } from '../shared/butoirs-noeud.js';
 import {
   EchecGitHote,
   commandeSshDuMembre,
+  depotDistant,
   gitHote,
+  porteDesIdentifiants,
+  type DepotDistant,
   type DepotEpingle,
 } from '../shared/git-protege.js';
 import {
@@ -160,7 +163,14 @@ export class Miroir {
   private readonly enVol = new Map<string, Promise<void>>();
   private readonly dernier = new Map<string, Tentative>();
 
-  constructor(private readonly racine: string) {}
+  constructor(
+    private readonly racine: string,
+    /**
+     * Ce que le miroir fait sur le disque sans qu'on le lui demande — une
+     * réparation (`oterLesIdentifiants`) — dit à qui exploite la Reine.
+     */
+    private readonly journal: (projectId: string, message: string) => void = () => undefined,
+  ) {}
 
   /** Le répertoire du miroir de ce projet — sans garantir qu'il existe. */
   dossier(projectId: string): string {
@@ -274,10 +284,22 @@ export class Miroir {
    * `fetch` puis `reset --hard` : le miroir n'a pas de travail local à
    * préserver, et un `pull` qui tomberait sur un rebase amont resterait
    * bloqué sur un conflit que personne n'est là pour résoudre.
+   *
+   * L'`origin` du miroir est l'adresse NUE du dépôt ; ses identifiants
+   * arrivent à chaque appel, depuis le `repoUrl` du projet, dans
+   * l'environnement du seul git qui parle à l'amont (`depotDistant`). Un
+   * jeton renouvelé sert donc dès le rafraîchissement suivant.
    */
   private async faireRafraichir(projectId: string, repoUrl: string): Promise<void> {
     const dir = this.dossier(projectId);
     const depot = { gitDir: path.join(dir, '.git'), workTree: dir };
+    const distant = depotDistant(repoUrl);
+    // Un voisin de reclone laissé par une Reine arrêtée en plein clone : les
+    // rafraîchissements d'un projet ne se chevauchent pas (`enVol`), il est
+    // donc à nous. Retiré à CHAQUE rafraîchissement, pas seulement avant un
+    // reclone : celui d'une version d'avant garde le jeton dans sa config.
+    await fs.rm(voisinDeReclone(dir), { recursive: true, force: true });
+    if (this.existe(projectId)) await this.oterLesIdentifiants(projectId, depot, distant.nue);
     // La racine d'abord : `commandeSshDuMembre` y lance git, et un cwd absent
     // la ferait retomber sur `ssh` au premier clone.
     await fs.mkdir(this.racine, { recursive: true });
@@ -287,6 +309,7 @@ export class Miroir {
         await gitHote(['ls-remote', '--symref', 'origin', 'HEAD', 'refs/heads/*'], depot, {
           ssh,
           delaiMs: DELAI_RESEAU_MS,
+          acces: distant.acces,
         }),
       );
       if (amont.etat === 'sans_tete') {
@@ -303,12 +326,47 @@ export class Miroir {
         await gitHote(['fetch', '--depth', '1', 'origin'], depot, {
           ssh,
           delaiMs: DELAI_RESEAU_MS,
+          acces: distant.acces,
         });
         await gitHote(['reset', '--hard', `origin/${tete}`], depot);
         return;
       }
     }
-    await this.recloner(dir, repoUrl, ssh);
+    await this.recloner(dir, distant, ssh);
+  }
+
+  /**
+   * Un miroir cloné par une version d'avant garde l'URL AUTHENTIFIÉE du
+   * projet en `remote.origin.url` — et nulle part ailleurs (mesuré, git 2.53 :
+   * `FETCH_HEAD` et le journal des références la citent anonymisée). Elle est
+   * réécrite SUR PLACE, en adresse nue, AVANT tout appel à l'amont : le jeton
+   * quitte le disque même si l'amont ne répond plus — un reclone, lui,
+   * l'aurait laissé là à chaque échec. Une configuration qui en porterait
+   * encore ailleurs fait effacer le miroir : c'est un cache, il se refait.
+   */
+  private async oterLesIdentifiants(
+    projectId: string,
+    depot: DepotEpingle,
+    nue: string,
+  ): Promise<void> {
+    const config = path.join(depot.gitDir, 'config');
+    const lire = (): Promise<string | null> => fs.readFile(config, 'utf8').catch(() => null);
+    const avant = await lire();
+    if (avant === null || !porteDesIdentifiants(avant)) return;
+    const apres = await gitHote(['config', 'remote.origin.url', nue], depot).then(lire, () => null);
+    if (apres !== null && !porteDesIdentifiants(apres)) {
+      this.journal(
+        projectId,
+        'identifiants retirés de la configuration du miroir (remote.origin.url : ' +
+          'l’adresse nue) — une version précédente les y avait écrits',
+      );
+      return;
+    }
+    await fs.rm(depot.workTree, { recursive: true, force: true, maxRetries: 10 });
+    this.journal(
+      projectId,
+      'miroir effacé : sa configuration gardait des identifiants qu’on n’a pas pu retirer',
+    );
   }
 
   /**
@@ -346,12 +404,9 @@ export class Miroir {
    * Un amont vide se clone — git prévient, sans échouer — mais n'a aucune
    * branche à extraire : le miroir reste vide, et c'est la vérité.
    */
-  private async recloner(dir: string, repoUrl: string, ssh: string): Promise<void> {
+  private async recloner(dir: string, distant: DepotDistant, ssh: string): Promise<void> {
     const neuf = voisinDeReclone(dir);
     const depotNeuf = { gitDir: path.join(neuf, '.git'), workTree: neuf };
-    // Un voisin d'une Reine arrêtée en plein clone : les rafraîchissements
-    // d'un projet ne se chevauchent pas (`enVol`), celui-ci est donc à nous.
-    await fs.rm(neuf, { recursive: true, force: true });
     try {
       await gitHote(
         [
@@ -364,11 +419,11 @@ export class Miroir {
           '--config',
           'core.autocrlf=false',
           '--',
-          repoUrl,
+          distant.nue,
           neuf,
         ],
         this.racine,
-        { ssh, delaiMs: CLONE_MS },
+        { ssh, delaiMs: CLONE_MS, acces: distant.acces },
       );
       const attributs = path.join(depotNeuf.gitDir, 'info', 'attributes');
       await fs.mkdir(path.dirname(attributs), { recursive: true });
