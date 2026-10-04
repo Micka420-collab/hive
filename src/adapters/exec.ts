@@ -76,7 +76,9 @@ export function ligneDInfra(texte: string): string {
     .split('\n')
     .map((l) => l.trim())
     .filter((l) => l !== '');
-  return lignes.findLast((l) => INFRA_FAILURE_RE.test(l)) ?? lignes.at(-1) ?? '';
+  // Pas `findLast` (ES2023) : le tableau de bord type ce module en ES2022 —
+  // son graphe l'atteint par server.ts → doctor-releve → porte-securite → …
+  return [...lignes].reverse().find((l) => INFRA_FAILURE_RE.test(l)) ?? lignes.at(-1) ?? '';
 }
 
 /**
