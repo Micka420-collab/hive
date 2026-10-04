@@ -245,20 +245,29 @@ vienne.
 
 Les **tests du bac en échec se comparent à la base**, test par test
 (`src/shared/lecture-tests.ts`, G11b) — quand leur sortie par défaut se lit
-(vitest, jest, `node --test`, TAP), sans rien ajouter au script déclaré. La
-base est rejouée à part, dans le bac : un dépôt neuf tiré du registre par
-`fetch` (jamais en lisant les objets que l'agent a pu forger), une installation
-fraîche depuis son lockfile, son build, le même script. Une **régression**
-(rouge à chaque exécution de la production, à aucune de la base) reste la
-règle 10, et ses motifs la **nomment** ; des tests **déjà rouges à la base** ne
-bloquent plus — `accepted` (16) les **dit** ; un test **instable** (rouge puis
-vert d'une exécution à l'autre) n'est ni l'un ni l'autre : preuve manquante
-(13). Chaque côté est vu jusqu'à deux fois, paresseusement — portage de la
-logique FAIL_TO_PASS / PASS_TO_PASS de SWE-bench (`grading.py`, MIT), la base
-pour référence. Une sortie illisible, coupée, ou une base qui ne se rejoue pas
-rendent le verdict du script. Le surcoût — jusqu'à 10 min d'installation puis
-5 min par commande, seulement quand les tests échouent — est annoncé dans la
-ligne de progression ; chaque nœud garde en mémoire les bases qu'il a rejouées.
+(vitest, jest, `node --test`, TAP), sans rien ajouter au script déclaré, et
+qu'elle est **complète et cohérente** : elle est en partie écrite par le code
+de l'agent, et une ligne collée, un résumé qui ne compte pas tout, un nom en
+double ou un échec que le runner ne redit pas rendent le verdict du script —
+jamais un vert de plus. La base est rejouée à part, dans le bac : un dépôt neuf
+tiré du registre par `fetch` (jamais en lisant les objets que l'agent a pu
+forger), une installation fraîche depuis son lockfile, son build, le même
+script. Une **régression** (rouge à chaque exécution de la production, à aucune
+de la base) reste la règle 10, et ses motifs la **nomment** ; des tests **déjà
+rouges à la base**, du même échec (le message que le runner imprime, et son
+fichier), ne bloquent plus — `accepted` (16) les **dit** ; un test
+**instable** (vu rouge à une exécution et vert à une autre, de la production
+ou de la base) n'est ni l'un ni l'autre : preuve manquante (13). Chaque côté
+est vu jusqu'à deux fois, paresseusement, et la seconde exécution de la
+production rejoue son arbre LIVRÉ, à part — ce que la première a laissé dans
+le répertoire ne la fait pas passer —, portage de la logique FAIL_TO_PASS /
+PASS_TO_PASS de SWE-bench (`grading.py`, MIT), la base pour référence. Une
+sortie illisible, coupée, une exécution en panne d'environnement, un côté qui
+ne se rejoue pas, ou des exécutions qui ne se comparent pas rendent le verdict
+du script. Le surcoût — seulement quand les tests échouent, au pire 55 min :
+deux rejeux à part (extraction, installation, build, tests) et une seconde
+exécution de la base — est annoncé dans la ligne de progression ; chaque nœud
+garde en mémoire les bases qu'il a rejouées, sauf celles qui ont vacillé.
 
 La **porte de sécurité** (`src/shared/porte-securite.ts`) n'est pas une
 cinquième validation : le nœud la joint à son résultat (`porteSecurite`,

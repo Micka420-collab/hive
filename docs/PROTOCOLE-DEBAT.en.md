@@ -240,19 +240,27 @@ from.
 **Failing sandbox tests are compared to the base**, test by test
 (`src/shared/lecture-tests.ts`, G11b) — when their default output is readable
 (vitest, jest, `node --test`, TAP), without adding anything to the declared
-script. The base is replayed apart, in the sandbox: a fresh repository fetched
-from the registry (never by reading the objects the agent may have forged), a
-fresh install from its lockfile, its build, the same script. A **regression**
-(red on every run of the production, on none of the base) stays rule 10, and
-its reasons **name** it; tests **already red at the base** no longer block —
-`accepted` (16) **says** them; a **flaky** test (red then green from one run to
-the next) is neither: missing evidence (13). Each side is seen up to twice,
-lazily — a port of SWE-bench's FAIL_TO_PASS / PASS_TO_PASS logic
-(`grading.py`, MIT), with the base as reference. An unreadable or truncated
-output, or a base that cannot be replayed, gives the script's verdict. The
-overhead — up to 10 min of install then 5 min per command, only when tests
-fail — is announced in the progress line; each node remembers the bases it
-replayed.
+script, and **complete and consistent**: it is partly written by the agent's
+code, and a glued line, a summary that does not count everything, a duplicate
+name or a failure the runner does not restate give the script's verdict —
+never one more green. The base is replayed apart, in the sandbox: a fresh
+repository fetched from the registry (never by reading the objects the agent
+may have forged), a fresh install from its lockfile, its build, the same
+script. A **regression** (red on every run of the production, on none of the
+base) stays rule 10, and its reasons **name** it; tests **already red at the
+base**, with the same failure (the message the runner prints, and its file),
+no longer block — `accepted` (16) **says** them; a **flaky** test (seen red on
+one run and green on another, of the production or of the base) is neither:
+missing evidence (13). Each side is seen up to twice, lazily, and the second
+run of the production replays its DELIVERED tree, apart — what the first run
+left in the directory cannot make it pass —, a port of SWE-bench's
+FAIL_TO_PASS / PASS_TO_PASS logic (`grading.py`, MIT), with the base as
+reference. An unreadable or truncated output, a run with an environment
+failure, a side that cannot be replayed, or runs that do not compare give the
+script's verdict. The overhead — only when tests fail, 55 min at worst: two
+replays apart (extraction, install, build, tests) and a second run of the
+base — is announced in the progress line; each node remembers the bases it
+replayed, except those that wavered.
 
 The **security gate** (`src/shared/porte-securite.ts`) is not a fifth
 validation: the node attaches it to its result (`porteSecurite`, recorded as
