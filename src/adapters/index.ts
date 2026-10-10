@@ -7,6 +7,7 @@ import type { BlocSortie } from '../shared/niveaux-sortie.js';
 import type { Effort } from '../shared/effort.js';
 import type { ActionProposee, DecisionAction } from '../shared/politique-actions.js';
 import type { ArretBudgetaire } from '../shared/arret-budgetaire.js';
+import type { ArretVigie, Enlisement, EpuisementFournisseur } from '../shared/enlisement.js';
 import type { RessourcesExecution, SubAgent, Task, UsageFournisseur } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
 import { createClineAdapter } from './cline.js';
@@ -30,6 +31,13 @@ export interface AdapterProgress {
    * Brut : c'est le nœud qui caviarde, bloc par bloc (`progresVersHub`).
    */
   sortie?: readonly BlocSortie[];
+  /**
+   * Un arrêt EN VOL de la vigie de l'adaptateur (G13, `vigie-enlisement.ts`) :
+   * l'agent enlisé, ou l'attente sans borne du réseau de Codex au-delà de sa
+   * durée. Le nœud l'arrête par le geste de l'annulation, sur le seul signal
+   * de l'agent (`signalDeLAgent`, client.ts). L'adaptateur, lui, ne tue rien.
+   */
+  arret?: ArretVigie;
 }
 
 /** Demande bornée qu'un Worker peut transmettre à la Queen pour un enfant. */
@@ -196,6 +204,13 @@ export interface AdapterResult {
    * déclaré (le `subtype` de son résultat), jamais déduit des logs.
    */
   arretBudgetaire?: ArretBudgetaire;
+  /** L'agent tournait en rond (vigie, G13) : un échec du modèle, qui dit sa cause. */
+  enlisement?: Enlisement;
+  /**
+   * Le fournisseur ne servait plus (vigie, G13) — toujours avec `infra` : la
+   * tentative est réaffectée sans rien imputer au modèle.
+   */
+  epuisement?: EpuisementFournisseur;
 }
 
 export interface AgentAdapter {

@@ -8,6 +8,7 @@ import type { ValidationsBac } from './validations-bac.js';
 import type { PorteSecurite, VoletPorte } from './porte-securite.js';
 import type { Effort } from './effort.js';
 import type { ArretBudgetaire } from './arret-budgetaire.js';
+import type { Enlisement } from './enlisement.js';
 
 /** Cycle de vie : pending → ready (dépendances done) → assigned → running → done | failed. */
 export type TaskStatus = 'pending' | 'ready' | 'assigned' | 'running' | 'done' | 'failed';
@@ -264,6 +265,12 @@ export interface TaskResult {
    * arrivé sur ce plafond).
    */
   arretBudgetaire?: ArretBudgetaire;
+  /**
+   * La vigie du nœud a arrêté l'agent qui tournait en rond (G13) — à la
+   * réception seulement : la Reine le porte sur le fait de la tentative
+   * (`task_retry`, `task_failed`), qui reste un échec du modèle.
+   */
+  enlisement?: Enlisement;
   /** La porte de sécurité du nœud — même règle : rangée à la réception (`security_gate_recorded`). */
   porteSecurite?: PorteSecurite;
   /** Ses volets refusés à la réception (`TaskResultMsg.porteSecuriteRejetee`) — journalisés. */

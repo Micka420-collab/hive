@@ -3,6 +3,12 @@
 
 import { useMemo } from 'react';
 import { arreteeParSonBudget } from '../../src/shared/arret-budgetaire';
+import {
+  direArret,
+  direRemise,
+  enlisementDepuis,
+  epuisementDepuis,
+} from '../../src/shared/enlisement';
 import type { HiveEvent } from '../../src/shared/types';
 import { VALIDATION_KEYS } from '../../src/shared/validations-bac';
 import { Terminal } from './composants';
@@ -21,6 +27,30 @@ interface Meta {
 }
 
 const short = (v: unknown) => (typeof v === 'string' ? v.slice(0, 8) : '?');
+
+/**
+ * L'issue que la vigie du nœud a rangée sur le fait (G13) — l'agent enlisé,
+ * ou son fournisseur épuisé, sa remise à zéro à l'heure de qui regarde —, ou
+ * rien. Relue par le validateur du protocole : un payload d'un autre âge ne
+ * fait rien dire de faux.
+ */
+const direVigie = (p: Record<string, unknown>, t: Translate): string | null => {
+  const langue = t('fr-FR', 'en-GB');
+  // Au-delà d'un jour, la DATE avec l'heure : « 15:45 » seul mentirait.
+  const heure = (ms: number): string =>
+    direRemise(
+      ms,
+      Date.now(),
+      (d) => d.toLocaleTimeString(langue, { hour: '2-digit', minute: '2-digit' }),
+      (d) => d.toLocaleString(langue, { dateStyle: 'short', timeStyle: 'short' }),
+    );
+  const enlisement = enlisementDepuis(p.enlisement);
+  if (enlisement) return direArret({ issue: 'enlisement', ...enlisement }, t, heure);
+  const epuisement = epuisementDepuis(p.epuisement);
+  return epuisement
+    ? direArret({ issue: 'epuisement_fournisseur', ...epuisement }, t, heure)
+    : null;
+};
 
 /** `—` : non applicable (le projet ne le déclare pas) — surtout pas un vert. */
 const SYMBOLE_VALIDATION: Record<string, string> = {
@@ -245,13 +275,17 @@ const EVENTS: Record<string, Meta> = {
             );
       }
       const ms = cout(p.durationMs);
+      const vigie = direVigie(p, t);
       const base = t(
         `échec, essai ${essai} (${short(p.taskId)})`,
         `failed, attempt ${essai} (${short(p.taskId)})`,
       );
+      const cause = vigie ? ` — ${vigie}` : '';
       // Le temps que cette tentative a coûté : imputé en « reprise » par la
       // Balance dès que la tâche aboutit.
-      return ms === null ? base : `${base} — ${t(`${ms} en reprise`, `${ms} of rework`)}`;
+      return ms === null
+        ? `${base}${cause}`
+        : `${base} — ${t(`${ms} en reprise`, `${ms} of rework`)}${cause}`;
     },
   },
   // Le verdict HUMAIN de la Miellerie. `state: null` efface une revue : un
@@ -321,7 +355,21 @@ const EVENTS: Record<string, Meta> = {
       // Une tâche close par la Reine AVANT tout envoi (`depot_illisible`) n'a
       // ni production ni logs : son `motif` est sa seule cause. Rangé en
       // français, comme la raison d'un refus d'infrastructure.
-      const cause = typeof p.motif === 'string' ? ` — ${p.motif}` : '';
+      const vigie = direVigie(p, t);
+      // Deux clôtures de la Reine que seule leur raison dit (G13) : plus aucun
+      // nœud dont l'agent fonctionne, ou le relecteur dont le fournisseur est
+      // épuisé au-delà du délai d'attente — avec le fait du dernier refus.
+      const raison =
+        p.reason === 'no_working_agent'
+          ? t(
+              `aucun nœud dont l’agent fonctionne (${String(p.infraRejects ?? '?')} refus d’infrastructure)`,
+              `no node with a working agent (${String(p.infraRejects ?? '?')} infrastructure refusals)`,
+            )
+          : p.reason === 'relecteur_epuise'
+            ? t('relecture close, relecteur épuisé', 'review closed, reviewer exhausted')
+            : null;
+      const dits = [typeof p.motif === 'string' ? p.motif : null, raison, vigie].filter(Boolean);
+      const cause = dits.length > 0 ? ` — ${dits.join(' — ')}` : '';
       // « durée : X » plutôt qu'un participe accordé : la durée est formatée
       // (« 1 h », « 4 h 12 min », « 340 ms ») et aucun accord français ne tient
       // sur toutes ces formes. Pas « coût » : depuis que la ruche compte des
@@ -349,7 +397,13 @@ const EVENTS: Record<string, Meta> = {
     // agent n'ait tourné — ni production, ni logs à relire.
     text: (p, t) => {
       const base = t(`refusée (${short(p.taskId)})`, `declined (${short(p.taskId)})`);
-      return p.infra === true && typeof p.reason === 'string' ? `${base} — ${p.reason}` : base;
+      // Un fournisseur épuisé (G13) se dit par son fait : aucune tentative brûlée.
+      const vigie = direVigie(p, t);
+      // Le fait d'abord, puis ce qui le prouve (la ligne du CLI, ou celle de
+      // la passerelle de Hive qui n'a pas joint l'API) : la raison reste dite.
+      const raison = p.infra === true && typeof p.reason === 'string' ? p.reason : null;
+      const dits = [vigie, raison === vigie ? null : raison].filter(Boolean);
+      return dits.length > 0 ? `${base} — ${dits.join(' — ')}` : base;
     },
   },
   node_registered: {

@@ -16655,6 +16655,7 @@ async function monterReine(
               ...(msg.finalText !== undefined ? { finalText: msg.finalText } : {}),
               ...(msg.validations ? { validations: msg.validations } : {}),
               ...(arretBudgetaire ? { arretBudgetaire } : {}),
+              ...(msg.enlisement ? { enlisement: msg.enlisement } : {}),
               ...(msg.porteSecurite ? { porteSecurite: msg.porteSecurite } : {}),
               ...(msg.porteSecuriteRejetee
                 ? { porteSecuriteRejetee: msg.porteSecuriteRejetee }
@@ -16877,6 +16878,13 @@ async function monterReine(
               infra,
               Date.now(),
               msg.retryAfterMs,
+              msg.epuisement
+                ? {
+                    fait: msg.epuisement,
+                    ...(msg.durationMs !== undefined ? { durationMs: msg.durationMs } : {}),
+                    ...(msg.fournisseur ? { fournisseur: msg.fournisseur } : {}),
+                  }
+                : undefined,
             );
             break;
           }

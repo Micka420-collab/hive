@@ -30,7 +30,7 @@ import {
   masquerIdentifiants,
   ouvrirSessionReseau,
 } from './proxy-egress.js';
-import type { Passerelle, RefusReseau } from './proxy-egress.js';
+import type { EchecAmont, Passerelle, RefusReseau } from './proxy-egress.js';
 import { PASSERELLES, politiqueTache } from './politique-reseau.js';
 import type { ReservationPont } from './rendez-vous-pont.js';
 
@@ -52,6 +52,8 @@ export type ReseauTache =
       env: NodeJS.ProcessEnv;
       note: string;
       refus: () => RefusReseau[];
+      /** Le dernier échec amont de la passerelle de la tâche (G13) — voir `EchecAmont`. */
+      echecAmont: () => EchecAmont | null;
       fermer: () => Promise<void>;
     }
   | { etat: 'libre'; env: NodeJS.ProcessEnv; note: string | null; fermer: () => Promise<void> }
@@ -163,6 +165,7 @@ export async function ouvrirReseauTache(opts: {
         (declaree ? ` ; identifiants ${declaree.nom} remplacés par des leurres dans le bac` : '') +
         '.',
       refus: session.refus,
+      echecAmont: session.echecAmont,
       fermer: async () => {
         await session.fermer();
         rmSync(aEffacer, { recursive: true, force: true });
