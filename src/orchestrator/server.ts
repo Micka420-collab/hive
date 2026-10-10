@@ -1650,12 +1650,7 @@ async function monterReine(
    * Le REFUS est journalisé lui aussi. « Aucun second modèle » est une
    * information : tue, elle se confondrait avec « personne n'a rien trouvé ».
    */
-  const signalerContreExpertise = (
-    taskId: string,
-    nodeId: string,
-    diff: string,
-    logs: string,
-  ): void => {
+  const signalerContreExpertise = (taskId: string, nodeId: string, diff: string): void => {
     // Les deux recherches sont nécessaires PARCE QUE la production se compose
     // des deux — son titre vient de la tâche, son modèle vient du nœud. Ce lien
     // vit désormais dans `productionAContreExpertiser`, avec ses bancs : ici, la
@@ -1664,7 +1659,6 @@ async function monterReine(
       store.getTask(taskId),
       store.getNode(nodeId),
       diff,
-      logs,
     );
     if (!ouverture) return;
     const { production, projectId } = ouverture;
@@ -2196,7 +2190,6 @@ async function monterReine(
             store.getTask(productionTaskId),
             { id: latest.nodeId, agentType: lien.producteurAgent },
             latest.diff,
-            latest.logs,
           )
         : null;
     if (suite.genre === 'secours' && ouverture) {
@@ -2988,6 +2981,20 @@ async function monterReine(
     };
     const part = (plafond: number): number => Math.max(0, Math.min(plafond, restant));
 
+    // ─── UNE RELECTURE NE LIT NI ÉPISODES NI SOUVENIRS ─────────────────────
+    //
+    // Hive écrit lui-même le corps d'un épisode — l'échec tel que le CLI le dit,
+    // « codex : échec — … » compris — et un souvenir retombe sur les logs d'une
+    // production quand son CLI n'a pas déclaré de texte final (narration
+    // `codex :`, ligne `init` et son `model` : `proposerSouvenir`). Servis à
+    // une relectrice, ils lui nommaient la famille qu'elle juge : l'épisode
+    // d'une tentative ratée de la MÊME tâche, au même titre, passait en tête.
+    // Comme le graphe d'expérience (`experienceDe`), elle juge UNE production
+    // sur son diff ; elle garde les règles du projet, que seul un humain écrit
+    // (invariants, leçons, décisions, cartes : `verserEpisode`).
+    const relecture = store.relectureDe(task.id) !== null;
+    const admis = episodeAdmis(task.projectId);
+
     // ─── LE CERVEAU — ce que le PROJET a appris, pas cette tâche-ci ──────────
     //
     // Invariants, leçons consolidées et décisions, choisis sous budget par le
@@ -3000,7 +3007,7 @@ async function monterReine(
       `${task.title} ${task.prompt}`,
       part(BUDGET_CERVEAU),
       undefined,
-      episodeAdmis(task.projectId),
+      relecture ? (note) => note.genre !== 'episode' && admis(note) : admis,
     );
     const savoir = retenir(savoirBrut);
     const refus = selection.refus;
@@ -3053,11 +3060,14 @@ async function monterReine(
     // Hive Mind : souvenirs pertinents des tâches déjà réussies, dans le budget
     // RESTANT après le Cerveau, la critique, la Couveuse et l'expérience. Même
     // cloison que les épisodes (`savoirAdmis`), écartée AVANT le classement,
-    // comme le souvenir de la tâche qu'une ombre rejoue.
-    const trouves = store.searchMemories(`${task.title} ${task.prompt}`, 3, {
-      admis: savoirAdmis(task.projectId),
-      exclureTache: store.ombreDe(task.id)?.tacheOriginale,
-    });
+    // comme le souvenir de la tâche qu'une ombre rejoue. Aucun pour une
+    // relecture (voir plus haut).
+    const trouves = relecture
+      ? []
+      : store.searchMemories(`${task.title} ${task.prompt}`, 3, {
+          admis: savoirAdmis(task.projectId),
+          exclureTache: store.ombreDe(task.id)?.tacheOriginale,
+        });
     const souvenirs = retenir(buildHiveContext(trouves, part(restant)));
     const horizon = retenir(
       restant > 80
@@ -16825,7 +16835,7 @@ async function monterReine(
                 reprendreContreRevue(echec);
               }
             } else if (pris && msg.success && (msg.diff ?? '').trim() !== '') {
-              signalerContreExpertise(msg.taskId, nodeId, msg.diff ?? '', msg.logs ?? '');
+              signalerContreExpertise(msg.taskId, nodeId, msg.diff ?? '');
             }
             // Les Gardiennes, le bac et le Parlement ont parlé en même temps que
             // le résultat : une production creuse, suspecte ou aux tests rouges

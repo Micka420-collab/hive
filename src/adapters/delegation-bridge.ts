@@ -674,12 +674,13 @@ export function writeClaudeMcpConfig(bridge: DelegationBridge): void {
 }
 
 /**
- * Écrit les consignes du dépôt (`consignes-depot.ts`) à côté de la
- * configuration MCP : même dossier privé, même effacement, même montage en
- * lecture seule dans le bac. Rend le chemin tel que le CLI le voit.
+ * Écrit un fichier que le CLI doit LIRE sans qu'il entre dans le dépôt de la
+ * tâche — les consignes du dépôt pour Claude Code (`consignes-depot.ts`), le
+ * schéma de l'avis pour une relecture Codex (`SCHEMA_AVIS`) : à côté de la
+ * configuration MCP, même dossier privé, même effacement (`close`), même
+ * montage en lecture seule dans le bac. Rend le chemin tel que le CLI le voit.
  */
-export function writeClaudeConsignes(bridge: DelegationBridge, texte: string): string {
-  const nom = 'consignes.md';
+export function ecrireAuPont(bridge: DelegationBridge, nom: string, texte: string): string {
   writeFileSync(path.join(bridge.dossier, nom), texte, { encoding: 'utf8', mode: 0o600 });
   return path.join(path.dirname(bridge.childConfigPath), nom);
 }

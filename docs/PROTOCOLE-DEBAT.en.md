@@ -135,6 +135,21 @@ Gardiennes inspect it (`clean`, `suspect`, `hollow`).
   other family online: the counter-review is refused **and journaled**
   (`contre_expertise`, `possible: false`) — never mistaken for "found
   nothing".
+- **Anonymity:** the reviewer does not know WHO produced. Its instructions
+  (`consigneDeCritique`) receive only the task title and the diff: neither
+  the producer's family nor its model, nor its logs (where its CLI names
+  itself), not even "another model". Its context carries neither the
+  Cerveau's episodes (Hive writes the failure as the CLI states it, « codex :
+  échec — … » included), nor Hive Mind memories (they fall back on a
+  production's logs), nor the experience graph; it keeps the rules only a
+  human writes (invariants, lessons, decisions, maps). Humans keep the family:
+  the announcement (`contre_expertise`), the verdict
+  (`contre_expertise_verdict`) and the Evaluator's evidence name producer and
+  reviewer. What escapes Hive: the diff's content (a style, a signature
+  written in a file), the task title, a human rule that would name a family —
+  and inference: in a two-family hive the reviewer knows the other one
+  produced, all the more when Hive reviews itself, its `AGENTS.md` (served as
+  the repository's instructions) describing the cross-review.
 - **The verdict:** the reviewer answers `valide` or `conteste`, then one
   objection per line (`OBJECTIONS_MAX` at most, 300 characters each), in its
   **final answer** — never read from its logs —, and **ends** with a
@@ -167,6 +182,19 @@ Gardiennes inspect it (`clean`, `suspect`, `hollow`).
   - **Without a marker**, the free-text reading applies: `conteste` always
     wins, and **one objection is enough** — written under `valide`, it counts
     as a contest (`agreger`). An unreadable verdict counts as contested too.
+  - **Schema-bound:** a review — and only a review — imposes this grid as a
+    JSON Schema (`SCHEMA_AVIS`) on a CLI that can hold it: Claude Code
+    (`--json-schema`, from 2.1.205) and Codex (`--output-schema`). The opinion
+    is read where the CLI returns it — the object Claude Code ACCEPTED from
+    its `StructuredOutput` tool, Codex's last `agent_message` —, never from its
+    prose, and written as a `HIVE_CRITIQUE` line: same reading, same grid.
+    Off-grid, it is contested, never repaired; two accepted opinions are two
+    marker lines, hence unreadable; a too-long opinion drops its least severe
+    findings to fit the final text. A CLI that ends without the required
+    opinion leaves a review with no final answer. A Codex provider that does
+    not honour the format returns text: read through its marker line, with its
+    guards, and said in the journal. An older Claude Code keeps the
+    instructions' line, and the review's journal says so, version included.
 
 - **Scoring:** there is **no single score** — it would hide _which_ criterion
   failed. Findings are **counted per criterion and severity**

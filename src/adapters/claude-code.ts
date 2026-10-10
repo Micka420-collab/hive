@@ -5,6 +5,7 @@
 // (contrainte §5.1). Le diff est calculé par le workspace git du nœud, pas par stdout.
 
 import { usdDeMicros } from '../shared/arret-budgetaire.js';
+import { SCHEMA_AVIS } from '../shared/critique-structuree.js';
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { EFFORTS, type Effort } from '../shared/effort.js';
@@ -18,18 +19,18 @@ import {
 } from './consignes-depot.js';
 import {
   createDelegationBridge,
+  ecrireAuPont,
   HIVE_APPROVE_TOOL,
   HIVE_DELEGATE_TOOL,
   HIVE_WAIT_TOOL,
   resultatSansPont,
-  writeClaudeConsignes,
   writeClaudeMcpConfig,
   type DelegationBridge,
 } from './delegation-bridge.js';
 import { createDeclarationFournisseurTracker } from './fournisseur-parser.js';
 import { createPresenceTracker } from './presence-parser.js';
 import { createSubAgentTracker } from './subagent-parser.js';
-import { graviteStreamJson, texteFinalStreamJson } from './texte-final.js';
+import { graviteStreamJson, lecteurAvisStreamJson, texteFinalStreamJson } from './texte-final.js';
 import { createVigie, evenementsClaude, resultatSelonVigie } from './vigie-enlisement.js';
 import type { AdapterContext, AdapterResult, AgentAdapter, VerdictPlafond } from './index.js';
 
@@ -123,6 +124,11 @@ export function reglagesImposes(permissionsAllow: readonly string[] = []): strin
  * la Reine a calculé en micro-USD (`AssignTaskMsg.plafondCoutMicros`) — absent
  * hors délégation, et sur un CLI qui ne le tiendrait pas (`verdictPlafondClaude`).
  *
+ * `--json-schema <schéma>` : une RELECTURE seulement (`avisAuSchema`) — le
+ * schéma de l'avis (`SCHEMA_AVIS`), que le CLI fait remplir par son outil
+ * `StructuredOutput`, valide, et rend dans `structured_output`
+ * (`lecteurAvisStreamJson`). En ligne : ni secret, ni fichier à poser.
+ *
  * `--model <nom>` va AVANT le `--` : c'est une OPTION, et tout ce qui suit `--`
  * est du texte de prompt (cf. l'injection démontrée dans `prompt-argv.ts`). Le
  * prompt reste donc en TOUT DERNIER, derrière `--`. Un nom de modèle n'est pas un
@@ -139,6 +145,7 @@ export function argvClaude(
   permissionsAllow?: readonly string[],
   approbation = false,
   plafondCoutMicros?: number,
+  avisAuSchema = false,
 ): string[] {
   const drapeauxModele = [
     ...(modele ? ['--model', modele] : []),
@@ -147,6 +154,7 @@ export function argvClaude(
       ? ['--max-budget-usd', usdDeMicros(plafondCoutMicros)]
       : []),
   ];
+  const drapeauxAvis = avisAuSchema ? ['--json-schema', JSON.stringify(SCHEMA_AVIS)] : [];
   const drapeauxPermission = ['--permission-mode', 'acceptEdits'];
   const drapeauxDepot = [
     '--setting-sources',
@@ -188,6 +196,7 @@ export function argvClaude(
     ...drapeauxPermission,
     ...drapeauxDepot,
     ...drapeauxModele,
+    ...drapeauxAvis,
     ...drapeauxConsignes,
     ...drapeauxMcp,
     '--',
@@ -305,6 +314,40 @@ export function verdictPlafondClaude(version: string | null): VerdictPlafond {
   };
 }
 
+// ─── L'AVIS AU SCHÉMA D'UNE RELECTURE ────────────────────────────────────────
+
+/**
+ * La première version de Claude Code dont `--json-schema` ne se tait jamais :
+ * avant elle, un schéma refusé était ignoré EN SILENCE — « Claude Code silently
+ * ignored an invalid schema and returned unstructured text »
+ * (code.claude.com/docs/en/headless, « Get structured output ») —, et avant
+ * 2.1.187 le modèle pouvait rappeler `StructuredOutput` sans fin (CHANGELOG de
+ * Claude Code, 2.1.187 et 2.1.205).
+ */
+export const VERSION_SCHEMA_CLAUDE: readonly [number, number, number] = [2, 1, 205];
+
+/**
+ * Le repli d'une relecture sur le CLI qui tournera : `undefined` quand il
+ * impose le schéma de l'avis ; sinon la ligne que le journal de la relecture
+ * reprend — l'avis y est lu, comme avant, par la ligne `HIVE_CRITIQUE` que la
+ * consigne demande. Un repli NOMMÉ, avec sa version et le geste qui l'évite.
+ */
+export function repliAvisClaude(version: string | null): string | undefined {
+  if (version !== null && versionAuMoins(version, VERSION_SCHEMA_CLAUDE)) return undefined;
+  const seuil = VERSION_SCHEMA_CLAUDE.join('.');
+  const cause =
+    version === null
+      ? 'version de Claude Code illisible (`claude --version` en échec)'
+      : `Claude Code ${version}`;
+  return (
+    `avis lu par la ligne HIVE_CRITIQUE, sans schéma imposé : ${cause} — --json-schema ` +
+    `ne tient qu’à partir de ${seuil} ; mettez-le à jour : \`claude update\``
+  );
+}
+
+/** Ce que le journal d'une relecture dit quand le schéma de l'avis est imposé. */
+const AVIS_AU_SCHEMA = 'avis au schéma de la ruche (--json-schema), lu dans `structured_output`';
+
 export function createClaudeCodeAdapter(
   token = process.env.HIVE_TOKEN ?? DEFAULT_TOKEN,
 ): AgentAdapter {
@@ -312,19 +355,23 @@ export function createClaudeCodeAdapter(
   assertRealExecutionAllowed("L'adaptateur claude-code", token);
   // La dernière version lue du CLI lancé, et quand : relue passé
   // `VERSION_TTL_MS`, pour qu'une mise à jour se voie sans relancer le nœud.
+  // Une lecture ratée ne se garde pas. Le plafond ET le schéma de l'avis la lisent.
   let versionLue: { version: string; lueA: number } | undefined;
+  const versionCourante = async (ctx: AdapterContext): Promise<string | null> => {
+    const maintenant = Date.now();
+    if (!versionLue || maintenant - versionLue.lueA >= VERSION_TTL_MS) {
+      const version = await versionClaudeLancee(ctx);
+      versionLue = version === null ? undefined : { version, lueA: maintenant };
+    }
+    return versionLue?.version ?? null;
+  };
   return {
     name: 'claude-code',
     effortsDocumentes: () => sonderEffortsClaude(),
     // Interrogé par le nœud AVANT le minuteur de durée de l'enfant : la sonde
     // (un bac qui démarre peut la faire attendre) ne se paie pas sur son budget.
     async plafondCout(ctx: AdapterContext): Promise<VerdictPlafond> {
-      const maintenant = Date.now();
-      if (!versionLue || maintenant - versionLue.lueA >= VERSION_TTL_MS) {
-        const version = await versionClaudeLancee(ctx);
-        versionLue = version === null ? undefined : { version, lueA: maintenant };
-      }
-      return verdictPlafondClaude(versionLue?.version ?? null);
+      return verdictPlafondClaude(await versionCourante(ctx));
     },
     async run(task: Task, ctx: AdapterContext): Promise<AdapterResult> {
       const tracker = createSubAgentTracker();
@@ -361,7 +408,7 @@ export function createClaudeCodeAdapter(
         // reste, et la note ne les annonce pas reprises.
         const consignes = consignesDuDepot(ctx.cwd, CONSIGNES_CLAUDE);
         const consignesPath =
-          bridge && consignes ? writeClaudeConsignes(bridge, consignes) : undefined;
+          bridge && consignes ? ecrireAuPont(bridge, 'consignes.md', consignes) : undefined;
         const note = noteConfigurationIgnoree(
           configurationDuDepot(ctx.cwd),
           consignesPath !== undefined,
@@ -379,6 +426,12 @@ export function createClaudeCodeAdapter(
               '(--max-budget-usd) — le reste de la réservation de l’enfant ; coût estimé par le CLI',
           });
         }
+        // Une relecture rend son avis au schéma de la ruche quand ce CLI le
+        // tient ; sinon par la ligne de la consigne — et le journal dit lequel.
+        const relecture = ctx.role === 'relecture';
+        const repli = relecture ? repliAvisClaude(await versionCourante(ctx)) : undefined;
+        const avisAuSchema = relecture && repli === undefined;
+        if (relecture) ctx.onProgress({ log: repli ?? AVIS_AU_SCHEMA });
         // --verbose est requis par Claude Code pour stream-json en mode -p.
         //
         // LE PROMPT EST EN DERNIER, DERRIÈRE `--`, ET CE N'EST PAS COSMÉTIQUE :
@@ -402,6 +455,7 @@ export function createClaudeCodeAdapter(
             // nœud a fourni la capacité : les deux moitiés d'un même canal.
             bridge !== undefined && ctx.decideAction !== undefined,
             plafond,
+            avisAuSchema,
           ),
           ctx,
           (line) => {
@@ -424,7 +478,8 @@ export function createClaudeCodeAdapter(
           CLAUDE_TIMEOUT_MS,
           // La réponse finale vit dans la ligne `result` du flux — pas dans
           // les logs, où elle n'est qu'une chaîne échappée (texte-final.ts).
-          texteFinalStreamJson,
+          // Au schéma, ce sont les avis que le CLI a acceptés, jamais sa prose.
+          avisAuSchema ? lecteurAvisStreamJson() : texteFinalStreamJson,
           // Le dossier du pont, que le bac éventuel monte en lecture seule.
           bridge?.dossier,
         );

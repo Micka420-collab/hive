@@ -284,6 +284,18 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     // Son horloge : le temps couru du run — une pause n'est pas une attente du réseau.
     ['tests/vigie-pause.test.ts', 'permissions'],
     ['tests/fixtures/enlisement/claude-529.stream.jsonl', 'permissions'],
+    // G15 — l'avis du relecteur : la grille et le schéma qui décident de ce
+    // qu'un verdict accepte, l'anonymat de la relecture, leurs bancs et les
+    // sorties de CLI enregistrées qu'ils rejouent.
+    ['src/shared/critique-structuree.ts', 'permissions'],
+    ['tests/critique-structuree.test.ts', 'permissions'],
+    ['tests/contre-expertise.test.ts', 'permissions'],
+    ['tests/avis-structure.test.ts', 'permissions'],
+    ['tests/relecture-anonyme.test.ts', 'permissions'],
+    ['tests/cerveau-wiring.test.ts', 'permissions'],
+    ['tests/fixtures/avis-structure/claude-relecture.stream.jsonl', 'permissions'],
+    ['tests/fixtures/avis-structure/claude-deux-avis.stream.jsonl', 'permissions'],
+    ['tests/fixtures/texte-final/claude-relecture.stream.jsonl', 'permissions'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');
