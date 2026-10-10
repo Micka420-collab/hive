@@ -102,16 +102,23 @@ describe('réquisition d’action (G12) — push gardé, décision relayée, éc
     };
   }
 
-  /** Un adaptateur qui PROPOSE une suite d'actions et collecte les décisions. */
+  /**
+   * Un adaptateur qui PROPOSE une suite d'actions et collecte les décisions.
+   * `delaiRun` : le délai dur de son run, armé par le pilote comme `exec.ts`
+   * le fait pour un vrai CLI — c'est sur lui que le nœud borne la décision.
+   */
   function adaptateurActions(
-    propositions: () => Array<{ action: ActionProposee; echeanceRun?: number }>,
+    propositions: Array<{ action: ActionProposee; delaiRun?: number }>,
     decisions: DecisionAction[],
   ): AgentAdapter {
     return {
       name: 'actions-proposees',
       async run(_task, ctx) {
-        for (const p of propositions()) {
-          decisions.push(await ctx.decideAction!(p.action, p.echeanceRun));
+        for (const p of propositions) {
+          const delai =
+            p.delaiRun === undefined ? undefined : ctx.pilote!.minuteur(p.delaiRun, () => {});
+          decisions.push(await ctx.decideAction!(p.action));
+          delai?.annuler();
         }
         return { success: true, diff: 'diff ok', logs: 'ok', subAgents: [] };
       },
@@ -268,7 +275,7 @@ describe('réquisition d’action (G12) — push gardé, décision relayée, éc
     brancherNoeud(
       'noeud-defaut',
       adaptateurActions(
-        () => [
+        [
           { action: { toolName: 'Bash', input: { command: 'git status' } } },
           { action: { toolName: 'Bash', input: { command: 'touch note.txt' } } },
         ],
@@ -295,7 +302,7 @@ describe('réquisition d’action (G12) — push gardé, décision relayée, éc
     brancherNoeud(
       'noeud-journal',
       adaptateurActions(
-        () => [{ action: { toolName: 'Bash', input: { command: 'touch note.txt' } } }],
+        [{ action: { toolName: 'Bash', input: { command: 'touch note.txt' } } }],
         decisions,
       ),
     );
@@ -326,11 +333,11 @@ describe('réquisition d’action (G12) — push gardé, décision relayée, éc
     brancherNoeud(
       'noeud-budget',
       adaptateurActions(
-        () => [
+        [
           {
             action: { toolName: 'Bash', input: { command: 'git push origin main' } },
             // Le délai dur du CLI tombera bien avant le TTL de dix minutes.
-            echeanceRun: Date.now() + MARGE_DECISION_ACTION_MS + budget,
+            delaiRun: MARGE_DECISION_ACTION_MS + budget,
           },
         ],
         decisions,
@@ -363,11 +370,11 @@ describe('réquisition d’action (G12) — push gardé, décision relayée, éc
     brancherNoeud(
       'noeud-horsdelai',
       adaptateurActions(
-        () => [
+        [
           {
             action: { toolName: 'Bash', input: { command: 'git push origin main' } },
             // Moins que la marge : aucune décision ne peut plus revenir à temps.
-            echeanceRun: Date.now() + 1_000,
+            delaiRun: 1_000,
           },
         ],
         decisions,

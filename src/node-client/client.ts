@@ -132,7 +132,7 @@ const ACTION_ACK_TIMEOUT_MS = 15_000;
  * Marge (G12, revue) entre la décision et la MORT du CLI : le délai dur des
  * adaptateurs tue le processus entier, et une décision qui arriverait après
  * ne servirait personne. Le budget transmis au hub ET le filet local la
- * retranchent de l'échéance du run — sous cette marge, on ne demande rien.
+ * retranchent de ce qui reste au run — sous cette marge, on ne demande rien.
  */
 export const MARGE_DECISION_ACTION_MS = 30_000;
 /** Le délai laissé au hub pour RELAYER sa propre expiration avant le filet local. */
@@ -866,8 +866,8 @@ export class HiveNodeClient {
    * dans ses effets : chaque issue (autorisée, refusée, réquisition, échéance)
    * laisse une ligne au journal de la tâche — sauf l'allow de la classe
    * `toujours` (lectures), dont le volume noierait le journal. Jamais d'allow
-   * implicite. `echeanceRun` (ms epoch) : l'instant où le délai dur de
-   * l'adaptateur tuera le CLI — l'attente d'une décision s'y borne.
+   * implicite. `pilote` : les horloges du run — l'attente d'une décision se
+   * borne à ce qu'elles lui laissent.
    */
   private async deciderActionProposee(
     taskId: string,
@@ -875,7 +875,7 @@ export class HiveNodeClient {
     cwd: string,
     niveau: NiveauAutonomie,
     signal: AbortSignal,
-    echeanceRun?: number,
+    pilote: PiloteExecution,
   ): Promise<DecisionAction> {
     const caviardeur = this.caviardeurDuNoeud();
     const classement = classerActionProposee(action, cwd);
@@ -910,7 +910,7 @@ export class HiveNodeClient {
     const detail = caviardeur
       .texte(`${action.toolName} ${JSON.stringify(action.input)}`)
       .slice(0, LIMITS.requisitionDetail);
-    const statut = await this.attendreDecisionAction(taskId, libelle, detail, signal, echeanceRun);
+    const statut = await this.attendreDecisionAction(taskId, libelle, detail, signal, pilote);
     if (statut === 'accordee') {
       progres(`▶ Action accordée depuis la Chambre : ${libelle}`);
       return { behavior: 'allow', updatedInput: action.input };
@@ -935,25 +935,29 @@ export class HiveNodeClient {
    * corrélation passe par `requestId` (rendu tel quel dans l'ack) puis par
    * l'identifiant du store (`requisition_result`). Ne lève jamais : toute
    * panne de transport devient `indisponible`, que l'appelant lit en deny.
-   * `echeanceRun` borne tout : le budget transmis au hub (qui raccourcit son
-   * TTL) comme le filet local — une décision rendue après la mort du CLI ne
-   * sert personne.
+   *
+   * Ce que les horloges du run lui laissent (`pilote.restant`) borne tout : le
+   * budget transmis au hub (qui raccourcit son TTL) comme le filet local — une
+   * décision rendue après la mort du CLI ne sert personne. Lu à l'instant où
+   * l'action est proposée, jamais sur une échéance en temps mur : une pause
+   * n'en a rien consommé. Lu UNE fois : la fenêtre court ensuite en temps mur,
+   * comme le TTL de la Chambre et son compte à rebours — une pause pendant
+   * l'attente ne la suspend pas, elle ne fait que reculer la mort du CLI, que
+   * l'échéance précède donc toujours.
    */
   private attendreDecisionAction(
     taskId: string,
     libelle: string,
     detail: string,
     signal: AbortSignal,
-    echeanceRun?: number,
+    pilote: PiloteExecution,
   ): Promise<'accordee' | 'refusee' | 'expiree' | 'indisponible' | 'hors_delai'> {
     // Déjà annulée : l'écouteur `abort` ne tirerait plus — on n'ouvre rien.
     if (signal.aborted || !this.nodeId || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return Promise.resolve('indisponible');
     }
-    const budgetMs =
-      echeanceRun === undefined
-        ? null
-        : Math.floor(echeanceRun - Date.now() - MARGE_DECISION_ACTION_MS);
+    const restant = pilote.restant();
+    const budgetMs = restant === null ? null : Math.floor(restant - MARGE_DECISION_ACTION_MS);
     if (budgetMs !== null && budgetMs <= 0) {
       // Action proposée trop tard dans le run : le CLI mourra avant toute
       // décision — ouvrir une réquisition qu'aucune réponse ne peut plus
@@ -2147,15 +2151,8 @@ export class HiveNodeClient {
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
         rendezVous: this.rendezVous,
         ...(permissionsAllow.length > 0 ? { permissionsAllow } : {}),
-        decideAction: (action, echeanceRun) =>
-          this.deciderActionProposee(
-            task.id,
-            action,
-            cwdTache,
-            autonomie,
-            ctrl.signal,
-            echeanceRun,
-          ),
+        decideAction: (action) =>
+          this.deciderActionProposee(task.id, action, cwdTache, autonomie, ctrl.signal, pilote),
         pilote,
         onProgress: progres,
       });
@@ -2509,15 +2506,8 @@ export class HiveNodeClient {
         rendezVous: this.rendezVous,
         // La politique d'actions (G12) reprend telle qu'à l'assignation.
         ...(permissionsAllow.length > 0 ? { permissionsAllow } : {}),
-        decideAction: (action, echeanceRun) =>
-          this.deciderActionProposee(
-            task.id,
-            action,
-            cwdTache,
-            autonomie,
-            ctrl.signal,
-            echeanceRun,
-          ),
+        decideAction: (action) =>
+          this.deciderActionProposee(task.id, action, cwdTache, autonomie, ctrl.signal, pilote),
         pilote,
         onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
       });

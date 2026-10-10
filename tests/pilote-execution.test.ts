@@ -439,6 +439,43 @@ describe('le pilote — là où il ne sait pas, et le conteneur', () => {
   });
 });
 
+describe('le pilote — ce qui reste au run, lu sur ses horloges', () => {
+  it('`restant` : null sans horloge, la plus courte sinon, figée en pause ; tirée, 0 jusqu’à son annulation', async () => {
+    const b = sondesDeBanc();
+    const pilote = new PiloteExecution(() => undefined, b.sondes, 60_000);
+    expect(pilote.restant(), 'aucune horloge : rien ne borne le run').toBeNull();
+    const delaiDur = pilote.minuteur(60_000, () => undefined);
+    const budget = pilote.minuteur(30_000, () => undefined);
+    expect(pilote.restant()).toBeLessThanOrEqual(30_000);
+    expect(pilote.restant()).toBeGreaterThan(29_000);
+
+    pilote.attacher({ pid: 4242, commande: 'agent' });
+    expect(await pilote.suspendre()).toBe(true);
+    const fige = pilote.restant();
+    await dormir(40);
+    expect(pilote.restant(), 'la pause ne consomme rien').toBe(fige);
+    expect(await pilote.reprendre()).toBe(true);
+
+    // Annulée, elle ne borne plus rien : la suivante reprend la main.
+    budget.annuler();
+    expect(pilote.restant()).toBeGreaterThan(30_000);
+
+    // TIRÉE, elle coupe le run : « plus rien » (0), jamais « aucune horloge »
+    // (null) — une décision demandée là ouvrirait une case morte en Chambre.
+    let tire = false;
+    const court = pilote.minuteur(20, () => {
+      tire = true;
+    });
+    await attendre(() => tire, 'le délai court ne tire jamais', 2_000);
+    expect(pilote.restant()).toBe(0);
+    court.annuler();
+    expect(pilote.restant()).toBeGreaterThan(30_000);
+    delaiDur.annuler();
+    expect(pilote.restant()).toBeNull();
+    pilote.fermer();
+  });
+});
+
 describe('le pilote — le BILAN que porte le résultat : l’agent, ou pourquoi rien', () => {
   const ID = 'c'.repeat(64);
   const DOSSIER = `/sys/fs/cgroup/system.slice/docker-${ID}.scope`;

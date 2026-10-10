@@ -393,16 +393,7 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
       let bridge: DelegationBridge | undefined;
       try {
         if (ctx.delegate && ctx.waitForDelegationResult && ctx.rendezVous) {
-          // Même borne que l'adaptateur Claude : l'attente d'une décision
-          // d'action ne doit pas survivre au délai dur du run Codex.
-          const echeanceRun = Date.now() + CODEX_TIMEOUT_MS;
-          const decideAction = ctx.decideAction;
-          bridge = await createDelegationBridge(
-            decideAction
-              ? { ...ctx, decideAction: (action) => decideAction(action, echeanceRun) }
-              : ctx,
-            task.id,
-          );
+          bridge = await createDelegationBridge(ctx, task.id);
         }
         // Relu sur l'hôte (`ctx.cwd`), même dans le bac : c'est le même dépôt.
         const consignes = consignesDuDepot(ctx.cwd, CONSIGNES_CODEX, MAX_CONSIGNES_CODEX);

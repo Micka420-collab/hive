@@ -33,6 +33,11 @@
 // l'agent, repris avec lui. Sans cela, une pause de dix minutes volait dix
 // minutes au budget — ou l'agent était tué pendant qu'il dormait.
 //
+// Ce qui reste au run se lit donc sur ces horloges (`restant`), jamais sur
+// une échéance en temps mur posée au départ : après une pause, celle-ci
+// refusait une décision de la Chambre pour « budget épuisé » à un run qui
+// avait encore tout son temps.
+//
 // ─── UNE PAUSE N'EMPÊCHE JAMAIS UN ARRÊT ─────────────────────────────────────
 //
 // Un processus arrêté ne traite pas SIGTERM ; un conteneur en pause ne reçoit
@@ -233,12 +238,11 @@ export class PiloteExecution implements PiloteProcessus {
   }
 
   minuteur(delaiMs: number, declencher: () => void): MinuteurSuspendable {
-    let m: MinuteurSuspendable | null = null;
-    m = creerMinuteurSuspendable(delaiMs, () => {
-      if (m) this.minuteurs.delete(m);
-      declencher();
-    });
-    const suivi = m;
+    // Tiré, il reste suivi — et rend 0 — jusqu'à son `annuler`, que ses
+    // porteurs appellent toujours (`exec.ts` à la fin de l'arbre, `client.ts`
+    // en fin de tâche) : un run dont une horloge a tiré est coupé, et
+    // `restant` doit le dire, pas répondre « aucune horloge ».
+    const suivi = creerMinuteurSuspendable(delaiMs, declencher);
     // Né pendant une pause (un budget armé après coup) : il attend la reprise.
     if (this.pause) suivi.suspendre();
     this.minuteurs.add(suivi);
@@ -251,6 +255,17 @@ export class PiloteExecution implements PiloteProcessus {
       },
       restant: () => suivi.restant(),
     };
+  }
+
+  /**
+   * Le temps qui reste au run avant que la première de ses horloges ne le
+   * coupe — délai dur de l'agent, budget d'un enfant délégué —, lu MAINTENANT :
+   * une pause n'en consomme rien ; une horloge qui a tiré compte 0. `null` :
+   * le pilote n'en tient aucune.
+   */
+  restant(): number | null {
+    const restes = [...this.minuteurs].map((m) => m.restant());
+    return restes.length > 0 ? Math.min(...restes) : null;
   }
 
   attacher(p: ProcessusAttache): () => void {

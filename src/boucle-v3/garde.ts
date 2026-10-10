@@ -194,9 +194,9 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   {
     categorie: 'securite',
     motif:
-      /^tests\/(pilote-execution|arbre-processus|bac-direct|bac-direct-ruche|fiche-worker|configuration-initiale|sortie-directe-ruche|isolement-couverture)\.test\.tsx?$/,
+      /^tests\/(pilote-execution|arbre-processus|bac-direct|bac-direct-ruche|fiche-worker|configuration-initiale|sortie-directe-ruche|isolement-couverture|fenetre-decision)\.test\.tsx?$/,
     pourquoi:
-      'les bancs des gardes de la série Mission Control (train 8) : la pause qui suspend le délai dur et le budget, l’arrêt qui réveille un agent en pause, l’arbre de l’agent tué en entier, l’état en direct caviardé et jamais journalisé, la fiche Worker sans le jeton ni un secret, les réglages de la ruche réservés, la sortie en direct caviardée bloc par bloc, et chaque lancement hors bac nommé avec sa raison — les affaiblir retire le garde-fou',
+      'les bancs des gardes de la série Mission Control (train 8) : la pause qui suspend le délai dur et le budget — et la fenêtre de décision de la Chambre qui se lit sur eux —, l’arrêt qui réveille un agent en pause, l’arbre de l’agent tué en entier, l’état en direct caviardé et jamais journalisé, la fiche Worker sans le jeton ni un secret, les réglages de la ruche réservés, la sortie en direct caviardée bloc par bloc, et chaque lancement hors bac nommé avec sa raison — les affaiblir retire le garde-fou',
   },
   {
     categorie: 'securite',

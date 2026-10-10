@@ -348,18 +348,7 @@ export function createClaudeCodeAdapter(
         // un contexte partiel n'entre pas dans le pont pour y échouer en panne
         // d'« infrastructure » (`capacités de délégation absentes`).
         if (ctx.delegate && ctx.waitForDelegationResult && ctx.rendezVous) {
-          // L'échéance du run — l'instant où `runCommandStreaming` tuera le
-          // processus (posée ici, à quelques instants du spawn près) : le
-          // nœud borne l'attente d'une décision d'action à ce qui reste à
-          // vivre au CLI, et la Chambre raccourcit son TTL d'autant.
-          const echeanceRun = Date.now() + CLAUDE_TIMEOUT_MS;
-          const decideAction = ctx.decideAction;
-          bridge = await createDelegationBridge(
-            decideAction
-              ? { ...ctx, decideAction: (action) => decideAction(action, echeanceRun) }
-              : ctx,
-            task.id,
-          );
+          bridge = await createDelegationBridge(ctx, task.id);
           writeClaudeMcpConfig(bridge);
         }
         // Les consignes du dépôt voyagent dans le dossier du pont, que le bac
