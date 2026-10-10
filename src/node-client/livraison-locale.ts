@@ -75,7 +75,7 @@ import type {
 import { laverIdentifiants, laverIdentifiantsDuTexte } from '../shared/projet-public.js';
 import { LIMITS } from '../shared/protocol.js';
 import { EchecGitHote, commandeSshDuMembre, gitHote } from '../shared/git-protege.js';
-import type { DepotEpingle, IdentiteCommit } from '../shared/git-protege.js';
+import type { DepotEpingle, DepotNu, IdentiteCommit } from '../shared/git-protege.js';
 
 /**
  * L'identité des commits de mission : la RUCHE, pas l'opérateur du nœud.
@@ -145,16 +145,17 @@ const messageDe = (err: unknown): string => (err instanceof Error ? err.message 
 /**
  * Une commande git qui parle au dépôt distant, plafonnée à `DELAI_RESEAU_MS`.
  *
- * Lancée dans `baseDir` — le transit ou le dépôt durable, jamais le clone —
- * pour que git n'y lise que la configuration écrite par le nœud. Par
+ * Lancée sur `depot` — le transit ou le dépôt durable, NOMMÉ à git (`DepotNu`),
+ * jamais le clone — pour que git n'y lise que la configuration écrite par le
+ * nœud. Par
  * `gitHote`, comme le clone : mêmes identifiants, même `ssh` du membre en mode
  * lot — une poussée SSH qui attendrait une phrase de passe figerait le merge.
  * Le plafond atteint devient une phrase qui dit quoi faire, pas un signal.
  */
-async function auDepotDistant(baseDir: string, args: string[]): Promise<string> {
-  const ssh = await commandeSshDuMembre(baseDir);
+async function auDepotDistant(depot: DepotNu, args: string[]): Promise<string> {
+  const ssh = await commandeSshDuMembre(depot);
   try {
-    return await gitHote(args, baseDir, { ssh, delaiMs: DELAI_RESEAU_MS });
+    return await gitHote(args, depot, { ssh, delaiMs: DELAI_RESEAU_MS });
   } catch (err) {
     if (!(err instanceof EchecGitHote && err.delaiDepasse)) throw err;
     throw new Error(
@@ -170,7 +171,7 @@ async function auDepotDistant(baseDir: string, args: string[]): Promise<string> 
  * est pas (`rev-parse -q` : code 1, sans un mot). C'est cette relecture, pas
  * le code de sortie d'un `fetch`, qui prouve qu'un commit est à l'abri.
  */
-async function refDe(ou: string): Promise<string> {
+async function refDe(ou: DepotNu): Promise<string> {
   try {
     return (await gitHote(['rev-parse', '--verify', '-q', REF_TRANSIT], ou)).trim();
   } catch (e) {
@@ -206,15 +207,16 @@ export async function composerMission(opts: {
   const { clone } = opts;
   try {
     await gitHote(['init', '--bare', '--quiet', opts.transit], path.dirname(opts.transit));
+    const transit: DepotNu = { gitDir: opts.transit };
 
     // ─── LE NUMÉRO : ni d'ici, ni de là-bas, ni du journal du hub ──────────
     // Une SUITE garde le sien ; une livraison neuve prend le suivant.
-    const n = demande.suite?.n ?? (await numeroLibre(opts.livraison, opts.transit));
+    const n = demande.suite?.n ?? (await numeroLibre(opts.livraison, transit));
     const branche = brancheDeMission(demande.projectId, n);
     // Une SUITE part de la tête de sa branche, pas de la base intégrée : c'est
     // ce qui fait AVANCER la branche qu'on relit au lieu d'en ouvrir une n+1.
     const suite = demande.suite
-      ? await teteAProlonger(clone, opts.livraison, opts.transit, branche, demande.suite.commit)
+      ? await teteAProlonger(clone, opts.livraison, transit, branche, demande.suite.commit)
       : null;
     if (suite && 'motif' in suite) return { etat: 'non_commitee', motif: suite.motif };
 
@@ -267,9 +269,9 @@ export async function composerMission(opts: {
         clone.gitDir,
         `${REF_TRANSIT}:${REF_TRANSIT}`,
       ],
-      opts.transit,
+      transit,
     );
-    const abrite = await refDe(opts.transit);
+    const abrite = await refDe(transit);
     if (abrite !== commit) {
       return {
         etat: 'non_commitee',
@@ -296,10 +298,11 @@ export async function composerMission(opts: {
  * du clone. Après un clone réussi, il n'échoue qu'en cas de vraie panne ; on
  * ne devine pas alors un numéro qui pourrait déjà être pris là-bas.
  */
-async function numeroLibre(livraison: LivraisonDuNoeud, transit: string): Promise<number> {
+async function numeroLibre(livraison: LivraisonDuNoeud, transit: DepotNu): Promise<number> {
   const { demande, depotLocal, depotProjet } = livraison;
+  const durable: DepotNu = { gitDir: depotLocal };
   const locales = existsSync(path.join(depotLocal, 'HEAD'))
-    ? await gitHote(['for-each-ref', '--format=%(refname)', 'refs/heads/hive/'], depotLocal)
+    ? await gitHote(['for-each-ref', '--format=%(refname)', 'refs/heads/hive/'], durable)
     : '';
   const distantes = (await auDepotDistant(transit, ['ls-remote', '--heads', depotProjet]))
     .split('\n')
@@ -335,14 +338,15 @@ async function numeroLibre(livraison: LivraisonDuNoeud, transit: string): Promis
 async function teteAProlonger(
   clone: DepotEpingle,
   livraison: LivraisonDuNoeud,
-  transit: string,
+  transit: DepotNu,
   branche: string,
   attendue: string,
 ): Promise<{ parent: string } | { motif: string }> {
   const { depotLocal, depotProjet } = livraison;
+  const durable: DepotNu = { gitDir: depotLocal };
   const ref = `refs/heads/${branche}`;
   const locale = existsSync(path.join(depotLocal, 'HEAD'))
-    ? await gitHote(['rev-parse', '--verify', '-q', ref], depotLocal).catch((e: unknown) => {
+    ? await gitHote(['rev-parse', '--verify', '-q', ref], durable).catch((e: unknown) => {
         if (e instanceof EchecGitHote && e.code === 1) return '';
         throw e;
       })
@@ -393,6 +397,7 @@ export async function garderMission(
 ): Promise<RapportDuNoeud> {
   const { demande, depotLocal, depotProjet } = livraison;
   const { branche, commit } = mission;
+  const durable: DepotNu = { gitDir: depotLocal };
   try {
     // ─── LE DÉPÔT DURABLE ──────────────────────────────────────────────────
     // Nu : aucune copie de travail à salir, et l'opérateur s'en sert comme
@@ -406,7 +411,7 @@ export async function garderMission(
       await gitHote(['init', '--bare', '--quiet', depotLocal], path.dirname(depotLocal));
     }
     const origine = laverIdentifiants(depotProjet);
-    if (origine) await gitHote(['config', 'remote.origin.url', origine], depotLocal);
+    if (origine) await gitHote(['config', 'remote.origin.url', origine], durable);
 
     // ─── LE RANGEMENT : la branche doit survivre au clone ──────────────────
     // Même `--update-shallow`, même relecture qu'à l'abri. Le `+` ne vise que
@@ -421,9 +426,9 @@ export async function garderMission(
         mission.transit,
         `+${REF_TRANSIT}:${REF_TRANSIT}`,
       ],
-      depotLocal,
+      durable,
     );
-    const rangee = await refDe(depotLocal);
+    const rangee = await refDe(durable);
     if (rangee !== commit) {
       return {
         etat: 'non_commitee',
@@ -433,11 +438,11 @@ export async function garderMission(
     // Ancienne valeur VIDE : « cette branche ne doit pas exister ». Pour une
     // suite, la tête prolongée : la branche AVANCE depuis elle, ou rien. Jamais
     // d'écrasement — une branche qui a bougé fait échouer, et c'est dit.
-    await gitHote(['update-ref', `refs/heads/${branche}`, commit, mission.ancienne], depotLocal);
+    await gitHote(['update-ref', `refs/heads/${branche}`, commit, mission.ancienne], durable);
     // Un reste de transit ne livre rien, et la prochaine livraison l'écrase :
     // son effacement raté ne doit pas faire dire « non commitée » à une
     // branche qui existe.
-    await gitHote(['update-ref', '-d', REF_TRANSIT], depotLocal).catch(() => undefined);
+    await gitHote(['update-ref', '-d', REF_TRANSIT], durable).catch(() => undefined);
   } catch (err) {
     return { etat: 'non_commitee', motif: motifLave(`livraison impossible : ${messageDe(err)}`) };
   }
@@ -448,7 +453,7 @@ export async function garderMission(
     return { etat: 'commitee', branche, commit, poussee: 'refusee', motif: CONSENTEMENT_POUSSEE };
   }
   try {
-    await auDepotDistant(depotLocal, [
+    await auDepotDistant(durable, [
       'push',
       '--no-verify',
       depotProjet,
