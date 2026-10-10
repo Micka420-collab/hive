@@ -12,7 +12,7 @@
 //   · `fichierDeBase`, la porte que partagent le plan de validation et la porte
 //     de sécurité, remonte la même alarme.
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { deflateSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
 import os from 'node:os';
@@ -20,7 +20,11 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { simpleGit } from 'simple-git';
 import { poserRegistre } from '../src/node-client/git-hote.js';
-import { BaseFalsifiee, lireFichierDeBaseVerifie } from '../src/node-client/base-verifiee.js';
+import {
+  BaseFalsifiee,
+  lireFichierDeBaseVerifie,
+  oidDeBaseVerifie,
+} from '../src/node-client/base-verifiee.js';
 import { fichierDeBase } from '../src/node-client/validations-bac.js';
 import type { DepotEpingle } from '../src/shared/git-protege.js';
 
@@ -135,5 +139,67 @@ describe('lireFichierDeBaseVerifie — la base saine lue, la base forgée rejet�
     await expect(lireFichierDeBaseVerifie(depot, baseSha, 'src/a.ts')).rejects.toThrow(
       BaseFalsifiee,
     );
+  }, 30_000);
+
+  // Un lien symbolique ou un sous-module (gitlink) n'est pas un fichier qu'on
+  // lit comme un blob : `absent` (null), jamais une alarme (`cat-file blob` sur
+  // un gitlink échouerait et lèverait à tort) — correctif du mineur relevé.
+  it.runIf(process.platform !== 'win32')(
+    'un lien symbolique de la base est « absent », pas une falsification',
+    async () => {
+      const dir = mkdtempSync(path.join(os.tmpdir(), 'base-verifiee-lien-'));
+      dossiers.push(dir);
+      writeFileSync(path.join(dir, 'cible.txt'), 'contenu\n');
+      const git = simpleGit({ baseDir: dir });
+      await git.init();
+      await git.addConfig('user.email', 'banc@hive.test');
+      await git.addConfig('user.name', 'Banc Hive');
+      await git.addConfig('commit.gpgsign', 'false');
+      // git enregistre un lien symbolique en mode 120000 (détecté à l'ajout).
+      symlinkSync('cible.txt', path.join(dir, 'lien'));
+      await git.add('.');
+      await git.commit('base');
+      const baseSha = (await git.revparse(['HEAD'])).trim();
+      const registre = mkdtempSync(`${dir}.registre-`);
+      dossiers.push(registre);
+      const depot = await poserRegistre(dir, registre, baseSha);
+
+      expect(await lireFichierDeBaseVerifie(depot, baseSha, 'lien')).toBeNull();
+      expect(await oidDeBaseVerifie(depot, baseSha, 'lien')).toBeNull();
+    },
+    30_000,
+  );
+});
+
+describe('oidDeBaseVerifie — l’empreinte vérifiée, sans lire le blob', () => {
+  it('rend l’empreinte de l’entrée d’arbre d’un fichier sain, null si absent', async () => {
+    const pkg = '{\n  "name": "p"\n}\n';
+    const { dir, depot, baseSha } = await depotEtRegistre({
+      'package.json': pkg,
+      'a/b.txt': 'x\n',
+    });
+    const attendu = (
+      await simpleGit({ baseDir: dir }).revparse([`${baseSha}:package.json`])
+    ).trim();
+
+    expect(await oidDeBaseVerifie(depot, baseSha, 'package.json')).toBe(attendu);
+    expect(await oidDeBaseVerifie(depot, baseSha, 'a/b.txt')).toBe(
+      (await simpleGit({ baseDir: dir }).revparse([`${baseSha}:a/b.txt`])).trim(),
+    );
+    expect(await oidDeBaseVerifie(depot, baseSha, 'manquant')).toBeNull();
+    expect(await oidDeBaseVerifie(depot, baseSha, 'a')).toBeNull(); // un dossier n'est pas un fichier
+  }, 30_000);
+
+  it('lève sur un ARBRE forgé — l’empreinte vient d’un pointeur vérifié', async () => {
+    const { dir, depot, baseSha } = await depotEtRegistre({ 'sous/lock.json': '{}\n' });
+    const treeSous = (await simpleGit({ baseDir: dir }).revparse([`${baseSha}:sous`])).trim();
+    // L'arbre `sous` remplacé par un autre arbre valide sous son nom.
+    forger(
+      path.join(dir, '.git'),
+      treeSous,
+      'tree',
+      Buffer.concat([Buffer.from('100644 lock.json\0'), Buffer.alloc(20)]),
+    );
+    await expect(oidDeBaseVerifie(depot, baseSha, 'sous/lock.json')).rejects.toThrow(BaseFalsifiee);
   }, 30_000);
 });

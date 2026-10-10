@@ -68,10 +68,21 @@
 //     en lecture) ; il ne peut pas les faire exécuter. Il peut aussi en
 //     FORGER un — un objet valide rangé sous le nom d'un autre : git ne
 //     vérifie pas l'empreinte de ce qu'il lit (mesuré, git 2.53), et une
-//     lecture de la base par le registre rend alors le contenu forgé, sans un
-//     mot. Ce qui doit être la base À COUP SÛR passe donc par `extraireBase`
-//     (un `fetch`, qui renomme chaque objet par son contenu) ; les lectures
-//     directes de la base (`fichierDeBase`) y restent exposées — suite nommée.
+//     lecture de la base par le registre rendait alors le contenu forgé, sans
+//     un mot. DEUX remparts ferment cela. Ce qui doit être la base pour un
+//     REJEU passe par `extraireBase` (un `fetch`, qui renomme chaque objet par
+//     son contenu). Et tout ce qu'un VERDICT lit de la base — scripts du
+//     `package.json`, lockfiles (porte G10), règles compilées (G12), garde
+//     `.npmrc`, énumération des lockfiles touchés — passe par la porte VÉRIFIÉE
+//     (`fichierDeBase`/`oidDeBaseVerifie` → `base-verifiee.ts`), qui recalcule
+//     l'empreinte de chaque objet du chemin et LÈVE sur un objet forgé. Reste
+//     SEUL `git diff <base>` : le diff de revue envoyé à la Reine (`collectDiff`,
+//     `workspace.ts`) et le diff cumulé d'un merge (`merge-runner.ts`). Le
+//     premier n'arbitre plus aucun verdict (les lecteurs ci-dessus ne s'y
+//     fient plus pour énumérer) et la livraison le re-vérifie à l'application
+//     sur un clone neuf ; le second tourne sur un clone du nœud où aucun agent
+//     n'a écrit (`epinglerClone`). `GIT_NO_REPLACE_OBJECTS` ferme en plus la
+//     substitution par ref de remplacement (`shared/git-protege.ts`).
 //   · Les configurations SYSTÈME et GLOBALE : celles de la machine et du
 //     membre, jamais montées dans le bac. On ne les coupe pas
 //     (`shared/git-protege.ts`) : elles portent ce dont le clone a besoin, les

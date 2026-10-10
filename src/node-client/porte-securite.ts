@@ -75,6 +75,7 @@ import path from 'node:path';
 import { formesDuSecret, lireDiff } from '../shared/caviardage.js';
 import { effacerDossier } from '../shared/effacement.js';
 import type { Caviardeur, FichierDuDiff, LigneAjoutee } from '../shared/caviardage.js';
+import { gitHote } from '../shared/git-protege.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import {
   BORNES_PORTE,
@@ -601,6 +602,21 @@ async function voletSecrets(
 const estSurveille = (chemin: string | null): chemin is string =>
   chemin !== null && estFichierDeDependances(chemin);
 
+/**
+ * Les fichiers de dépendances de la TÊTE, énumérés depuis l'index du registre
+ * (`ls-files`) — rempli par le `git add --all` du diff (`diffContreBase`) AVANT
+ * la porte : il voit chaque fichier non ignoré de l'arbre, les nouveaux
+ * compris, et JAMAIS un chemin ignoré (`node_modules`…). Non forgeable : l'agent
+ * ne peut pas cacher un lockfile de l'index (un `.gitignore` qui l'exclurait
+ * l'exclut aussi du diff livré et des validations — il n'est alors ni livré ni
+ * jugé). C'est l'énumération que `git diff <baseSha>` ne peut pas tronquer par
+ * une base forgée.
+ */
+async function cheminsDeDependancesTete(depot: DepotEpingle): Promise<string[]> {
+  const sortie = await gitHote(['ls-files', '-z'], depot);
+  return sortie.split('\0').filter((c) => c !== '' && estFichierDeDependances(c));
+}
+
 /** Une paire base/tête d'un fichier de dépendances touché, lue. */
 interface Paire {
   k: number;
@@ -632,10 +648,17 @@ async function voletDependances(
   lancer: Lancer,
 ): Promise<Volet<ConstatDependance>> {
   const touches = fichiers.filter((f) => estSurveille(f.avant) || estSurveille(f.apres));
-  if (touches.length === 0) return voletSans('aucun_lockfile');
+  const { depot } = opts;
+  // Sans dépôt, aucune base à vérifier : comportement d'avant, à la lettre.
+  if (!depot) {
+    if (touches.length === 0) return voletSans('aucun_lockfile');
+    if (touches.some((f) => estSurveille(f.avant))) return voletSans('sans_base');
+  }
+  // AVEC dépôt, on ne s'arrête PAS à un diff vide : un lockfile de la tête que
+  // la base forgée cache du diff se trouve par la réénumération vérifiée plus
+  // bas (`cheminsDeDependancesTete`). L'« aucun lockfile » se décide à la fin,
+  // quand rien — ni touché, ni caché — n'a été trouvé.
   try {
-    const { depot } = opts;
-    if (!depot && touches.some((f) => estSurveille(f.avant))) return voletSans('sans_base');
     // Les lockfiles que la production laisse illisibles d'abord : ce sont ses
     // défauts, et la borne du protocole ne doit pas les faire tomber.
     const illisibles: ConstatDependance[] = [];
@@ -683,6 +706,47 @@ async function voletDependances(
       }
       paires.push({ k, fichier, base, tete: { chemin: f.apres, contenu } });
     }
+    // ─── AUCUN LOCKFILE DE LA TÊTE CACHÉ PAR UNE BASE FORGÉE ──────────────────
+    //
+    // `touches` vient du diff (`git diff <baseSha>`), qui lit l'objet de base
+    // SANS vérifier son empreinte (git ne la vérifie jamais, mesuré 2.53) :
+    // forger le lockfile de base pour qu'il soit IDENTIQUE au livré rend le diff
+    // muet sur ce fichier — il sort des `touches`, la porte ne le lit jamais, et
+    // la vulnérabilité passe `analyse_propre`. On RÉÉNUMÈRE donc les lockfiles de
+    // la tête depuis l'index (`cheminsDeDependancesTete`, non forgeable), et pour
+    // chacun que le diff n'a pas montré on relit la base par la porte VÉRIFIÉE :
+    // forgée ⇒ constat `base_falsifiee` (jamais excusée) ; vraiment inchangée ⇒
+    // rien à juger. L'énumération ne peut plus être aveuglée par une base forgée.
+    if (depot) {
+      const vusDuDiff = new Set(
+        touches.flatMap((f) => [f.avant, f.apres]).filter((c): c is string => estSurveille(c)),
+      );
+      let kCache = touches.length;
+      for (const chemin of await cheminsDeDependancesTete(depot.depot)) {
+        if (vusDuDiff.has(chemin)) continue;
+        const fichier = texteAffichable(opts.caviardeur.texte(chemin), BORNES_PORTE.fichier);
+        let baseContenu: string | null;
+        try {
+          baseContenu = await fichierDeBase(depot.depot, depot.baseSha, chemin);
+        } catch (err) {
+          if (!(err instanceof BaseFalsifiee)) throw err;
+          illisibles.push({ genre: 'lockfile_illisible', fichier, motif: 'base_falsifiee' });
+          continue;
+        }
+        const teteContenu = lireDansLaTache(opts.cwd, chemin);
+        // Lien/dossier (pas un fichier), ou base vraiment identique : rien à juger.
+        if (teteContenu === null || baseContenu === teteContenu) continue;
+        // Base vérifiée, non forgée, mais différente du livré et pourtant hors du
+        // diff : anomalie — on la juge comme introduite, à part (jamais excusée).
+        paires.push({
+          k: kCache,
+          fichier,
+          base: baseContenu === null ? null : { chemin, contenu: baseContenu },
+          tete: { chemin, contenu: teteContenu },
+        });
+        kCache += 1;
+      }
+    }
     const conclure = (
       constats: readonly ConstatDependance[],
       nonInterroges: number,
@@ -697,6 +761,16 @@ async function voletDependances(
       }
       return avecNonInterroges(voletSans('analyse_propre', outil), nonInterroges);
     };
+    // Rien touché au diff, rien caché à la réénumération vérifiée : aucun
+    // lockfile en jeu (le diff vide ne l'a pas décidé seul — la base l'a confirmé).
+    if (
+      touches.length === 0 &&
+      paires.length === 0 &&
+      illisibles.length === 0 &&
+      nonVerifiables.length === 0
+    ) {
+      return voletSans('aucun_lockfile');
+    }
     if (paires.length === 0) return conclure(illisibles, 0);
     const sonde = await sonder('osv-scanner', lancer);
     if ('raison' in sonde) {

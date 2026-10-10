@@ -111,43 +111,44 @@ const PKG_TRAFIQUE = `${JSON.stringify(
   2,
 )}\n`;
 
+/** Le lockfile vulnérable (minimist 1.2.0, GHSA-xvch-5gv4-984h) que la tête livre. */
+const VERROU_VULN = verrou({ lodash: '4.17.21', minimist: '1.2.0' });
+
 /**
- * L'agent du banc, selon le titre :
- *   · « Forger le juge » : écrit un `package.json` dont `test` ne prouve rien
- *     (`node -e ""`, code 0), puis FORGE le `package.json` de base pour qu'il
- *     soit IDENTIQUE — le plan ne voit alors aucune réécriture, et lance le
- *     faux juge. Un fichier de code en plus, pour un diff non vide.
- *   · « Forger la base du lockfile » : ajoute minimist 1.2.0 (vulnérable) au
- *     lockfile livré, puis forge le lockfile de BASE pour qu'il porte DÉJÀ un
- *     minimist vulnérable (1.2.5) — même avis, « déjà là » avant le correctif.
+ * L'agent du banc, selon le titre. Il FORGE TOUJOURS avant d'écrire : l'empreinte
+ * de la base se calcule sur le fichier tel qu'extrait, avant écrasement.
+ *   · « Forger le juge » : `package.json` de base forgé IDENTIQUE au juge
+ *     trafiqué → le plan ne voit aucune réécriture et lance le faux juge.
+ *   · « Forger la base du lockfile » : base forgée avec un minimist vulnérable
+ *     DIFFÉRENT (1.2.5) → le diff montre le changement, mais la base paraît
+ *     « déjà vulnérable » (#556, rattrapé par la lecture vérifiée du lockfile).
+ *   · « Cacher le lockfile » : lockfile de base forgé IDENTIQUE au livré
+ *     vulnérable → le `git diff` complet (par contenu) ne liste plus le
+ *     lockfile, la porte ne le lisait jamais, la vulnérabilité passait
+ *     `analyse_propre` (défaut de l'énumération, rattrapé par la réénumération).
  */
 const agentForgeur: AgentAdapter = {
   name: 'forgeur',
   run(task, ctx) {
     if (task.title.startsWith('Forger le juge')) {
-      // FORGER D'ABORD : l'empreinte de la base se calcule sur le fichier tel
-      // qu'il est AVANT que l'agent ne l'écrase (le commit de base y est
-      // extrait). On forge l'objet de base pour qu'il soit IDENTIQUE au juge
-      // trafiqué, puis on écrit ce juge et un fichier de code (diff non vide).
       forgerBaseDansLeClone(ctx.cwd, 'package.json', PKG_TRAFIQUE);
       writeFileSync(path.join(ctx.cwd, 'package.json'), PKG_TRAFIQUE);
       writeFileSync(path.join(ctx.cwd, 'feature.js'), 'module.exports = 1;\n');
       return Promise.resolve({ success: true, diff: '', logs: 'juge forgé', subAgents: [] });
     }
-    // La base est forgée pour PORTER DÉJÀ un minimist vulnérable (1.2.5, même
-    // avis) : un contenu DIFFÉRENT de la tête, pour que le diff livre bien le
-    // changement — mais « déjà vulnérable » aux yeux d'une porte non vérifiée.
-    // D'abord, sur le lockfile de base tel qu'extrait ; puis la tête introduit
-    // minimist 1.2.0 (vulnérable GHSA-xvch-5gv4-984h).
+    if (task.title.startsWith('Cacher le lockfile')) {
+      // Base lockfile forgé IDENTIQUE au livré vulnérable : caché du diff.
+      forgerBaseDansLeClone(ctx.cwd, 'package-lock.json', VERROU_VULN);
+      writeFileSync(path.join(ctx.cwd, 'package-lock.json'), VERROU_VULN);
+      return Promise.resolve({ success: true, diff: '', logs: 'lockfile caché', subAgents: [] });
+    }
+    // « Forger la base du lockfile » : base forgée DIFFÉRENTE (minimist 1.2.5).
     forgerBaseDansLeClone(
       ctx.cwd,
       'package-lock.json',
       verrou({ lodash: '4.17.21', minimist: '1.2.5' }),
     );
-    writeFileSync(
-      path.join(ctx.cwd, 'package-lock.json'),
-      verrou({ lodash: '4.17.21', minimist: '1.2.0' }),
-    );
+    writeFileSync(path.join(ctx.cwd, 'package-lock.json'), VERROU_VULN);
     return Promise.resolve({
       success: true,
       diff: '',
@@ -303,6 +304,38 @@ describe.runIf(POSIX)('la base forgée — la porte de lecture vérifiée la rej
 
       const [fait] = s.store.evenementsDeTache(tacheId, ['security_gate_recorded']);
       expect(JSON.stringify(fait?.payload)).toContain('base_falsifiee');
+    },
+  );
+
+  // L'ÉNUMÉRATION de la porte ne doit pas se fier à `git diff <baseSha>` : une
+  // base forgée IDENTIQUE au livré y cache le fichier changé (diff par contenu).
+  it(
+    'LA PORTE : un lockfile de base forgé identique au livré ne le cache pas — jamais `analyse_propre`',
+    { timeout: 120_000 },
+    async () => {
+      const { evaluation } = await demarrer({
+        base: {
+          'package.json': `${JSON.stringify({
+            name: 'projet-local',
+            version: '1.0.0',
+            private: true,
+            dependencies: { lodash: '4.17.21' },
+          })}\n`,
+          // Base saine (minimist 1.2.6, corrigé) ; la tête livre 1.2.0 (vulnérable)
+          // mais forge la base IDENTIQUE au livré pour la cacher du diff.
+          'package-lock.json': verrou({ lodash: '4.17.21', minimist: '1.2.6' }),
+        },
+        avecBac: false,
+        avecOutils: true,
+      }).then((d) => d.produire('Cacher le lockfile'));
+
+      const dependances = evaluation.evidence.securite.dependances;
+      // Jamais « rien trouvé » : la réénumération vérifiée relit la base et
+      // constate la falsification.
+      expect(dependances.raison).not.toBe('analyse_propre');
+      expect(dependances.etat).toBe('constat');
+      expect(JSON.stringify(dependances)).toContain('base_falsifiee');
+      expect(evaluation.decision).toBe('correction_required');
     },
   );
 });
