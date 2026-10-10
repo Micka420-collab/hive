@@ -25,7 +25,7 @@
 // aucune commande git dans le clone. Jamais sur la branche principale, jamais
 // de poussée forcée (`livraison-locale.ts`).
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { ENTREE_FERMEE } from '../adapters/exec.js';
@@ -45,6 +45,7 @@ import { marqueOmission } from '../shared/caviardage.js';
 import { gitHote } from '../shared/git-protege.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import { commitDeDepart, diffContreBase, epinglerClone } from './git-hote.js';
+import { effacerDossier } from '../shared/effacement.js';
 import { buildSandboxEnv } from './workspace.js';
 
 export interface MergeDiff {
@@ -140,11 +141,14 @@ const OUTPUT_CAP = 512 * 1024;
 function sortieBornee(moitie = OUTPUT_CAP / 2): {
   ajouter: (morceau: string) => void;
   texte: () => string;
+  /** Un milieu a-t-il été omis ? Les validations du bac ne lisent alors pas la sortie test par test. */
+  tronquee: () => boolean;
 } {
   let debut = '';
   let fin = '';
   let omis = 0;
   return {
+    tronquee: () => omis > 0 || fin.length > moitie,
     ajouter(morceau) {
       const place = moitie - debut.length;
       if (place > 0) {
@@ -204,6 +208,11 @@ function issueRatee(code: number | null, arret: Arret | undefined): string {
  * (`shared/arbre-processus.ts`), la même que celle des agents. Au délai ou à
  * l'annulation, tout l'ARBRE de la commande part — `npm` et ce qu'il a lancé
  * —, et le nœud qui s'arrête emporte ceux qui tournent encore.
+ *
+ * `tronquee` : la sortie a perdu son milieu (`sortieBornee`). Un FAIT d'ici,
+ * pas une marque à chercher dans le texte, qu'un test pourrait imprimer : les
+ * validations du bac ne lisent pas test par test une sortie dont un échec a
+ * pu tomber dans le trou (G11b).
  */
 export function runProc(
   cmd: string[],
@@ -212,7 +221,7 @@ export function runProc(
   timeoutMs: number,
   signal?: AbortSignal,
   bac?: BacExecution,
-): Promise<{ code: number | null; output: string; arret?: Arret }> {
+): Promise<{ code: number | null; output: string; arret?: Arret; tronquee?: true }> {
   return new Promise((resolve) => {
     const [bin, ...args] = cmd;
     const sortie = sortieBornee();
@@ -279,7 +288,11 @@ export function runProc(
             ? '\n[hive] la sortie est restée ouverte après la fin de la commande : ' +
               'un processus qu’elle a lancé la tenait'
             : '';
-          resolve({ code: issue.code, output: sortie.texte() + note });
+          resolve({
+            code: issue.code,
+            output: sortie.texte() + note,
+            ...(sortie.tronquee() ? { tronquee: true as const } : {}),
+          });
         } else if (issue.issue === 'arret') {
           // Pas de code : celui d'une commande ARRÊTÉE n'est pas un verdict —
           // un runner qui répond à SIGTERM par `exit 0` n'a pas réussi.
@@ -339,9 +352,20 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
   const logs: string[] = [];
   const patchDir = mkdtempSync(path.join(os.tmpdir(), 'hive-merge-'));
   // Le dépôt de TRANSIT d'une livraison : À CÔTÉ du clone, comme son `.tmp`,
-  // parce que le bac à sable ne monte que le clone. Effacé en `finally` ; la
+  // parce que le bac à sable ne monte que le clone. Effacé avant le retour ; la
   // branche gardée, elle, vit dans le dépôt durable.
   const transit = `${opts.repoDir}.livraison.git`;
+
+  // `effacerDossier` lève quand un verrou tient au-delà de 5,5 s — son contrat
+  // laisse à l'appelant le soin de le dire. Un TEMP ou un transit tenu ne doit
+  // pas transformer un merge RÉUSSI en rejet : on le DIT dans les logs du
+  // résultat (chemin + code), le merge garde son issue.
+  const direLeReste =
+    (quoi: string, chemin: string) =>
+    (e: unknown): void => {
+      const code = (e as NodeJS.ErrnoException).code ?? String(e);
+      logs.push(`⚠ ${quoi} non effacé (${code}) : ${chemin} — à retirer à la main`);
+    };
 
   try {
     for (const { taskId, diff } of opts.diffs) {
@@ -440,12 +464,9 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
           logs.push(caviarder(output).slice(0, 4000));
         }
       } finally {
-        rmSync(`${opts.repoDir}.tmp`, {
-          recursive: true,
-          force: true,
-          maxRetries: 5,
-          retryDelay: 100,
-        });
+        await effacerDossier(`${opts.repoDir}.tmp`).catch(
+          direLeReste('TEMP du merge', `${opts.repoDir}.tmp`),
+        );
       }
     }
 
@@ -454,6 +475,15 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
         ? await garderSiRienNeContredit(composee, opts.livraison, { preparedOk, testsPassed })
         : undefined;
     if (livraison) logs.push(ligneDeLivraison(livraison));
+
+    // Le reste s'efface AVANT de figer le résultat, et un dossier tenu est DIT,
+    // pas jeté par-dessus un merge réussi — c'est le défaut qu'un `finally`
+    // avait. (Le transit est un dépôt git : objets en lecture seule sous
+    // Windows, où `rmSync` n'y arrive pas dans l'app — cf. `effacerDossier`.)
+    await Promise.all([
+      effacerDossier(patchDir).catch(direLeReste('dossier de patchs du merge', patchDir)),
+      effacerDossier(transit).catch(direLeReste('dépôt de transit de la livraison', transit)),
+    ]);
 
     return {
       applied,
@@ -465,9 +495,11 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
       logs: logs.join('\n'),
       ...(livraison ? { livraison } : {}),
     };
-  } finally {
-    rmSync(patchDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-    rmSync(transit, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  } catch (err) {
+    // Le merge n'a pas abouti : on nettoie quand même, mais SANS masquer la
+    // cause — `allSettled` ne relaie aucune erreur d'effacement par-dessus elle.
+    await Promise.allSettled([effacerDossier(patchDir), effacerDossier(transit)]);
+    throw err;
   }
 }
 

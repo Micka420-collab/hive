@@ -252,6 +252,23 @@ export function empreinte(ctx: Contexte): Emplacement[] {
           quoi: 'cloudflared, s’il a été téléchargé par `hive cloudflare --install`',
         },
         {
+          // La porte de sécurité (`node-client/porte-securite.ts`) écrit son
+          // miroir DANS la tâche — le seul dossier que le bac monte — et
+          // l'efface dès qu'elle a jugé ; un nœud tué au mauvais moment le
+          // laisse, et il part avec la tâche. Rien dans `os.tmpdir()`.
+          chemin: p.join(ctx.workdir, '<nœud>', 'tasks', '<tâche>', '.hive-porte-*'),
+          quoi: 'le miroir de la porte de sécurité — effacé dès qu’elle a jugé, sinon avec la tâche',
+        },
+        {
+          // Les validations du bac (`node-client/validations-bac.ts`, G11b)
+          // rejouent à part la base d'une tâche et l'arbre qu'elle livre, À
+          // CÔTÉ d'elle — hors du montage du bac —, `node_modules` compris, et
+          // les effacent dès la comparaison faite ; un nœud tué au mauvais
+          // moment les laisse, et le prochain passage de la tâche les reprend.
+          chemin: p.join(ctx.workdir, '<nœud>', 'tasks', '<tâche>.base, <tâche>.tete'),
+          quoi: 'les rejeux à part des tests en échec (la base, l’arbre livré) — effacés dès la comparaison faite',
+        },
+        {
           // Le seul contenu d'ici qui ne se REFAIT pas : une mission livrée
           // sans GitHub et sans poussée vit dans ce dépôt nu, et nulle part
           // ailleurs (`node-client/livraison-locale.ts`).
@@ -321,12 +338,13 @@ export function empreinte(ctx: Contexte): Emplacement[] {
       prefixe: PREFIXE_PONT,
       quoi:
         'les rendez-vous privés (700) des ponts de délégation d’un nœud : le socket et ' +
-        'la configuration MCP qui relient un CLI à la délégation Hive',
+        'la configuration MCP qui relient un CLI à la délégation Hive — et le socket du ' +
+        'proxy réseau de chaque tâche filtrée, avec son relais',
       genre: 'transitoire',
       retirable: true,
       consequence:
         'rien, sauf pour un nœud EN COURS : sa tâche Claude Code ou Codex perdrait son ' +
-        'pont. Le dossier est effacé à l’arrêt du nœud (Ctrl-C ou SIGTERM) ; celui d’un nœud ' +
+        'pont, une tâche au réseau filtré son proxy. Le dossier est effacé à l’arrêt du nœud (Ctrl-C ou SIGTERM) ; celui d’un nœud ' +
         'tué (`kill -9`, SIGTERM sous Windows) est balayé par le démarrage suivant.',
     },
   ];

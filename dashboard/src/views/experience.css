@@ -15,7 +15,7 @@
 }
 
 .exp-portee-choix {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: var(--muted);
 }
 
@@ -28,7 +28,7 @@
   background: var(--panel);
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 .exp-genres {
@@ -65,7 +65,7 @@
   background: var(--panel-2);
   color: var(--text);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -82,12 +82,12 @@
 
 .exp-noeud .jtime {
   grid-column: 2 / 4;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 
 .exp-genre {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-2xs);
   letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--faint);
@@ -99,7 +99,7 @@
   padding: 0 6px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   line-height: 1.6;
   color: var(--muted);
   white-space: nowrap;
@@ -125,18 +125,18 @@
 
 .exp-invite {
   margin: 0;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 
 .exp-centre {
   margin: 0 0 4px;
-  font-size: 14px;
+  font-size: var(--fs-md);
   overflow-wrap: anywhere;
 }
 
 .exp-provenance {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 
 .exp-aretes,
@@ -150,7 +150,7 @@
 }
 
 .exp-arete {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -166,17 +166,17 @@
 .exp-sources {
   display: block;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-2xs);
 }
 
 .exp-similaires {
   margin-top: 12px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 
 .exp-similaires h4 {
   margin: 0 0 6px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 
 /* Téléphone : le voisinage passe SOUS la liste, jamais à côté d'elle. */

@@ -5,6 +5,7 @@
 // (p50/p95), taux de succès global et nœuds actifs. Tout est dérivé du journal
 // d'événements (source de vérité) par un repli PUR — aucune I/O, déterministe.
 
+import { arreteeParSonBudget } from '../shared/arret-budgetaire.js';
 import type { HiveEvent } from '../shared/types.js';
 
 const HOUR_MS = 3_600_000;
@@ -32,7 +33,10 @@ export interface LatencyStats {
 export interface HivePulse {
   totalDone: number;
   totalFailed: number;
-  /** done / (done + failed) dans [0, 1] ; 1 si aucune issue terminale. */
+  /**
+   * done / (done + failed) dans [0, 1] ; 1 si aucune issue terminale. Un arrêt
+   * sur plafond (`arreteeParSonBudget`) n'est compté d'aucun côté.
+   */
   successRate: number;
   /** Nœuds en ligne à la fin du journal. */
   activeNodes: number;
@@ -107,6 +111,9 @@ export function computePulse(events: HiveEvent[]): HivePulse {
         break;
       }
       case 'task_failed': {
+        // Un arrêt sur plafond n'est ni une réussite ni un échec : la borne a
+        // tenu. Il sort du taux de succès plutôt que de le faire baisser.
+        if (arreteeParSonBudget(p)) break;
         totalFailed += 1;
         bucketOf(event.ts).failed += 1;
         break;

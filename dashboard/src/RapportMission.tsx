@@ -29,7 +29,7 @@ import { useLang, useT } from './i18n';
 import type { Translate } from './i18n';
 import { direDuree } from '../../src/shared/horloge-chantier';
 import { RegistreGenome } from './RegistreGenome';
-import { direSommeDeclaree, direUsd, statusLabel } from './ui';
+import { direSommeDeclaree, direUsd, NOTE_COUT_DECLARE, statusLabel } from './ui';
 import { EchecSondage, useApiPoll } from './views/shared';
 
 const libelleDecision = (d: EvaluationDecision, t: Translate): string => {
@@ -170,7 +170,7 @@ function LigneTache({
           {ligne.modeles.length > 0 && ` · ${ligne.modeles.join(', ')}`}
         </span>
       </th>
-      <td>{statusLabel(ligne.statut, lang)}</td>
+      <td>{statusLabel(ligne.statut, lang, ligne.arretBudgetaire === true)}</td>
       <td
         data-testid="mission-evaluator"
         data-decision={ligne.evaluator?.decision}
@@ -279,10 +279,7 @@ export function RapportMission({
                 'Le journal a été élagué : des faits plus anciens ont pu manquer.',
                 'The journal was pruned: older facts may be missing.',
               )}{' '}
-            {t(
-              'Coût et temps modèle : ce que déclarent les CLI des agents, jamais estimés.',
-              'Cost and model time: what the agent CLIs declare, never estimated.',
-            )}
+            {t(NOTE_COUT_DECLARE.fr, NOTE_COUT_DECLARE.en)}
           </p>
         </>
       )}

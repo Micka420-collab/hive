@@ -2,13 +2,16 @@
 // diffs via git sur un dépôt temporaire, détection de conflits réels, et
 // lancement d'une commande de test. 100 % hors-ligne (dépôt git local jetable).
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { simpleGit } from 'simple-git';
 import type { SimpleGit } from 'simple-git';
 import { runMerge } from '../src/node-client/merge-runner.js';
+
+const WINDOWS = process.platform === 'win32';
+const ROOT = typeof process.getuid === 'function' && process.getuid() === 0;
 
 const FILE = 'sample.txt';
 const BASE = Array.from({ length: 12 }, (_, i) => `l${i + 1}`);
@@ -103,15 +106,43 @@ describe('merge-runner (git réel)', () => {
     expect(res.mergedDiff).not.toContain('l2-C');
   });
 
-  it('lance la commande de test et rapporte le succès', async () => {
-    const res = await runMerge({
-      repoDir,
-      diffs: [{ taskId: 'ta', diff: patchA }],
-      testCommand: ['node', '-e', 'process.exit(0)'],
-    });
-    expect(res.testsRun).toBe(true);
-    expect(res.testsPassed).toBe(true);
-  });
+  it('lance la commande de test et rapporte le succès — un TEMP tenu ne change pas le verdict', async () => {
+    // POSIX hors root : on TIENT le `.tmp` du merge (un sous-dossier sans
+    // droit d'écriture → EACCES, que `effacerDossier` ne reprend pas). Avant
+    // le correctif, le `finally` de nettoyage levait cette erreur PAR-DESSUS
+    // un merge réussi — un rejet pour un simple dossier resté. Désormais le
+    // reste est DIT dans les logs et le verdict tient. (Windows : la tenue ne
+    // prend pas ainsi — même histoire de partage que `dossier-tache-tenu`.)
+    const tmp = `${repoDir}.tmp`;
+    const sous = path.join(tmp, 'verrou-sous');
+    const tenu = !WINDOWS && !ROOT;
+    if (tenu) {
+      mkdirSync(sous, { recursive: true });
+      writeFileSync(path.join(sous, 'pack'), 'objet\n');
+      chmodSync(sous, 0o555);
+    }
+    try {
+      const res = await runMerge({
+        repoDir,
+        diffs: [{ taskId: 'ta', diff: patchA }],
+        testCommand: ['node', '-e', 'process.exit(0)'],
+      });
+      expect(res.testsRun).toBe(true);
+      expect(res.testsPassed, res.logs).toBe(true);
+      if (tenu) {
+        // Le merge a gardé son verdict, ET il a dit le reste, avec le chemin.
+        expect(res.logs, 'un TEMP tenu doit être DIT, pas avalé ni jeté').toMatch(
+          /TEMP du merge non effacé/,
+        );
+        expect(res.logs).toContain(tmp);
+      }
+    } finally {
+      if (tenu) {
+        chmodSync(sous, 0o755);
+        rmSync(tmp, { recursive: true, force: true, maxRetries: 5 });
+      }
+    }
+  }, 30_000);
 
   it('rapporte l’échec des tests', async () => {
     const res = await runMerge({

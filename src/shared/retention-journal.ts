@@ -76,7 +76,7 @@ import { TYPES_ROUTAGE } from './routage-vue.js';
 
 /**
  * Les preuves que relit l'Evaluator (et la War Room qui les montre) : CI et bac,
- * relectures croisées de leur lancement à leur verdict ou leur impossibilité,
+ * porte de sécurité, relectures croisées de leur lancement à leur verdict ou leur impossibilité,
  * verdict humain, renvois refusés, arrêts levés à la main.
  * `ci_validation_recorded` est le nom historique des preuves GitHub, encore relu
  * par `latestValidation` : une preuve déjà ingérée ne doit pas partir plus tôt
@@ -85,6 +85,11 @@ import { TYPES_ROUTAGE } from './routage-vue.js';
 const PREUVES_EVALUATOR = [
   'validation_recorded',
   'ci_validation_recorded',
+  // Ce que la porte de sécurité du nœud a vu : élaguée, la production
+  // redeviendrait « non vérifiée » — ou, constat oublié, livrable. Et le refus
+  // d'un volet mal formé, qui dit pourquoi il n'est pas vérifié.
+  'security_gate_recorded',
+  'security_gate_rejected',
   'contre_expertise',
   'contre_expertise_verdict',
   'contre_expertise_impossible',
@@ -106,6 +111,10 @@ const PREUVES_LIVRAISON = [
   'delivery_stale',
   'delivery_recovered',
   'livraison_reprise',
+  // La PREUVE qui a fait relancer un job comme instable (garde de PR) : les
+  // passages de la base. Élaguée comme une trace, elle laisserait une relance
+  // sans justification pendant que la tâche vit encore.
+  'garde_pr_relance',
 ] as const;
 
 /**

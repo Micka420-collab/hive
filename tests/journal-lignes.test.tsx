@@ -173,6 +173,33 @@ describe('la course annonce les drones QUI VOLENT, pas le facteur demandé', () 
   });
 });
 
+describe('la porte de sécurité au journal : `?` quand elle n’a pas été vérifiée — jamais un vert', () => {
+  const porte = evenement('security_gate_recorded', {
+    taskId: 'tache-porte',
+    resultId: 3,
+    nodeId: 'n1',
+    porte: {
+      secrets: { etat: 'constat', raison: 'trouve', constats: [], total: 2 },
+      dependances: { etat: 'non_verifie', raison: 'outil_absent', constats: [], total: 0 },
+    },
+  });
+
+  it('UN CONSTAT EST COMPTÉ ; UNE PORTE NON VÉRIFIÉE N’EST PAS VERTE', async () => {
+    const dom = await monter(porte);
+    expect(ligne(dom)).toContain('porte de sécurité');
+    expect(ligne(dom)).toContain('secrets ✘ ×2');
+    expect(ligne(dom)).toContain('dépendances ?');
+    expect(ligne(dom), 'une porte non vérifiée passe pour verte').not.toContain('✔');
+  });
+
+  it('EN ANGLAIS AUSSI', async () => {
+    setLang('en');
+    const dom = await monter(porte);
+    expect(ligne(dom)).toContain('security gate');
+    expect(ligne(dom)).toContain('dependencies ?');
+  });
+});
+
 describe('une correction de l’Evaluator ne se lit pas comme un échec', () => {
   // ─── LE MÊME TYPE, DEUX HISTOIRES OPPOSÉES ─────────────────────────────
   //
@@ -573,6 +600,24 @@ describe('les décisions se lisent comme des décisions — jamais par leur type
       'verdict de l’Evaluator (human_review_required) passé outre pour livrer (tache-12)',
     ],
     [
+      'une tâche close avant tout envoi dit sa cause',
+      'task_failed',
+      {
+        taskId: 'tache-1234abcd',
+        reason: 'depot_illisible',
+        motif: 'URL de dépôt du projet illisible (caractère de contrôle) — recréez le projet',
+      },
+      'fr',
+      'échouée (tache-12) — URL de dépôt du projet illisible (caractère de contrôle) — recréez le projet',
+    ],
+    [
+      'la même, en anglais : la cause rangée en français reste dite',
+      'task_failed',
+      { taskId: 'tache-1234abcd', reason: 'depot_illisible', motif: 'URL illisible' },
+      'en',
+      'failed (tache-12) — URL illisible',
+    ],
+    [
       'un Conseil tranché sans piste',
       'council_decided',
       { sessionId: 's1', propositionId: null, titre: null },
@@ -587,4 +632,69 @@ describe('les décisions se lisent comme des décisions — jamais par leur type
       expect(ligne(dom)).toBe(attendu);
     });
   }
+});
+
+describe('un arrêt budgétaire a SA ligne — ni le ✘ ni le mot « échouée »', () => {
+  it('ARRÊTÉE SUR SON PLAFOND : la borne, et la suite à donner', async () => {
+    // Le même `task_failed` sans le fait reste un échec : c'est le fait, pas
+    // le type, qui change la ligne (`arreteeParSonBudget`).
+    const dom = await monter(
+      evenement('task_failed', {
+        taskId: 'enfant-1234abcd',
+        nodeId: 'n1',
+        resultId: 7,
+        durationMs: 1_200,
+        arretBudgetaire: 'cout',
+      }),
+    );
+    expect(dom.querySelector('.journal .jrow')?.className).toContain('warn');
+    // Le Journal vit dans le Terminal (#523) : l'icône est son repère, et la
+    // classe `warn` y devient un NIVEAU qu'on filtre — un avertissement, pas
+    // une erreur.
+    const repere = dom.querySelector('.journal .jrow .ds-terminal-repere');
+    expect(repere?.textContent).toBe('¤');
+    expect(repere?.className).toContain('niveau-avertissement');
+    expect(ligne(dom)).toBe(
+      'arrêtée sur son plafond de coût dans la boucle de l’agent (enfant-1) — ni échec, ni ' +
+        'panne : à redéléguer sous un nouvel identifiant, avec une réservation plus large',
+    );
+    act(() => racine?.unmount());
+    conteneur?.remove();
+    const echec = await monter(
+      evenement('task_failed', { taskId: 'enfant-1234abcd', nodeId: 'n1', durationMs: 1_200 }),
+    );
+    // Une durée n'est pas un coût : depuis que la ruche compte des dollars,
+    // « coût : 1.2 s » se lisait comme une dépense.
+    expect(ligne(echec)).toBe('échouée (enfant-1) — durée : 1.2 s');
+  });
+});
+
+// G11b — des tests comparés à la base. Un `tests ✔` qui tairait des tests
+// rouges, excusés parce qu'ils l'étaient déjà à la base, serait un vert muet :
+// la ligne dit combien, et la régression comme l'instabilité sont dites aussi.
+describe('les tests comparés à la base au journal : le ✔ dit ce qu’il excuse', () => {
+  const validations = (tests: string, comparaison: Record<string, unknown>) =>
+    evenement('validation_recorded', {
+      source: 'hive_sandbox',
+      taskId: 'tache-g11b',
+      validation: { tests, typecheck: 'not_applicable', build: 'not_applicable', lint: 'passed' },
+      details: { tests: { raison: 'comparee', script: 'test', code: 1, comparaison } },
+    });
+
+  it('UN VERT QUI EXCUSE DES TESTS ROUGES LE DIT', async () => {
+    const dom = await monter(validations('passed', { dejaRouges: { total: 2, noms: ['a', 'b'] } }));
+    expect(ligne(dom)).toContain('tests ✔ (2 déjà rouge(s) à la base) · typecheck —');
+  });
+
+  it('UNE RÉGRESSION EST COMPTÉE À CÔTÉ DU ✘ — en anglais aussi', async () => {
+    setLang('en');
+    const comparaison = { regressions: { total: 1 }, dejaRouges: { total: 1 } };
+    const dom = await monter(validations('failed', comparaison));
+    expect(ligne(dom)).toContain('tests ✘ (1 regression(s), 1 already red at the base)');
+  });
+
+  it('SANS COMPARAISON (ou illisible), LA LIGNE NE CHANGE PAS', async () => {
+    const dom = await monter(validations('failed', { regressions: { total: 'beaucoup' } }));
+    expect(ligne(dom)).toContain('tests ✘ · typecheck');
+  });
 });

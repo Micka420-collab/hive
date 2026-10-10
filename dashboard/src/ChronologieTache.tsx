@@ -17,6 +17,7 @@ import type {
   SommeDeclaree,
 } from '../../src/shared/chronologie-tache';
 import { direJetons, direUsd } from './ui';
+import { Skeleton } from './composants';
 
 interface Props {
   taskId: string;
@@ -47,7 +48,9 @@ export function ChronologieTache({ taskId, cle }: Props) {
       ? t('réussie', 'succeeded')
       : i === 'reprise'
         ? t('reprise', 'retried')
-        : t('échec', 'failed');
+        : i === 'arret'
+          ? t('arrêtée sur son plafond de coût', 'stopped at its cost cap')
+          : t('échec', 'failed');
 
   const declare = (s: SommeDeclaree, rendu: string): string =>
     s.declarees === s.tentatives
@@ -111,7 +114,7 @@ export function ChronologieTache({ taskId, cle }: Props) {
           {t('Chronologie indisponible :', 'Timeline unavailable:')} {erreur}
         </p>
       )}
-      {!erreur && c === null && <p className="muted">{t('Lecture…', 'Loading…')}</p>}
+      {!erreur && c === null && <Skeleton lignes={4} />}
       {c && (
         <dl className="chronologie">
           {lignes.map(([id, libelle, valeur]) => (

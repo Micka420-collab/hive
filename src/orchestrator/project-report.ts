@@ -8,6 +8,7 @@
 import { categoriser, type Categorie } from './aiguillage.js';
 import type { SourceCritique } from './brood.js';
 import type { EvaluationDecision, EvaluationResult } from './evaluator.js';
+import { arreteeParSonBudget } from '../shared/arret-budgetaire.js';
 import { TYPES_CHRONOLOGIE, chronologieDepuisEvenements } from '../shared/chronologie-tache.js';
 import type { ChronologieTache } from '../shared/chronologie-tache.js';
 import type { SommeDeclaree } from '../shared/declaration-fournisseur.js';
@@ -163,6 +164,8 @@ export interface LigneMission {
   taskId: string;
   titre: string;
   statut: TaskStatus;
+  /** `failed` sur son plafond de coût (`arreteeParSonBudget`) : dite arrêtée, pas échouée. */
+  arretBudgetaire?: true;
   /**
    * Une relecture croisée est une tâche de la mission : elle coûte, et son
    * temps compte. Mais l'Evaluator ne juge pas une relecture — elle n'a ni
@@ -320,6 +323,7 @@ export function rapportDeMission(entree: EntreeMission): RapportMission {
       taskId: tache.id,
       titre: tache.title,
       statut: tache.status,
+      ...(arreteeParSonBudget(tache.result) ? { arretBudgetaire: true as const } : {}),
       role,
       categorie: categories.get(tache.id)!,
       modeles: modelesCommandes(evenements),

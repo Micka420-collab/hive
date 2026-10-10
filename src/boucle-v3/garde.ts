@@ -134,6 +134,12 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   },
   {
     categorie: 'securite',
+    motif: /^src\/node-client\/base-verifiee\.ts$|^tests\/base-(verifiee|forgee)[^/]*\.test\.ts$/,
+    pourquoi:
+      'la seule porte de lecture VÉRIFIÉE de la base, et ses bancs : elle recalcule l’empreinte de chaque objet git relu (git ne la vérifie pas) et rejette une base forgée par l’agent — l’affaiblir laisserait un `package.json` ou un lockfile de base maquillé rendre des validations vertes ou excuser une vulnérabilité',
+  },
+  {
+    categorie: 'securite',
     motif:
       /^src\/node-client\/(isolement|bac|validations-bac)\.ts$|^src\/shared\/validations-bac\.ts$/,
     pourquoi: 'le bac à sable des agents et les commandes qu’il lance',
@@ -146,9 +152,21 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   {
     categorie: 'securite',
     motif:
-      /^tests\/(security-invariants|engagement-projet|suppression-projet|mission-rejouable|missions-rejouables-[^/]+|connecteurs-[^/]+|shadow-bench|banc-ombre-ruche|configuration-inerte[^/]*|join-porte|retention-journal|livraison-locale[^/]*)\.test\.tsx?$/,
+      /^tests\/(security-invariants|engagement-projet|suppression-projet|mission-rejouable|missions-rejouables-[^/]+|connecteurs-[^/]+|shadow-bench|banc-ombre-ruche|configuration-inerte[^/]*|join-porte|retention-journal|livraison-locale[^/]*|clone-sans-identifiants|miroir-tenu|dossier-tache-tenu|miroir-amont-muet|assignation-illisible|porte-securite[^/]*)\.test\.tsx?$/,
     pourquoi:
-      'les bancs qui verrouillent les gardes (routes, effacement, rejeux, connecteurs, banc d’ombre, configuration inerte, adhésion, rétention, poussée) : les affaiblir retire le garde-fou',
+      'les bancs qui verrouillent les gardes (routes, effacement, rejeux, connecteurs, banc d’ombre, configuration inerte, adhésion, rétention, poussée, clone sans identifiants de push, effacement borné du miroir et de la tâche, butoir de l’amont du miroir, assignation illisible dite sans jamais citer le jeton, porte de sécurité et son réseau) : les affaiblir retire le garde-fou',
+  },
+  {
+    categorie: 'securite',
+    motif: /^src\/(shared|node-client)\/porte-securite[^/]*\.ts$/,
+    pourquoi:
+      'la porte de sécurité : les secrets et les dépendances vulnérables qu’une production AJOUTE, jugés avant la livraison et caviardés au nœud, et ce qui en part à osv.dev — l’affaiblir laisserait partir une clé ou un paquet privé, ou la compterait verte sans outil',
+  },
+  {
+    categorie: 'securite',
+    motif: /^tests\/fixtures\/(faux-outils-porte|verrous-porte)\.ts$/,
+    pourquoi:
+      'les faux outils de la porte de sécurité et les lockfiles mesurés sur les vrais : un faux plus complaisant que l’outil réel (sans préfiltre, sans confiance, sans échec global sur un lockfile cassé) rendrait verts des bancs que les vrais outils feraient rougir',
   },
   {
     categorie: 'securite',
@@ -163,8 +181,22 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   },
   {
     categorie: 'securite',
-    motif: /^src\/shared\/protocol\.ts$/,
-    pourquoi: 'la validation des messages WebSocket entre la Reine et les nœuds',
+    motif: /^src\/shared\/(protocol|bac-direct)\.ts$/,
+    pourquoi:
+      'la validation des messages WebSocket entre la Reine et les nœuds — l’état en direct d’une exécution (Sandbox Live) compris, validé champ par champ et borné, de la commande caviardée au diff demandé',
+  },
+  {
+    categorie: 'securite',
+    motif: /^src\/orchestrator\/fiche-worker\.ts$/,
+    pourquoi:
+      'la fiche d’un Worker : les leçons qu’elle tire des journaux d’échec, caviardées AVANT d’être coupées — l’ordre inverse laisserait sortir le préfixe d’un secret vers chaque écran qui tient le jeton',
+  },
+  {
+    categorie: 'securite',
+    motif:
+      /^tests\/(pilote-execution|arbre-processus|bac-direct|bac-direct-ruche|fiche-worker|configuration-initiale|sortie-directe-ruche|isolement-couverture)\.test\.tsx?$/,
+    pourquoi:
+      'les bancs des gardes de la série Mission Control (train 8) : la pause qui suspend le délai dur et le budget, l’arrêt qui réveille un agent en pause, l’arbre de l’agent tué en entier, l’état en direct caviardé et jamais journalisé, la fiche Worker sans le jeton ni un secret, les réglages de la ruche réservés, la sortie en direct caviardée bloc par bloc, et chaque lancement hors bac nommé avec sa raison — les affaiblir retire le garde-fou',
   },
   {
     categorie: 'securite',
@@ -192,6 +224,26 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   },
   {
     categorie: 'securite',
+    motif:
+      /^src\/node-client\/(proxy-egress|politique-reseau|reseau-tache)\.ts$|^src\/shared\/reseau\.ts$/,
+    pourquoi:
+      'le réseau sortant filtré par tâche : le proxy d’egress, sa politique et les hôtes permis — l’affaiblir rouvre l’exfiltration depuis le bac',
+  },
+  {
+    categorie: 'securite',
+    motif:
+      /^tests\/(proxy-egress|politique-reseau|reseau-tache|enveloppe-reseau|bac-reseau|reseau-bac\.integration|politique-actions|requisition-action|pont-approve|regles-autorisation-depot|garde-pr[^/]*|routines[^/]*|revue-ligne)\.test\.tsx?$/,
+    pourquoi:
+      'les bancs des gardes de la vague 7 (réseau sortant, politique d’actions, garde de PR, routines, revue en ligne) : les affaiblir retire le garde-fou',
+  },
+  {
+    categorie: 'securite',
+    motif: /^tests\/(budget-boucle|budget-essaim|reseau-projet)\.test\.ts$/,
+    pourquoi:
+      'les bancs du budget dans la boucle de l’agent (plafond, arrêt cru par la Reine, leçons de l’essaim) et du réseau de chaque projet jusqu’au bac, sonde du plafond comprise : les affaiblir retire le garde-fou',
+  },
+  {
+    categorie: 'securite',
     motif: /^src\/shared\/graphe-experience\.ts$/,
     pourquoi:
       'le cloisonnement des projets dans le graphe d’expérience, et le cadrage de ce qu’il donne aux agents',
@@ -208,6 +260,13 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
       /^src\/orchestrator\/(evaluator|gardiennes|ci-evidence|scheduler)\.ts$|^src\/shared\/contre-expertise\.ts$/,
     pourquoi:
       'les verdicts qui arrêtent une livraison, et le retry qui efface la revue humaine d’une production',
+  },
+  {
+    categorie: 'permissions',
+    motif:
+      /^src\/shared\/lecture-tests\.ts$|^tests\/(lecture-tests|verdicts-par-test-[^/]+)\.test\.ts$|^tests\/fixtures\/sorties-de-tests\//,
+    pourquoi:
+      'le lecteur des sorties de test, ses bancs et les sorties réelles qu’ils rejouent : un échec qu’il lit rouge à la base n’arrête plus la livraison — l’assouplir ferait passer une régression pour un test déjà rouge',
   },
   {
     categorie: 'permissions',
@@ -237,6 +296,49 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
     motif: /^src\/shared\/retention-journal\.ts$/,
     pourquoi:
       'ce que l’élagage du journal garde comme preuve : une revue humaine ou une livraison élaguée ne se relit plus',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/shared\/politique-actions\.ts$/,
+    pourquoi:
+      'la politique d’actions des agents : ce qui est autorisé, refusé ou soumis à la Chambre selon l’autonomie',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/orchestrator\/garde-pr\.ts$/,
+    pourquoi:
+      'la garde de PR : ce que la ruche relance et repousse d’elle-même sur une pull request qu’elle a livrée',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/shared\/commentaire-revue\.ts$/,
+    pourquoi:
+      'les commentaires ancrés et le verdict « changements demandés » de la revue humaine, le geste que cette porte croit',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/shared\/arret-budgetaire\.ts$/,
+    pourquoi:
+      'le prédicat de l’arrêt budgétaire : ce qu’il range hors des échecs échappe aux leçons et aux correctifs de l’essaim, aux phéromones, à la dérive, au Génome, au Waggle, au Thermo, au Ghost et au Pulse — l’élargir cacherait de vrais échecs à ce que la ruche apprend et corrige',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/orchestrator\/delegation\.ts$|^src\/shared\/limites-delegation\.ts$/,
+    pourquoi:
+      'les bornes de la délégation : profondeur, enfants par parent et par racine, réservations cumulées de durée et de coût, et le plafond que chaque enfant reçoit dans la boucle de son agent — les relâcher laisse la ruche se démultiplier et dépenser au-delà de ce qu’un humain a réservé',
+  },
+  {
+    categorie: 'permissions',
+    motif:
+      /^src\/node-client\/(pilote-execution|mesure-processus)\.ts$|^src\/shared\/(minuteur-suspendable|arbre-processus)\.ts$/,
+    pourquoi:
+      'le pilote d’une exécution (Sandbox Live) et l’arbre de processus d’un agent : le délai dur et le budget d’un enfant délégué — des horloges qu’une pause suspend et que seule la reprise relance —, l’arrêt qui réveille toujours un agent en pause, et les signaux et gestes du moteur (`ps`, `stats`, `pause`), lancés hors du bac et bornés à l’arbre de l’agent — l’affaiblir laisserait un agent survivre à son délai, à son budget ou à son annulation, ou viserait d’autres processus de l’hôte',
+  },
+  {
+    categorie: 'permissions',
+    motif: /^src\/shared\/configuration-initiale\.ts$/,
+    pourquoi:
+      'qui écrit les réglages de la ruche et lit le bilan de santé de la machine de la Reine (`porteConfiguration`) : un administrateur, ou le jeton tant qu’aucun compte n’existe — l’assouplir ouvrirait à chaque membre le relevé du docteur (chemins, hôtes des identifiants git déposés)',
   },
   {
     categorie: 'permissions',
@@ -322,8 +424,9 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   {
     categorie: 'auto-execution',
     motif:
-      /^src\/node-client\/(workspace|merge-runner|pose-runner)\.ts$|^src\/(shared\/lanceur|lanceur-reel)\.ts$|^src\/orchestrator\/fabrique\.ts$/,
-    pourquoi: 'ateliers, fusions, poses d’outils et lanceurs côté machine',
+      /^src\/node-client\/(workspace|merge-runner|pose-runner)\.ts$|^src\/(shared\/lanceur|lanceur-reel)\.ts$|^src\/orchestrator\/fabrique\.ts$|^src\/shared\/effacement\.ts$/,
+    pourquoi:
+      'ateliers, fusions, poses d’outils et lanceurs côté machine, et l’effacement de ce que git y a rempli (tâches, fusions, miroir de la Reine) : ses reprises bornées au sommet sont ce qui empêche un fichier tenu de figer une tâche ou une suppression de projet',
   },
   {
     categorie: 'auto-execution',
@@ -331,6 +434,12 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
       /(?:^|\/)(vitest|eslint|vite)\.config\.[^/]*$|(?:^|\/)tsconfig[^/]*\.json$|^\.(husky|githooks)\/|^\.git(attributes|modules)$/,
     pourquoi:
       'configuration exécutée par les outils (tests, lint, build, typage, hooks git) — un `tsconfig` relâché fait passer ce que le typage refusait',
+  },
+  {
+    categorie: 'auto-execution',
+    motif: /^src\/orchestrator\/(routines|cron)\.ts$/,
+    pourquoi:
+      'les routines et leur horloge : ce qui lance des missions sans humain, et la signature des webhooks qui les déclenchent',
   },
   {
     categorie: 'auto-execution',

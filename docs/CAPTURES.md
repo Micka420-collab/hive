@@ -14,6 +14,7 @@ prise. Celles-ci se refont, et disent d'où elles viennent.
 npx playwright install --only-shell chromium     # une fois par machine, ≈ 110 Mo
 npm run captures                                 # → captures-ecran/fr/
 npm run captures -- --langue en                  # → captures-ecran/en/
+npm run captures -- --theme sombre               # → captures-ecran/fr-sombre/
 npm run captures -- --vues ruche,tache.mobile    # seulement celles-là
 ```
 
@@ -92,7 +93,9 @@ des avertissements.
 
 - **chaque case de la barre de navigation**, cliquée : la barre fait foi (la
   case dit sa vue, `data-vue`), une vue ajoutée demain est photographiée sans
-  toucher au script ;
+  toucher au script. Au format `mobile`, la barre est un tiroir : le script
+  l'ouvre par le ☰ avant chaque clic, puis photographie le tiroir ouvert
+  (`navigation.mobile.png`) ;
 - la **Chambre** de l'ouvrière et le **tiroir** de la tâche reprise ;
 - la **War Room filtrée sur les décisions humaines** (`warroom-decisions`) :
   le fil entier, nourri par chaque tour de Conseil, noierait ce que l'humain
@@ -104,8 +107,11 @@ des avertissements.
   la hauteur de page et les **erreurs de console** survenues pendant la vue —
   plus le commit photographié et l'état de l'arbre.
 
-Animations figées (`prefers-reduced-motion`), thème clair. Le script ne juge
-pas l'image : il mesure ce qu'un œil rate, et le reste se regarde.
+Animations figées (`prefers-reduced-motion`). Thème clair par défaut ;
+`--theme sombre` photographie le thème sombre dans `captures-ecran/<langue>-sombre/`
+— par la **préférence du système** (`colorScheme: 'dark'`), sans choix mémorisé :
+c'est le chemin que voit un opérateur qui n'a jamais touché au menu du thème. Le
+script ne juge pas l'image : il mesure ce qu'un œil rate, et le reste se regarde.
 
 ### Ce qui n'est pas photographié
 
@@ -161,6 +167,27 @@ npm run captures -- --sortie docs/images/captures --vues warroom,warroom-decisio
   <img src="images/captures/chronique-en-vol.mobile.png" width="200" alt="Chronique sur mobile pendant un vol : le journal en direct, par famille.">
 </p>
 
+### Sandbox Live, sur un vrai processus
+
+`images/captures/sandbox-live.bureau.png` n'est PAS de la série ci-dessus :
+l'agent simulé du laboratoire ne lance aucun processus, et ses mesures restent
+« inconnu » (c'est exact, et c'est ce que montre `sandbox-en-vol`). Celle-ci
+photographie un vrai `node` qui travaille, lancé par une ouvrière en mode
+processus, puis MIS EN PAUSE : le CPU de l'arbre gelé tombe à 0 %, la mémoire
+reste, le diff a été demandé et « Expliquer » relit l'état consigné. Même
+exécution, même pause, au format mobile (`sandbox-live.mobile.png`, page
+entière : sous 760 px la liste passe au-dessus du détail) ; les jumelles
+sombres — bureau et mobile, en pause elles aussi — vivent dans
+`images/theme-sombre/`.
+
+<p align="center">
+  <img src="images/captures/sandbox-live.bureau.png" width="840" alt="Sandbox Live : une exécution réelle mise en pause — CPU à 0 % sur l’arbre gelé, commande, diff demandé, explication relue.">
+</p>
+
+<p align="center">
+  <img src="images/captures/sandbox-live.mobile.png" width="300" alt="Sandbox Live sur mobile, en pause : boutons Reprendre et Arrêter, bandeau « En pause », CPU à 0 %.">
+</p>
+
 ## Ce que la première exécution a trouvé
 
 - **La Chambre rendait tout le tableau blanc** — corrigé avec ce script.
@@ -185,9 +212,10 @@ npm run captures -- --sortie docs/images/captures --vues warroom,warroom-decisio
   Sur mobile, le rayon est de plus réduit au point que les alvéoles ne se
   lisent plus, et sa dernière rangée vient buter contre la barre dès le repos
   (`ruche.mobile.png`).
-- **Cerveau** : les chiffres des quatre tuiles d'en-tête sont sombres sur fond
-  sombre — `.cerveau-tuile` hérite (`color: inherit`) le texte de la page
-  claire.
+- **Cerveau** : les chiffres des quatre tuiles d'en-tête étaient sombres sur
+  fond sombre — `.cerveau-tuile` héritait (`color: inherit`) le texte de la
+  page claire. Corrigé avec le thème sombre : la tuile prend la couleur de la
+  carte nocturne.
 - **Rayon et Chantiers** : la console relève des réponses 409 et 501 pour un
   projet sans dépôt et un GitHub non connecté. Ce sont des états attendus, que
   la vue explique elle-même ; le navigateur les compte comme des ressources en

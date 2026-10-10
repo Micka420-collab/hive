@@ -30,28 +30,29 @@
 // React, et prévient les seuls abonnés de la tâche touchée
 // (`useSyncExternalStore`, dans `ConsoleDirecte.tsx`).
 
+import type { SegmentNiveau } from '../../src/shared/niveaux-sortie';
 import type { Task } from '../../src/shared/types';
 
 /** Ce que l'écran garde au plus de la sortie d'UNE tâche, en octets UTF-8. */
 export const SORTIE_ECRAN_MAX_OCTETS = 256 * 1024;
 
-/** Les événements qui clôturent une exécution — et donc sa sortie en direct. */
-export const FINS_D_EXECUTION: readonly string[] = [
-  'task_done',
-  'task_failed',
-  'task_cancelled',
-  'task_requeued',
-  'task_retry',
-  // Un nœud qui refuse APRÈS avoir fait tourner l'agent (auth, quota) : la
-  // tâche redevient « prête », sans `task_requeued`. Sans cette fin, sa sortie
-  // restait à l'écran et se collait à celle du nœud suivant.
-  'task_rejected',
-];
+// La liste des fins d'exécution vit dans `shared/bac-direct.ts` : la Reine y
+// lit aussi quand oublier l'état en direct d'une tâche, et deux listes
+// finiraient par diverger.
+export { FINS_D_EXECUTION } from '../../src/shared/bac-direct';
 
 export interface MorceauSortie {
   nodeId: string;
   texte: string;
   octets: number;
+  /**
+   * Le niveau de chaque ligne, tel que le nœud l'a lu (`shared/niveaux-sortie.ts`).
+   * Absent : un nœud d'avant ce contrat, ou des niveaux qui ne tombaient pas
+   * juste — la console dit alors « niveau inconnu ».
+   */
+  niveaux?: readonly SegmentNiveau[];
+  /** Quand CET écran l'a reçu (`Date.now()`) : pas l'instant où l'agent l'a écrit. */
+  recu: number;
 }
 
 export interface SortieTache {
@@ -71,10 +72,19 @@ export function ajouterSortie(
   taskId: string,
   nodeId: string,
   texte: string,
+  niveaux?: readonly SegmentNiveau[],
+  recu: number = Date.now(),
 ): SortiesDirectes {
   if (texte === '') return prev;
   const avant = prev[taskId] ?? { morceaux: [], octets: 0, tronquee: false };
-  const morceaux = [...avant.morceaux, { nodeId, texte, octets: encodeur.encode(texte).length }];
+  const morceau: MorceauSortie = {
+    nodeId,
+    texte,
+    octets: encodeur.encode(texte).length,
+    recu,
+    ...(niveaux ? { niveaux } : {}),
+  };
+  const morceaux = [...avant.morceaux, morceau];
   let octets = avant.octets + morceaux[morceaux.length - 1]!.octets;
   let debut = 0;
   while (octets > SORTIE_ECRAN_MAX_OCTETS && debut < morceaux.length - 1) {
@@ -125,7 +135,7 @@ export function garderVivantes<T>(
 export interface MagasinSorties {
   lire(taskId: string): SortieTache | undefined;
   abonner(taskId: string, prevenir: () => void): () => void;
-  ajouter(taskId: string, nodeId: string, texte: string): void;
+  ajouter(taskId: string, nodeId: string, texte: string, niveaux?: readonly SegmentNiveau[]): void;
   oublier(taskId: string): void;
   garderVivantes(tasks: readonly Pick<Task, 'id' | 'status'>[]): void;
 }
@@ -154,7 +164,8 @@ export function creerMagasinSorties(): MagasinSorties {
         if (ensemble.size === 0) abonnes.delete(taskId);
       };
     },
-    ajouter: (taskId, nodeId, texte) => passer(ajouterSortie(etat, taskId, nodeId, texte)),
+    ajouter: (taskId, nodeId, texte, niveaux) =>
+      passer(ajouterSortie(etat, taskId, nodeId, texte, niveaux)),
     oublier: (taskId) => passer(oublierTache(etat, taskId)),
     garderVivantes: (tasks) => passer(garderVivantes(etat, tasks)),
   };

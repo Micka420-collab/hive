@@ -23,7 +23,7 @@
 
 .ch-tete h2 {
   margin: 0 0 4px;
-  font-size: 1.15rem;
+  font-size: var(--fs-xl);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -42,7 +42,7 @@
 .ch-sous {
   margin: 0;
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
   max-width: 62ch;
   line-height: 1.5;
   font-style: normal;
@@ -59,7 +59,7 @@
 .ch-projet:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--miel) 45%, var(--border));
-  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.22);
+  box-shadow: 0 0 0 3px var(--focus-halo);
 }
 
 .ch-bloc {
@@ -72,7 +72,7 @@
 
 .ch-bloc h3 {
   margin: 0 0 10px;
-  font-size: 0.92rem;
+  font-size: var(--fs-md);
   color: var(--muted);
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -109,7 +109,7 @@
 }
 
 .ch-nom strong {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--text);
@@ -117,7 +117,7 @@
 
 .ch-nom code {
   font-family: var(--mono);
-  font-size: 0.78rem;
+  font-size: var(--fs-xs);
   color: var(--faint);
   /* La commande vient du dépôt : elle peut être longue, et ne doit pas
      pousser le bouton hors de l'écran. */
@@ -136,7 +136,7 @@
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 
 .ch-lancer:hover:not(:disabled) {
@@ -150,7 +150,7 @@
 
 .ch-refus {
   color: var(--muted);
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   text-align: right;
   font-style: normal;
 }
@@ -159,7 +159,7 @@
 .ch-erreur {
   margin: 0;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: var(--fs-md);
   line-height: 1.5;
   font-style: normal;
 }
@@ -180,29 +180,6 @@
   flex: none;
   clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
   background: var(--miel);
-}
-
-.mc-chantiers > .ch-vide {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 56px 24px;
-  max-width: 28rem;
-  margin: 0 auto;
-  text-align: center;
-}
-
-.mc-chantiers > .ch-vide .marque {
-  width: 14px;
-  height: 16px;
-  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
-  background: var(--miel);
-}
-
-.mc-chantiers > .ch-vide p {
-  margin: 0;
-  font-style: normal;
 }
 
 .ch-erreur {
@@ -232,7 +209,7 @@
 .ch-refuse {
   margin: 6px 0 0;
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
   font-style: normal;
 }
 
@@ -242,7 +219,7 @@
   background: color-mix(in srgb, var(--bg-2) 80%, transparent);
   border-radius: var(--r-sm);
   font-family: var(--mono);
-  font-size: 0.76rem;
+  font-size: var(--fs-xs);
   line-height: 1.45;
   /* Bornée : une sortie de test fait des milliers de lignes, et un écran qui
      défile à l'infini cache tout le reste de la vue. */
@@ -257,7 +234,7 @@
   align-items: center;
   gap: 8px;
   margin-bottom: 12px;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
   color: var(--muted);
   font-style: normal;
 }
@@ -275,7 +252,7 @@
 .ch-ref input:focus {
   outline: none;
   border-color: color-mix(in srgb, var(--miel) 45%, var(--border));
-  box-shadow: 0 0 0 3px rgba(246, 196, 69, 0.22);
+  box-shadow: 0 0 0 3px var(--focus-halo);
 }
 
 .ch-runs {
@@ -294,7 +271,7 @@
   align-items: center;
   padding: 6px 10px;
   border-left: 3px solid var(--border);
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
 }
 
 .ch-t-ok {
@@ -312,7 +289,7 @@
 .ch-run-branche,
 .ch-run-etat {
   font-family: var(--mono);
-  font-size: 0.76rem;
+  font-size: var(--fs-xs);
   color: var(--faint);
 }
 

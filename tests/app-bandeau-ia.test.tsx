@@ -23,7 +23,12 @@ import type { HiveNode, StateSnapshot } from '../src/shared/types';
 
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  connectFeed: vi.fn(() => ({ close: () => {} })),
+  // Le flux livre un instantané (vide) : sans lui, la coquille montre
+  // l'attente du premier état au lieu d'une vue (dashboard/src/Liaison.tsx).
+  connectFeed: vi.fn((h: { onState: (s: unknown) => void }) => {
+    h.onState({ projects: [], nodes: [], tasks: [], tasksTotal: 0 });
+    return { close: () => {}, reconnecter: () => {} };
+  }),
   fetchPulse: vi.fn(() => Promise.resolve(null)),
   // Le cockpit de l'accueil (Ruche) : échoue sans ouvrir de socket.
   fetchCockpit: vi.fn(() => Promise.reject(new Error('cockpit hors de ce banc'))),
@@ -59,7 +64,7 @@ beforeEach(() => {
   poignees = null;
   vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
     poignees = h;
-    return { close: () => {} };
+    return { close: () => {}, reconnecter: () => {} };
   });
 });
 

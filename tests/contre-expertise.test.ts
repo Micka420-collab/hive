@@ -430,6 +430,10 @@ describe('suiteRelectureEchouee — un secours indépendant, une fois, puis la r
     expect(causeEchecRelecture('codex', 'famille_non_designee', 1)).toBe(
       'l’avis a été rendu par une autre famille que codex — non compté',
     );
+    // Close par la Reine avant tout envoi : ce n'est pas codex qui a échoué.
+    expect(causeEchecRelecture('codex', 'depot_illisible', 0)).toBe(
+      'l’URL du dépôt du projet est illisible pour les nœuds — recréez le projet',
+    );
     expect(causeEchecRelecture('codex', undefined, 2)).toBe('codex a échoué (2 tentative(s))');
     expect(causeEchecRelecture('codex', undefined, 'x')).toBe('codex a échoué');
   });

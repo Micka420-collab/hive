@@ -4,8 +4,11 @@
 // unitairement avec un store en mémoire.
 
 import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
+import { motifDepotIllisible } from '../shared/protocol.js';
 import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
 import type { PresenceFichier } from '../shared/presence.js';
+import type { SegmentNiveau } from '../shared/niveaux-sortie.js';
+import type { EtatDirect } from '../shared/bac-direct.js';
 import { VALIDATION_KEYS } from '../shared/validations-bac.js';
 import type {
   DetailControle,
@@ -13,6 +16,7 @@ import type {
   ValidationState,
   ValidationsBac,
 } from '../shared/validations-bac.js';
+import type { PorteSecurite, VoletPorte } from '../shared/porte-securite.js';
 // L'Aiguillage appris : parmi les nœuds éligibles à charge, restreindre à ceux
 // qui offrent le meilleur modèle pour le genre de la tâche. Module PUR — il ne
 // lit ni n'écrit rien ; le scheduler lui donne les antécédents et enregistre le
@@ -56,6 +60,7 @@ import {
   budgetCoutEpuise,
   descendantsEnVol,
   direDepense,
+  plafondCoutTentative,
   slotsOccupes,
 } from './delegation.js';
 import type { CauseAnnulationDelegation } from './delegation.js';
@@ -146,7 +151,18 @@ export interface SchedulerOptions {
    * `TaskUpdateMsg.sortie`). Même autorité que le progrès journalisé : le
    * nœud assigné, ou un drone encore en course.
    */
-  onSortie?: (taskId: string, nodeId: string, sortie: string) => void;
+  onSortie?: (
+    taskId: string,
+    nodeId: string,
+    sortie: string,
+    niveaux: SegmentNiveau[] | undefined,
+  ) => void;
+  /**
+   * L'état EN DIRECT d'une exécution (Sandbox Live, `TaskUpdateMsg.direct`) :
+   * relayé comme la sortie, jamais journalisé. Seulement du nœud ASSIGNÉ : la
+   * pause, le diff et les mesures visent son exécution, pas celle d'un drone.
+   */
+  onDirect?: (taskId: string, nodeId: string, direct: EtatDirect) => void;
   /**
    * Balance : 'off' (le grand livre ne tourne pas du tout), 'observation'
    * (il pèse, se tient à jour et SIGNALE les franchissements, sans jamais rien
@@ -808,13 +824,15 @@ export class Scheduler {
    *
    * `infra: 'avant_agent'` — le dépôt de la tâche ne s'est pas cloné : compté
    * comme tout refus d'infrastructure, mais aucun modèle n'a tourné, aucun
-   * n'est écarté des reprises.
+   * n'est écarté des reprises. `'illisible'` — le nœud n'a pas su lire
+   * l'assignation : de même, et le fait le dit (`illisible`), pour que ni la
+   * température ni les fantômes n'y voient une panne de ce nœud.
    */
   rejectTask(
     nodeId: string,
     taskId: string,
     reason: string,
-    infra: boolean | 'avant_agent' = false,
+    infra: boolean | 'avant_agent' | 'illisible' = false,
     now = Date.now(),
     retryAfterMs?: number,
   ): void {
@@ -870,7 +888,8 @@ export class Scheduler {
       nodeId,
       reason,
       ...(infra ? { infra: true } : {}),
-      ...(infra === 'avant_agent' ? { avantAgent: true } : {}),
+      ...(infra === 'avant_agent' || infra === 'illisible' ? { avantAgent: true } : {}),
+      ...(infra === 'illisible' ? { illisible: true } : {}),
     });
 
     if (infra) {
@@ -949,6 +968,8 @@ export class Scheduler {
     log?: string,
     presences?: PresenceFichier[],
     sortie?: string,
+    niveaux?: SegmentNiveau[],
+    direct?: EtatDirect,
   ): void {
     const task = this.store.getTask(taskId);
     // Mise à jour pour une tâche inconnue ou réaffectée ailleurs : ignorée —
@@ -971,7 +992,7 @@ export class Scheduler {
             ...(presences !== undefined ? { presences } : {}),
           });
         }
-        if (sortie) this.opts.onSortie?.(taskId, nodeId, sortie);
+        if (sortie) this.opts.onSortie?.(taskId, nodeId, sortie, niveaux);
       }
       return;
     }
@@ -1007,7 +1028,10 @@ export class Scheduler {
     // l'écran vient de vider. Relancée sur le MÊME nœud, la tâche est de
     // nouveau « assignée » ici : c'est le nœud qui tait le morceau posthume de
     // la tentative précédente (garde d'exécution de `progresVersHub`).
-    if (sortie) this.opts.onSortie?.(taskId, nodeId, sortie);
+    if (sortie) this.opts.onSortie?.(taskId, nodeId, sortie, niveaux);
+    // Même garde : l'état d'une exécution close ne ressuscite pas une ligne
+    // que la fin de tâche vient d'effacer.
+    if (direct) this.opts.onDirect?.(taskId, nodeId, direct);
   }
 
   /** Mode des Gardiennes en vigueur. Défaut `consultatif` — jamais contraignant. */
@@ -1157,6 +1181,45 @@ export class Scheduler {
   }
 
   /**
+   * Range ce que la porte de sécurité du nœud a vu dans CETTE production —
+   * même règle que `rangerValidations` : c'est l'admission qui attribue le
+   * `resultId`, le lien est un fait.
+   *
+   * Un fait À PART, pas un champ de `validation_recorded` : une CI GitHub
+   * ingérée ensuite remplace les validations du bac (`latestValidation`), et
+   * ne dit rien de ce que la production a ajouté. Rien n'est rangé sans
+   * rapport : c'est son ABSENCE que l'Evaluator lit « non vérifiée ».
+   */
+  private rangerPorteSecurite(
+    porte: PorteSecurite | undefined,
+    resultId: number,
+    task: Task,
+    nodeId: string,
+    rejetes: readonly VoletPorte[] = [],
+  ): void {
+    if (!porte) return;
+    // Un volet refusé à la réception (mal formé) n'est pas tu : il est devenu
+    // `rapport_rejete`, et le journal dit lequel, de quel nœud, sur quel résultat.
+    if (rejetes.length > 0) {
+      this.emit('security_gate_rejected', {
+        taskId: task.id,
+        projectId: task.projectId,
+        resultId,
+        nodeId,
+        volets: [...rejetes],
+      });
+    }
+    this.emit('security_gate_recorded', {
+      taskId: task.id,
+      projectId: task.projectId,
+      resultId,
+      nodeId,
+      porte,
+      recordedAt: Date.now(),
+    });
+  }
+
+  /**
    * Hive Mind : la production retenue PROPOSE un souvenir — elle ne l'écrit
    * pas. Il n'entre dans la mémoire qu'une fois la production validée
    * (acceptée par l'Evaluator, ou approuvée par un humain : `statuerProduction`,
@@ -1294,6 +1357,13 @@ export class Scheduler {
       const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
       if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
       this.rangerValidations(result.validations, resultId, task, nodeId);
+      this.rangerPorteSecurite(
+        result.porteSecurite,
+        resultId,
+        task,
+        nodeId,
+        result.porteSecuriteRejetee,
+      );
 
       if (retenu) {
         // L'état des modèles écartés vit EN MÉMOIRE : il suit le COMMIT.
@@ -1306,7 +1376,7 @@ export class Scheduler {
             success: true,
             nodeId,
             durationMs: result.durationMs,
-            ...(result.usage ? { usage: result.usage } : {}),
+            ...(result.ressources ? { ressources: result.ressources } : {}),
           },
         });
         this.emit('task_done', {
@@ -1317,7 +1387,7 @@ export class Scheduler {
           // aucune issue du journal (graphe d'expérience, `supersedes`).
           resultId,
           durationMs: result.durationMs,
-          ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.ressources ? { ressources: result.ressources } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
         // Hive Mind : une production réussie PROPOSE un souvenir, retenu une fois
@@ -1328,17 +1398,30 @@ export class Scheduler {
         if (!this.store.ombreDe(task.id)) this.proposerSouvenir(task, resultId, result);
         this.fermerSousArbre(task.id, 'ancestor_done', Date.now());
       } else {
-        // Le modèle commandé à CETTE tentative a échoué (la production creuse
-        // refusée compte comme un échec d'agent, cf. plus haut) : écarté des
-        // reprises. Lu avant la réassignation, qui effacera ou remplacera la ligne.
-        const modeleEchoue = this.store.modeleAiguillageDe(task.id);
-        this.apresCommit(() => this.ecarterModele(task.id, modeleEchoue));
+        // ─── UN ARRÊT BUDGÉTAIRE N'EST NI UN ÉCHEC NI UNE PANNE ──────────────
+        //
+        // L'agent s'est arrêté dans sa boucle, sur le plafond que la Reine lui
+        // avait passé (`plafondCoutTentative`) : la réservation de l'enfant est
+        // dépensée, une reprise n'aurait plus rien à dépenser. La tâche finit
+        // `failed` SANS reprise, et rien ne l'impute au modèle : ni écarté des
+        // reprises, ni compté en échec par aucun lecteur du fait
+        // (`arreteeParSonBudget`). Le serveur ne le transmet que d'une
+        // tentative qu'il a plafonnée et dont le coût déclaré a atteint ce
+        // plafond (`arretCru`).
+        const arret = result.arretBudgetaire;
+        if (!arret) {
+          // Le modèle commandé à CETTE tentative a échoué (la production creuse
+          // refusée compte comme un échec d'agent, cf. plus haut) : écarté des
+          // reprises. Lu avant la réassignation, qui effacera ou remplacera la ligne.
+          const modeleEchoue = this.store.modeleAiguillageDe(task.id);
+          this.apresCommit(() => this.ecarterModele(task.id, modeleEchoue));
+        }
         const attempts = task.attempts + 1;
         // Bornée ici aussi, en plus de l'entrée (`isInt(m.durationMs, 0, …)`,
         // protocol.ts) : aucune durée négative n'entre dans le journal, quel que
         // soit l'appelant. La Balance la reborne une troisième fois au repli.
         const durationMs = Math.max(0, result.durationMs);
-        if (attempts >= this.maxAttemptsDe(task)) {
+        if (arret || attempts >= this.maxAttemptsDe(task)) {
           this.store.patchTask(task.id, {
             status: 'failed',
             attempts,
@@ -1347,7 +1430,10 @@ export class Scheduler {
               success: false,
               nodeId,
               durationMs: result.durationMs,
-              ...(result.usage ? { usage: result.usage } : {}),
+              ...(result.ressources ? { ressources: result.ressources } : {}),
+              // Le fait porté sur la TÂCHE : les écrans la disent arrêtée sur
+              // sa borne, pas échouée.
+              ...(arret ? { arretBudgetaire: arret } : {}),
             },
           });
           // `durationMs` : le temps machine que cet échec a coûté. Purement
@@ -1362,8 +1448,9 @@ export class Scheduler {
             resultId,
             attempts,
             durationMs,
-            ...(result.usage ? { usage: result.usage } : {}),
+            ...(result.ressources ? { ressources: result.ressources } : {}),
             ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+            ...(arret ? { arretBudgetaire: arret } : {}),
           });
           this.fermerSousArbre(task.id, 'ancestor_failed', Date.now());
         } else {
@@ -1378,7 +1465,7 @@ export class Scheduler {
             attempt: attempts,
             maxAttempts: this.maxAttempts,
             durationMs,
-            ...(result.usage ? { usage: result.usage } : {}),
+            ...(result.ressources ? { ressources: result.ressources } : {}),
             ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
           });
         }
@@ -1826,6 +1913,10 @@ export class Scheduler {
         error: `tâche ${task.status} — une course ne se lance que sur une tâche prête (ready)`,
       };
     }
+    // Un dépôt que le protocole refuse : chaque drone jetterait l'assignation
+    // (la garde de la passe, `depotIllisible`).
+    const depot = this.motifDuDepot(task.projectId);
+    if (depot !== null) return { ok: false, error: `${depot} — course refusée` };
     // Une contre-expertise ne se court pas. Sa valeur est d'être lue par une
     // famille PRÉCISE, et la course enrôle n'importe qui — le producteur
     // d'abord, libre puisqu'il vient de rendre : Claude relirait Claude, et
@@ -2121,6 +2212,13 @@ export class Scheduler {
       const resultId = this.store.insertResult({ ...result, nodeId, success: retenu });
       if (inspection) this.rangerInspection(inspection, resultId, task.id, nodeId, refusee);
       this.rangerValidations(result.validations, resultId, task, nodeId);
+      this.rangerPorteSecurite(
+        result.porteSecurite,
+        resultId,
+        task,
+        nodeId,
+        result.porteSecuriteRejetee,
+      );
       // Parité avec la voie mono : le modèle de ce drone a échoué sur la tâche —
       // si la course s'éteint, la reprise ne le ré-élira pas.
       if (!retenu) {
@@ -2142,7 +2240,7 @@ export class Scheduler {
               success: true,
               nodeId,
               durationMs: result.durationMs,
-              ...(result.usage ? { usage: result.usage } : {}),
+              ...(result.ressources ? { ressources: result.ressources } : {}),
             },
           },
           now,
@@ -2159,7 +2257,7 @@ export class Scheduler {
           nodeId,
           resultId,
           durationMs: result.durationMs,
-          ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.ressources ? { ressources: result.ressources } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
         // Le modèle du VAINQUEUR, fait consigné là où il se décide : le tiroir
@@ -2213,7 +2311,7 @@ export class Scheduler {
             success: false,
             nodeId,
             durationMs: result.durationMs,
-            ...(result.usage ? { usage: result.usage } : {}),
+            ...(result.ressources ? { ressources: result.ressources } : {}),
           },
         });
         this.emit('task_failed', {
@@ -2222,7 +2320,7 @@ export class Scheduler {
           resultId,
           attempts,
           durationMs,
-          ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.ressources ? { ressources: result.ressources } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
         this.fermerSousArbre(task.id, 'ancestor_failed', now);
@@ -2235,7 +2333,7 @@ export class Scheduler {
           attempt: attempts,
           maxAttempts: this.maxAttempts,
           durationMs,
-          ...(result.usage ? { usage: result.usage } : {}),
+          ...(result.ressources ? { ressources: result.ressources } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
         });
       }
@@ -2569,6 +2667,78 @@ export class Scheduler {
     });
   }
 
+  /**
+   * Un enfant délégué dont les tentatives ont DÉJÀ dépensé la réservation ne
+   * repart pas : il n'aurait plus rien à dépenser (`plafondCoutTentative` ≤ 0),
+   * et un plafond plancher paierait encore une réponse pour rien — une
+   * reprise après un échec ordinaire qui a tout dépensé, une correction de
+   * l'Evaluator, un CLI d'avant le plafond qui l'a franchi. La Reine le clôt
+   * donc ICI, avant tout envoi : un arrêt budgétaire (`reservation_depensee`),
+   * journalisé, que son parent apprend avec la suite à donner
+   * (`prevenirParentSansResultat`, server.ts). Aucune tentative n'a tourné :
+   * le fait ne nomme ni nœud ni résultat, aucun lecteur ne l'impute à personne.
+   *
+   * Seulement après une tentative (`attempts > 0`) : sans résultat rendu,
+   * aucun coût n'a été déclaré, et la passe ne paie pas une lecture par tâche
+   * prête. Rend vrai quand la tâche est close.
+   */
+  private reservationDepensee(task: Task, now: number, fermees: Set<string>): boolean {
+    if (task.attempts === 0) return false;
+    const lien = this.store.getDelegation(task.id);
+    if (!lien || lien.origine !== 'hive') return false;
+    const depense = this.store.depenseDeclareeEnfant(task.id);
+    if (plafondCoutTentative(lien.costMicros, depense) > 0) return false;
+    this.infraRejects.delete(task.id);
+    this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
+    this.emit('task_failed', {
+      taskId: task.id,
+      reason: 'reservation_depensee',
+      arretBudgetaire: 'cout',
+      attempts: task.attempts,
+      reservationMicros: lien.costMicros,
+      depense: direDepense(depense),
+    });
+    for (const id of this.fermerSousArbre(task.id, 'ancestor_failed', now)) fermees.add(id);
+    return true;
+  }
+
+  /** Ce que les nœuds reprocheraient au dépôt de ce projet (`motifDepotIllisible`), ou `null`. */
+  private motifDuDepot(projectId: string): string | null {
+    const repoUrl = this.store.getProject(projectId)?.repoUrl;
+    return repoUrl === undefined || repoUrl === null ? null : motifDepotIllisible(repoUrl);
+  }
+
+  /**
+   * Une tâche dont le projet porte un dépôt que le protocole REFUSE ne part
+   * pas : chaque nœud jetterait son assignation (un caractère de contrôle,
+   * qu'une base d'avant #551 garde, ou qu'un chemin local d'administrateur
+   * laissait passer). Envoyée, elle restait `assigned` sans un mot, re-servie
+   * toutes les 15 s ; un nœud à jour la refuse, mais la ruche ne conclurait
+   * qu'au bout de max(3, 3 × nœuds en ligne) refus, sous une cause générique
+   * (« aucun nœud n'a pu la préparer »).
+   *
+   * L'URL d'un projet ne se change pas encore : la tâche ne partira jamais.
+   * Elle échoue donc ICI, avant tout envoi, sous sa cause (`depot_illisible`,
+   * et le `motif` que le Journal affiche) — même clôture qu'une réservation
+   * dépensée, et une relecture close sans avis le dit. Rend vrai quand la
+   * tâche est close.
+   */
+  private depotIllisible(
+    task: Task,
+    lien: LienRelecture | null,
+    motif: string | null,
+    now: number,
+    fermees: Set<string>,
+  ): boolean {
+    if (motif === null) return false;
+    this.infraRejects.delete(task.id);
+    this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
+    this.emit('task_failed', { taskId: task.id, reason: 'depot_illisible', motif });
+    for (const id of this.fermerSousArbre(task.id, 'ancestor_failed', now)) fermees.add(id);
+    this.relectureCloseSansAvis(task, 'depot_illisible', lien);
+    return true;
+  }
+
   private relecteurAbsent(
     task: Task,
     lien: LienRelecture,
@@ -2622,7 +2792,7 @@ export class Scheduler {
    */
   private relectureCloseSansAvis(
     task: Task,
-    motif: 'relecteur_absent' | 'aucun_agent_fonctionnel' | 'annulee',
+    motif: 'relecteur_absent' | 'aucun_agent_fonctionnel' | 'annulee' | 'depot_illisible',
     lien = this.store.relectureDe(task.id),
   ): void {
     if (!lien) return;
@@ -2802,6 +2972,12 @@ export class Scheduler {
       if (!rejeux.has(projectId)) rejeux.set(projectId, this.routageRejeu(projectId));
       return rejeux.get(projectId) ?? null;
     };
+    // Le dépôt de chaque projet, jugé au plus une fois par passe, de même.
+    const depots = new Map<string, string | null>();
+    const motifDepot = (projectId: string): string | null => {
+      if (!depots.has(projectId)) depots.set(projectId, this.motifDuDepot(projectId));
+      return depots.get(projectId) ?? null;
+    };
     // ─── LES RELECTURES D'ABORD ────────────────────────────────────────────
     // Une relecture achève un travail DÉJÀ payé ; une production prête est une
     // dépense neuve. En file par date de création, une relecture passait
@@ -2828,6 +3004,8 @@ export class Scheduler {
     const fermees = new Set<string>();
     for (const { task, lien } of pretes) {
       if (fermees.has(task.id)) continue;
+      if (this.reservationDepensee(task, now, fermees)) continue;
+      if (this.depotIllisible(task, lien, motifDepot(task.projectId), now, fermees)) continue;
       // Une OMBRE du banc (shadow-bench.ts) : épinglée à SON modèle, hors
       // Aiguillage, hors Sting Detector. Lue par clé primaire, comme le lien
       // de relecture.

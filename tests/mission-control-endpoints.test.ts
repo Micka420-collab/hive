@@ -61,7 +61,7 @@ describe('Mission Control — rapport de mission, bilan Worker, cockpit', () => 
         modeles: ['opus'],
       });
     }
-    projet = server.store.createProject({ name: 'Mission', repoUrl: 'file:///repo' }).id;
+    projet = server.store.createProject({ name: 'Mission', repoUrl: '/repo' }).id;
   });
 
   afterEach(async () => {

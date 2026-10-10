@@ -52,6 +52,7 @@ import {
   OBJECTIONS_MAX,
   RELECTEURS_PAR_PRODUCTION,
 } from '../src/shared/contre-expertise.js';
+import { PORTE_SANS_RAPPORT, voletAvec } from '../src/shared/porte-securite.js';
 import { MAX_ATTEMPTS } from '../src/shared/types.js';
 import type { HiveEvent, TaskResult } from '../src/shared/types.js';
 import {
@@ -210,6 +211,17 @@ const SCENARIOS: readonly EvaluatorInput[] = [
   { ...accepte, results: [] },
   { ...accepte, results: [resultat(false)] },
   { ...accepte, inspection: { verdict: 'hollow', score: 3, griefs: [] } },
+  // Un secret ajouté : la porte de sécurité passe avant tout ce qui appelle un humain.
+  {
+    ...accepte,
+    securite: {
+      porte: {
+        ...PORTE_SANS_RAPPORT,
+        secrets: voletAvec([{ regle: 'aws-access-token', fichier: 'src/a.ts', ligne: 2 }]),
+      },
+      nodeId: 'n1',
+    },
+  },
   { ...accepte, inspection: { verdict: 'suspect', score: 1, griefs: [] } },
   { ...accepte, humanReview: 'rejected' },
   { ...accepte, inspection: undefined },
@@ -218,6 +230,8 @@ const SCENARIOS: readonly EvaluatorInput[] = [
   { ...accepte, validation: { ...VALIDATIONS, tests: 'failed' } },
   // Sans avis, sans preuve : la relecture impossible passe AVANT les preuves.
   { ...accepte, crossReview: undefined, validation: undefined, crossReviewImpossible: 'annulée' },
+  // Aucun rapport de porte (nœud antérieur) sous polyéthisme strict : un humain tranche.
+  { ...accepte, securiteStricte: true },
   { ...accepte, validation: { ...VALIDATIONS, lint: undefined } },
   { ...accepte, crossReviewPending: 1 },
   { ...accepte, crossReview: undefined },

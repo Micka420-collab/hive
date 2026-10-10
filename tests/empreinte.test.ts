@@ -688,14 +688,32 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     'src/node-client/rendez-vous-pont.ts':
       'os.tmpdir()/hive-pont-* — le rendez-vous 0700 des ponts d’un nœud, effacé ' +
       'à son arrêt ; celui d’un nœud tué est balayé au démarrage suivant',
-    'src/node-client/workspace.ts': '<workdir>/<nom> et son .tmp voisin',
+    'src/node-client/proxy-egress.ts':
+      'os.tmpdir()/hive-pont-*/<session>/ — le relais r.cjs et le socket du proxy ' +
+      'réseau d’une tâche, dans le rendez-vous du nœud (inventorié, « ponts »)',
+    'src/node-client/reseau-tache.ts':
+      'efface le dossier de session réseau de la tâche (sous hive-pont-*) à sa fin',
+    'src/node-client/workspace.ts':
+      '<workdir>/<nom>, son .tmp voisin, et ses rejeux à part (<nom>.base, <nom>.tete) qu’il ' +
+      'efface — déclarés dans `empreinte()` comme contenu nommé de « travail »',
+    'src/node-client/porte-securite.ts':
+      '<workdir>/<nœud>/tasks/<tâche>/.hive-porte-* — le miroir de la porte de sécurité, ' +
+      'écrit DANS la tâche (le seul dossier que le bac monte) après le calcul du diff, et ' +
+      'effacé en `finally` dès qu’elle a jugé. Déclaré dans `empreinte()` comme contenu ' +
+      'nommé de « travail » ; rien dans `os.tmpdir()`.',
     'src/node-client/configuration-inerte.ts':
       '<workdir>/tasks/<id>.inerte — la configuration d’agent du dépôt écartée ' +
       'pendant l’exécution, voisine de la tâche et effacée avec elle',
     'src/node-client/git-hote.ts':
       '<workdir>/tasks/<id>.git — le git dir de la ruche, voisin de la tâche et ' +
-      'effacé avec elle ; et `info/attributes` dans le git dir d’un clone de fusion',
+      'effacé avec elle ; `info/attributes` dans le git dir d’un clone de fusion ; et les ' +
+      'rejeux à part d’une tâche (<id>.base, <id>.tete) qu’il extrait, voisins d’elle',
     'src/orchestrator/miroir.ts': '<données>/rayons — les miroirs git',
+    'src/shared/effacement.ts':
+      'n’écrit rien, il EFFACE — et seulement ce que ses appelants lui désignent ' +
+      '(l’espace d’une tâche et ses voisins, rejeux à part compris, le miroir de la ' +
+      'porte de sécurité, les clones et le transit d’une fusion, les miroirs de la ' +
+      'Reine), chacun déclaré ici sous sa racine',
     'src/service-reel.ts':
       'le fichier de service — unité systemd, LaunchAgent ou tâche planifiée. ' +
       'Décidé ici plutôt que subi : c’est le seul écrit de Hive dans le dossier ' +
@@ -766,6 +784,36 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
         'ajoutez-le à `src/shared/empreinte.ts` — donc à `hive desinstaller` et ' +
         'à `docs/INSTALLATION.md` — puis à la liste AUTORISES de ce test.',
     ).toEqual(Object.keys(AUTORISES).sort());
+
+    // ─── « LA SEULE PORTE » NE TIENT PAS QUE PAR SON COMMENTAIRE ──────────────
+    //
+    // `effacement.ts` se dit « la seule porte » par laquelle la ruche efface
+    // récursivement ce qu’un fichier tenu peut retenir. Un commentaire ne tient
+    // rien : la dérive de #538 l’a montré — six sites de la Reine avaient gardé
+    // l’ancien `fs.rm` après que le nœud en était sorti. `fs.rm` (et un `rm`
+    // importé de `fs/promises`) multiplie ses reprises par la profondeur de
+    // l’arbre ; `effacerDossier` reprend au sommet, une seule fois. Cette
+    // assertion rougit si le motif revient ailleurs que dans la porte.
+    const PORTE = 'src/shared/effacement.ts';
+    const appelRm = /\b(?:fs|fsp|promises|fsPromises)\.rm\s*\(/;
+    const importRm =
+      /\bimport\b[^;]*\{[^}]*\brm\b[^}]*\}[^;]*from\s*['"](?:node:)?fs\/promises['"]/;
+    for (const f of sources()) {
+      if (f.chemin === PORTE) continue;
+      expect(
+        appelRm.test(nu(f.texte)),
+        `${f.chemin} efface par \`fs.rm\` — passez par \`effacerDossier\` (src/shared/effacement.ts)`,
+      ).toBe(false);
+      expect(
+        importRm.test(f.texte),
+        `${f.chemin} importe \`rm\` de \`fs/promises\` — passez par \`effacerDossier\``,
+      ).toBe(false);
+    }
+    // Et la porte, elle, l’utilise bien : sinon la garde ne garderait rien.
+    const porte = sources().find((f) => f.chemin === PORTE);
+    expect(porte && appelRm.test(nu(porte.texte)), '`effacement.ts` n’appelle plus `fs.rm`').toBe(
+      true,
+    );
   });
 
   it('`os.homedir()` n’apparaît QUE là où c’est déclaré, et jamais pour ÉCRIRE', () => {
@@ -821,6 +869,9 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     expect(createurs.map((f) => f.chemin).sort()).toEqual([
       'src/node-client/isolement.ts',
       'src/node-client/merge-runner.ts',
+      // Son `mkdtemp` vise la TÂCHE, pas `os.tmpdir()` : le miroir de la porte
+      // de sécurité, que le bac doit voir. Même exigence pour autant — effacé.
+      'src/node-client/porte-securite.ts',
       'src/node-client/rendez-vous-pont.ts',
     ]);
     // Et le même fichier doit le nettoyer. Un `mkdtemp` sans `rmSync` remplit
@@ -834,6 +885,15 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     expect(
       nu(createurs.find((f) => f.chemin === 'src/node-client/rendez-vous-pont.ts')!.texte),
     ).toMatch(/rmSync/);
+    // Le miroir de la porte : créé dans la tâche, jamais ailleurs, et retiré
+    // dans un `finally` — une porte qui lève ne le laisse pas derrière elle —
+    // par la porte unique de l'effacement (`effacerDossier`).
+    const porte = nu(
+      createurs.find((f) => f.chemin === 'src/node-client/porte-securite.ts')!.texte,
+    );
+    expect(porte).toMatch(/mkdtempSync\(path\.join\(cwd,/);
+    expect(porte).toMatch(/finally \{[\s\S]*?effacerDossier\(miroir\.chemin/);
+    expect(porte).not.toMatch(/tmpdir\s*\(/);
   });
 
   it('aucun chemin ABSOLU de système n’est écrit', () => {

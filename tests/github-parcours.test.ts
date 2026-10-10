@@ -551,7 +551,7 @@ describe('connecter un dépôt depuis un COMPTE', () => {
 
   it('L’ÉCRAN EXISTE — les deux routes ne sont plus réservées à la ligne de commande', () => {
     const brut = readFileSync(
-      fileURLToPath(new URL('../dashboard/src/views/Projets.tsx', import.meta.url)),
+      fileURLToPath(new URL('../dashboard/src/views/projets/Arrivee.tsx', import.meta.url)),
       'utf8',
     );
     const code = brut.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/^\s*(?:\/\/|\*).*$/gm, '');
@@ -566,7 +566,7 @@ describe('connecter un dépôt depuis un COMPTE', () => {
     // l'historique et le presse-papiers — pour un gain nul, puisque c'est
     // l'orchestrateur qui appelle GitHub, pas le navigateur.
     const brut = readFileSync(
-      fileURLToPath(new URL('../dashboard/src/views/Projets.tsx', import.meta.url)),
+      fileURLToPath(new URL('../dashboard/src/views/projets/Arrivee.tsx', import.meta.url)),
       'utf8',
     );
     const code = brut.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/^\s*(?:\/\/|\*).*$/gm, '');

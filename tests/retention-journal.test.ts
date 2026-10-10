@@ -297,11 +297,17 @@ describe('les types qui prouvent', () => {
     for (const t of [
       'validation_recorded',
       'ci_validation_recorded',
+      // Ce que la porte de sécurité a vu : élagué, un constat serait oublié.
+      'security_gate_recorded',
+      // Et pourquoi un de ses volets n'est pas vérifié (refusé à la réception).
+      'security_gate_rejected',
       'contre_expertise_impossible',
       'evaluator_overridden',
       'delivery_opened',
       // La provenance d'une reprise sur la même branche (#518).
       'delivery_advanced',
+      // La preuve d'instabilité d'un job que le garde de PR a relancé.
+      'garde_pr_relance',
       'critique_context',
       'brood_context',
       'worker_usage',

@@ -9,7 +9,7 @@
 // - onglets Identité : Fiche / Travail / Intégrations / Suivi (horizon + fabrique)
 
 import './chambre.css';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   ajouterHorizon,
@@ -57,11 +57,13 @@ import {
 } from '../../../src/orchestrator/fabrique.js';
 import { resumerEvenementChambre } from '../../../src/orchestrator/chambre-journal.js';
 import { nomEnvDepuisLibelle } from '../../../src/shared/nom-env.js';
+import { FicheWorker } from './FicheWorker';
 import { timeShort } from './shared';
 import type { ViewProps } from './shared';
 import type { HiveEvent, Task, TaskStatus } from '../../../src/shared/types';
 import { useDialog, Voile } from '../ui';
 import type { RequisitionPoste } from '../api';
+import { Skeleton } from '../composants';
 
 type OngletId = 'fiche' | 'travail' | 'integrations' | 'suivi';
 
@@ -70,6 +72,18 @@ function libelleCaste(caste: string, t: (fr: string, en: string) => string): str
   if (caste === 'batisseuse') return t('bâtisseuse', 'builder');
   if (caste === 'butineuse') return t('butineuse', 'forager');
   return caste;
+}
+
+/**
+ * Compte à rebours SIMPLE d'une réquisition d'action (G12) : lu au rendu et
+ * rafraîchi par le poll du poste — pas d'horloge dédiée. Passé zéro, la Reine
+ * est en train d'expirer la réquisition ; on le dit au lieu d'un faux « 0 ».
+ */
+function resteEcheance(expiresAt: number, lang: 'fr' | 'en'): string {
+  const reste = expiresAt - Date.now();
+  if (reste <= 0) return lang === 'en' ? 'expiring…' : 'expiration…';
+  const min = Math.ceil(reste / 60_000);
+  return lang === 'en' ? `expires in ${min} min` : `expire dans ${min} min`;
 }
 
 function classeStatutFabrique(statut: string): string {
@@ -193,6 +207,7 @@ export default function Chambre({
   selectedId,
   onNavigate,
   onOpenTask,
+  refreshTick,
 }: ViewProps) {
   const t = useT();
   const lang = useLang();
@@ -370,6 +385,14 @@ export default function Chambre({
     return [...byId.values()].sort((a, b) => b.id - a.id).slice(0, 80);
   }, [events, nodeId, poste?.journal, tasksLive]);
 
+  // Le nom d'une ouvrière dans le fil de débats de la fiche : le libellé
+  // d'inscription que l'instantané connaît, l'identifiant sinon — jamais un
+  // prénom inventé.
+  const nomNoeud = useCallback(
+    (id: string) => snapshot.nodes.find((n) => n.id === id)?.name ?? id,
+    [snapshot.nodes],
+  );
+
   const activite = missionsFiltrees(tasksLive, filtre);
   const reqs = poste?.requisitions ?? [];
 
@@ -509,6 +532,12 @@ export default function Chambre({
                   {' — '}
                   {r.libelle}
                   {r.detail ? <span className="muted-text"> · {r.detail}</span> : null}
+                  {typeof r.expiresAt === 'number' ? (
+                    <span className="ch-req-echeance" data-testid="ch-req-echeance">
+                      {' '}
+                      ⏳ {resteEcheance(r.expiresAt, langCode)}
+                    </span>
+                  ) : null}
                 </span>
                 <span className="ch-req-actions">
                   <button
@@ -577,6 +606,15 @@ export default function Chambre({
                             }
                           } else if (suite.action === 'hint_binaire') {
                             setStatusHitl(messageAccordBinaire(r.libelle, langCode));
+                          } else if (suite.action === 'relais_noeud') {
+                            // Action (G12) : le POST repondre a déjà relayé la
+                            // décision au Worker suspendu — on le dit.
+                            setStatusHitl(
+                              t(
+                                'Accordée — décision relayée à l’ouvrière',
+                                'Granted — decision relayed to the worker',
+                              ),
+                            );
                           } else {
                             setStatusHitl(t('Accordée', 'Granted'));
                           }
@@ -619,6 +657,19 @@ export default function Chambre({
           </ul>
         </div>
       )}
+
+      {/* La fiche du Worker : QUI IL EST devenu (FicheWorker.tsx). Clé sur le
+          nœud : passer d'une Chambre à l'autre ne montre jamais, même un
+          instant, la fiche de l'ouvrière précédente. */}
+      <FicheWorker
+        key={nodeId}
+        nodeId={nodeId}
+        node={snapshot.nodes.find((n) => n.id === nodeId)}
+        refreshTick={refreshTick}
+        onOpenTask={onOpenTask}
+        onNavigate={onNavigate}
+        nomNoeud={nomNoeud}
+      />
 
       <div className="ch-grid">
         <aside className="ch-zone ch-identite" aria-label={t('Identité', 'Identity')}>
@@ -870,7 +921,7 @@ export default function Chambre({
                       </p>
                     ) : null}
                     {fournisseursCle === null ? (
-                      <p className="ch-silence">{t('Chargement…', 'Loading…')}</p>
+                      <Skeleton lignes={2} />
                     ) : (
                       <ul className="ch-cles-list">
                         {fournisseursCle.map((f) => {
@@ -1122,7 +1173,7 @@ export default function Chambre({
                         {errMotifs ? ` · ${errMotifs}` : ''}
                       </p>
                     ) : motifs === null ? (
-                      <p className="ch-silence">{t('Chargement…', 'Loading…')}</p>
+                      <Skeleton lignes={2} />
                     ) : motifs.length === 0 ? (
                       <p className="ch-silence">{t('Catalogue vide.', 'Empty catalogue.')}</p>
                     ) : (
@@ -1404,7 +1455,7 @@ export default function Chambre({
               </div>
             </>
           ) : (
-            <p className="ch-silence">{t('Chargement…', 'Loading…')}</p>
+            <Skeleton lignes={2} />
           )}
         </aside>
 

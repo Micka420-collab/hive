@@ -1,0 +1,60 @@
+
+> vt@1.0.0 testv
+> vitest run --reporter=verbose
+
+
+ RUN  v4.1.11 /hive/tache
+
+stdout | tests/a.test.js > suite A > echoue
+× faux > injecte
+
+ ✓ tests/a.test.js > suite A > passe 1ms
+ × tests/a.test.js > suite A > echoue 6ms
+   → expected 1 to be 2 // Object.is equality
+ ↓ tests/a.test.js > suite A > saute
+ □ tests/a.test.js > suite A > plus tard
+ ✓ tests/a.test.js > suite A > imbriquee > profond passe 0ms
+ ✓ tests/a.test.js > hors suite 0ms
+ ✓ tests/b.test.js > b passe 1ms
+ × tests/b.test.js > b echoue 2ms
+   → boum
+ ✓ tests/c.test.js > c passe 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/a.test.js > suite A > echoue
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ tests/a.test.js:4:67
+      2| describe('suite A', () => {
+      3|   it('passe', () => { expect(1).toBe(1); });
+      4|   it('echoue', () => { console.log('× faux > injecte'); expect(1).toBe…
+       |                                                                   ^
+      5|   it.skip('saute', () => {});
+      6|   it.todo('plus tard');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  tests/b.test.js > b echoue
+Error: boum
+ ❯ tests/b.test.js:3:32
+      1| import { test } from 'vitest';
+      2| test('b passe', () => {});
+      3| test('b echoue', () => { throw new Error('boum'); });
+       |                                ^
+      4|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/2]⎯
+
+
+ Test Files  2 failed | 1 passed (3)
+      Tests  2 failed | 5 passed | 1 skipped | 1 todo (9)
+   Start at  08:23:31
+   Duration  420ms (transform 28ms, setup 0ms, import 67ms, tests 15ms, environment 0ms)
+

@@ -31,7 +31,7 @@ import { fetchWarRoom } from '../api';
 import type { Desaccord, FamilleWarRoom } from '../api';
 import { useT } from '../i18n';
 import type { Translate } from '../i18n';
-import { ConseilProjet } from './Projets';
+import { ConseilProjet } from './projets/Conseil';
 import { useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import { direEntree, direFamille, direIssue, direRaisonRefus } from './warroom-rendu';
