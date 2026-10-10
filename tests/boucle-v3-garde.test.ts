@@ -270,6 +270,9 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['tests/configuration-initiale.test.ts', 'securite'],
     ['tests/sortie-directe-ruche.test.ts', 'securite'],
     ['tests/isolement-couverture.test.ts', 'securite'],
+    // La fenêtre de décision de la Chambre (G12) lue sur ces horloges : une
+    // pause ne fait plus refuser une action pour « budget épuisé ».
+    ['tests/fenetre-decision.test.ts', 'securite'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');

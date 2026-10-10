@@ -33,7 +33,10 @@ export interface HorlogeMinuteur {
 }
 
 const HORLOGE_REELLE: HorlogeMinuteur = {
-  maintenant: () => Date.now(),
+  // L'horloge MONOTONE, celle où tire `setTimeout` : ce qui reste se mesure sur
+  // la même que le tir. En temps mur, une veille, une VM reprise ou un pas de
+  // NTP faisaient lire « épuisé » un délai qui courait encore — ou l'inverse.
+  maintenant: () => performance.now(),
   armer: (fn, ms) => {
     const m = setTimeout(fn, ms);
     // Un délai de garde ne retient pas le processus : un nœud qui s'arrête
