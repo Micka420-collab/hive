@@ -146,6 +146,13 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   },
   {
     categorie: 'securite',
+    motif:
+      /^src\/(node-client|shared)\/cache-dependances\.ts$|^tests\/cache-dependances[^/]*\.test\.ts$/,
+    pourquoi:
+      'le magasin de dépendances des validations (G18) et ses bancs : peuplé depuis la seule base vérifiée, jamais monté, restauré par copie, éligible au plus strict — l’affaiblir laisserait une production empoisonner les dépendances des tentatives suivantes, un lien du magasin sortir de la tâche, ou un verdict dépendre du cache',
+  },
+  {
+    categorie: 'securite',
     motif: /^src\/adapters\/security\//,
     pourquoi: 'les protections des adaptateurs d’agents',
   },

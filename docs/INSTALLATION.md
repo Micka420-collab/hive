@@ -827,6 +827,20 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
   calcul du diff (il n'y entre donc jamais), et effacé dès que la porte a
   jugé ; un nœud tué à ce moment-là le laisse, et il part avec la tâche. Rien
   n'est écrit dans `$TMPDIR` : les outils reçoivent le `TEMP` de la tâche.
+- `<installation>/.hive-work/<nœud>/dependances/<projet>/<clé>` : le
+  **magasin de dépendances** des validations du bac — une copie du
+  `node_modules` qu'un `npm ci` a produit à la BASE d'un projet, une entrée par
+  projet et par lockfile, restaurée par copie dans chaque tâche et chaque
+  rejeu qui la demandent, au lieu d'un nouveau `npm ci`. Seul un projet sans
+  script d'installation — ni à sa racine, ni dans une de ses dépendances
+  (`hasInstallScript` au lockfile : esbuild, sharp…) — y a droit : un tel
+  script peut lire le projet, et son résultat ne vaudrait que pour lui. Un
+  paquet optionnel que npm n'installe pas dans le bac (`fsevents` sous Linux)
+  ne compte pas.
+  L'installation se fait dans
+  `<installation>/.hive-work/<nœud>/tasks/<task-id>.deps`, effacé aussitôt.
+  Le supprimer ne perd rien : le prochain besoin réinstalle. Il n'a pas encore
+  de rétention : chaque nouveau lockfile y ajoute une entrée.
 - **un dépôt privé par SSH** (`git@hôte:…`) : le nœud clone — et, pour une
   livraison locale, liste et pousse — en mode lot
   (`ssh -o BatchMode=yes`), sans jamais attendre une invite. La clé d'hôte

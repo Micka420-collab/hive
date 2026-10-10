@@ -296,6 +296,14 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['tests/fixtures/avis-structure/claude-relecture.stream.jsonl', 'permissions'],
     ['tests/fixtures/avis-structure/claude-deux-avis.stream.jsonl', 'permissions'],
     ['tests/fixtures/texte-final/claude-relecture.stream.jsonl', 'permissions'],
+    // G18 — le magasin de dépendances des validations : peuplé depuis la seule
+    // base vérifiée, restauré par copie. Ses deux moitiés et chacun de ses
+    // bancs, NOMMÉS : retirés du motif, ils passeraient sinon.
+    ['src/shared/cache-dependances.ts', 'securite'],
+    ['src/node-client/cache-dependances.ts', 'securite'],
+    ['tests/cache-dependances.test.ts', 'securite'],
+    ['tests/cache-dependances-noeud.test.ts', 'securite'],
+    ['tests/cache-dependances-bac.test.ts', 'securite'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');
