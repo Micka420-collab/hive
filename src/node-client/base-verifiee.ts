@@ -198,9 +198,7 @@ function entreeDArbre(
 }
 
 /** Ce qu'une entrée finale est, une fois le chemin vérifié. */
-type EntreeFinale =
-  | { genre: 'fichier'; oid: string }
-  | { genre: 'absent' }; // n'existe pas, ou n'est pas un fichier ordinaire
+type EntreeFinale = { genre: 'fichier'; oid: string } | { genre: 'absent' }; // n'existe pas, ou n'est pas un fichier ordinaire
 
 /**
  * Navigue de `baseSha` jusqu'à l'entrée de `fichier`, en VÉRIFIANT chaque objet

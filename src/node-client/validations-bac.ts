@@ -394,7 +394,10 @@ async function arbreLivre(
  * pourquoi, déjà caviardée. Partagé avec le contrôle « livré == jugé »
  * (`client.ts`), qui court-circuite la porte ET les validations.
  */
-export function validationsBaseFalsifiee(baseSha: string | undefined, sortie: string): ValidationsBac {
+export function validationsBaseFalsifiee(
+  baseSha: string | undefined,
+  sortie: string,
+): ValidationsBac {
   const controles = {} as Record<ValidationKey, ControleBac>;
   for (const cle of VALIDATION_KEYS) {
     controles[cle] = { etat: 'missing', raison: 'base_falsifiee', ...extraitDe(sortie) };
@@ -447,7 +450,9 @@ export async function validerProduction(opts: OptionsValidation): Promise<Valida
     // d'un manifeste forgé, et aucune validation ne passe — la raison le dit,
     // caviardée comme tout ce qui part au hub.
     if (!(err instanceof BaseFalsifiee)) throw err;
-    return rapport(validationsBaseFalsifiee(undefined, opts.caviarder?.(err.message) ?? err.message).controles);
+    return rapport(
+      validationsBaseFalsifiee(undefined, opts.caviarder?.(err.message) ?? err.message).controles,
+    );
   }
   const produit = fichierDeTravail(cwd, 'package.json');
   const plan = planDeValidation(scriptsDe(manifeste(base)), scriptsDe(manifeste(produit)));

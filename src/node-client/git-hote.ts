@@ -430,7 +430,8 @@ export async function verifierLivreContreBase(
   const echeance = Date.now() + delaiMs;
   const reste = (): { delaiMs: number } => {
     const ms = echeance - Date.now();
-    if (ms <= 0) throw new Error(`vérification abandonnée au-delà de ${Math.round(delaiMs / 1000)} s`);
+    if (ms <= 0)
+      throw new Error(`vérification abandonnée au-delà de ${Math.round(delaiMs / 1000)} s`);
     return { delaiMs: ms };
   };
   await effacerDossier(dossier);
@@ -445,13 +446,26 @@ export async function verifierLivreContreBase(
   // libres), le `fetch` ÉCHOUE — et c'est précisément là que `git diff` aurait
   // lu le forgé : base non récupérable intègre = falsifiée.
   try {
-    await gitHote(['fetch', '-q', '--no-tags', '--depth=1', '--', depot.gitDir, base], recu, reste());
+    await gitHote(
+      ['fetch', '-q', '--no-tags', '--depth=1', '--', depot.gitDir, base],
+      recu,
+      reste(),
+    );
   } catch (e) {
     if (e instanceof EchecGitHote && e.delaiDepasse) throw e; // un délai n'est pas un verdict
-    return { etat: 'falsifie', cause: `base non récupérable intègre (${e instanceof Error ? e.message : String(e)})` };
+    return {
+      etat: 'falsifie',
+      cause: `base non récupérable intègre (${e instanceof Error ? e.message : String(e)})`,
+    };
   }
-  const tete = (await gitHote(['rev-parse', '--verify', '-q', 'FETCH_HEAD^{commit}'], recu, reste())).trim();
-  if (tete !== base) return { etat: 'falsifie', cause: `commit de base reçu ${tete.slice(0, 12)}, attendu ${base.slice(0, 12)}` };
+  const tete = (
+    await gitHote(['rev-parse', '--verify', '-q', 'FETCH_HEAD^{commit}'], recu, reste())
+  ).trim();
+  if (tete !== base)
+    return {
+      etat: 'falsifie',
+      cause: `commit de base reçu ${tete.slice(0, 12)}, attendu ${base.slice(0, 12)}`,
+    };
   // L'index reflète la VRAIE base, sans écrire l'arbre de travail (`--cached`).
   await gitHote(['read-tree', base], recu, reste());
   const patch = path.join(dossier, 'livre.diff');
@@ -459,7 +473,11 @@ export async function verifierLivreContreBase(
   try {
     // `--cached` : applique à l'index (niveau blob), aucun filtre d'arbre de
     // travail, aucun code exécuté. `--allow-empty` : un diff vide est conforme.
-    await gitHote(['apply', '--cached', '--allow-empty', '--whitespace=nowarn', patch], recu, reste());
+    await gitHote(
+      ['apply', '--cached', '--allow-empty', '--whitespace=nowarn', patch],
+      recu,
+      reste(),
+    );
   } catch (e) {
     const brut = e instanceof Error ? e.message : String(e);
     // Un diff binaire/sous-module ne s'applique pas (git diff ne le porte pas
@@ -469,12 +487,18 @@ export async function verifierLivreContreBase(
     }
     // Un diff qui ne s'applique PAS sur la vraie base n'a pas été calculé contre
     // elle : la base lue par le registre était forgée.
-    return { etat: 'falsifie', cause: `le diff livré ne s'applique pas sur la base vérifiée (${brut})` };
+    return {
+      etat: 'falsifie',
+      cause: `le diff livré ne s'applique pas sur la base vérifiée (${brut})`,
+    };
   }
   const arbre = (await gitHote(['write-tree'], recu, reste())).trim();
   return arbre === arbreJuge
     ? { etat: 'conforme' }
-    : { etat: 'falsifie', cause: `l'arbre livré ${arbre.slice(0, 12)} diffère de l'arbre jugé ${arbreJuge.slice(0, 12)}` };
+    : {
+        etat: 'falsifie',
+        cause: `l'arbre livré ${arbre.slice(0, 12)} diffère de l'arbre jugé ${arbreJuge.slice(0, 12)}`,
+      };
 }
 
 /**
