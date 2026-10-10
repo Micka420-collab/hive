@@ -28,6 +28,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 import { CLONE_MS } from '../shared/butoirs-noeud.js';
+import { dureeCourte } from '../shared/duree-courte.js';
 import { effacerDossier } from '../shared/effacement.js';
 import type { Task } from '../shared/types.js';
 import { segmentSur } from '../shared/noms-windows.js';
@@ -80,6 +81,34 @@ export interface Workspace {
   diffEnCours(): Promise<string>;
   /** Supprime le répertoire de la tâche (et ce qui vit à côté : TEMP, registre, réserve). */
   cleanup(): Promise<void>;
+  /** Ce que la préparation a coûté, phase par phase (`ligneEspacePret`). */
+  durees: DureesEspace;
+}
+
+/**
+ * Les phases de la préparation d'un espace (G18), dans leur ordre :
+ * l'effacement de la tentative précédente ; le clone et sa branche ; le
+ * registre de la ruche, avec la configuration d'agent écartée. Sans dépôt,
+ * seul l'effacement a lieu.
+ */
+export type PhaseEspace = 'effacement' | 'clone' | 'registre';
+
+/** Ce qu'a coûté la préparation d'un espace, phase par phase et en tout (ms). */
+export interface DureesEspace {
+  totalMs: number;
+  phases: Readonly<Partial<Record<PhaseEspace, number>>>;
+}
+
+/**
+ * La ligne de progrès de l'espace prêt — MESURÉE, pas estimée : c'est ce que
+ * le miroir et le magasin de dépendances de G18 ont à battre, tentative après
+ * tentative, et ce que l'opérateur lit quand une tâche tarde à démarrer.
+ */
+export function ligneEspacePret(d: DureesEspace): string {
+  const phases = (['effacement', 'clone', 'registre'] as const)
+    .filter((p) => d.phases[p] !== undefined)
+    .map((p) => `${p} ${dureeCourte(d.phases[p] ?? 0)}`);
+  return `espace de travail prêt en ${dureeCourte(d.totalMs)} (${phases.join(' · ')})`;
 }
 
 /**
@@ -333,6 +362,15 @@ export async function prepareWorkspace(
   if (cwd !== tasksRoot && !cwd.startsWith(tasksRoot + path.sep)) {
     throw new Error(`chemin de tâche hors du répertoire de travail : ${task.id}`);
   }
+  // Chaque phase finit où commence la suivante (`DureesEspace`).
+  const debut = performance.now();
+  let depuis = debut;
+  const phases: Partial<Record<PhaseEspace, number>> = {};
+  const finDePhase = (phase: PhaseEspace): void => {
+    const maintenant = performance.now();
+    phases[phase] = Math.round(maintenant - depuis);
+    depuis = maintenant;
+  };
   // Le REGISTRE de la ruche (`git-hote.ts`) : le git dir que l'hôte lit, À
   // CÔTÉ de la tâche comme son TEMP — hors de ce que le bac monte.
   const registre = `${cwd}.git`;
@@ -345,6 +383,7 @@ export async function prepareWorkspace(
   });
   await effacerRejeux(cwd);
   mkdirSync(cwd, { recursive: true });
+  finDePhase('effacement');
 
   let branch: string | null = null;
   let baseSha: string | null = null;
@@ -375,12 +414,14 @@ export async function prepareWorkspace(
       branch = task.branch ?? `hive/${task.id}`;
       await gitHote(['checkout', '-q', '-b', branch], depotDuClone);
     }
+    finDePhase('clone');
     baseSha = await commitDeDepart(depotDuClone);
     depot = await poserRegistre(cwd, registre, baseSha);
     // APRÈS le registre, qui copie index et configuration sans l'extraction
     // clairsemée ; AVANT l'agent, tant que le `.git` de la tâche n'a été écrit
     // que par git.
     ecartee = await ecarterConfiguration(depotDuClone, configurationAgent);
+    finDePhase('registre');
   }
 
   const env = buildSandboxEnv(cwd, keepEnv);
@@ -391,6 +432,7 @@ export async function prepareWorkspace(
     baseSha,
     depot,
     env,
+    durees: { totalMs: Math.round(performance.now() - debut), phases },
     configurationEcartee: ecartee?.chemins ?? [],
     async collectDiff(): Promise<string> {
       ecartee?.remettre();
