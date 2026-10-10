@@ -238,12 +238,11 @@ export class PiloteExecution implements PiloteProcessus {
   }
 
   minuteur(delaiMs: number, declencher: () => void): MinuteurSuspendable {
-    let m: MinuteurSuspendable | null = null;
-    m = creerMinuteurSuspendable(delaiMs, () => {
-      if (m) this.minuteurs.delete(m);
-      declencher();
-    });
-    const suivi = m;
+    // Tiré, il reste suivi — et rend 0 — jusqu'à son `annuler`, que ses
+    // porteurs appellent toujours (`exec.ts` à la fin de l'arbre, `client.ts`
+    // en fin de tâche) : un run dont une horloge a tiré est coupé, et
+    // `restant` doit le dire, pas répondre « aucune horloge ».
+    const suivi = creerMinuteurSuspendable(delaiMs, declencher);
     // Né pendant une pause (un budget armé après coup) : il attend la reprise.
     if (this.pause) suivi.suspendre();
     this.minuteurs.add(suivi);
@@ -261,7 +260,8 @@ export class PiloteExecution implements PiloteProcessus {
   /**
    * Le temps qui reste au run avant que la première de ses horloges ne le
    * coupe — délai dur de l'agent, budget d'un enfant délégué —, lu MAINTENANT :
-   * une pause n'en consomme rien. `null` : le pilote n'en tient aucune.
+   * une pause n'en consomme rien ; une horloge qui a tiré compte 0. `null` :
+   * le pilote n'en tient aucune.
    */
   restant(): number | null {
     const restes = [...this.minuteurs].map((m) => m.restant());
