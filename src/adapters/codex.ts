@@ -415,10 +415,12 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
         // Le bilan « rien n'a pu s'écrire » ne vaut que sous le bac de Codex
         // en écriture : dans le bac de Hive il n'y en a pas, et une relecture
         // n'écrit pas.
+        const pilote = ctx.pilote;
         const flux = createLecteurFluxCodex({
           bacCodexEnEcriture: execution.sandbox === 'workspace-write',
           // La vigie (G13) : un arrêt EN VOL part au nœud, qui seul arrête.
           surArret: (arret) => ctx.onProgress({ arret }),
+          ...(pilote ? { tempsCouru: () => pilote.tempsCouru() } : {}),
         });
         const result = await runCommandFlux(
           'codex',

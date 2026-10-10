@@ -320,12 +320,22 @@ const TENTATIVE_REFAITE = 'Reconnecting...';
  *
  * `bacCodexEnEcriture` : Codex tourne sous son propre bac, en écriture
  * (`--sandbox workspace-write`) — seul cas où `rienNAPuSEcrire` a un sens.
+ *
+ * `tempsCouru` : l'horloge de la vigie, le temps que le run a couru
+ * (`PiloteProcessus.tempsCouru`) — son attente du réseau, une part du délai
+ * dur, ne compte ni une pause ni un saut du temps mur. Codex ne déclare aucune
+ * remise à zéro (`limite`, une heure) : elle ne sert qu'à cette durée.
  */
 export function createLecteurFluxCodex(
-  opts: { bacCodexEnEcriture?: boolean; surArret?: (arret: ArretVigie) => void } = {},
+  opts: {
+    bacCodexEnEcriture?: boolean;
+    surArret?: (arret: ArretVigie) => void;
+    tempsCouru?: () => number;
+  } = {},
 ): LecteurFluxCodex {
   /** La vigie du flux (G13) : `surArret` reçoit un arrêt EN VOL — jamais l'issue finale. */
   const vigie = createVigie();
+  const tempsCouru = opts.tempsCouru ?? (() => performance.now());
   /** Le dernier message de l'agent, pas encore une réponse : le tour court. */
   let dernierMessage: string | undefined;
   let reponse: string | undefined;
@@ -439,7 +449,7 @@ export function createLecteurFluxCodex(
     // reste rendue par `arret()`.
     try {
       for (const evenement of evenementsCodex(e)) {
-        const arret = vigie.observer(evenement, Date.now());
+        const arret = vigie.observer(evenement, tempsCouru());
         if (arret) opts.surArret?.(arret);
       }
     } catch {

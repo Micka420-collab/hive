@@ -36,7 +36,8 @@
 // Ce qui reste au run se lit donc sur ces horloges (`restant`), jamais sur
 // une échéance en temps mur posée au départ : après une pause, celle-ci
 // refusait une décision de la Chambre pour « budget épuisé » à un run qui
-// avait encore tout son temps.
+// avait encore tout son temps. Et ce que le run a couru, sur `tempsCouru` :
+// en temps mur, la vigie (G13) prenait une pause pour une attente du réseau.
 //
 // ─── UNE PAUSE N'EMPÊCHE JAMAIS UN ARRÊT ─────────────────────────────────────
 //
@@ -111,12 +112,19 @@ export interface ProcessusAttache {
 
 /**
  * La face du pilote que voit un adaptateur (`AdapterContext.pilote`) : attacher
- * son processus, et armer un délai qui se suspend avec lui.
+ * son processus, armer un délai qui se suspend avec lui, et lire le temps que
+ * le run a couru.
  */
 export interface PiloteProcessus {
   /** Rend la fonction qui détache le processus (à sa sortie). */
   attacher(p: ProcessusAttache): () => void;
   minuteur(delaiMs: number, declencher: () => void): MinuteurSuspendable;
+  /**
+   * Le temps que le run a COURU (ms), sur l'horloge monotone des minuteurs :
+   * une pause n'y compte pas. Une durée du run se mesure là — en temps mur,
+   * une pause la gonflait.
+   */
+  tempsCouru(): number;
 }
 
 /** Ce que le pilote demande au système — injectable pour les bancs. */
@@ -177,6 +185,10 @@ export class PiloteExecution implements PiloteProcessus {
   /** Tout ce qui a été attaché, dans l'ordre : le bilan les additionne. */
   private readonly passages: Attache[] = [];
   private pause = false;
+  /** Le temps couru se lit sur ces trois instants (`tempsCouru`), monotones. */
+  private readonly depart = performance.now();
+  private pauseDepuis = 0;
+  private pausesMs = 0;
   /** Les pid arrêtés par SIGSTOP : exactement ceux que la reprise doit relancer. */
   private readonly arretes = new Set<number>();
   private readonly minuteurs = new Set<MinuteurSuspendable>();
@@ -268,6 +280,27 @@ export class PiloteExecution implements PiloteProcessus {
     return restes.length > 0 ? Math.min(...restes) : null;
   }
 
+  tempsCouru(): number {
+    // En pause, le temps couru s'est arrêté à son début : exactement figé.
+    const fin = this.pause ? this.pauseDepuis : performance.now();
+    return fin - this.depart - this.pausesMs;
+  }
+
+  /** La pause commence : les horloges du run s'arrêtent avec l'agent. */
+  private gelerHorloges(): void {
+    this.pause = true;
+    this.pauseDepuis = performance.now();
+    for (const m of this.minuteurs) m.suspendre();
+  }
+
+  /** La pause finit — reprise, arrêt ou sortie de l'agent : ses horloges repartent. */
+  private relancerHorloges(): void {
+    if (!this.pause) return;
+    this.pause = false;
+    this.pausesMs += performance.now() - this.pauseDepuis;
+    for (const m of this.minuteurs) m.reprendre();
+  }
+
   attacher(p: ProcessusAttache): () => void {
     if (this.ferme) return () => undefined;
     this.detacher();
@@ -303,8 +336,7 @@ export class PiloteExecution implements PiloteProcessus {
     if (this.pause && a.p.conteneur) void this.gesteMoteur(a.p.conteneur, 'unpause');
     // Sorti pendant une pause (tué par un tiers) : le budget, lui, court encore
     // pour la suite de la tâche — validations comprises.
-    if (this.pause) for (const m of this.minuteurs) m.reprendre();
-    this.pause = false;
+    this.relancerHorloges();
     this.emettre({ pausable: false, enPause: false, metriques: null });
   }
 
@@ -458,10 +490,7 @@ export class PiloteExecution implements PiloteProcessus {
         else this.relancerArbre();
         return false;
       }
-      if (ok) {
-        this.pause = true;
-        for (const m of this.minuteurs) m.suspendre();
-      }
+      if (ok) this.gelerHorloges();
       this.emettre({ enPause: this.pause });
       return ok;
     });
@@ -475,10 +504,7 @@ export class PiloteExecution implements PiloteProcessus {
       const ok = a.p.conteneur
         ? await this.gesteMoteur(a.p.conteneur, 'unpause')
         : this.relancerArbre();
-      if (ok) {
-        this.pause = false;
-        for (const m of this.minuteurs) m.reprendre();
-      }
+      if (ok) this.relancerHorloges();
       if (this.attache === a) this.emettre({ enPause: this.pause });
       return ok;
     });
@@ -555,8 +581,7 @@ export class PiloteExecution implements PiloteProcessus {
     if (a && this.pause) {
       if (a.p.conteneur) reveil = this.gesteMoteur(a.p.conteneur, 'unpause');
       else this.relancerArbre();
-      this.pause = false;
-      for (const m of this.minuteurs) m.reprendre();
+      this.relancerHorloges();
     }
     if (a && !dejaArrete) this.emettre({ pausable: false, enPause: false });
     return Promise.all([reveil, this.enchainer(() => Promise.resolve())]).then(() => undefined);

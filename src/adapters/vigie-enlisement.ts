@@ -94,7 +94,9 @@ export const OSCILLATION_ENLISEMENT = 6;
  * responses_retry.rs, rust-v0.156.0), bornée par Hive en DURÉE depuis la
  * première relance sans réponse : 10 min, les deux tiers du délai dur de
  * l'adaptateur (15 min) — une panne du réseau plus longue ne laisse plus à la
- * tentative le temps de produire, un autre nœud peut la prendre. Bien au-delà
+ * tentative le temps de produire, un autre nœud peut la prendre. Comptée,
+ * comme ce délai, en temps COURU par le run (l'horloge que `flux-codex.ts`
+ * passe à `observer`) : une pause ne l'entame pas. Bien au-delà
  * de toute relance que le CLI borne lui-même : dix relances de Claude Code ont
  * duré 183 et 217 s (enregistrées), cinq de Codex 29 s.
  */

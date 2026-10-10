@@ -281,6 +281,8 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['tests/vigie-enlisement.test.ts', 'permissions'],
     ['tests/vigie-reine.test.ts', 'permissions'],
     ['tests/enlisement-bout-en-bout.test.ts', 'permissions'],
+    // Son horloge : le temps couru du run — une pause n'est pas une attente du réseau.
+    ['tests/vigie-pause.test.ts', 'permissions'],
     ['tests/fixtures/enlisement/claude-529.stream.jsonl', 'permissions'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
