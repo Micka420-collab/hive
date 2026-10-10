@@ -270,6 +270,10 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['tests/configuration-initiale.test.ts', 'securite'],
     ['tests/sortie-directe-ruche.test.ts', 'securite'],
     ['tests/isolement-couverture.test.ts', 'securite'],
+    // Le banc du bac sur les vrais moteurs (Docker, Podman, bubblewrap) : l'agent
+    // dans le seul espace de travail, sans rien de l'hôte ; et les validations en
+    // conteneur qui installent les devDependencies du projet (#569).
+    ['tests/isolement-runtime.integration.test.ts', 'securite'],
     // La fenêtre de décision de la Chambre (G12) lue sur ces horloges : une
     // pause ne fait plus refuser une action pour « budget épuisé ».
     ['tests/fenetre-decision.test.ts', 'securite'],

@@ -141,8 +141,9 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   {
     categorie: 'securite',
     motif:
-      /^src\/node-client\/(isolement|bac|validations-bac)\.ts$|^src\/shared\/validations-bac\.ts$/,
-    pourquoi: 'le bac à sable des agents et les commandes qu’il lance',
+      /^src\/node-client\/(isolement|bac|validations-bac)\.ts$|^src\/shared\/validations-bac\.ts$|^tests\/isolement-runtime\.integration\.test\.ts$/,
+    pourquoi:
+      'le bac à sable des agents et les commandes qu’il lance — et son banc sur les vrais moteurs (Docker, Podman, bubblewrap) : l’agent dans le seul espace de travail, sans rien de l’hôte, et des validations en conteneur qui installent ce que les tests du projet exigent',
   },
   {
     categorie: 'securite',
