@@ -12,17 +12,18 @@
  * quand la durée croît — un chiffre après la virgule sous dix secondes, aucun
  * au-delà, et des minutes dès qu'il y en a.
  *
- * Les minutes se découpent dans les secondes ARRONDIES : arrondir le reste
- * après coup rendait « 1 min 60 s » pour 119,6 s.
+ * L'unité suit la valeur AFFICHÉE, arrondie d'abord : 9,96 s se lit déjà
+ * « 10 s » (jamais « 10,0 s »), 59,6 s « 1 min » (jamais « 60 s »), et les
+ * minutes se découpent dans les secondes arrondies (jamais « 1 min 60 s »).
  *
  * La virgule est décimale : c'est un installeur en français.
  */
 export function dureeCourte(ms: number): string {
   if (!Number.isFinite(ms) || ms < 0) return '';
-  const s = ms / 1000;
-  if (s < 10) return `${s.toFixed(1).replace('.', ',')} s`;
-  if (s < 60) return `${String(Math.round(s))} s`;
-  const secondes = Math.round(s);
+  const dixiemes = Math.round(ms / 100);
+  if (dixiemes < 100) return `${(dixiemes / 10).toFixed(1).replace('.', ',')} s`;
+  const secondes = Math.round(ms / 1000);
+  if (secondes < 60) return `${String(secondes)} s`;
   const min = Math.floor(secondes / 60);
   const reste = secondes - min * 60;
   return reste === 0 ? `${String(min)} min` : `${String(min)} min ${String(reste)} s`;
