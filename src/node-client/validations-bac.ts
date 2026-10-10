@@ -39,9 +39,10 @@
 //     lockfile, rien ne peut être reconstruit à l'identique : `missing`.
 //     Quand le projet y est éligible, l'installation vient du MAGASIN du nœud
 //     (`cache-dependances.ts`, G18) : le `node_modules` que le même `npm ci`
-//     a produit À LA BASE vérifiée, COPIÉ dans l'arbre — jamais celui qu'une
-//     production a eu entre les mains (voir plus bas), jamais monté. À la
-//     moindre anomalie, l'arbre s'installe, comme avant.
+//     a produit À LA BASE vérifiée — reçu tel quel par l'arbre qui l'a fait
+//     produire, COPIÉ dans les suivants —, jamais celui qu'une production a eu
+//     entre les mains (voir plus bas), jamais monté. À la moindre anomalie,
+//     l'arbre s'installe, comme avant.
 //
 // ─── LES TESTS EN ÉCHEC, COMPARÉS À LA BASE REJOUÉE (G11b) ───────────────────
 //
@@ -154,7 +155,7 @@ import { direHorsMagasin } from '../shared/cache-dependances.js';
 import type { EntreesNpm } from '../shared/cache-dependances.js';
 import { BaseFalsifiee, lireFichierDeBaseVerifie } from './base-verifiee.js';
 import { depuisLeMagasin, lireEntreesDeBase } from './cache-dependances.js';
-import type { MagasinDependances } from './cache-dependances.js';
+import type { MagasinDependances, SondeDuBac } from './cache-dependances.js';
 import { DELAI_EXTRACTION_MS, extraireBase, extraireLivre, figerArbreLivre } from './git-hote.js';
 import { MONTAGE } from './isolement.js';
 import type { BacExecution } from './isolement.js';
@@ -481,6 +482,8 @@ type PreparerDependances = (
 const NOTE_MAGASIN = {
   restaure: 'dépendances restaurées du magasin du nœud',
   peuple: 'dépendances installées à la base, rangées au magasin du nœud',
+  installe: 'dépendances installées à la base, pas gardées au magasin du nœud',
+  echec: 'installation lancée à la base, pour le magasin du nœud',
 } as const;
 
 async function lancerLePlan(
@@ -537,9 +540,11 @@ async function lancerLePlan(
   // Les dépendances d'un arbre — la tâche, ou un côté rejoué à part (G11b) —
   // depuis le magasin du nœud quand il sert (`cache-dependances.ts`, G18),
   // sinon par l'installation déclarée, comme avant. UNE échéance couvre tout,
-  // repli compris : `DELAI_PREPARATION_MS`, celle d'avant.
+  // repli compris : `DELAI_PREPARATION_MS`, celle d'avant. La base et la sonde
+  // du bac se lisent une fois pour la tâche et ses rejeux.
   const base = depot;
   let entreesDeBase: Promise<EntreesNpm> | null = null;
+  const sondeDuBac: SondeDuBac = {};
   const dependances: PreparerDependances = async (ou, preparation) => {
     const echeance = Date.now() + DELAI_PREPARATION_MS;
     const issue = opts.magasin
@@ -552,15 +557,23 @@ async function lancerLePlan(
           argv: preparation,
           bac,
           npm: sonde.output.trim(),
+          sonde: sondeDuBac,
           lancer: executer,
           echeance,
+          ...(opts.signal ? { signal: opts.signal } : {}),
         })
       : null;
-    if (issue && issue.genre !== 'hors_magasin') {
+    if (issue?.genre === 'restaure') return { code: 0, output: '', note: NOTE_MAGASIN.restaure };
+    if (issue?.genre === 'peuple') {
       // La rétention a peut-être fait de la place (G18 D) : elle se dit aussi.
-      const evincees = issue.genre === 'peuple' ? issue.evincees : 0;
-      const note = `${NOTE_MAGASIN[issue.genre]}${evincees > 0 ? ` (${evincees} entrée(s) évincée(s))` : ''}`;
-      return { code: 0, output: '', note };
+      const evincees = issue.evincees > 0 ? ` (${issue.evincees} entrée(s) évincée(s))` : '';
+      return { code: 0, output: '', note: `${NOTE_MAGASIN.peuple}${evincees}` };
+    }
+    // L'installation de la base EST celle de l'arbre : ni second essai, ni second `npm ci`.
+    if (issue?.genre === 'echec') return { ...issue.installation, note: NOTE_MAGASIN.echec };
+    if (issue?.genre === 'installe') {
+      const pourquoi = direHorsMagasin(issue.raison, issue.detail);
+      return { code: 0, output: '', note: caviarder(`${NOTE_MAGASIN.installe} : ${pourquoi}`) };
     }
     const reste = echeance - Date.now();
     const r: Execution =

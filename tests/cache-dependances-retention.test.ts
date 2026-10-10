@@ -85,8 +85,9 @@ function entree(
       version: VERSION_MAGASIN,
       cle,
       fichiers: 1,
-      octets: p.octets ?? 1024,
+      dossiers: 1,
       liens: 0,
+      octets: p.octets ?? 1024,
     }),
   );
   writeFileSync(path.join(dir, 'servie'), '');

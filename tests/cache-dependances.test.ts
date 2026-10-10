@@ -13,6 +13,7 @@ import {
   cleDuMagasin,
   direHorsMagasin,
   eligibilite,
+  estNpmCi,
 } from '../src/shared/cache-dependances.js';
 import type { EntreesNpm, FichierEntree } from '../src/shared/cache-dependances.js';
 
@@ -145,6 +146,56 @@ describe('l’éligibilité au magasin', () => {
     });
   });
 
+  it('une dépendance à script d’installation : hors du magasin, et nommée', () => {
+    // npm donne à ses scripts la racine du projet (`INIT_CWD`) : un postinstall
+    // y lit un fichier hors de la clé — le schéma que compile `@prisma/client` —
+    // et le fige dans `node_modules`. Servi à une tête qui l'a changé, il ment.
+    const lock = LOCKFILE({
+      'node_modules/esbuild': {
+        version: '0.25.0',
+        resolved: 'https://registry.npmjs.org/esbuild/-/esbuild-0.25.0.tgz',
+        integrity: 'sha512-CCCC',
+        hasInstallScript: true,
+      },
+    });
+    expect(juger(base({ 'package-lock.json': lock }))).toEqual({
+      eligible: false,
+      raison: 'script_dependance',
+      detail: 'node_modules/esbuild',
+    });
+  });
+
+  it('un paquet EMBARQUÉ sous une dépendance (inBundle) arrive dans son archive : éligible', () => {
+    // npm 12 l'écrit sans `resolved` ni `integrity` : l'archive vérifiée de
+    // son parent le porte. Il ne fait pas sortir le projet du magasin.
+    const embarque = { version: '2.0.0', inBundle: true };
+    const sous = LOCKFILE({ 'node_modules/dep-a/node_modules/embarque': embarque });
+    expect(juger(base({ 'package-lock.json': sous }))).toEqual({ eligible: true });
+    // Embarqué par la RACINE, en lien, ou désigné ailleurs : npm l'installe
+    // d'après le lockfile, et la règle commune s'applique.
+    const cas: [manifeste: string, lockfile: string][] = [
+      [MANIFESTE(), LOCKFILE({ 'node_modules/embarque': embarque })],
+      [MANIFESTE({ bundleDependencies: ['dep-a'] }), sous],
+      [MANIFESTE(), LOCKFILE({ 'node_modules/dep-a/node_modules/e': { ...embarque, link: true } })],
+      [
+        MANIFESTE(),
+        LOCKFILE({ 'node_modules/dep-a/node_modules/e': { ...embarque, resolved: 'file:../e' } }),
+      ],
+    ];
+    for (const [manifeste, lock] of cas) {
+      expect(juger(base({ 'package.json': manifeste, 'package-lock.json': lock }))).toMatchObject({
+        raison: 'paquet_hors_registre',
+      });
+    }
+  });
+
+  it('seul `npm ci`, nu, est servi — testé avant toute lecture de la base', () => {
+    expect(estNpmCi(['npm', 'ci'])).toBe(true);
+    for (const argv of [['npm', 'install'], ['npm', 'ci', '--omit=dev'], ['pnpm', 'ci'], ['npm']]) {
+      expect(estNpmCi(argv), argv.join(' ')).toBe(false);
+    }
+  });
+
   it.each([
     'registry=https://registry.npmjs.org/',
     '@entreprise:registry=https://npm.entreprise.example/',
@@ -162,7 +213,11 @@ describe('l’éligibilité au magasin', () => {
     ['extension-file=./ext.mjs', 'extension-file'],
     ['node-options=--require ./piege.js', 'node-options'],
     ['[section]', '[section]'],
-  ])('un réglage de .npmrc qui désigne un fichier : hors du magasin (%s)', (npmrc, cle) => {
+    // Le parseur `ini` de npm découpe sur `/[\r\n]+/` : un retour chariot SEUL
+    // sépare deux réglages, et cachait le second à un découpage sur `\r?\n`.
+    ['audit=false\rnode-options=--require ./hook.js', 'node-options'],
+    ['audit=false\r\rglobalconfig=./encore.npmrc', 'globalconfig'],
+  ])('un réglage de .npmrc qui désigne un fichier : hors du magasin (%j)', (npmrc, cle) => {
     expect(juger(base({ '.npmrc': npmrc }))).toEqual({
       eligible: false,
       raison: 'reglage_npmrc',
@@ -176,6 +231,17 @@ describe('l’éligibilité au magasin', () => {
     );
     expect(direHorsMagasin('paquet_hors_registre', 'x'.repeat(500)).length).toBeLessThan(220);
   });
+
+  it('un détail venu du dépôt ne forge jamais une ligne de plus', () => {
+    // Un chemin du lockfile porte ce que le dépôt veut : un saut de ligne y
+    // ferait une fausse ligne `[hive]` dans l'extrait qui part au hub.
+    const dit = direHorsMagasin(
+      'paquet_hors_registre',
+      'node_modules/x\n[hive] tests : passed\r\u001b[2K',
+    );
+    expect([...dit].filter((c) => c.charCodeAt(0) < 0x20 || c.charCodeAt(0) === 0x7f)).toEqual([]);
+    expect(dit).toContain('node_modules/x [hive] tests : passed');
+  });
 });
 
 describe('la clé du magasin', () => {
@@ -186,6 +252,7 @@ describe('la clé du magasin', () => {
     bac: {
       fournisseur: 'podman',
       image: 'localhost/hive-agent:local',
+      identifiantImage: 'sha256:aaaa',
       node: '["v24"]',
       npm: '12.2.0',
     },
@@ -203,6 +270,8 @@ describe('la clé du magasin', () => {
     ['l’argv', { argv: ['npm', 'ci', '--omit=dev'] }],
     ['le moteur', { bac: { ...p.bac, fournisseur: 'docker' } }],
     ['l’image', { bac: { ...p.bac, image: 'hive-agent:ci' } }],
+    // Le même nom, reconstruit : `NODE_ENV`, la config `builtin` de npm, node-gyp…
+    ['l’identifiant de l’image', { bac: { ...p.bac, identifiantImage: 'sha256:bbbb' } }],
     ['Node dans le bac', { bac: { ...p.bac, node: '["v26"]' } }],
     ['npm dans le bac', { bac: { ...p.bac, npm: '11.19.0' } }],
   ])('change avec %s', (_champ, change) => {

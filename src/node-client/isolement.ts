@@ -1593,14 +1593,41 @@ export async function etiquetteImage(
   etiquette: string,
   timeoutMs = INSPECTION_MAX_MS,
 ): Promise<string | null> {
-  const format = `{{index .Config.Labels "${etiquette}"}}`;
+  const lu = await formatImage(
+    fournisseur,
+    image,
+    `{{index .Config.Labels "${etiquette}"}}`,
+    timeoutMs,
+  );
+  // Une clé absente s'imprime vide — ou `<no value>` selon le client.
+  return lu?.replace(/^<no value>$/, '') ?? null;
+}
+
+/**
+ * L'identifiant de l'image (`{{.Id}}`) — le condensé de son contenu, là où
+ * son nom n'est qu'une étiquette qu'une reconstruction déplace. `null` si le
+ * moteur n'a rien dit. Le magasin de dépendances (G18) le met dans sa clé.
+ */
+export function identifiantImage(
+  fournisseur: Fournisseur,
+  image: string,
+  timeoutMs = INSPECTION_MAX_MS,
+): Promise<string | null> {
+  return formatImage(fournisseur, image, '{{.Id}}', timeoutMs);
+}
+
+/** `image inspect --format` : ce que le moteur imprime, ou `null`. */
+async function formatImage(
+  fournisseur: Fournisseur,
+  image: string,
+  format: string,
+  timeoutMs: number,
+): Promise<string | null> {
   const r = await eprouver(
     { bin: fournisseur.bin, args: ['image', 'inspect', '--format', format, image] },
     { cwd: tmpdir(), timeoutMs, garderSortie: true, env: envMoteur(fournisseur) },
   );
-  if (r.issue !== 'sortie' || r.code !== 0) return null;
-  // Une clé absente s'imprime vide — ou `<no value>` selon le client.
-  return r.sortie.trim().replace(/^<no value>$/, '');
+  return r.issue === 'sortie' && r.code === 0 ? r.sortie.trim() : null;
 }
 
 /**

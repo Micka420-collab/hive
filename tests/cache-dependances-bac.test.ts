@@ -1,18 +1,19 @@
 // LE MAGASIN DE DÉPENDANCES DANS UN VRAI BAC (G18) — bubblewrap, le vrai npm,
 // un registre de tarballs local (aucun octet ne sort de la machine).
 //
-// Le faux moteur des autres bancs lance tout sur l'hôte : il ne peut pas
-// montrer ce qui rend une entrée DÉPLAÇABLE. Le bac monte toujours l'arbre au
-// même point (`MONTAGE`) — le voisin de peuplement d'une tâche comme la tâche
-// suivante —, si bien que ce que l'installation écrit (un lien `.bin`, le
-// chemin absolu qu'un script `postinstall` consigne) se relit pareil depuis la
-// copie restaurée ailleurs sur l'hôte. Ce banc le prouve dans un vrai bac :
+// Le faux moteur des autres bancs lance tout sur l'hôte, et son faux `npm ci`
+// ne fait que ce qu'on lui dit. Ce banc-ci montre, dans un vrai bac et avec le
+// vrai npm :
 //
-//   · la première validation peuple le magasin depuis la base, la seconde
-//     restaure — et son `npm run test` lance le `.bin` restauré, qui relit le
-//     chemin que le `postinstall` avait écrit PENDANT LE PEUPLEMENT : il vaut
-//     `/hive/tache/…`, et la copie, qui vit ailleurs sur l'hôte, le relit
-//     tel quel dans le bac.
+//   · ce qui rend une entrée DÉPLAÇABLE : le bac monte toujours l'arbre au
+//     même point (`MONTAGE`), si bien que le lien `.bin` que npm écrit pendant
+//     le peuplement se relit pareil dans la tâche qui l'a fait peupler (qui
+//     reçoit l'installation elle-même) et dans la suivante (qui en reçoit une
+//     copie, restaurée ailleurs sur l'hôte) ;
+//   · pourquoi une dépendance à script d'installation n'y entre JAMAIS : npm
+//     donne à son `postinstall` la racine du projet (`INIT_CWD`), et ce script
+//     y lit un fichier que la clé ne couvre pas — peuplée à la base, l'entrée
+//     servirait à la tête ce que la base contenait.
 //
 // La CI Linux installe bubblewrap et pose `HIVE_BWRAP_REQUIS=1` : là, un
 // bubblewrap absent ou bloqué fait ÉCHOUER le banc au lieu de le sauter.
@@ -33,8 +34,9 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { MagasinDependances } from '../src/node-client/cache-dependances.js';
 import { poserRegistre } from '../src/node-client/git-hote.js';
-import { MONTAGE, fournisseurParNom } from '../src/node-client/isolement.js';
+import { fournisseurParNom } from '../src/node-client/isolement.js';
 import type { Fournisseur } from '../src/node-client/isolement.js';
 import { validerProduction } from '../src/node-client/validations-bac.js';
 
@@ -74,9 +76,65 @@ const git = (cwd: string, ...args: string[]): string =>
 
 let racine: string;
 let registre: ReturnType<typeof createServer> | null = null;
+/** L'adresse du registre local, et l'empreinte `integrity` de chaque archive. */
+let url = '';
+const integrites = new Map<string, string>();
 
-beforeAll(() => {
+/** Une archive npm (`package/…`), servie par le registre local à son URL. */
+function empaqueter(nom: string, fichiers: Record<string, string>): Buffer {
+  const source = path.join(racine, `paquet-${nom}`);
+  const contenu = path.join(source, 'package');
+  mkdirSync(contenu, { recursive: true });
+  for (const [fichier, texte] of Object.entries(fichiers)) {
+    writeFileSync(path.join(contenu, fichier), texte, { mode: 0o755 });
+  }
+  const archive = path.join(racine, `${nom}-1.0.0.tgz`);
+  execFileSync('tar', ['-czf', archive, '-C', source, 'package']);
+  return readFileSync(archive);
+}
+
+beforeAll(async () => {
   racine = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'hive-cache-bac-')));
+  const archives = new Map<string, Buffer>([
+    // Un `bin`, et rien d'autre : `npm ci` télécharge, extrait et lie.
+    [
+      'outil-g18',
+      empaqueter('outil-g18', {
+        'package.json': JSON.stringify({
+          name: 'outil-g18',
+          version: '1.0.0',
+          bin: { 'outil-g18': 'bin.js' },
+        }),
+        'bin.js': "#!/usr/bin/env node\nconsole.log('outil lancé depuis ' + __dirname);\n",
+      }),
+    ],
+    // Le `postinstall` qui LIT LE PROJET — ce que `@prisma/client` fait de son schéma.
+    [
+      'lit-le-projet',
+      empaqueter('lit-le-projet', {
+        'package.json': JSON.stringify({
+          name: 'lit-le-projet',
+          version: '1.0.0',
+          scripts: { postinstall: 'node postinstall.js' },
+        }),
+        'postinstall.js':
+          "const path = require('node:path');\n" +
+          "require('node:fs').copyFileSync(path.join(process.env.INIT_CWD, 'schema.txt'), path.join(__dirname, 'schema.txt'));\n",
+      }),
+    ],
+  ]);
+  for (const [nom, archive] of archives) {
+    integrites.set(nom, `sha512-${createHash('sha512').update(archive).digest('base64')}`);
+  }
+  const serveur = createServer((req, res) => {
+    const nom = /^\/([a-z0-9-]+)\/-\/\1-1\.0\.0\.tgz$/.exec(req.url ?? '')?.[1];
+    const archive = nom === undefined ? undefined : archives.get(nom);
+    res.writeHead(archive ? 200 : 404, { 'Content-Type': 'application/octet-stream' });
+    res.end(archive);
+  });
+  registre = serveur;
+  await new Promise<void>((pret) => serveur.listen(0, '127.0.0.1', () => pret()));
+  url = `http://127.0.0.1:${(serveur.address() as AddressInfo).port}/`;
 });
 
 afterAll(async () => {
@@ -84,121 +142,94 @@ afterAll(async () => {
   rmSync(racine, { recursive: true, force: true, maxRetries: 3 });
 });
 
-/**
- * Le paquet du banc : un `bin`, et un `postinstall` qui écrit le chemin
- * ABSOLU où il s'installe. Son `bin` relit ce chemin et le compare au sien.
- */
-function empaqueter(): Buffer {
-  const source = path.join(racine, 'paquet');
-  const contenu = path.join(source, 'package');
-  mkdirSync(contenu, { recursive: true });
-  writeFileSync(
-    path.join(contenu, 'package.json'),
-    JSON.stringify({
-      name: 'outil-g18',
+/** Un projet qui dépend de `paquet` — sa base, commitée. */
+function projet(nom: string, paquet: string, extra: Record<string, string>): string {
+  const src = path.join(racine, `source-${nom}`);
+  mkdirSync(src);
+  const paquetAuLockfile: Record<string, unknown> = {
+    version: '1.0.0',
+    resolved: `${url}${paquet}/-/${paquet}-1.0.0.tgz`,
+    integrity: integrites.get(paquet),
+    ...(paquet === 'outil-g18' ? { bin: { 'outil-g18': 'bin.js' } } : { hasInstallScript: true }),
+  };
+  const fichiers: Record<string, string> = {
+    // Le registre local EST celui du projet : npm 12 refuse un tarball
+    // d'un autre hôte (`allow-remote`). `allowScripts` : npm 12 ne lance
+    // le `postinstall` d'une dépendance que si le projet l'autorise.
+    '.npmrc': `registry=${url}\naudit=false\nfund=false\nupdate-notifier=false\n`,
+    'package.json': JSON.stringify({
+      name: nom,
       version: '1.0.0',
-      bin: { 'outil-g18': 'bin.js' },
-      scripts: { postinstall: 'node postinstall.js' },
+      private: true,
+      scripts: { test: paquet === 'outil-g18' ? 'outil-g18' : 'node compare.js' },
+      dependencies: { [paquet]: '1.0.0' },
+      allowScripts: { [paquet]: true },
     }),
-  );
-  writeFileSync(
-    path.join(contenu, 'postinstall.js'),
-    "require('node:fs').writeFileSync(require('node:path').join(__dirname, 'chemin.txt'), __dirname);\n",
-  );
-  writeFileSync(
-    path.join(contenu, 'bin.js'),
-    '#!/usr/bin/env node\n' +
-      "const ecrit = require('node:fs').readFileSync(require('node:path').join(__dirname, 'chemin.txt'), 'utf8');\n" +
-      "console.log(ecrit === __dirname ? 'relocalisé : ' + ecrit : 'AILLEURS : ' + ecrit + ' ≠ ' + __dirname);\n" +
-      'process.exit(ecrit === __dirname ? 0 : 1);\n',
-    { mode: 0o755 },
-  );
-  const archive = path.join(racine, 'outil-g18-1.0.0.tgz');
-  execFileSync('tar', ['-czf', archive, '-C', source, 'package']);
-  return readFileSync(archive);
+    'package-lock.json': JSON.stringify({
+      name: nom,
+      version: '1.0.0',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': { name: nom, version: '1.0.0', dependencies: { [paquet]: '1.0.0' } },
+        [`node_modules/${paquet}`]: paquetAuLockfile,
+      },
+    }),
+    '.gitignore': 'node_modules\n',
+    ...extra,
+  };
+  for (const [fichier, contenu] of Object.entries(fichiers)) {
+    writeFileSync(path.join(src, fichier), contenu);
+  }
+  git(src, 'init', '-q');
+  git(src, 'add', '--all');
+  git(src, 'commit', '-q', '-m', 'base');
+  return src;
+}
+
+/** Une tâche clonée de `src`, sa production posée, validée dans le vrai bac. */
+async function valider(
+  src: string,
+  nom: string,
+  magasin: MagasinDependances,
+  production: Record<string, string>,
+) {
+  const parent = path.join(racine, nom);
+  mkdirSync(parent);
+  const dir = path.join(parent, 't');
+  git(parent, 'clone', '-q', src, dir);
+  const baseSha = git(dir, 'rev-parse', 'HEAD').trim();
+  mkdirSync(path.join(parent, 't.git'));
+  for (const [fichier, contenu] of Object.entries(production)) {
+    writeFileSync(path.join(dir, fichier), contenu);
+  }
+  const etapes: string[] = [];
+  const rapport = await validerProduction({
+    cwd: dir,
+    depot: { depot: await poserRegistre(dir, path.join(parent, 't.git'), baseSha), baseSha },
+    bac: { fournisseur: bwrap!, image: 'sans-objet', variables: [] },
+    surEtape: (l) => etapes.push(l),
+    magasin,
+  });
+  return { dir, etapes, tests: rapport.controles.tests };
 }
 
 describe('le magasin de dépendances dans un vrai bac (bubblewrap)', () => {
   it.skipIf(!bwrap && !bwrapRequis)(
-    'peuplé à la base, restauré dans la tâche : le .bin et le chemin écrit par postinstall se relisent pareil',
+    'installé à la base, reçu par la tâche, restauré dans la suivante : le .bin se relit pareil',
     async () => {
       expect(bwrap, 'HIVE_BWRAP_REQUIS=1 exige un bubblewrap qui démarre').not.toBeNull();
-      const tarball = empaqueter();
-      const serveur = createServer((req, res) => {
-        const servi = req.url === '/outil-g18/-/outil-g18-1.0.0.tgz';
-        res.writeHead(servi ? 200 : 404, { 'Content-Type': 'application/octet-stream' });
-        res.end(servi ? tarball : undefined);
-      });
-      registre = serveur;
-      await new Promise<void>((pret) => serveur.listen(0, '127.0.0.1', () => pret()));
-      const url = `http://127.0.0.1:${(serveur.address() as AddressInfo).port}/`;
-      const src = path.join(racine, 'source');
-      mkdirSync(src);
-      const fichiers: Record<string, string> = {
-        // Le registre local EST celui du projet : npm 12 refuse un tarball
-        // d'un autre hôte (`allow-remote`). `allowScripts` : npm 12 ne lance
-        // le `postinstall` d'une dépendance que si le projet l'autorise.
-        '.npmrc': `registry=${url}\naudit=false\nfund=false\nupdate-notifier=false\n`,
-        'package.json': JSON.stringify({
-          name: 'projet-bac',
-          version: '1.0.0',
-          private: true,
-          scripts: { test: 'outil-g18' },
-          dependencies: { 'outil-g18': '1.0.0' },
-          allowScripts: { 'outil-g18': true },
-        }),
-        'package-lock.json': JSON.stringify({
-          name: 'projet-bac',
-          version: '1.0.0',
-          lockfileVersion: 3,
-          requires: true,
-          packages: {
-            '': { name: 'projet-bac', version: '1.0.0', dependencies: { 'outil-g18': '1.0.0' } },
-            'node_modules/outil-g18': {
-              version: '1.0.0',
-              resolved: `${url}outil-g18/-/outil-g18-1.0.0.tgz`,
-              integrity: `sha512-${createHash('sha512').update(tarball).digest('base64')}`,
-              hasInstallScript: true,
-              bin: { 'outil-g18': 'bin.js' },
-            },
-          },
-        }),
-        '.gitignore': 'node_modules\n',
-      };
-      for (const [nom, contenu] of Object.entries(fichiers)) {
-        writeFileSync(path.join(src, nom), contenu);
-      }
-      git(src, 'init', '-q');
-      git(src, 'add', '--all');
-      git(src, 'commit', '-q', '-m', 'base');
+      const src = projet('projet-bin', 'outil-g18', {});
       const magasin = {
-        racine: path.join(racine, 'magasin'),
-        projet: 'projet-bac',
+        racine: path.join(racine, 'magasin-bin'),
+        projet: 'projet-bin',
         reseau: 'dependances:libre',
         niveau: 'conteneur',
       };
+      const production = { 'produit.txt': 'une production\n' };
 
-      const valider = async (nom: string) => {
-        const parent = path.join(racine, nom);
-        mkdirSync(parent);
-        const dir = path.join(parent, 't');
-        git(parent, 'clone', '-q', src, dir);
-        const baseSha = git(dir, 'rev-parse', 'HEAD').trim();
-        mkdirSync(path.join(parent, 't.git'));
-        writeFileSync(path.join(dir, 'produit.txt'), 'une production\n');
-        const etapes: string[] = [];
-        const rapport = await validerProduction({
-          cwd: dir,
-          depot: { depot: await poserRegistre(dir, path.join(parent, 't.git'), baseSha), baseSha },
-          bac: { fournisseur: bwrap!, image: 'sans-objet', variables: [] },
-          surEtape: (l) => etapes.push(l),
-          magasin,
-        });
-        return { dir, etapes, tests: rapport.controles.tests };
-      };
-
-      const premiere = await valider('t1');
-      const seconde = await valider('t2');
+      const premiere = await valider(src, 't1', magasin, production);
+      const seconde = await valider(src, 't2', magasin, production);
 
       expect(premiere.tests, premiere.etapes.join('\n')).toMatchObject({ etat: 'passed', code: 0 });
       expect(premiere.etapes.join('\n')).toContain(
@@ -206,15 +237,44 @@ describe('le magasin de dépendances dans un vrai bac (bubblewrap)', () => {
       );
       expect(seconde.tests, seconde.etapes.join('\n')).toMatchObject({ etat: 'passed', code: 0 });
       expect(seconde.etapes.join('\n')).toContain('— dépendances restaurées du magasin du nœud');
-      // Le chemin que le postinstall a écrit pendant le PEUPLEMENT est celui du
-      // montage, pas un chemin de l'hôte : la copie le relit tel quel.
-      const installe = path.join(seconde.dir, 'node_modules', 'outil-g18');
-      expect(readFileSync(path.join(installe, 'chemin.txt'), 'utf8')).toBe(
-        `${MONTAGE}/node_modules/outil-g18`,
+      for (const { dir } of [premiere, seconde]) {
+        expect(readlinkSync(path.join(dir, 'node_modules', '.bin', 'outil-g18'))).toBe(
+          '../outil-g18/bin.js',
+        );
+      }
+    },
+    180_000,
+  );
+
+  it.skipIf(!bwrap && !bwrapRequis)(
+    'un postinstall qui lit le projet (INIT_CWD) : jamais servi depuis le magasin',
+    async () => {
+      expect(bwrap, 'HIVE_BWRAP_REQUIS=1 exige un bubblewrap qui démarre').not.toBeNull();
+      const src = projet('projet-schema', 'lit-le-projet', {
+        'schema.txt': 'model User { id }\n',
+        'compare.js':
+          "const fs = require('node:fs');\n" +
+          "const fige = fs.readFileSync('node_modules/lit-le-projet/schema.txt', 'utf8');\n" +
+          "if (fige !== fs.readFileSync('schema.txt', 'utf8')) { console.error('figé : ' + fige); process.exit(1); }\n" +
+          "console.log('schéma à jour');\n",
+      });
+      const magasin = {
+        racine: path.join(racine, 'magasin-schema'),
+        projet: 'projet-schema',
+        reseau: 'dependances:libre',
+        niveau: 'conteneur',
+      };
+
+      // La tête change le schéma ; le postinstall, lancé dans SON arbre, le lit.
+      const v = await valider(src, 't3', magasin, { 'schema.txt': 'model User { id email }\n' });
+
+      expect(v.tests, v.etapes.join('\n')).toMatchObject({ etat: 'passed', code: 0 });
+      expect(v.etapes.join('\n')).toContain(
+        'hors magasin : une dépendance à script d’installation (elle peut lire l’arbre) (node_modules/lit-le-projet)',
       );
-      expect(readlinkSync(path.join(seconde.dir, 'node_modules', '.bin', 'outil-g18'))).toBe(
-        '../outil-g18/bin.js',
-      );
+      expect(
+        readFileSync(path.join(v.dir, 'node_modules', 'lit-le-projet', 'schema.txt'), 'utf8'),
+      ).toBe('model User { id email }\n');
     },
     180_000,
   );

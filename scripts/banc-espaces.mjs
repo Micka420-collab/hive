@@ -2,7 +2,7 @@
 // LE BANC DES ESPACES DE TRAVAIL (G18) — ce qu'une tentative paie avant et
 // après son agent, mesuré sur ce poste.
 //
-//     node --import tsx scripts/banc-espaces.mjs [--racine <dossier>]
+//     node --import tsx scripts/banc-espaces.mjs --racine <dossier>
 //          [--tailles petit,moyen,grand] [--tentatives 2] [--latence-ms 0]
 //          [--json <fichier>]
 //
@@ -78,7 +78,7 @@ export const TAILLES = Object.freeze({
 });
 
 const USAGE =
-  'usage : node --import tsx scripts/banc-espaces.mjs [--racine <dossier>] ' +
+  'usage : node --import tsx scripts/banc-espaces.mjs --racine <dossier> ' +
   '[--tailles petit,moyen,grand] [--tentatives 2] [--latence-ms 0] [--json <fichier>]';
 
 /** Les options du banc, ou la raison de son refus. */
@@ -102,6 +102,9 @@ export function lireArguments(argv) {
     else if (nom === '--latence-ms') options.latenceMs = Number(valeur);
     else return { refus: `option inconnue : ${nom}` };
   }
+  // Le banc écrit des dépôts, des clones et des `node_modules` : jamais dans le
+  // dépôt (rien ne l'y ignore) ni au hasard — là où on le lui dit, sur disque.
+  if (options.racine === null) return { refus: '--racine est exigée (un dossier sur disque)' };
   const inconnue = options.tailles.find((t) => !Object.hasOwn(TAILLES, t));
   if (inconnue !== undefined) return { refus: `taille inconnue : ${inconnue}` };
   if (!Number.isInteger(options.tentatives) || options.tentatives < 1) {
@@ -348,17 +351,19 @@ async function tentative(m, contexte) {
 /** Les modules du nœud, chargés par tsx — ou la consigne pour le lancer. */
 async function chargerLeNoeud() {
   try {
-    const [espace, validations, serveurGit, isolement] = await Promise.all([
+    const [espace, validations, serveurGit, isolement, lanceur] = await Promise.all([
       import('../src/node-client/workspace.ts'),
       import('../src/node-client/validations-bac.ts'),
       import('../tests/aide/serveur-git.ts'),
       import('../src/node-client/isolement.ts'),
+      import('../src/lanceur-reel.ts'),
     ]);
     return {
       prepareWorkspace: espace.prepareWorkspace,
       validerProduction: validations.validerProduction,
       ServeurGit: serveurGit.ServeurGit,
       fournisseurParNom: isolement.fournisseurParNom,
+      resoudreLanceur: lanceur.resoudreLanceur,
     };
   } catch (err) {
     if (err?.code === 'ERR_UNKNOWN_FILE_EXTENSION') return null;
@@ -378,9 +383,18 @@ export async function principal(argv, ecrire = console.log) {
     ecrire(`le banc charge le code du nœud en TypeScript.\n${USAGE}`);
     return MAL_APPELE;
   }
-  const parent = options.racine ?? path.join(process.cwd(), '.banc-espaces');
-  mkdirSync(parent, { recursive: true });
-  const racine = mkdtempSync(path.join(parent, 'banc-'));
+  mkdirSync(options.racine, { recursive: true });
+  const racine = mkdtempSync(path.join(options.racine, 'banc-'));
+  try {
+    return await mesurer(m, options, racine, ecrire);
+  } finally {
+    // Réussi ou non, le banc ne laisse rien derrière lui.
+    rmSync(racine, { recursive: true, force: true });
+  }
+}
+
+/** Le banc lui-même, dans `racine` — que `principal` efface quoi qu'il arrive. */
+async function mesurer(m, options, racine, ecrire) {
   // Le git du nœud lit le HOME : un HOME vide, sans la configuration du poste.
   const maison = path.join(racine, 'maison');
   mkdirSync(maison);
@@ -399,7 +413,11 @@ export async function principal(argv, ecrire = console.log) {
     bac: nomDuBac,
     git: premiereLigne('git', ['--version']),
     node: process.version,
-    npm: premiereLigne('npm', ['--version']),
+    // `npm` est un script sous Windows : il se lance par son lanceur réel.
+    npm: (() => {
+      const { bin, args } = m.resoudreLanceur('npm', ['--version']);
+      return premiereLigne(bin, args);
+    })(),
     latenceMs: options.latenceMs,
   };
   const resultats = [];
@@ -442,7 +460,6 @@ export async function principal(argv, ecrire = console.log) {
   for (const r of resultats) ecrire(`\n${r.taille} #${r.tentative} : ${r.bilan}`);
   if (options.json)
     writeFileSync(options.json, `${JSON.stringify({ decor, resultats }, null, 2)}\n`);
-  rmSync(racine, { recursive: true, force: true });
   return resultats.every((r) => r.tests === 'passed') ? 0 : 1;
 }
 
