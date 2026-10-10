@@ -19,10 +19,10 @@
 // qui l'y prend.
 
 import { describe, expect, it } from 'vitest';
+import { dureeCourte } from '../src/shared/duree-courte.js';
 import {
   LARGEUR_MIN_CADRES,
   capacites,
-  dureeCourte,
   largeurVisible,
   ligneAFuite,
   panneau,
@@ -66,6 +66,11 @@ describe('UNE DURÉE SE LIT D’UN COUP D’ŒIL', () => {
     expect(dureeCourte(59_400)).toBe('59 s');
     expect(dureeCourte(72_000)).toBe('1 min 12 s');
     expect(dureeCourte(120_000)).toBe('2 min');
+  });
+
+  it('les minutes se découpent dans les secondes arrondies : jamais « 1 min 60 s »', () => {
+    expect(dureeCourte(119_600)).toBe('2 min');
+    expect(dureeCourte(179_501)).toBe('3 min');
   });
 
   it('LA VIRGULE EST DÉCIMALE — c’est un installeur en français', () => {
