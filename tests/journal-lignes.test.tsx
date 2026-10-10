@@ -698,3 +698,78 @@ describe('les tests comparés à la base au journal : le ✔ dit ce qu’il excu
     expect(ligne(dom)).toContain('tests ✘ · typecheck');
   });
 });
+
+// G13 — la vigie au journal : le FAIT (enlisé, fournisseur épuisé) ET ce qui le
+// prouve (la raison du nœud) ; la cause d'un échec que la Reine clôt ; une
+// remise à zéro lointaine avec sa date, une aberrante jamais.
+describe('la vigie au journal : le fait, sa preuve, et la remise à zéro dite juste', () => {
+  it('UN REFUS D’ÉPUISEMENT dit le fait PUIS sa preuve — la raison du nœud n’est plus tue', async () => {
+    const dom = await monter(
+      evenement('task_rejected', {
+        taskId: 'tache-g13',
+        nodeId: 'n1',
+        infra: true,
+        reason: "Hive : l'API anthropic ne répond pas (getaddrinfo ENOTFOUND api.anthropic.com).",
+        epuisement: { cause: 'injoignable' },
+      }),
+    );
+    expect(ligne(dom)).toBe(
+      "refusée (tache-g1) — fournisseur injoignable : son API ne répond pas — Hive : l'API anthropic ne répond pas (getaddrinfo ENOTFOUND api.anthropic.com).",
+    );
+  });
+
+  it('UN AGENT ENLISÉ SUR DES REJETS DU CADRE le dit à sa reprise', async () => {
+    const dom = await monter(
+      evenement('task_retry', {
+        taskId: 'tache-g13',
+        attempt: 1,
+        maxAttempts: 3,
+        enlisement: { motif: 'erreurs', fois: 4, outil: 'Edit' },
+      }),
+    );
+    expect(ligne(dom)).toContain(
+      'enlisé : même appel d’outil rejeté par le CLI 4 fois de suite (Edit)',
+    );
+  });
+
+  it('PLUS AUCUN AGENT QUI FONCTIONNE : l’échec dit pourquoi, et le dernier fournisseur épuisé', async () => {
+    const dom = await monter(
+      evenement('task_failed', {
+        taskId: 'tache-g13',
+        reason: 'no_working_agent',
+        infraRejects: 3,
+        epuisement: { cause: 'surcharge' },
+      }),
+    );
+    expect(ligne(dom)).toBe(
+      'échouée (tache-g1) — aucun nœud dont l’agent fonctionne (3 refus d’infrastructure) — fournisseur épuisé : surchargé',
+    );
+  });
+
+  it('UNE REMISE À ZÉRO à plus d’un jour porte sa DATE ; une remise aberrante n’est pas dite', async () => {
+    const dansTroisJours = Date.now() + 3 * 86_400_000;
+    const lointaine = await monter(
+      evenement('task_rejected', {
+        taskId: 'tache-g13',
+        infra: true,
+        reason: 'You’ve hit your usage limit.',
+        epuisement: { cause: 'limite', remiseA: dansTroisJours },
+      }),
+    );
+    const date = new Date(dansTroisJours).toLocaleString('fr-FR', { dateStyle: 'short' });
+    expect(ligne(lointaine)).toContain(`remise à zéro à ${date}`);
+    act(() => racine?.unmount());
+    conteneur?.remove();
+    const aberrante = await monter(
+      evenement('task_rejected', {
+        taskId: 'tache-g13',
+        infra: true,
+        reason: 'limite',
+        epuisement: { cause: 'limite', remiseA: 9e18 },
+      }),
+    );
+    expect(ligne(aberrante)).toBe(
+      'refusée (tache-g1) — fournisseur épuisé : limite atteinte — limite',
+    );
+  });
+});

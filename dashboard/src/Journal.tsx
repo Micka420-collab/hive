@@ -3,7 +3,12 @@
 
 import { useMemo } from 'react';
 import { arreteeParSonBudget } from '../../src/shared/arret-budgetaire';
-import { direArret, enlisementDepuis, epuisementDepuis } from '../../src/shared/enlisement';
+import {
+  direArret,
+  direRemise,
+  enlisementDepuis,
+  epuisementDepuis,
+} from '../../src/shared/enlisement';
 import type { HiveEvent } from '../../src/shared/types';
 import { VALIDATION_KEYS } from '../../src/shared/validations-bac';
 import { Terminal } from './composants';
@@ -30,8 +35,15 @@ const short = (v: unknown) => (typeof v === 'string' ? v.slice(0, 8) : '?');
  * fait rien dire de faux.
  */
 const direVigie = (p: Record<string, unknown>, t: Translate): string | null => {
+  const langue = t('fr-FR', 'en-GB');
+  // Au-delà d'un jour, la DATE avec l'heure : « 15:45 » seul mentirait.
   const heure = (ms: number): string =>
-    new Date(ms).toLocaleTimeString(t('fr-FR', 'en-GB'), { hour: '2-digit', minute: '2-digit' });
+    direRemise(
+      ms,
+      Date.now(),
+      (d) => d.toLocaleTimeString(langue, { hour: '2-digit', minute: '2-digit' }),
+      (d) => d.toLocaleString(langue, { dateStyle: 'short', timeStyle: 'short' }),
+    );
   const enlisement = enlisementDepuis(p.enlisement);
   if (enlisement) return direArret({ issue: 'enlisement', ...enlisement }, t, heure);
   const epuisement = epuisementDepuis(p.epuisement);
@@ -344,7 +356,20 @@ const EVENTS: Record<string, Meta> = {
       // ni production ni logs : son `motif` est sa seule cause. Rangé en
       // français, comme la raison d'un refus d'infrastructure.
       const vigie = direVigie(p, t);
-      const cause = typeof p.motif === 'string' ? ` — ${p.motif}` : vigie ? ` — ${vigie}` : '';
+      // Deux clôtures de la Reine que seule leur raison dit (G13) : plus aucun
+      // nœud dont l'agent fonctionne, ou le relecteur dont le fournisseur est
+      // épuisé au-delà du délai d'attente — avec le fait du dernier refus.
+      const raison =
+        p.reason === 'no_working_agent'
+          ? t(
+              `aucun nœud dont l’agent fonctionne (${String(p.infraRejects ?? '?')} refus d’infrastructure)`,
+              `no node with a working agent (${String(p.infraRejects ?? '?')} infrastructure refusals)`,
+            )
+          : p.reason === 'relecteur_epuise'
+            ? t('relecture close, relecteur épuisé', 'review closed, reviewer exhausted')
+            : null;
+      const dits = [typeof p.motif === 'string' ? p.motif : null, raison, vigie].filter(Boolean);
+      const cause = dits.length > 0 ? ` — ${dits.join(' — ')}` : '';
       // « durée : X » plutôt qu'un participe accordé : la durée est formatée
       // (« 1 h », « 4 h 12 min », « 340 ms ») et aucun accord français ne tient
       // sur toutes ces formes. Pas « coût » : depuis que la ruche compte des
@@ -374,8 +399,11 @@ const EVENTS: Record<string, Meta> = {
       const base = t(`refusée (${short(p.taskId)})`, `declined (${short(p.taskId)})`);
       // Un fournisseur épuisé (G13) se dit par son fait : aucune tentative brûlée.
       const vigie = direVigie(p, t);
-      if (vigie) return `${base} — ${vigie}`;
-      return p.infra === true && typeof p.reason === 'string' ? `${base} — ${p.reason}` : base;
+      // Le fait d'abord, puis ce qui le prouve (la ligne du CLI, ou celle de
+      // la passerelle de Hive qui n'a pas joint l'API) : la raison reste dite.
+      const raison = p.infra === true && typeof p.reason === 'string' ? p.reason : null;
+      const dits = [vigie, raison === vigie ? null : raison].filter(Boolean);
+      return dits.length > 0 ? `${base} — ${dits.join(' — ')}` : base;
     },
   },
   node_registered: {

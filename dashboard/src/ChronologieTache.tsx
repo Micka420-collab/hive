@@ -12,7 +12,7 @@ import { useEffect, useState } from 'react';
 import { fetchChronologie } from './api';
 import { useLang, useT } from './i18n';
 import { direDuree } from '../../src/shared/horloge-chantier';
-import { direArret } from '../../src/shared/enlisement';
+import { direArret, direRemise } from '../../src/shared/enlisement';
 import type {
   ChronologieTache as Chronologie,
   SommeDeclaree,
@@ -56,11 +56,15 @@ export function ChronologieTache({ taskId, cle }: Props) {
             : t('échec', 'failed');
   // La cause que la vigie du nœud a rangée (G13), à l'heure de qui regarde.
   const vigie = (x: Chronologie['tentatives'][number]): string => {
+    const langue = lang === 'en' ? 'en-GB' : 'fr-FR';
+    // Au-delà d'un jour, la DATE avec l'heure (`direRemise`).
     const heure = (ms: number): string =>
-      new Date(ms).toLocaleTimeString(lang === 'en' ? 'en-GB' : 'fr-FR', {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+      direRemise(
+        ms,
+        Date.now(),
+        (d) => d.toLocaleTimeString(langue, { hour: '2-digit', minute: '2-digit' }),
+        (d) => d.toLocaleString(langue, { dateStyle: 'short', timeStyle: 'short' }),
+      );
     if (x.enlisement) return ` (${direArret({ issue: 'enlisement', ...x.enlisement }, t, heure)})`;
     return x.epuisement
       ? ` (${direArret({ issue: 'epuisement_fournisseur', ...x.epuisement }, t, heure)})`
