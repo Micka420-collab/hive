@@ -26,6 +26,8 @@ import type { PorteSecurite, VoletPorte } from './porte-securite.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
 import { estArretBudgetaire, type ArretBudgetaire } from './arret-budgetaire.js';
+import { enlisementDepuis, epuisementDepuis } from './enlisement.js';
+import type { Enlisement, EpuisementFournisseur } from './enlisement.js';
 import { MEMOIRES_PAR_PORTEE, NIVEAUX_ISOLEMENT, RAISONS_SANS_MESURE } from './types.js';
 import type {
   HiveEvent,
@@ -371,6 +373,11 @@ export interface TaskResultMsg {
    */
   arretBudgetaire?: ArretBudgetaire;
   /**
+   * La vigie du nœud a arrêté l'agent qui tournait en rond (G13,
+   * `shared/enlisement.ts`) : un échec du modèle, qui dit sa cause.
+   */
+  enlisement?: Enlisement;
+  /**
    * Ce que la porte de sécurité du nœud a vu dans ce que la production AJOUTE
    * (`porte-securite.ts`) : secrets, dépendances introduites — jamais une
    * valeur. ADDITIF : un nœud plus ancien ne l'envoie pas, et la Reine lit
@@ -422,6 +429,20 @@ export interface TaskRejectMsg {
    * sans ce champ, un nœud hors service serait re-sollicité en boucle.
    */
   retryAfterMs?: number;
+  /**
+   * Avec `infra` : le fournisseur de l'agent était épuisé (G13) — limite,
+   * surcharge, plus de réponse —, et, s'il l'a déclarée, quand il se remet à
+   * zéro (`retryAfterMs` l'attend alors). Ni la tâche ni le modèle n'y sont
+   * pour rien : rien ne le compte comme un échec.
+   */
+  epuisement?: EpuisementFournisseur;
+  /**
+   * Avec `epuisement` : cette tentative A TOURNÉ — sa durée, et ce que son CLI
+   * a déclaré (coût, jetons). La Reine les range comme ceux d'un résultat :
+   * ligne de dépense de l'enfant délégué, enveloppe de la racine, chronologie.
+   */
+  durationMs?: number;
+  fournisseur?: UsageFournisseur;
 }
 
 /** Demande de délégation émise par un Worker pendant l'exécution de sa tâche. */
@@ -1473,6 +1494,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         const arretBudgetaire = estArretBudgetaire(m.arretBudgetaire)
           ? m.arretBudgetaire
           : undefined;
+        const enlisement = enlisementDepuis(m.enlisement);
         // La porte, VOLET PAR VOLET : un volet mal formé devient
         // `rapport_rejete` — « non vérifié », jamais « rien trouvé » — sans
         // emporter l'autre, et son refus est rendu pour être journalisé.
@@ -1493,6 +1515,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           ...(finalText !== undefined ? { finalText } : {}),
           ...(validations ? { validations } : {}),
           ...(arretBudgetaire ? { arretBudgetaire } : {}),
+          ...(enlisement ? { enlisement } : {}),
           ...(porte ? { porteSecurite: porte.porte } : {}),
           ...(porte && porte.rejetes.length > 0 ? { porteSecuriteRejetee: porte.rejetes } : {}),
         };
@@ -1513,6 +1536,16 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         if (m.infra === true && m.avantAgent === true) msg.avantAgent = true;
         if (msg.avantAgent && m.illisible === true) msg.illisible = true;
         if (typeof m.retryAfterMs === 'number') msg.retryAfterMs = m.retryAfterMs;
+        // Mal formé, le fait tombe seul : le refus reste une panne d'infrastructure.
+        const epuisement = m.infra === true ? epuisementDepuis(m.epuisement) : undefined;
+        if (epuisement) {
+          msg.epuisement = epuisement;
+          // Ce que la tentative a coûté ne se croit qu'avec le fait qui dit
+          // qu'elle a tourné ; hors bornes, chaque champ tombe seul.
+          if (isInt(m.durationMs, 0, 86_400_000)) msg.durationMs = m.durationMs;
+          const fournisseur = usageFournisseurDepuis(m.fournisseur);
+          if (fournisseur) msg.fournisseur = fournisseur;
+        }
         return msg;
       }
       return null;

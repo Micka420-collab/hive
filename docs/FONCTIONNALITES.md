@@ -814,6 +814,52 @@ les préférences ni une course de drones ne franchissent ; l'affectation est
 consignée « forcée par l'opérateur », et aucun score appris n'est touché. Si
 aucune ouvrière en ligne ne la satisfait, la tâche attend et le journal le dit.
 
+## 🛑 La vigie — un agent qui tourne en rond, un fournisseur épuisé
+
+Seuls des délais fixes arrêtaient un agent (15 min, 30 min pour Cline et
+Hermes) : un agent qui bouclait brûlait son Worker et son budget jusque-là,
+puis échouait sur « timeout ». Le nœud a désormais une **vigie** qui lit le flux
+d'outils que Claude Code (`stream-json`) et Codex (`--json`) déclarent — jamais
+la narration — et rend l'une de deux issues **distinctes** :
+
+- **enlisé** — le même appel d'outil et le même retour quatre fois de suite, le
+  même appel **rejeté par le CLI** quatre fois (un appel qu'il n'a pas pu faire :
+  paramètres invalides, outil inconnu, commande refusée — jamais la sortie d'une
+  commande qui échoue), ou deux appels qui alternent sans progrès
+  (A→B→A→B→A→B). Seuils et règles portés du StuckDetector d'OpenHands (MIT,
+  notice dans `THIRD_PARTY_NOTICES.md`) ; chaque sous-agent a son propre fil.
+  Un agent qui progresse — un fichier écrit autrement, des tests dont la sortie
+  change, la même commande qui échoue chaque fois autrement — n'est jamais
+  arrêté ; ni un agent qui attend un travail de fond (une commande ou un
+  sous-agent en arrière-plan) en relisant ce qui n'a pas encore changé. La
+  tentative est un **échec du modèle**, compté comme tel, qui dit enfin sa
+  cause : « enlisé : même appel d'outil répété 4 fois, même résultat (Read) ».
+- **fournisseur épuisé** — limite de débit ou d'abonnement, surcharge (529,
+  500, 503), plus de réponse du tout (réseau coupé, 502 ou 504 d'une passerelle
+  — celle de Hive dit alors quelle API elle n'a pas jointe, et pourquoi). Rien
+  à reprocher au modèle : la tentative est **réaffectée sans en brûler une**,
+  par le chemin des pannes d'infrastructure (une autre ouvrière, une autre
+  famille au besoin) : un refus au registre Genome, jamais un échec ni une
+  reprise, et rien dans ce qu'apprend l'Aiguillage. Ce qu'elle a coûté — sa
+  durée, le coût déclaré par le CLI — reste rangé (dépense de l'enfant délégué,
+  chronologie du tiroir) ; ce qu'elle a écrit n'est pas repris, et le journal le
+  dit. Si le CLI a déclaré l'heure de remise à zéro (sous huit jours), la tâche
+  ne revient pas à ce nœud avant elle ; une relecture dont le relecteur est
+  épuisé au-delà de cinq minutes passe la main comme un relecteur absent.
+
+La vigie ne devance **jamais** le CLI : les relances qu'il borne lui-même
+(Claude Code : dix par défaut, ou la borne qu'il déclare — trois cents sous son
+chien de garde ; Codex : « n/5 ») vont au bout, et l'épuisement se lit à son
+**issue finale** — ou, tué pendant ses relances, sur la série en cours. Seule
+l'attente du réseau sans borne de Codex est bornée par Hive, en durée :
+**10 minutes** sans réponse. Un enlisement, lui, arrête l'agent dès qu'il est
+vu, par le geste de l'annulation — l'arbre de l'agent abattu en entier, jamais
+les validations qui suivent —, et sa cause est dite au journal de la tâche,
+dans sa console en direct (Sandbox Live) et dans son tiroir. Aucun réglage.
+Cursor, Cline, Grok, Hermes et un agent sur mesure n'ont pas de flux d'outils
+que Hive lise : pour eux, seuls le délai fixe et la lecture de l'échec après
+coup restent ; Codex ne déclare pas son travail de fond.
+
 ## 🛡️ Sting Detector — prévention de conflits (Palier 2)
 
 Deux tâches qui pourraient tourner **en même temps** (aucun ordre de dépendance

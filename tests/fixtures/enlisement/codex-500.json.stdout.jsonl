@@ -1,0 +1,10 @@
+{"type":"thread.started","thread_id":"01a00000-0000-7000-8000-000000000001"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `modele-de-test` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 1/5 (We’re currently experiencing high demand, which may cause temporary errors.)"}
+{"type":"error","message":"Reconnecting... 2/5 (We’re currently experiencing high demand, which may cause temporary errors.)"}
+{"type":"error","message":"Reconnecting... 3/5 (We’re currently experiencing high demand, which may cause temporary errors.)"}
+{"type":"error","message":"Reconnecting... 4/5 (We’re currently experiencing high demand, which may cause temporary errors.)"}
+{"type":"error","message":"Reconnecting... 5/5 (We’re currently experiencing high demand, which may cause temporary errors.)"}
+{"type":"error","message":"We’re currently experiencing high demand, which may cause temporary errors."}
+{"type":"turn.failed","error":{"message":"We’re currently experiencing high demand, which may cause temporary errors."}}

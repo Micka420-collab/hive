@@ -96,6 +96,8 @@ import type { GraviteAgent } from '../shared/niveaux-sortie.js';
 import type { UsageFournisseur } from '../shared/types.js';
 import type { LecteurFlux } from './exec.js';
 import { borneTexteFinal } from './texte-final.js';
+import { createVigie, evenementsCodex } from './vigie-enlisement.js';
+import type { ArretVigie } from '../shared/enlisement.js';
 
 type Objet = Record<string, unknown>;
 
@@ -265,6 +267,8 @@ function rendreElement(phase: string, item: Objet): string | undefined {
 export interface LecteurFluxCodex extends LecteurFlux {
   /** Les jetons déclarés par le dernier `turn.completed` ; absents sinon. */
   declaration(): UsageFournisseur | undefined;
+  /** L'issue que la vigie rend sur ce flux (G13), une fois le CLI sorti ; absente sinon. */
+  arret(): ArretVigie | undefined;
 }
 
 const DIALECTE_INCONNU =
@@ -318,8 +322,10 @@ const TENTATIVE_REFAITE = 'Reconnecting...';
  * (`--sandbox workspace-write`) — seul cas où `rienNAPuSEcrire` a un sens.
  */
 export function createLecteurFluxCodex(
-  opts: { bacCodexEnEcriture?: boolean } = {},
+  opts: { bacCodexEnEcriture?: boolean; surArret?: (arret: ArretVigie) => void } = {},
 ): LecteurFluxCodex {
+  /** La vigie du flux (G13) : `surArret` reçoit un arrêt EN VOL — jamais l'issue finale. */
+  const vigie = createVigie();
   /** Le dernier message de l'agent, pas encore une réponse : le tour court. */
   let dernierMessage: string | undefined;
   let reponse: string | undefined;
@@ -428,6 +434,17 @@ export function createLecteurFluxCodex(
     const e = objet(evenement);
     if (!e) return narrer('événement codex illisible');
     fluxLu = true;
+    // `lire` ne lève jamais (`LecteurFlux`) : ni un événement que la vigie ne
+    // sait pas lire, ni un appelant qui n'a pas pu arrêter — l'issue, elle,
+    // reste rendue par `arret()`.
+    try {
+      for (const evenement of evenementsCodex(e)) {
+        const arret = vigie.observer(evenement, Date.now());
+        if (arret) opts.surArret?.(arret);
+      }
+    } catch {
+      /* la ligne se rend quand même : la vigie n'en a rien tiré */
+    }
     return rendre(e);
   };
 
@@ -473,5 +490,6 @@ export function createLecteurFluxCodex(
       return `codex : échec — ${sortie} sans que le tour se conclue (ni \`turn.completed\` ni \`turn.failed\` : tour interrompu)`;
     },
     declaration: () => declaration,
+    arret: () => vigie.issue(),
   };
 }

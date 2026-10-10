@@ -931,7 +931,9 @@ CREATE TABLE IF NOT EXISTS consignes_routage (
 -- résultat : une tentative interrompue SANS résultat — nœud perdu, annulation,
 -- enveloppe épuisée — a pu dépenser, et resterait sinon invisible. Elle garde
 -- resultId NULL et coutMicros NULL : inconnue, jamais zéro (voir
--- DepenseDeclaree, delegation.ts).
+-- DepenseDeclaree, delegation.ts). Une tentative REFUSÉE après avoir tourné
+-- (fournisseur épuisé, G13) n'a pas de résultat : sa ligne garde resultId
+-- NULL, et prend le coût que son CLI a déclaré (consignerDepenseRefus).
 --
 -- BORNE (règle 3) : cascade de pruneTasks, par RACINE — elle ne part qu'avec
 -- l'arbre entier. Élaguée avec l'enfant, la dépense d'une racine encore
@@ -4578,9 +4580,11 @@ export class HiveStore {
    * La dépense déclarée de l'arbre de `rootTaskId` (voir `DepenseDeclaree`) :
    * une lecture d'index, jamais le journal — qui s'élague par nombre.
    *
-   * Une tentative ENCORE EN VOL (sans résultat, sa tâche toujours portée par
-   * ce nœud) n'est pas comptée : sa dépense n'est pas finie, elle n'est pas
-   * encore « inconnue ». Une tentative sans résultat dont la tâche a quitté ce
+   * Une tentative ENCORE EN VOL (sans résultat ni coût, sa tâche toujours
+   * portée par ce nœud) n'est pas comptée : sa dépense n'est pas finie, elle
+   * n'est pas encore « inconnue ». Une tentative REFUSÉE qui a déclaré sa
+   * dépense (fournisseur épuisé, G13) est finie, même quand la suivante
+   * repart sur le même nœud. Une tentative sans résultat dont la tâche a quitté ce
    * nœud a été interrompue : comptée, au coût inconnu. Un drone non primaire
    * d'une course vit sous l'assignation du primaire : il est lu interrompu
    * tant qu'il vole — la dépense se dit alors « au moins », jamais moins.
@@ -4605,8 +4609,8 @@ export class HiveStore {
                 COALESCE(SUM(d.coutMicros), 0) AS micros
            FROM depenses_delegation d LEFT JOIN tasks t ON t.id = d.taskId
           WHERE d.${colonne} = ?
-            AND NOT (d.resultId IS NULL AND t.assignedNodeId = d.nodeId
-                     AND t.status IN ('assigned', 'running'))`,
+            AND NOT (d.resultId IS NULL AND d.coutMicros IS NULL
+                     AND t.assignedNodeId = d.nodeId AND t.status IN ('assigned', 'running'))`,
       )
       .get(id) as { tentatives: number; declarees: number; micros: number };
     if (ligne.tentatives === 0) return { ...AUCUNE_DEPENSE };
@@ -5195,10 +5199,13 @@ export class HiveStore {
       typeof coutUsd === 'number' && Number.isFinite(coutUsd) && coutUsd >= 0
         ? Math.round(coutUsd * 1_000_000)
         : null;
+    // `coutMicros IS NULL` : une tentative refusée qui a déclaré sa dépense
+    // (`consignerDepenseRefus`) n'est plus ouverte — ce résultat n'est pas le sien.
     const ouverte = this.db
       .prepare(
         `SELECT id FROM depenses_delegation
-          WHERE taskId = ? AND nodeId = ? AND resultId IS NULL ORDER BY id DESC LIMIT 1`,
+          WHERE taskId = ? AND nodeId = ? AND resultId IS NULL AND coutMicros IS NULL
+          ORDER BY id DESC LIMIT 1`,
       )
       .get(res.taskId, res.nodeId) as { id: number } | undefined;
     if (ouverte) {
@@ -5214,6 +5221,24 @@ export class HiveStore {
           WHERE childTaskId = ? AND origin = 'hive'`,
       )
       .run(res.nodeId, resultId, coutMicros, now, res.taskId);
+  }
+
+  /**
+   * La dépense d'une tentative REFUSÉE après avoir tourné — son fournisseur
+   * était épuisé (G13) : la dernière ligne ouverte de ce couple (tâche, nœud)
+   * prend le coût que le CLI a déclaré, et reste sans résultat. Sans coût
+   * déclaré, elle reste inconnue — jamais zéro.
+   */
+  consignerDepenseRefus(taskId: string, nodeId: string, coutUsd: number | undefined): void {
+    if (typeof coutUsd !== 'number' || !Number.isFinite(coutUsd) || coutUsd < 0) return;
+    this.db
+      .prepare(
+        `UPDATE depenses_delegation SET coutMicros = ?
+          WHERE id = (SELECT id FROM depenses_delegation
+                       WHERE taskId = ? AND nodeId = ? AND resultId IS NULL AND coutMicros IS NULL
+                       ORDER BY id DESC LIMIT 1)`,
+      )
+      .run(Math.round(coutUsd * 1_000_000), taskId, nodeId);
   }
 
   /**

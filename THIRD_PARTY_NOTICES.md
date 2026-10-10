@@ -44,6 +44,90 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## OpenHands software-agent-sdk — `src/adapters/vigie-enlisement.ts`
+
+Les règles et les seuils de la détection d'enlisement (même appel et même
+retour répétés, même appel en échec, deux appels alternés), portés du
+StuckDetector : `openhands-sdk/openhands/sdk/conversation/stuck_detector.py` et
+`types.py` (`StuckDetectionThresholds`), https://github.com/OpenHands/software-agent-sdk,
+commit `b66c724361571aa5c982883173c71b04739b247d`. Modifications de Hive :
+appels et retours appariés par l'identifiant que le CLI leur donne, un fil par
+sous-agent, empreintes au lieu des événements ; l'`AgentErrorEvent` (une erreur
+du cadre, pas une sortie de commande) lu comme le rejet d'un appel par le CLI
+(`<tool_use_error>` et permission refusée de Claude Code, code -1 de Codex,
+erreur d'un appel MCP) ;
+répétition et oscillation tues pendant du travail de fond ; la « pensée » hors
+de l'égalité d'un appel (idée de `tool_monitor.rs`, goose, Apache-2.0 — aucune
+ligne reprise) ; monologue, erreur de contexte et rappel au 3e rejet non
+portés. La notice est rappelée en tête du fichier et reproduite à sa fin.
+
+```
+MIT License
+
+Copyright (c) 2026 OpenHands contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## SWE-bench — `src/shared/lecture-tests.ts`, `src/shared/validations-bac.ts`
+
+La comparaison des verdicts test par test à la base (`swebench/harness/
+grading.py` : `get_eval_tests_report`, `test_passed` / `test_failed` /
+`test_maintained`, `get_resolution_status`) et la table des pannes du bac
+(`INFRA_FAILURE_SIGNATURES`, `swebench/harness/infra_failure.py`), portées de
+https://github.com/SWE-bench/SWE-bench, version v5.0.0. La notice complète est
+reproduite au bas de `src/shared/lecture-tests.ts` ; les deux sections portées
+y renvoient. Modifications de Hive : la BASE, exécutée à côté, tient lieu du
+correctif de référence (F2P/P2P calculées contre elle) ; un test rouge à
+chaque exécution de la base et de la tête, de même empreinte, est dit « déjà
+rouge à la base », jamais bloquant ; chaque côté qui peut changer le verdict
+est observé jusqu'à deux fois (instabilité) ; de la table, le seul niveau
+« environment », lu seulement sur un code de sortie non nul sans échec de test
+lu — `^Killed$` exige le code 137, « Could not resolve host », « Failed to
+launch » et « Failed to connect to the bus » retirés, le plafond de tas d'un
+processus laissé au verdict, ENOSPC, EDQUOT et ENOMEM ajoutés.
+
+```
+MIT License
+
+Copyright (c) 2023 Carlos E Jimenez, John Yang, Alexander Wettig, Shunyu Yao,
+Kexin Pei, Ofir Press, Karthik R Narasimhan
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ## anthropics/sandbox-runtime
 
 - Source: https://github.com/anthropics/sandbox-runtime (commit

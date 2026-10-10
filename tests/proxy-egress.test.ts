@@ -285,6 +285,34 @@ describe('la passerelle ne se laisse pas détourner', () => {
   });
 });
 
+describe('la passerelle consigne son propre échec amont (G13)', () => {
+  it('UNE API QUE LA PASSERELLE NE JOINT PAS : 502, et le FAIT de la passerelle — l’API, la cause, combien de fois', async () => {
+    // Un port d'amont fermé : la connexion est refusée, comme un DNS muet
+    // (`getaddrinfo ENOTFOUND`) ou une route coupée le serait.
+    const ferme = createServer();
+    await new Promise<void>((r) => ferme.listen(0, '127.0.0.1', () => r()));
+    const port = (ferme.address() as { port: number }).port;
+    await new Promise<void>((r) => ferme.close(() => r()));
+    const { socket } = await ouvrir([], {
+      passerelles: [
+        { nom: 'anthropic', amont: new URL(`http://127.0.0.1:${port}`), substitutions: [] },
+      ],
+    });
+    expect(session?.echecAmont()).toBeNull();
+    for (let i = 0; i < 2; i += 1) {
+      const r = await requeter(socket, '/hive-api/anthropic/v1/messages', {}, '{}');
+      expect(r.statut).toBe(502);
+      expect(r.corps).toContain("Hive : l'API anthropic ne répond pas");
+    }
+    // Le fait, là où il se produit : le nœud le dira au lieu d'un « surchargé ».
+    expect(session?.echecAmont()).toMatchObject({
+      passerelle: 'anthropic',
+      fois: 2,
+      motif: expect.stringMatching(/^Hive : l'API anthropic ne répond pas \(.*ECONNREFUSED/),
+    });
+  });
+});
+
 describe('les leurres', () => {
   it('gardent le préfixe PUBLIC du jeton, jamais sa partie secrète', () => {
     const reelle = 'sk-ant-oat01-AbCdEf0123456789-secret';

@@ -273,6 +273,15 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     // La fenêtre de décision de la Chambre (G12) lue sur ces horloges : une
     // pause ne fait plus refuser une action pour « budget épuisé ».
     ['tests/fenetre-decision.test.ts', 'securite'],
+    // G13 — la vigie qui arrête un agent enlisé ou au fournisseur épuisé : le
+    // détecteur, le fait qu'il range, ses bancs NOMMÉS et les flux enregistrés
+    // sur les vrais Claude Code et Codex qu'ils rejouent.
+    ['src/adapters/vigie-enlisement.ts', 'permissions'],
+    ['src/shared/enlisement.ts', 'permissions'],
+    ['tests/vigie-enlisement.test.ts', 'permissions'],
+    ['tests/vigie-reine.test.ts', 'permissions'],
+    ['tests/enlisement-bout-en-bout.test.ts', 'permissions'],
+    ['tests/fixtures/enlisement/claude-529.stream.jsonl', 'permissions'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');

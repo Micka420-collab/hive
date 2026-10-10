@@ -17,6 +17,7 @@ import {
   type DelegationBridge,
 } from './delegation-bridge.js';
 import { createLecteurFluxCodex } from './flux-codex.js';
+import { resultatSelonVigie } from './vigie-enlisement.js';
 import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
 
 const CODEX_TIMEOUT_MS = 15 * 60_000;
@@ -416,6 +417,8 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
         // n'écrit pas.
         const flux = createLecteurFluxCodex({
           bacCodexEnEcriture: execution.sandbox === 'workspace-write',
+          // La vigie (G13) : un arrêt EN VOL part au nœud, qui seul arrête.
+          surArret: (arret) => ctx.onProgress({ arret }),
         });
         const result = await runCommandFlux(
           'codex',
@@ -435,7 +438,11 @@ export function createCodexAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TOK
         );
         const fournisseur = flux.declaration();
         return refusDEcriture(
-          { ...result, subAgents: [], ...(fournisseur ? { fournisseur } : {}) },
+          {
+            ...resultatSelonVigie(result, flux.arret()),
+            subAgents: [],
+            ...(fournisseur ? { fournisseur } : {}),
+          },
           execution,
         );
       } catch (error) {

@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"01a00000-0000-7000-8000-000000000001"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `modele-de-test` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"error","message":"You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 6:57 PM."}
+{"type":"turn.failed","error":{"message":"You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 6:57 PM."}}

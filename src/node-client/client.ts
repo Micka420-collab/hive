@@ -17,7 +17,7 @@ import type {
   AdapterResult,
   AgentAdapter,
 } from '../adapters/index.js';
-import { ligneDInfra } from '../adapters/exec.js';
+import { ArretMotive, ligneDInfra } from '../adapters/exec.js';
 import { borneTexteFinal } from '../adapters/texte-final.js';
 import {
   agentBinairePresent,
@@ -39,6 +39,8 @@ import { estOrdreArret } from '../shared/demarrage.js';
 import { plateformeDepuis } from '../shared/machine.js';
 import { laverIdentifiantsDuTexte } from '../shared/projet-public.js';
 import { ligneArretBudgetaire, usdDeMicros } from '../shared/arret-budgetaire.js';
+import { direArret, direRemise } from '../shared/enlisement.js';
+import type { ArretVigie } from '../shared/enlisement.js';
 import {
   assignationIllisible,
   ID_PATTERN,
@@ -58,6 +60,7 @@ import type {
   DelegationResultMsg,
   OutilConstate,
   PoserOutilMsg,
+  TaskRejectMsg,
   TaskResultMsg,
 } from '../shared/protocol.js';
 import {
@@ -97,6 +100,7 @@ import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.
 import type { BacExecution, ReseauBac } from './isolement.js';
 import { HOTE_OSV, bilanRefus, ouvrirReseauTache, refusExige } from './reseau-tache.js';
 import type { CapaciteReseau, ReseauTache } from './reseau-tache.js';
+import type { EchecAmont } from './proxy-egress.js';
 import { NIVEAU_RESEAU_DEFAUT } from '../shared/reseau.js';
 import type { NiveauReseau } from '../shared/reseau.js';
 import { balayerPontsOrphelins, RendezVousPont } from './rendez-vous-pont.js';
@@ -232,7 +236,7 @@ function borneApresCaviardage(s: string, max: number): string {
 function declarationsDuResultat(
   result: AdapterResult,
   caviardeur: Caviardeur,
-): Pick<TaskResultMsg, 'fournisseur' | 'finalText' | 'arretBudgetaire'> {
+): Pick<TaskResultMsg, 'fournisseur' | 'finalText' | 'arretBudgetaire' | 'enlisement'> {
   // Caviardé AVANT d'être borné : la borne garde la fin, et une clé coupée
   // par elle ne serait plus reconnue. `reponse`, pas `texte` : le hub RELIT ce
   // texte (proposition d'éclaireuse, avis de conseil — voir `Caviardeur`).
@@ -244,8 +248,129 @@ function declarationsDuResultat(
     ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
     ...(finalText ? { finalText } : {}),
     ...(result.arretBudgetaire ? { arretBudgetaire: result.arretBudgetaire } : {}),
+    ...(result.enlisement ? { enlisement: result.enlisement } : {}),
   };
 }
+
+/**
+ * Une remise à zéro dite par le nœud : en UTC — il ne sait pas qui la lira —,
+ * avec sa date au-delà d'un jour, et jamais une exception (`direRemise`).
+ */
+const remiseUtc = (ms: number): string =>
+  direRemise(
+    ms,
+    Date.now(),
+    (d) => `${d.toISOString().slice(11, 16)} UTC`,
+    (d) => `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC`,
+  );
+
+/**
+ * La phrase d'une issue de la vigie (G13), au journal du nœud. `enVol` : la
+ * vigie a arrêté l'agent ; sinon le CLI a conclu de lui-même, et la phrase ne
+ * dit que l'issue.
+ */
+function ligneVigie(arret: ArretVigie, enVol: boolean): string {
+  const fin = enVol ? ' — agent arrêté avant son délai' : '';
+  return `[hive] ${direArret(arret, (fr) => fr, remiseUtc)}${fin}`;
+}
+
+/** L'issue que la vigie a rangée sur ce résultat, ou rien. */
+function issueVigie(result: AdapterResult): ArretVigie | undefined {
+  if (result.enlisement) return { issue: 'enlisement', ...result.enlisement };
+  return result.epuisement ? { issue: 'epuisement_fournisseur', ...result.epuisement } : undefined;
+}
+
+/**
+ * Le signal de L'AGENT d'une tentative : celui de la tâche (annulation, budget
+ * de durée, arrêt du nœud) le traverse, et l'arrêt de la vigie (G13) ne
+ * touche que lui. Le CLI qui conclut peut croiser l'arrêt sur sa dernière
+ * ligne : son résultat RÉUSSI garde alors des validations sous un signal
+ * intact — `ctrl`, l'arrêt de la tâche, les aurait annulées.
+ */
+function signalDeLAgent(ctrl: AbortController): AbortController {
+  const agent = new AbortController();
+  const relayer = (): void => agent.abort(ctrl.signal.reason);
+  if (ctrl.signal.aborted) relayer();
+  else ctrl.signal.addEventListener('abort', relayer, { once: true });
+  return agent;
+}
+
+/**
+ * Le progrès d'un adaptateur, avec l'arrêt EN VOL que sa vigie décide (G13) :
+ * le geste de l'annulation (`annulerTache`) — le pilote réveille d'abord un
+ * agent en pause, puis l'arbre est abattu en entier —, sur le seul signal de
+ * l'agent (`signalDeLAgent`). Les logs finissent sur sa cause
+ * (`ArretMotive`) ; le journal ne la dit qu'une fois le résultat rendu
+ * (`direIssueVigie`) : un arrêt que le CLI a devancé en sortant n'a pas eu lieu.
+ */
+function progresSousVigie(
+  agent: AbortController,
+  pilote: PiloteExecution,
+  progres: (p: AdapterProgress) => void,
+): (p: AdapterProgress) => void {
+  return (p) => {
+    if (!p.arret) {
+      progres(p);
+      return;
+    }
+    if (agent.signal.aborted) return;
+    const motif = new ArretMotive(ligneVigie(p.arret, true));
+    const arreter = (): void => agent.abort(motif);
+    void pilote.arreter().then(arreter, arreter);
+  };
+}
+
+/**
+ * L'issue de la vigie, DITE une fois le résultat rendu : au journal de la
+ * tâche et dans sa console en direct (Sandbox Live). Un épuisement dit aussi
+ * que la tentative repart sans être comptée — et que ce qu'elle a écrit dans
+ * l'espace de la tâche, effacé, n'est pas repris.
+ */
+function direIssueVigie(
+  result: AdapterResult,
+  agent: AbortController,
+  progres: (p: AdapterProgress) => void,
+): void {
+  const issue = issueVigie(result);
+  if (!issue) return;
+  // « Arrêté » seulement si l'arbre est tombé sur l'arrêt (`ArretMotive.abattu`) :
+  // sorti de lui-même, l'agent n'a été arrêté par personne.
+  const motif: unknown = agent.signal.reason;
+  const enVol = motif instanceof ArretMotive && motif.abattu;
+  const suite =
+    issue.issue === 'epuisement_fournisseur'
+      ? ' ; tentative réaffectée sans être comptée — ce qu’elle a écrit n’est pas repris'
+      : '';
+  const ligne = `${ligneVigie(issue, enVol)}${suite}`;
+  progres({ log: ligne, sortie: [{ niveau: 'hive', texte: `${ligne}\n` }] });
+}
+
+/**
+ * Le refus d'une tentative dont le fournisseur était épuisé (G13) : le fait ;
+ * ce que la tentative a coûté — sa durée, et ce que son CLI a déclaré : elle a
+ * tourné, elle a pu dépenser — ; et, quand le CLI a déclaré sa remise à zéro,
+ * l'attente avant laquelle ce nœud ne revoit pas la tâche : `retryAfterMs`, le
+ * chemin du Night Shift, borné à 24 h par le protocole et par la Reine.
+ */
+function refusEpuise(
+  result: AdapterResult,
+  durationMs: number,
+  now = Date.now(),
+): Pick<TaskRejectMsg, 'epuisement' | 'retryAfterMs' | 'durationMs' | 'fournisseur'> {
+  const epuisement = result.epuisement;
+  if (!epuisement) return {};
+  const attente = Math.min((epuisement.remiseA ?? now) - now, 24 * 60 * 60 * 1000);
+  return {
+    epuisement,
+    durationMs: Math.min(Math.max(0, Math.round(durationMs)), 86_400_000),
+    ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+    ...(attente > 0 ? { retryAfterMs: Math.round(attente) } : {}),
+  };
+}
+
+/** Le dernier échec amont de la passerelle de la tâche, s'il y en a une (G13). */
+const echecAmontDe = (reseau: ReseauTache): EchecAmont | null =>
+  reseau.etat === 'filtre' ? reseau.echecAmont() : null;
 
 /**
  * Les logs que `task_result` transporte, caviardés puis bornés à leur TÊTE
@@ -1848,10 +1973,24 @@ export class HiveNodeClient {
     prefixe: string,
     result: AdapterResult,
     caviardeur: Caviardeur,
+    echecAmont: EchecAmont | null = null,
   ): string {
-    const dit = ligneDInfra(texteDEchec(result.logs, result.finalText));
-    const cause = dit ? laverIdentifiantsDuTexte(caviardeur.texte(dit)).trim() : '';
-    return (cause ? `${prefixe} : ${cause}` : prefixe).slice(0, LIMITS.name);
+    // Un fournisseur épuisé (G13) : son FAIT voyage à part (`epuisement`) ; la
+    // raison dit ce qui le PROUVE — la phrase de la passerelle de Hive quand
+    // c'est elle qui n'a pas joint l'API (`EchecAmont`), sinon la ligne du CLI,
+    // jamais la ligne `[hive]` qui ferme les logs d'un arrêt en vol.
+    const epuisement = result.epuisement;
+    const passerelle = epuisement?.cause === 'injoignable' ? echecAmont?.motif : undefined;
+    const dit = passerelle ?? ligneDInfra(texteDEchec(result.logs, result.finalText));
+    const propre = epuisement && dit.startsWith('[hive]') ? '' : dit;
+    const cause = propre ? laverIdentifiantsDuTexte(caviardeur.texte(propre)).trim() : '';
+    if (!epuisement) return (cause ? `${prefixe} : ${cause}` : prefixe).slice(0, LIMITS.name);
+    const fait = direArret(
+      { issue: 'epuisement_fournisseur', ...epuisement },
+      (fr) => fr,
+      remiseUtc,
+    );
+    return (cause || fait).slice(0, LIMITS.name);
   }
 
   /**
@@ -2132,12 +2271,14 @@ export class HiveNodeClient {
       agentLance = true;
       const cwdTache = workspace.cwd;
       pilote.phase('agent');
+      // L'arrêt de la vigie (G13) ne touche que l'agent : voir `signalDeLAgent`.
+      const agent = signalDeLAgent(ctrl);
       const rawResult = await this.adapter.run(taskForAgent, {
         cwd: cwdTache,
         // Filtré : les identifiants de la passerelle y sont des leurres.
         env: reseauTache.env,
         attempt: task.attempts + 1,
-        signal: ctrl.signal,
+        signal: agent.signal,
         // Le modèle choisi par l'Aiguillage, s'il en a envoyé un : l'adaptateur
         // le passera à son CLI (`--model`). Absent ⇒ modèle par défaut de l'agent.
         ...(modele ? { modele } : {}),
@@ -2154,7 +2295,7 @@ export class HiveNodeClient {
         decideAction: (action) =>
           this.deciderActionProposee(task.id, action, cwdTache, autonomie, ctrl.signal, pilote),
         pilote,
-        onProgress: progres,
+        onProgress: progresSousVigie(agent, pilote, progres),
       });
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
       // validations du bac comptent dans la durée d'un enfant délégué — son
@@ -2174,15 +2315,16 @@ export class HiveNodeClient {
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
           : rawResult;
       ressources = pilote.ressources();
+      direIssueVigie(result, agent, progres);
       // Échec d'INFRASTRUCTURE : réquisition mid-task si credentials, sinon failover.
       // Le genre se lit sur ce que l'échec DIT, pas sur les logs bruts : la
       // ligne `init` du stream-json porte `apiKeySource`, et un simple 429 y
       // ouvrait une réquisition d'identifiants (shared/texte-d-echec.ts).
       if (!result.success && result.infra) {
-        const req = this.requisitionApresEchecInfra(
-          texteDEchec(result.logs, result.finalText),
-          task.title,
-        );
+        // Un fournisseur épuisé n'attend pas d'identifiants : aucune réquisition.
+        const req = result.epuisement
+          ? null
+          : this.requisitionApresEchecInfra(texteDEchec(result.logs, result.finalText), task.title);
         if (req && workspace && !this.attenteRequisition) {
           conserverWorkspace = true;
           this.attenteRequisition = {
@@ -2219,8 +2361,15 @@ export class HiveNodeClient {
           req?.genre === 'binaire' ? 'agent indisponible (binaire absent)' : 'agent indisponible',
           result,
           caviardeur,
+          echecAmontDe(reseauTache),
         );
-        this.send({ type: 'task_reject', taskId: task.id, reason: raison, infra: true });
+        this.send({
+          type: 'task_reject',
+          taskId: task.id,
+          reason: raison,
+          infra: true,
+          ...refusEpuise(result, Date.now() - started),
+        });
         this.log(`⇄ ${task.title} : ${raison} → réaffectation`);
         return;
       }
@@ -2490,11 +2639,12 @@ export class HiveNodeClient {
       agentLance = true;
       const cwdTache = workspace.cwd;
       pilote.phase('agent');
+      const agent = signalDeLAgent(ctrl);
       const rawResult = await this.adapter.run(taskForAgent, {
         cwd: cwdTache,
         env: reseauTache.env,
         attempt: task.attempts + 1,
-        signal: ctrl.signal,
+        signal: agent.signal,
         ...(modele ? { modele } : {}),
         ...(effort ? { effort } : {}),
         ...(plafondCoutMicros !== undefined ? { plafondCoutMicros } : {}),
@@ -2509,7 +2659,7 @@ export class HiveNodeClient {
         decideAction: (action) =>
           this.deciderActionProposee(task.id, action, cwdTache, autonomie, ctrl.signal, pilote),
         pilote,
-        onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
+        onProgress: progresSousVigie(agent, pilote, progres),
       });
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
       // validations du bac comptent dans la durée d'un enfant délégué — son
@@ -2529,11 +2679,11 @@ export class HiveNodeClient {
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
           : rawResult;
       ressources = pilote.ressources();
+      direIssueVigie(result, agent, progres);
       if (!result.success && result.infra) {
-        const encore = this.requisitionApresEchecInfra(
-          texteDEchec(result.logs, result.finalText),
-          task.title,
-        );
+        const encore = result.epuisement
+          ? null
+          : this.requisitionApresEchecInfra(texteDEchec(result.logs, result.finalText), task.title);
         if (encore?.genre === 'binaire') {
           this.attenteRequisition = {
             ...attente,
@@ -2555,8 +2705,15 @@ export class HiveNodeClient {
           'agent indisponible après réquisition',
           result,
           caviardeur,
+          echecAmontDe(reseauTache),
         );
-        this.send({ type: 'task_reject', taskId: task.id, reason: raison, infra: true });
+        this.send({
+          type: 'task_reject',
+          taskId: task.id,
+          reason: raison,
+          infra: true,
+          ...refusEpuise(result, Date.now() - started),
+        });
         this.log(`⇄ ${task.title} : ${raison} → réaffectation`);
         return;
       }
