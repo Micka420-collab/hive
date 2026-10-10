@@ -23,8 +23,9 @@
 //   3. CE `npm ci` EST L'INSTALLATION DE L'ARBRE : mêmes fichiers d'entrée,
 //      aucun script — ce qu'il produit est ce que l'arbre aurait produit.
 //      L'arbre le reçoit par renommage ; s'il échoue, c'est l'issue de la
-//      préparation. Jamais deux installations pour un arbre : le délai d'avant
-//      suffit toujours.
+//      préparation. Une seule installation par arbre, dans le délai d'avant —
+//      sauf une installation qui écrit hors de `node_modules`, ce qu'aucun
+//      `npm ci` sans script ne fait : l'arbre s'installe alors lui-même.
 //   4. LE MAGASIN N'EN GARDE QU'UNE COPIE, VÉRIFIÉE : l'installation n'a rien
 //      écrit hors de `node_modules` (`releverArbre`, avant et après — un lien
 //      dur compris), ne porte que des dossiers et des fichiers sans setuid,
