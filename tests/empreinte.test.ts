@@ -700,8 +700,9 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     'src/node-client/cache-dependances.ts':
       '<workdir>/<nœud>/dependances/<projet>/<clé> — le magasin de dépendances des validations ' +
       '(G18), peuplé depuis la base dans <tâche>.deps puis publié par renommage, et le ' +
-      '`node_modules` qu’il COPIE dans la tâche ou un rejeu. Déclaré dans `empreinte()` comme ' +
-      'contenu nommé de « travail » ; rien dans `os.tmpdir()`.',
+      '`node_modules` qu’il COPIE dans la tâche ou un rejeu ; sa rétention (G18 D) y écarte ' +
+      'par renommage ce qu’elle efface ensuite. Déclaré dans `empreinte()` comme contenu nommé ' +
+      'de « travail » ; rien dans `os.tmpdir()`.',
     'src/node-client/porte-securite.ts':
       '<workdir>/<nœud>/tasks/<tâche>/.hive-porte-* — le miroir de la porte de sécurité, ' +
       'écrit DANS la tâche (le seul dossier que le bac monte) après le calcul du diff, et ' +

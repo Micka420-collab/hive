@@ -317,6 +317,7 @@ async function tentative(m, contexte) {
         racine: path.join(travail, 'dependances'),
         projet: nom,
         reseau: 'ouvert:libre',
+        niveau: 'conteneur',
       },
     });
     const validationsMs = performance.now() - debut;

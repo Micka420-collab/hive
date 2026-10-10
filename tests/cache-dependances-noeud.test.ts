@@ -37,11 +37,15 @@ import {
   readlinkSync,
   realpathSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ramasserMagasin } from '../src/node-client/cache-dependances.js';
+import type { MagasinDependances } from '../src/node-client/cache-dependances.js';
+import { VERSION_MAGASIN } from '../src/shared/cache-dependances.js';
 import { poserRegistre } from '../src/node-client/git-hote.js';
 import { validerProduction } from '../src/node-client/validations-bac.js';
 import type { DepotEpingle } from '../src/shared/git-protege.js';
@@ -216,10 +220,10 @@ async function tache(src: string): Promise<{
 }
 
 /** Le magasin d'un banc, neuf. */
-function magasin(projet = 'p1'): { racine: string; projet: string; reseau: string } {
+function magasin(projet = 'p1'): MagasinDependances {
   const dir = mkdtempSync(path.join(racine, 'magasin-'));
   dossiers.push(dir);
-  return { racine: dir, projet, reseau: 'dependances:libre' };
+  return { racine: dir, projet, reseau: 'dependances:libre', niveau: 'conteneur' };
 }
 
 async function valider(
@@ -249,9 +253,12 @@ const contenu = (m: ReturnType<typeof magasin>): string[] => {
   return existsSync(dir) ? readdirSync(dir) : [];
 };
 
-/** Les entrées publiées d'un projet du magasin (sans les restes de peuplement). */
+/**
+ * Les entrées publiées d'un projet du magasin : leur clé pour nom, rien
+ * d'autre — ni un peuplement en vol, ni une entrée écartée qu'on efface.
+ */
 const entrees = (m: ReturnType<typeof magasin>): string[] =>
-  contenu(m).filter((e) => !e.includes('.neuf-'));
+  contenu(m).filter((e) => /^[0-9a-f]{32}$/.test(e));
 
 const PREPARATION = /^validations : préparation « npm ci » faite en \S+ s — (.*)$/;
 const noteDe = (etapes: readonly string[]): string | undefined =>
@@ -454,4 +461,98 @@ describe.runIf(POSIX)('le magasin de dépendances, par les validations du nœud'
     );
     expect(v.extrait).toMatch(/\[hive\] npm ci → code 1$/);
   }, 90_000);
+
+  // ─── LA RÉTENTION, PAR LES VRAIES VALIDATIONS (G18 D) ──────────────────────
+
+  it('la 4e entrée d’un projet, publiée, évince la moins récemment servie', async () => {
+    const m = magasin();
+    // Trois entrées déjà là, au format du magasin, servies il y a 3 h, 2 h et 1 h.
+    writeFileSync(path.join(m.racine, '.niveau-isolement'), 'conteneur');
+    const anciennes = [3, 2, 1].map((h, i) => {
+      const cle = String(i + 1).padStart(32, 'f');
+      const dir = path.join(m.racine, m.projet, cle);
+      mkdirSync(path.join(dir, 'node_modules'), { recursive: true });
+      writeFileSync(
+        path.join(dir, 'manifeste.json'),
+        JSON.stringify({ version: VERSION_MAGASIN, cle, fichiers: 0, octets: 0, liens: 0 }),
+      );
+      writeFileSync(path.join(dir, 'servie'), '');
+      const quand = (Date.now() - h * 3_600_000) / 1000;
+      utimesSync(path.join(dir, 'servie'), quand, quand);
+      return cle;
+    });
+    const t = await tache(source(PROJET()));
+
+    const v = await valider(t, m);
+
+    expect(v.tests, v.extrait).toBe('passed');
+    expect(noteDe(v.etapes)).toBe(
+      'dépendances installées à la base, rangées au magasin du nœud (1 entrée(s) évincée(s))',
+    );
+    // La plus ancienne est partie ; la nouvelle et les deux plus récentes restent.
+    const restantes = entrees(m);
+    expect(restantes).toHaveLength(3);
+    expect(restantes).not.toContain(anciennes[0]);
+    expect(restantes).toEqual(expect.arrayContaining([anciennes[1], anciennes[2]]));
+  }, 90_000);
+
+  it('une entrée en cours de restauration n’est jamais écartée sous ses pieds, ramassage en boucle', async () => {
+    // Beaucoup de paquets : la copie dure (des centaines de ms pour quelques
+    // ms par tour de ramassage) — sans le verrou, un tour la croise à coup sûr.
+    const n = 1500;
+    const deps = Object.fromEntries(Array.from({ length: n }, (_, i) => [`dep-${i}`, '1.0.0']));
+    const lock = JSON.stringify({
+      name: 'projet-g18',
+      version: '1.0.0',
+      lockfileVersion: 3,
+      requires: true,
+      packages: {
+        '': { name: 'projet-g18', version: '1.0.0', dependencies: deps },
+        ...Object.fromEntries(
+          Object.keys(deps).map((d) => [
+            `node_modules/${d}`,
+            {
+              version: '1.0.0',
+              resolved: `https://registry.example.invalid/${d}/-/${d}-1.0.0.tgz`,
+              integrity: 'sha512-ZmF1eCBwYXF1ZXQ=',
+            },
+          ]),
+        ),
+      },
+    });
+    const src = source({
+      'package.json': JSON.stringify({
+        name: 'projet-g18',
+        version: '1.0.0',
+        private: true,
+        scripts: { test: `node -e "process.exit(require('dep-0') === 'dep-0@1.0.0' ? 0 : 1)"` },
+        dependencies: deps,
+      }),
+      'package-lock.json': lock,
+      '.gitignore': 'node_modules\n',
+    });
+    const m = magasin();
+    const t1 = await tache(src);
+    const t2 = await tache(src);
+    await valider(t1, m);
+    // Un ramassage qui se croit dans un mois tourne en boucle : toute entrée
+    // libre lui paraît périmée. Celle que la seconde tâche copie ne l'est pas.
+    let fini = false;
+    const boucle = (async () => {
+      while (!fini) {
+        await ramasserMagasin(m.racine, undefined, Date.now() + 30 * 24 * 3_600_000);
+        await new Promise((suite) => setImmediate(suite));
+      }
+    })();
+
+    const v2 = await valider(t2, m).finally(() => {
+      fini = true;
+    });
+    await boucle;
+
+    expect(v2.tests, v2.extrait).toBe('passed');
+    // Jamais de repli dans l'arbre : aucune copie n'a perdu son entrée en route.
+    expect(ciLances()).not.toContain(t2.dir);
+    expect(noteDe(v2.etapes)).toMatch(/^dépendances (restaurées|installées à la base)/);
+  }, 120_000);
 });

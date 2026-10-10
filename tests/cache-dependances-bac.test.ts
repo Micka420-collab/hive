@@ -175,6 +175,7 @@ describe('le magasin de dépendances dans un vrai bac (bubblewrap)', () => {
         racine: path.join(racine, 'magasin'),
         projet: 'projet-bac',
         reseau: 'dependances:libre',
+        niveau: 'conteneur',
       };
 
       const valider = async (nom: string) => {

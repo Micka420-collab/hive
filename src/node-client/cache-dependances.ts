@@ -49,12 +49,32 @@
 // propre échéance, antérieure à celle de qui l'attend ; un geste dont
 // l'échéance est passée quand vient son tour ne fait rien.
 //
+// ─── LA RÉTENTION (G18 D) ─────────────────────────────────────────────────────
+//
+// `ramasserMagasin`, au démarrage du nœud et après chaque publication, sous une
+// seule file :
+//
+//   · le magasin ENTIER part quand le niveau d'isolement du nœud a changé
+//     depuis son peuplement (`MARQUE_NIVEAU`, posée au premier peuplement) :
+//     un magasin peuplé sous un niveau ne sert jamais sous un autre. Sans
+//     bac, l'agent atteint le disque entier — magasin compris ;
+//   · une entrée qui n'a servi aucune restauration depuis `INUTILISEE_MAX_MS`
+//     part ; au-delà de `ENTREES_PAR_PROJET` dans un projet, puis de
+//     `MAGASIN_OCTETS_MAX` en tout, les moins récemment servies partent
+//     d'abord (le marqueur `USAGE`, touché à chaque restauration) ;
+//   · une entrée EN USAGE — prise dans sa file, rendue après sa copie — ne
+//     part jamais : l'éviction passe par la même file, et la saute ;
+//   · rien ne s'efface en place : une entrée est d'abord ÉCARTÉE par
+//     renommage (`.supprimee-…`), puis effacée (`effacerDossier`). Ce qu'un
+//     nœud tué laisse — peuplement (`.neuf-…`) ou effacement interrompus —
+//     ne porte jamais le nom d'une entrée, et le démarrage suivant le ramasse.
+//
 // ─── CE QUI RESTE, DIT ───────────────────────────────────────────────────────
 //
-//   · Au niveau `processus`, l'agent atteint le magasin comme le disque entier.
-//     Sans bac, aucune validation ne tourne, donc aucune ne le lit ; mais un
-//     magasin écrit sous ce niveau doit être effacé avant qu'un bac ne revienne
-//     — c'est la rétention (G18 D), avec l'âge, le nombre et la taille totale.
+//   · Au niveau `processus`, l'agent atteint le magasin comme le disque entier,
+//     sa marque comprise : le vidage au changement de niveau ferme le cas
+//     honnête, pas un agent qui forgerait magasin et marque avant le retour
+//     d'un bac — ce niveau-là ne se présente pas comme une isolation.
 //   · Un script de dépendance non déterministe : l'entrée fige le résultat du
 //     premier peuplement.
 //   · Ext4 et NTFS copient vraiment ; macOS clone fichier par fichier ; Windows
@@ -91,8 +111,22 @@ export const dossierDuMagasin = (workRoot: string): string => path.resolve(workR
 export const ENTREE_FICHIERS_MAX = 250_000;
 export const ENTREE_OCTETS_MAX = 2 * 1024 ** 3;
 
+/**
+ * La rétention (voir l'en-tête) — proposée, à faire valider par le
+ * propriétaire : 7 jours sans servir, 3 entrées par projet, 4 Gio en tout.
+ */
+export const INUTILISEE_MAX_MS = 7 * 24 * 60 * 60_000;
+export const ENTREES_PAR_PROJET = 3;
+export const MAGASIN_OCTETS_MAX = 4 * 1024 ** 3;
+
 /** Le manifeste d'une entrée publiée, à côté de son `node_modules`. */
 const MANIFESTE = 'manifeste.json';
+/** Le marqueur d'usage d'une entrée : son heure de modification dit sa dernière restauration. */
+const USAGE = 'servie';
+/** Le niveau d'isolement sous lequel le magasin a été peuplé, à sa racine. */
+const MARQUE_NIVEAU = '.niveau-isolement';
+/** Le nom d'une entrée : sa clé, rien d'autre — un reste n'en porte jamais un. */
+const NOM_D_ENTREE = /^[0-9a-f]{32}$/;
 
 /** Le magasin du nœud, tel que les validations le reçoivent. */
 export interface MagasinDependances {
@@ -102,12 +136,14 @@ export interface MagasinDependances {
   projet: string;
   /** Le réseau des validations — son niveau, et s'il est filtré. */
   reseau: string;
+  /** Le niveau d'isolement du nœud, marqué au premier peuplement (voir la rétention). */
+  niveau: string;
 }
 
 /** Ce que le magasin a fait pour un arbre. */
 export type IssueMagasin =
   | { genre: 'restaure' }
-  | { genre: 'peuple' }
+  | { genre: 'peuple'; evincees: number }
   | { genre: 'hors_magasin'; raison: RaisonHorsMagasin; detail?: string };
 
 /** Lance `argv` dans le bac, dans le répertoire `ou` — l'exécuteur des validations. */
@@ -224,15 +260,54 @@ function sousFile<T>(entree: string, geste: () => Promise<T>): Promise<T> {
   return suite;
 }
 
-/** L'entrée est-elle publiée, pour cette clé et ce format ? */
-async function publiee(entree: string, cle: string): Promise<boolean> {
+/**
+ * Une entrée PUBLIÉE pour cette clé et ce format — ce qu'elle pèse, et quand
+ * elle a servi pour la dernière fois (`USAGE`, sinon sa publication) — ou
+ * `null` : absente, illisible ou d'un autre format.
+ */
+async function lireEntree(
+  entree: string,
+  cle: string,
+): Promise<{ octets: number; servie: number } | null> {
   try {
-    const m = JSON.parse(await fsp.readFile(path.join(entree, MANIFESTE), 'utf8')) as unknown;
-    const manifeste = m as { version?: unknown; cle?: unknown };
-    return manifeste.version === VERSION_MAGASIN && manifeste.cle === cle;
+    const brut = JSON.parse(await fsp.readFile(path.join(entree, MANIFESTE), 'utf8')) as unknown;
+    const m = brut as { version?: unknown; cle?: unknown; octets?: unknown };
+    if (m.version !== VERSION_MAGASIN || m.cle !== cle || typeof m.octets !== 'number') return null;
+    const usage =
+      (await fsp.stat(path.join(entree, USAGE)).catch(() => null)) ??
+      (await fsp.stat(path.join(entree, MANIFESTE)));
+    return { octets: m.octets, servie: usage.mtimeMs };
   } catch {
-    return false;
+    return null;
   }
+}
+
+/**
+ * Les entrées EN USAGE, et par combien de restaurations : prises dans la file
+ * de l'entrée, rendues après la copie. Un ramassage, qui passe par la même
+ * file, n'en écarte jamais une (voir l'en-tête).
+ */
+const enUsage = new Map<string, number>();
+const prendre = (entree: string): void => {
+  enUsage.set(entree, (enUsage.get(entree) ?? 0) + 1);
+};
+const rendre = (entree: string): void => {
+  const reste = (enUsage.get(entree) ?? 1) - 1;
+  if (reste > 0) enUsage.set(entree, reste);
+  else enUsage.delete(entree);
+};
+
+/**
+ * Écarte `dossier` par renommage — atomique : ce qui suit ne le prend plus
+ * jamais pour une entrée, même si l'effacement s'interrompt — et rend son
+ * nouveau nom, à effacer ; `null` s'il n'a pas pu l'être (absent, tenu).
+ */
+async function ecarter(dossier: string): Promise<string | null> {
+  const ecarte = `${dossier}.supprimee-${randomUUID()}`;
+  return fsp.rename(dossier, ecarte).then(
+    () => ecarte,
+    () => null,
+  );
 }
 
 /** Le genre d'une entrée que le magasin refuse, pour le dire. */
@@ -366,6 +441,21 @@ interface Peuplement {
   argv: readonly string[];
   lancer: Lancer;
   reste: () => number;
+  /** La racine du magasin, et le niveau d'isolement à y marquer. */
+  racine: string;
+  niveau: string;
+}
+
+/**
+ * Marque le niveau d'isolement du magasin à son PREMIER peuplement — jamais
+ * par-dessus une marque : celle-ci dit sous quel niveau ses entrées sont nées,
+ * et le démarrage vide le magasin quand le nœud n'y tourne plus.
+ */
+async function marquerNiveau(racine: string, niveau: string): Promise<void> {
+  await fsp.mkdir(racine, { recursive: true });
+  await fsp.writeFile(path.join(racine, MARQUE_NIVEAU), niveau, { flag: 'wx' }).catch((err) => {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+  });
 }
 
 /**
@@ -390,6 +480,7 @@ async function peupler(p: Peuplement, entree: string, cle: string): Promise<void
   const neuf = `${entree}.neuf-${randomUUID()}`;
   try {
     await sous('peuplement', async () => {
+      await marquerNiveau(p.racine, p.niveau);
       await fsp.mkdir(neuf, { recursive: true });
       // Hors du dossier où l'installation a tourné : rien n'y revient par lui.
       await fsp.rename(path.join(p.dossier, 'node_modules'), path.join(neuf, 'node_modules'));
@@ -405,11 +496,12 @@ async function peupler(p: Peuplement, entree: string, cle: string): Promise<void
         peupleeLe: new Date().toISOString(),
       };
       await fsp.writeFile(path.join(neuf, MANIFESTE), `${JSON.stringify(manifeste)}\n`);
+      await fsp.writeFile(path.join(neuf, USAGE), '');
       try {
         await fsp.rename(neuf, entree);
       } catch (err) {
         // Publiée entre-temps par un autre nœud du même atelier (des bancs).
-        if (!(await publiee(entree, cle))) throw err;
+        if ((await lireEntree(entree, cle)) === null) throw err;
       }
     });
   } finally {
@@ -492,19 +584,40 @@ export async function depuisLeMagasin(p: {
     const node = await empreinteDuBac(p.lancer, p.peuplement, reste);
     const bac = { fournisseur: p.bac.fournisseur.nom, image: p.bac.image, node, npm: p.npm };
     const cle = cleDuMagasin({ ...p.magasin, argv: p.argv, bac, entrees: base });
-    const entree = path.join(p.magasin.racine, segmentSur(p.magasin.projet), cle);
-    const peuplement: Peuplement = { ...p, dossier: p.peuplement, reste };
+    const racine = path.resolve(p.magasin.racine);
+    const entree = path.join(racine, segmentSur(p.magasin.projet), cle);
+    const peuplement: Peuplement = {
+      ...p,
+      dossier: p.peuplement,
+      reste,
+      racine,
+      niveau: p.magasin.niveau,
+    };
     const peuplee = await sousFile(entree, async () => {
       // Notre tour est venu après l'échéance : rien à faire, l'appelant installe.
       reste();
-      if (await publiee(entree, cle)) return false;
-      await sous('peuplement', () => effacerDossier(entree));
-      await peupler(peuplement, entree, cle);
-      return true;
+      const deja = (await lireEntree(entree, cle)) !== null;
+      if (!deja) {
+        // Illisible ou d'un autre format : écartée, jamais effacée en place.
+        const ecartee = await ecarter(entree);
+        if (ecartee) void effacerDossier(ecartee).catch(() => undefined);
+        await peupler(peuplement, entree, cle);
+      }
+      // À nous jusqu'à la fin de la copie : un ramassage passe par cette file.
+      prendre(entree);
+      return !deja;
     });
-    copie = true;
-    await sous('copie', () => restaurer(path.join(entree, 'node_modules'), cible, reste));
-    return { genre: peuplee ? 'peuple' : 'restaure' };
+    try {
+      await fsp.writeFile(path.join(entree, USAGE), '').catch(() => undefined);
+      copie = true;
+      await sous('copie', () => restaurer(path.join(entree, 'node_modules'), cible, reste));
+    } finally {
+      rendre(entree);
+    }
+    if (!peuplee) return { genre: 'restaure' };
+    // Après chaque publication, le magasin retrouve ses bornes.
+    const bilan = await ramasserMagasin(racine).catch(() => null);
+    return { genre: 'peuple', evincees: bilan?.evincees ?? 0 };
   } catch (err) {
     if (copie) await effacerDossier(cible).catch(() => undefined);
     const hors = err instanceof HorsMagasin ? err : new HorsMagasin('copie', enBref(err));
@@ -516,4 +629,156 @@ export async function depuisLeMagasin(p: {
   } finally {
     await effacerRejeu(p.peuplement);
   }
+}
+
+/** Ce qu'un ramassage a fait du magasin. */
+export interface BilanRamassage {
+  /** Le magasin ENTIER écarté : il avait été peuplé sous un autre niveau d'isolement. */
+  vide: boolean;
+  /** Les entrées évincées — périmées, en trop dans leur projet, au-delà du total. */
+  evincees: number;
+  /** Ce qu'elles pesaient, selon leur manifeste. */
+  octets: number;
+  /** Ce qui n'était pas une entrée : peuplements ou effacements interrompus, entrées illisibles. */
+  restes: number;
+}
+
+/** Une entrée vue par le ramassage. */
+interface EntreeVue {
+  chemin: string;
+  projet: string;
+  octets: number;
+  servie: number;
+}
+
+/**
+ * Écarte une entrée par SA file — rend son nouveau nom, ou `null` : en usage,
+ * ou attendue dans sa file (une restauration qui la prend, un peuplement qui
+ * la refait) ; le ramassage ne fait jamais la queue derrière eux.
+ */
+function evincerEntree(chemin: string): Promise<string | null> {
+  if (files.has(chemin) || enUsage.has(chemin)) return Promise.resolve(null);
+  return sousFile(chemin, async () => (enUsage.has(chemin) ? null : ecarter(chemin)));
+}
+
+/** Les noms d'un dossier, ou aucun : absent, il n'a rien à ramasser. */
+const lister = (dossier: string): Promise<string[]> => fsp.readdir(dossier).catch(() => []);
+
+/**
+ * Les entrées à évincer, dans l'ordre des bornes (voir l'en-tête) : les
+ * périmées, puis, des moins récemment servies aux plus récentes, celles qui
+ * passent la borne de leur projet, puis celles qui passent le total. Une
+ * entrée en usage ne part jamais, et compte quand même.
+ */
+function aEvincer(vues: readonly EntreeVue[], maintenant: number): EntreeVue[] {
+  const gardees = [...vues].sort((a, b) => a.servie - b.servie);
+  const evincees: EntreeVue[] = [];
+  const evincer = (e: EntreeVue): void => {
+    evincees.push(e);
+    gardees.splice(gardees.indexOf(e), 1);
+  };
+  const libre = (e: EntreeVue): boolean => !enUsage.has(e.chemin);
+  for (const e of gardees.filter((v) => maintenant - v.servie > INUTILISEE_MAX_MS && libre(v))) {
+    evincer(e);
+  }
+  for (const projet of new Set(gardees.map((e) => e.projet))) {
+    const du = gardees.filter((e) => e.projet === projet);
+    let enTrop = du.length - ENTREES_PAR_PROJET;
+    for (const e of du.filter(libre)) {
+      if (enTrop <= 0) break;
+      evincer(e);
+      enTrop -= 1;
+    }
+  }
+  let total = gardees.reduce((n, e) => n + e.octets, 0);
+  for (const e of gardees.filter(libre)) {
+    if (total <= MAGASIN_OCTETS_MAX) break;
+    evincer(e);
+    total -= e.octets;
+  }
+  return evincees;
+}
+
+/**
+ * Ramène le magasin dans ses bornes (voir l'en-tête) — au démarrage du nœud
+ * (`demarrage` : son niveau d'isolement), et après chaque publication. Un
+ * seul ramassage à la fois ; chaque éviction passe par la file de l'entrée.
+ *
+ * Ce qui part est écarté avant d'être effacé. Au démarrage, l'effacement est
+ * attendu ; après une publication, il se fait en arrière-plan : la validation
+ * qui vient de publier n'attend pas le disque.
+ */
+export function ramasserMagasin(
+  racineDuMagasin: string,
+  demarrage?: { niveau: string },
+  maintenant = Date.now(),
+): Promise<BilanRamassage> {
+  const racine = path.resolve(racineDuMagasin);
+  return sousFile(`${racine}\0ramassage`, async () => {
+    const bilan: BilanRamassage = { vide: false, evincees: 0, octets: 0, restes: 0 };
+    const aEffacer: string[] = [];
+    if (demarrage) {
+      // Un magasin entier écarté par un démarrage précédent, que l'effacement n'a pas fini.
+      const voisin = `${path.basename(racine)}.supprimee-`;
+      for (const nom of await lister(path.dirname(racine))) {
+        if (!nom.startsWith(voisin)) continue;
+        aEffacer.push(path.join(path.dirname(racine), nom));
+        bilan.restes += 1;
+      }
+      const present = (await fsp.lstat(racine).catch(() => null)) !== null;
+      const marque = await fsp.readFile(path.join(racine, MARQUE_NIVEAU), 'utf8').catch(() => null);
+      if (present && marque !== demarrage.niveau) {
+        const ecarte = await ecarter(racine);
+        if (ecarte) aEffacer.push(ecarte);
+        bilan.vide = ecarte !== null;
+      }
+    }
+    const vues: EntreeVue[] = [];
+    for (const projet of bilan.vide ? [] : await lister(racine)) {
+      if (projet.startsWith('.')) continue;
+      for (const nom of await lister(path.join(racine, projet))) {
+        const chemin = path.join(racine, projet, nom);
+        if (!NOM_D_ENTREE.test(nom)) {
+          // Un peuplement en vol en a un pendant qu'il tourne : au démarrage seulement.
+          if (demarrage) {
+            aEffacer.push(chemin);
+            bilan.restes += 1;
+          }
+          continue;
+        }
+        const lue = await lireEntree(chemin, nom);
+        if (lue) {
+          vues.push({ chemin, projet, ...lue });
+          continue;
+        }
+        const ecarte = await evincerEntree(chemin);
+        if (ecarte) {
+          aEffacer.push(ecarte);
+          bilan.restes += 1;
+        }
+      }
+    }
+    for (const e of aEvincer(vues, maintenant)) {
+      const ecarte = await evincerEntree(e.chemin);
+      if (!ecarte) continue;
+      aEffacer.push(ecarte);
+      bilan.evincees += 1;
+      bilan.octets += e.octets;
+    }
+    const effacements = Promise.all(aEffacer.map((d) => effacerDossier(d).catch(() => undefined)));
+    if (demarrage) await effacements;
+    return bilan;
+  });
+}
+
+/** Ce qu'un ramassage a fait, en une ligne — `null` quand il n'a rien fait. */
+export function direRamassage(b: BilanRamassage): string | null {
+  const faits = [
+    ...(b.vide ? ['vidé : le niveau d’isolement du nœud a changé depuis son peuplement'] : []),
+    ...(b.evincees > 0
+      ? [`${b.evincees} entrée(s) évincée(s) (${Math.ceil(b.octets / 1024 ** 2)} Mio)`]
+      : []),
+    ...(b.restes > 0 ? [`${b.restes} reste(s) ramassé(s)`] : []),
+  ];
+  return faits.length > 0 ? `magasin de dépendances : ${faits.join(' · ')}` : null;
 }

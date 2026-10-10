@@ -557,7 +557,10 @@ async function lancerLePlan(
         })
       : null;
     if (issue && issue.genre !== 'hors_magasin') {
-      return { code: 0, output: '', note: NOTE_MAGASIN[issue.genre] };
+      // La rétention a peut-être fait de la place (G18 D) : elle se dit aussi.
+      const evincees = issue.genre === 'peuple' ? issue.evincees : 0;
+      const note = `${NOTE_MAGASIN[issue.genre]}${evincees > 0 ? ` (${evincees} entrée(s) évincée(s))` : ''}`;
+      return { code: 0, output: '', note };
     }
     const reste = echeance - Date.now();
     const r: Execution =

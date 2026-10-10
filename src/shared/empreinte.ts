@@ -272,9 +272,12 @@ export function empreinte(ctx: Contexte): Emplacement[] {
           // Le magasin de dépendances (`node-client/cache-dependances.ts`, G18) :
           // un `node_modules` par projet et par lockfile de base, peuplé dans
           // `<tâche>.deps` (effacé aussitôt), restauré par copie. Il se refait
-          // au prochain besoin — au prix d'un `npm ci`.
+          // au prochain besoin — au prix d'un `npm ci`. Borné (G18 D) : ses
+          // entrées partent après 7 jours sans servir, au-delà de 3 par projet
+          // ou de 4 Gio en tout, et le magasin entier quand le niveau
+          // d'isolement du nœud change.
           chemin: p.join(ctx.workdir, '<nœud>', 'dependances', '<projet>', '<clé>'),
-          quoi: 'le magasin de dépendances des validations — un `node_modules` par lockfile de base, réinstallé au prochain besoin',
+          quoi: 'le magasin de dépendances des validations — un `node_modules` par lockfile de base, borné (7 jours, 3 par projet, 4 Gio), réinstallé au prochain besoin',
         },
         {
           // Le seul contenu d'ici qui ne se REFAIT pas : une mission livrée
