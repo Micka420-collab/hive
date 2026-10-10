@@ -5,7 +5,14 @@
 
 import { MAX_ATTEMPTS, NODE_TIMEOUT_MS } from '../shared/types.js';
 import { motifDepotIllisible } from '../shared/protocol.js';
-import type { HiveEvent, HiveNode, SubAgent, Task, TaskResult } from '../shared/types.js';
+import type {
+  HiveEvent,
+  HiveNode,
+  SubAgent,
+  Task,
+  TaskResult,
+  UsageFournisseur,
+} from '../shared/types.js';
 import type { PresenceFichier } from '../shared/presence.js';
 import type { SegmentNiveau } from '../shared/niveaux-sortie.js';
 import type { EtatDirect } from '../shared/bac-direct.js';
@@ -118,6 +125,17 @@ const TICKS_CONFIRMATION_THERMO = 2;
  * relecteur redémarrait, c'est perdre un avis qui serait arrivé.
  */
 export const ATTENTE_RELECTEUR_ABSENT_MS = 5 * 60_000;
+
+/**
+ * Une tentative refusée parce que le fournisseur de son agent était épuisé
+ * (G13, `TaskRejectMsg.epuisement`) : le fait, et ce que la tentative a coûté
+ * — elle a TOURNÉ (sa durée, ce que son CLI a déclaré).
+ */
+export interface TentativeEpuisee {
+  fait: EpuisementFournisseur;
+  durationMs?: number;
+  fournisseur?: UsageFournisseur;
+}
 
 /** Le lien d'une tâche de relecture vers ce qu'elle juge (`contre_expertises`). */
 type LienRelecture = NonNullable<ReturnType<HiveStore['relectureDe']>>;
@@ -836,12 +854,26 @@ export class Scheduler {
     infra: boolean | 'avant_agent' | 'illisible' = false,
     now = Date.now(),
     retryAfterMs?: number,
-    epuisement?: EpuisementFournisseur,
+    epuisee?: TentativeEpuisee,
   ): void {
     // Indisponibilité prévisible annoncée par le nœud (Night Shift) : cooldown
     // proportionnel (borné 24 h) — sinon boucle assignation/refus toutes les
     // ~4 s qui noierait le journal pendant toute la fenêtre fermée.
     const cooldown = Math.max(REJECT_COOLDOWN_MS, Math.min(retryAfterMs ?? 0, 24 * 60 * 60 * 1000));
+    // Le fournisseur était épuisé (G13) : le FAIT, rangé là où le refus se
+    // range, avec ce que la tentative a coûté — elle a tourné. Seulement d'un
+    // refus d'infrastructure APRÈS l'agent.
+    const epuise = infra === true ? epuisee : undefined;
+    const faitsEpuise = epuise
+      ? {
+          epuisement: epuise.fait,
+          ...(epuise.durationMs !== undefined ? { durationMs: epuise.durationMs } : {}),
+          ...(epuise.fournisseur ? { fournisseur: epuise.fournisseur } : {}),
+        }
+      : {};
+    // Sa dépense, sur la ligne de la tentative de l'enfant délégué : inconnue
+    // sinon (« au moins »), et l'enveloppe de la racine la tient pour rien.
+    if (epuise) this.store.consignerDepenseRefus(taskId, nodeId, epuise.fournisseur?.coutUsd);
 
     // Drone Wars : le refus d'un drone enrôlé (saturation, hors service) n'est
     // qu'un abandon de course — la tâche ne repart en ready que si la course
@@ -852,7 +884,8 @@ export class Scheduler {
       this.races.set(taskId, updated);
       this.recentRejections.set(`${taskId}:${nodeId}`, now + cooldown);
       if (infra === true) this.ecarterModele(taskId, race.modeleParDrone?.[nodeId]);
-      this.emit('drone_rejected', { taskId, nodeId, reason });
+      this.emit('drone_rejected', { taskId, nodeId, reason, ...faitsEpuise });
+      if (epuise) this.tenirBudgetCoutRacine(taskId, epuise.fournisseur?.coutUsd, now);
       const task = this.store.getTask(taskId);
       if (!task || task.status === 'done' || task.status === 'failed') {
         this.races.delete(taskId);
@@ -890,11 +923,14 @@ export class Scheduler {
       nodeId,
       reason,
       ...(infra ? { infra: true } : {}),
-      // Le fournisseur était épuisé (G13) : le FAIT, là où le refus se range.
-      ...(infra === true && epuisement ? { epuisement } : {}),
+      ...faitsEpuise,
       ...(infra === 'avant_agent' || infra === 'illisible' ? { avantAgent: true } : {}),
       ...(infra === 'illisible' ? { illisible: true } : {}),
     });
+    if (epuise) {
+      this.tenirBudgetCoutRacine(taskId, epuise.fournisseur?.coutUsd, now);
+      if (this.relecteurEpuise(task, nodeId, epuise.fait, now)) return;
+    }
 
     if (infra) {
       const count = (this.infraRejects.get(taskId) ?? 0) + 1;
@@ -904,7 +940,14 @@ export class Scheduler {
       const limit = Math.max(3, online * 3);
       if (count >= limit) {
         this.store.patchTask(taskId, { status: 'failed', assignedNodeId: null }, now);
-        this.emit('task_failed', { taskId, reason: 'no_working_agent', infraRejects: count });
+        // La cause du dernier refus, quand c'était un fournisseur épuisé : la
+        // tâche échoue sur lui, et le Journal le dit.
+        this.emit('task_failed', {
+          taskId,
+          reason: 'no_working_agent',
+          infraRejects: count,
+          ...(epuise ? { epuisement: epuise.fait } : {}),
+        });
         this.infraRejects.delete(taskId);
         this.fermerSousArbre(taskId, 'ancestor_failed', now);
         this.relectureCloseSansAvis(task, 'aucun_agent_fonctionnel');
@@ -2295,6 +2338,8 @@ export class Scheduler {
           taskId: task.id,
           nodeId,
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+          // Le drone tournait en rond (G13) : la course le dit aussi.
+          ...(result.enlisement ? { enlisement: result.enlisement } : {}),
         });
         if (task.assignedNodeId === nodeId) this.promoteNextDrone(updated, task.id, now);
         return;
@@ -2329,6 +2374,7 @@ export class Scheduler {
           durationMs,
           ...(result.ressources ? { ressources: result.ressources } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+          ...(result.enlisement ? { enlisement: result.enlisement } : {}),
         });
         this.fermerSousArbre(task.id, 'ancestor_failed', now);
       } else {
@@ -2342,6 +2388,7 @@ export class Scheduler {
           durationMs,
           ...(result.ressources ? { ressources: result.ressources } : {}),
           ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+          ...(result.enlisement ? { enlisement: result.enlisement } : {}),
         });
       }
       this.apresCommit(() => this.promoteAndAssign(now));
@@ -2783,6 +2830,44 @@ export class Scheduler {
   }
 
   /**
+   * Une relecture refusée par son relecteur dont le FOURNISSEUR est épuisé
+   * (G13) jusqu'au-delà de `ATTENTE_RELECTEUR_ABSENT_MS` — la remise à zéro
+   * qu'il a déclarée —, sans autre nœud de la famille pour la reprendre :
+   * close comme une famille absente, motif `relecteur_epuise`. Sans elle, la
+   * relecture attendait la remise (jusqu'à 24 h par refus, la borne du
+   * refroidissement), et le verdict avec elle — là où une famille absente
+   * passe la main au relais d'une autre famille après cinq minutes.
+   * Rend vrai quand la relecture est close.
+   */
+  private relecteurEpuise(
+    task: Task,
+    nodeId: string,
+    fait: EpuisementFournisseur,
+    now: number,
+  ): boolean {
+    const lien = this.store.relectureDe(task.id);
+    if (!lien || (fait.remiseA ?? now) - now <= ATTENTE_RELECTEUR_ABSENT_MS) return false;
+    const relais = this.store
+      .listNodes()
+      .some(
+        (n) =>
+          n.status === 'online' &&
+          n.id !== nodeId &&
+          n.agentType === lien.relecteurAgent &&
+          (this.recentRejections.get(`${task.id}:${n.id}`) ?? 0) <= now,
+      );
+    if (relais) return false;
+    this.relecturesSansRelecteur.delete(task.id);
+    this.infraRejects.delete(task.id);
+    this.store.patchTask(task.id, { status: 'failed', assignedNodeId: null }, now);
+    this.emit('task_failed', { taskId: task.id, reason: 'relecteur_epuise', epuisement: fait });
+    this.fermerSousArbre(task.id, 'ancestor_failed', now);
+    this.relectureCloseSansAvis(task, 'relecteur_epuise', lien);
+    this.promoteAndAssign(now);
+    return true;
+  }
+
+  /**
    * Une relecture vient de passer TERMINALE sans rendre d'avis : le fait
    * `contre_expertise_review_failed` (`terminal`) le dit, avec son motif.
    *
@@ -2799,7 +2884,12 @@ export class Scheduler {
    */
   private relectureCloseSansAvis(
     task: Task,
-    motif: 'relecteur_absent' | 'aucun_agent_fonctionnel' | 'annulee' | 'depot_illisible',
+    motif:
+      | 'relecteur_absent'
+      | 'relecteur_epuise'
+      | 'aucun_agent_fonctionnel'
+      | 'annulee'
+      | 'depot_illisible',
     lien = this.store.relectureDe(task.id),
   ): void {
     if (!lien) return;

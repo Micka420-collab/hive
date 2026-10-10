@@ -16878,7 +16878,13 @@ async function monterReine(
               infra,
               Date.now(),
               msg.retryAfterMs,
-              msg.epuisement,
+              msg.epuisement
+                ? {
+                    fait: msg.epuisement,
+                    ...(msg.durationMs !== undefined ? { durationMs: msg.durationMs } : {}),
+                    ...(msg.fournisseur ? { fournisseur: msg.fournisseur } : {}),
+                  }
+                : undefined,
             );
             break;
           }

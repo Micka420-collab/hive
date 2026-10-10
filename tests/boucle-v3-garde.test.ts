@@ -276,6 +276,7 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['src/adapters/vigie-enlisement.ts', 'permissions'],
     ['src/shared/enlisement.ts', 'permissions'],
     ['tests/vigie-enlisement.test.ts', 'permissions'],
+    ['tests/vigie-reine.test.ts', 'permissions'],
     ['tests/enlisement-bout-en-bout.test.ts', 'permissions'],
     ['tests/fixtures/enlisement/claude-529.stream.jsonl', 'permissions'],
   ])('%s → %s', (chemin, categorie) => {

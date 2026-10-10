@@ -324,9 +324,9 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
   {
     categorie: 'permissions',
     motif:
-      /^src\/adapters\/vigie-enlisement\.ts$|^src\/shared\/enlisement\.ts$|^tests\/(vigie-enlisement|enlisement-bout-en-bout)\.test\.ts$|^tests\/fixtures\/enlisement\//,
+      /^src\/adapters\/vigie-enlisement\.ts$|^src\/shared\/enlisement\.ts$|^tests\/(vigie-enlisement|vigie-reine|enlisement-bout-en-bout)\.test\.ts$|^tests\/fixtures\/enlisement\//,
     pourquoi:
-      'la vigie qui ARRÊTE un agent en cours (G13) et range son issue : ses seuils portés d’OpenHands, les contrats des CLI qu’elle lit, ses bancs et les flux enregistrés sur les vrais binaires — l’abaisser tuerait du travail légitime ; ranger un enlisement en épuisement du fournisseur le retirerait de ce que la ruche compte contre le modèle',
+      'la vigie qui ARRÊTE un agent en cours (G13) et range son issue : ses seuils portés d’OpenHands, les contrats des CLI qu’elle lit, ce que la Reine fait de ses faits, ses bancs et les flux enregistrés sur les vrais binaires — l’abaisser tuerait du travail légitime ; ranger un enlisement en épuisement du fournisseur le retirerait de ce que la ruche compte contre le modèle',
   },
   {
     categorie: 'permissions',

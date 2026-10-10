@@ -436,6 +436,13 @@ export interface TaskRejectMsg {
    * pour rien : rien ne le compte comme un échec.
    */
   epuisement?: EpuisementFournisseur;
+  /**
+   * Avec `epuisement` : cette tentative A TOURNÉ — sa durée, et ce que son CLI
+   * a déclaré (coût, jetons). La Reine les range comme ceux d'un résultat :
+   * ligne de dépense de l'enfant délégué, enveloppe de la racine, chronologie.
+   */
+  durationMs?: number;
+  fournisseur?: UsageFournisseur;
 }
 
 /** Demande de délégation émise par un Worker pendant l'exécution de sa tâche. */
@@ -1531,7 +1538,14 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         if (typeof m.retryAfterMs === 'number') msg.retryAfterMs = m.retryAfterMs;
         // Mal formé, le fait tombe seul : le refus reste une panne d'infrastructure.
         const epuisement = m.infra === true ? epuisementDepuis(m.epuisement) : undefined;
-        if (epuisement) msg.epuisement = epuisement;
+        if (epuisement) {
+          msg.epuisement = epuisement;
+          // Ce que la tentative a coûté ne se croit qu'avec le fait qui dit
+          // qu'elle a tourné ; hors bornes, chaque champ tombe seul.
+          if (isInt(m.durationMs, 0, 86_400_000)) msg.durationMs = m.durationMs;
+          const fournisseur = usageFournisseurDepuis(m.fournisseur);
+          if (fournisseur) msg.fournisseur = fournisseur;
+        }
         return msg;
       }
       return null;

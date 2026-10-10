@@ -101,7 +101,12 @@ export interface FaitsGenome {
   reprises: number;
   /** Le Worker a échoué sur la dernière tentative autorisée. */
   echecs: number;
-  /** Le nœud a refusé la tâche avant de l'exécuter. */
+  /**
+   * Le nœud a refusé la tâche : avant de l'exécuter (saturation, hors service,
+   * clone impossible), ou APRÈS, sur une panne d'infrastructure de son agent —
+   * identifiants, fournisseur épuisé (G13, `task_rejected.epuisement`). Jamais
+   * un échec du modèle : la tentative n'est pas comptée.
+   */
   refus: number;
   /**
    * Interrompue sans verdict sur le modèle : nœud perdu, annulation, reprise au
