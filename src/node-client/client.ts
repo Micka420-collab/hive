@@ -76,6 +76,7 @@ import {
   DossierDeTacheIneffacable,
   buildSandboxEnv,
   cloneRepo,
+  ligneEspacePret,
   prepareWorkspace,
 } from './workspace.js';
 import { effacerDossier } from '../shared/effacement.js';
@@ -2193,16 +2194,14 @@ export class HiveNodeClient {
       // effacements asynchrones ci-dessus ont laissé la boucle traiter l'abort
       // avant que l'agent n'existe. On ne lance rien ; le finally nettoie.
       if (ctrl.signal.aborted) return;
+      const progres = this.progresVersHub(task.id, ctrl, caviardeur);
+      // Mesurée, phase par phase (G18) : ce qu'une tâche paie avant son agent.
+      progres({ log: ligneEspacePret(workspace.durees) });
       if (workspace.configurationEcartee.length > 0) {
-        this.progresVersHub(
-          task.id,
-          ctrl,
-          caviardeur,
-        )({ log: noteConfigurationEcartee(workspace.configurationEcartee) });
+        progres({ log: noteConfigurationEcartee(workspace.configurationEcartee) });
       }
       // Le réseau AVANT l'agent : un proxy qui ne s'ouvre pas refuse la tâche
       // (un autre nœud peut réussir), jamais il ne la lance sans filtre.
-      const progres = this.progresVersHub(task.id, ctrl, caviardeur);
       const reseauTache = await this.reseauTache(reseau, repoUrl, workspace, progres);
       if (reseauTache.etat === 'impossible') {
         this.send({

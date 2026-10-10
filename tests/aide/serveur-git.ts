@@ -20,6 +20,9 @@ export type ModeServeur = 'normal' | 'coupe' | 'identifiants' | 'prive';
 /** Octets du pack servis avant de couper la connexion, en mode `coupe`. */
 export const COUPURE_OCTETS = 8 * 1024;
 
+/** Le premier paquet de données d'un pack : canal 1, puis la signature `PACK`. */
+const SIGNATURE_PACK = Buffer.from('\x01PACK', 'latin1');
+
 /**
  * Les dépôts bare de `racineDepots`, servis en HTTP, avec à la demande :
  *
@@ -38,6 +41,21 @@ export class ServeurGit {
   authentifications = 0;
   /** Toutes les requêtes reçues, quel que soit le mode. */
   requetes = 0;
+  /**
+   * Les PACKS servis — un `clone` ou un `fetch` qui a reçu des objets ; un
+   * `ls-remote`, une négociation sans objet n'en comptent aucun. C'est le coût
+   * que l'amont paie par tentative, que G18 (miroir du projet) doit faire
+   * tomber à zéro dès la seconde. Lu sur la RÉPONSE : le premier paquet de
+   * données du canal 1 commence par la signature `PACK` (protocole 0 avec
+   * `side-band-64k`, comme protocole 2).
+   */
+  packsServis = 0;
+  /**
+   * Retient chaque pack ce nombre de millisecondes avant son premier octet :
+   * un amont lent, dont chaque transfert coûte — sans rien changer à ce que
+   * le banc mesure du reste (`ls-remote`, négociation).
+   */
+  latencePackMs = 0;
   /**
    * Le seul compte que le mode `prive` accepte. Un banc qui change le mot de
    * passe en cours de route a RÉVOQUÉ l'ancien jeton.
@@ -130,6 +148,30 @@ export class ServeurGit {
     let tampon = Buffer.alloc(0);
     let entetesEnvoyes = false;
     let envoyes = 0;
+    // Les derniers octets du corps déjà vus : une signature à cheval sur deux
+    // morceaux reste vue (`packsServis`).
+    let vus: Buffer | null = Buffer.alloc(0);
+    // Tout ce qui part au client passe par cette file, dans l'ordre d'arrivée :
+    // la latence d'un pack (`latencePackMs`) y retient la suite, fin comprise.
+    // Un geste qui échoue n'arrête pas la file : la fin de la réponse part
+    // toujours, et aucun client ne reste pendu à un serveur de banc.
+    let suite: Promise<void> = Promise.resolve();
+    const ensuite = (geste: () => void | Promise<void>): void => {
+      suite = suite.then(geste).catch(() => undefined);
+    };
+    const ecrire = (corps: Buffer): void => {
+      if (res.destroyed) return;
+      if (!couper) {
+        res.write(corps);
+        return;
+      }
+      res.write(corps.subarray(0, Math.max(0, COUPURE_OCTETS - envoyes)));
+      envoyes += corps.length;
+      if (envoyes >= COUPURE_OCTETS) {
+        cgi.kill();
+        res.destroy();
+      }
+    };
     cgi.stdout.on('data', (morceau: Buffer) => {
       let corps = morceau;
       if (!entetesEnvoyes) {
@@ -149,19 +191,23 @@ export class ServeurGit {
         entetesEnvoyes = true;
         corps = tampon.subarray(fin + 4);
       }
-      if (!couper) {
-        res.write(corps);
-        return;
+      if (vus !== null) {
+        const fenetre = Buffer.concat([vus, corps]);
+        if (!fenetre.includes(SIGNATURE_PACK)) {
+          vus = fenetre.subarray(-SIGNATURE_PACK.length);
+        } else {
+          vus = null;
+          this.packsServis += 1;
+          const ms = this.latencePackMs;
+          if (ms > 0) ensuite(() => new Promise<void>((fin) => setTimeout(fin, ms)));
+        }
       }
-      res.write(corps.subarray(0, Math.max(0, COUPURE_OCTETS - envoyes)));
-      envoyes += corps.length;
-      if (envoyes >= COUPURE_OCTETS) {
-        cgi.kill();
-        res.destroy();
-      }
+      ensuite(() => ecrire(corps));
     });
-    cgi.stdout.on('end', () => {
-      if (!res.destroyed) res.end();
-    });
+    cgi.stdout.on('end', () =>
+      ensuite(() => {
+        if (!res.destroyed) res.end();
+      }),
+    );
   }
 }

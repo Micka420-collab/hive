@@ -112,6 +112,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { argvDe } from '../shared/chantier.js';
 import { jugerCommandeTest } from '../shared/commande-test.js';
+import { dureeCourte } from '../shared/duree-courte.js';
 import { OBSERVATIONS, comparerALaBase, lireSortieDeTest } from '../shared/lecture-tests.js';
 import type {
   FormatDeTest,
@@ -469,11 +470,15 @@ async function lancerLePlan(
   // préparation : `npm ci` exécute les scripts de cycle de vie du projet.
   if (!opts.bac) return manquantes(plan, 'sans_bac');
 
+  // Ce que chaque étape a coûté, dit en une ligne à la fin (G18).
+  const durees = chronometre();
+
   // La base plus le diff, rien d'autre : ce que git ignore (dépendances
   // installées par l'agent, `.npmrc` ignoré, sorties de build) disparaît
   // AVANT tout lancement — y compris pour un projet sans dépendances, dont
   // les scripts trouveraient sinon `node_modules/.bin` en tête du PATH.
   await retirerFichiersIgnores(depot.depot);
+  durees.fin('nettoyage');
 
   // Le bac ne relaie que `CI` : les variables de l'agent (sa clé d'API) ne
   // sont de toute façon pas dans `env`, et rien d'autre n'a à traverser.
@@ -494,6 +499,7 @@ async function lancerLePlan(
   if (sonde.code !== 0 || sonde.arret) {
     return manquantes(plan, opts.signal?.aborted ? 'annule' : 'npm_indisponible', sonde.output);
   }
+  durees.fin('sonde');
 
   if (declareDesDependances(manifesteProduit)) {
     const preparation = preparationDepuisLockfile((f) => existsSync(path.join(cwd, f)));
@@ -512,6 +518,10 @@ async function lancerLePlan(
         `${prep.output}\n[hive] ${preparation.join(' ')} → ${prep.arret ?? `code ${String(prep.code)}`}`,
       );
     }
+    const ms = durees.fin('préparation');
+    opts.surEtape?.(
+      `validations : préparation « ${preparation.join(' ')} » faite en ${dureeCourte(ms)}`,
+    );
   }
 
   const delaiMs = opts.delaiMs ?? DELAI_VALIDATION_MS;
@@ -565,8 +575,32 @@ async function lancerLePlan(
     // La panne reconnue se dit dès cette ligne : « missing (environnement :
     // memoire, code 137) » renvoie l'opérateur vers le nœud, pas vers le code.
     opts.surEtape?.(`validation ${cle} : ${controle.etat} (${resumeDuControle(controle)})`);
+    // La comparaison à la base comprise : c'est le prix de CETTE validation.
+    durees.fin(cle);
   }
+  opts.surEtape?.(`validations : faites en ${durees.bilan()}`);
   return controles;
+}
+
+/**
+ * Des étapes qui se suivent, chacune finissant où commence la suivante — et
+ * leur bilan, en tout puis étape par étape, pour une ligne de progrès (G18 :
+ * ce qu'une tâche paie après son agent, mesuré).
+ */
+function chronometre(): { fin(etape: string): number; bilan(): string } {
+  const debut = performance.now();
+  let depuis = debut;
+  const etapes: string[] = [];
+  return {
+    fin(etape) {
+      const maintenant = performance.now();
+      const ms = maintenant - depuis;
+      depuis = maintenant;
+      etapes.push(`${etape} ${dureeCourte(ms)}`);
+      return ms;
+    },
+    bilan: () => `${dureeCourte(performance.now() - debut)} (${etapes.join(' · ')})`,
+  };
 }
 
 /** La raison d'un constat en quelques mots, pour la ligne de progression. */
@@ -800,12 +834,14 @@ function rejeuAPart(
 
   /** Extraire, installer, construire : `null` si tout est prêt, sinon pourquoi pas. */
   const preparer = async (): Promise<string | null> => {
+    const durees = chronometre();
     try {
       if (cote === 'base') await extraireBase(depot.depot, depot.baseSha, dossier);
       else await extraireLivre(depot.depot, ctx.livre, dossier);
     } catch (err) {
       return `extraction impossible (${err instanceof Error ? err.message : String(err)})`;
     }
+    durees.fin('extraction');
     const manifesteRejoue = manifeste(fichierDeTravail(dossier, 'package.json'));
     if (declareDesDependances(manifesteRejoue)) {
       const preparation = preparationDepuisLockfile((f) => existsSync(path.join(dossier, f)));
@@ -817,6 +853,7 @@ function rejeuAPart(
       if (prep.code !== 0 || prep.arret) {
         return `installation en échec (${prep.arret ?? `code ${String(prep.code)}`})`;
       }
+      durees.fin('installation');
     }
     // Des tests lisent parfois ce que le build produit (`ORDRE_DE_LANCEMENT`) :
     // chaque côté se construit comme la tête l'a été, et un côté qui ne se
@@ -831,7 +868,9 @@ function rejeuAPart(
       if (construit.code !== 0 || construit.arret) {
         return `build en échec (${construit.arret ?? `code ${String(construit.code)}`})`;
       }
+      durees.fin('build');
     }
+    dire(`prête en ${durees.bilan()}`);
     return null;
   };
 

@@ -130,6 +130,13 @@ async function valider(
   return { tests: rapport.controles.tests, etapes };
 }
 
+/**
+ * La DERNIÈRE ligne des tests : leur conclusion. Le bilan des durées
+ * (`validations : faites en …`) clôt les validations après elle.
+ */
+const derniereDesTests = (etapes: readonly string[]): string | undefined =>
+  etapes.filter((l) => l.startsWith('validation tests : ')).at(-1);
+
 const SURCOUT_ANNONCE =
   'rejouée à part (extraction, installation, build, tests : jusqu’à 25 min) ; si une régression ' +
   'reste possible, la production est rejouée de même depuis son arbre livré, puis la base une ' +
@@ -193,7 +200,13 @@ describe.runIf(POSIX)('G11b — les tests en échec, comparés à la base rejou�
     // rien d'elle ne reste à côté de la tâche.
     expect(etapes.some((l) => l.includes(SURCOUT_ANNONCE))).toBe(true);
     expect(etapes.some((l) => /base [0-9a-f]{8} — installation « npm ci »/.test(l))).toBe(true);
-    expect(etapes.at(-1)).toBe(
+    // Ce que la base a coûté à préparer, mesuré (G18).
+    expect(etapes).toContainEqual(
+      expect.stringMatching(
+        /base [0-9a-f]{8} — prête en \S+ s \(extraction \S+ s · installation \S+ s\)$/,
+      ),
+    );
+    expect(derniereDesTests(etapes)).toBe(
       'validation tests : passed (comparee : 1 déjà rouge(s) à la base, code 1)',
     );
     expect(existsSync(`${d.dir}.base`)).toBe(false);
@@ -225,7 +238,7 @@ describe.runIf(POSIX)('G11b — les tests en échec, comparés à la base rejou�
       ),
     ).toBe(true);
     expect(etapes.some((l) => l.includes('seconde exécution de la base'))).toBe(true);
-    expect(etapes.at(-1)).toBe(
+    expect(derniereDesTests(etapes)).toBe(
       'validation tests : failed (comparee : 1 régression(s), 1 déjà rouge(s) à la base, code 1)',
     );
     expect(existsSync(`${d.dir}.tete`)).toBe(false);
