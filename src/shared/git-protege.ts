@@ -98,7 +98,7 @@ export interface IdentiteCommit {
  * de passe cessait de servir. Illisible (HOME absent, fichier cassé) : `ssh`,
  * et le clone dira lui-même ce qui ne va pas.
  */
-export async function commandeSshDuMembre(ou: string): Promise<string> {
+export async function commandeSshDuMembre(ou: string | DepotNu): Promise<string> {
   for (const portee of ['--global', '--system']) {
     const valeur = await gitHote(['config', portee, '--includes', '--get', 'core.sshCommand'], ou)
       .then((v) => v.trim())
@@ -192,10 +192,41 @@ export interface DepotEpingle {
 }
 
 /**
+ * Un dépôt NU que SEUL le nœud a écrit (la livraison locale) : NOMMÉ à git
+ * (`--git-dir`), comme un dépôt épinglé — jamais trouvé depuis son répertoire.
+ * Trouvé, il dépendait d'un réglage du MEMBRE : sous `safe.bareRepository =
+ * explicit`, le durcissement que recommande git-config(1), git refuse tout
+ * dépôt nu qu'il découvre (« cannot use bare repository ») — et la livraison
+ * locale échouait entière (`tests/merge-runner-livraison.test.ts`).
+ */
+export interface DepotNu {
+  gitDir: string;
+}
+
+/**
+ * D'où git part, et ce qu'on lui nomme. Un dépôt épinglé part du répertoire
+ * qui CONTIENT son arbre (voir `gitHote`) ; `-C` : git, lui, travaille DANS
+ * l'arbre — `apply` résout les chemins du patch contre son répertoire
+ * courant, pas contre `--work-tree`. Un dépôt nu est nommé ABSOLU : git
+ * résoudrait un chemin relatif contre le répertoire où il part.
+ */
+function lancement(ou: string | DepotNu | DepotEpingle): { cwd: string; designation: string[] } {
+  if (typeof ou === 'string') return { cwd: ou, designation: [] };
+  if (!('workTree' in ou)) {
+    const gitDir = path.resolve(ou.gitDir);
+    return { cwd: gitDir, designation: [`--git-dir=${gitDir}`] };
+  }
+  return {
+    cwd: path.dirname(ou.workTree),
+    designation: ['-C', ou.workTree, `--git-dir=${ou.gitDir}`, `--work-tree=${ou.workTree}`],
+  };
+}
+
+/**
  * Lance `git` sur l'hôte, sans shell, avec l'environnement et les protections
- * ci-dessus. `ou` : le répertoire d'un git SANS dépôt (clone, init), un dépôt
- * nu que SEUL le nœud a écrit (la livraison locale), ou le dépôt ÉPINGLÉ sur
- * lequel travailler.
+ * ci-dessus. `ou` : le répertoire d'un git SANS dépôt (clone, init), le dépôt
+ * NU que seul le nœud a écrit (`DepotNu`, la livraison locale), ou le dépôt
+ * ÉPINGLÉ sur lequel travailler.
  *
  * `delaiMs` : par défaut `DELAI_GIT_LOCAL_MS` pour un dépôt épinglé, aucun
  * sinon — un appel réseau (clone, `ls-remote`, poussée) nomme SON butoir
@@ -214,22 +245,18 @@ export interface DepotEpingle {
  */
 export function gitHote(
   args: readonly string[],
-  ou: string | DepotEpingle,
+  ou: string | DepotNu | DepotEpingle,
   { delaiMs, ssh, identite }: { delaiMs?: number; ssh?: string; identite?: IdentiteCommit } = {},
 ): Promise<string> {
-  const local = typeof ou !== 'string';
-  const delai = delaiMs ?? (local ? DELAI_GIT_LOCAL_MS : 0);
-  // `-C` : git, lui, travaille DANS l'arbre — `apply` résout les chemins du
-  // patch contre son répertoire courant, pas contre `--work-tree`.
-  const epingle = local
-    ? ['-C', ou.workTree, `--git-dir=${ou.gitDir}`, `--work-tree=${ou.workTree}`]
-    : [];
+  const epingle = typeof ou !== 'string' && 'workTree' in ou;
+  const delai = delaiMs ?? (epingle ? DELAI_GIT_LOCAL_MS : 0);
+  const { cwd, designation } = lancement(ou);
   return new Promise((resolve, reject) => {
     execFile(
       'git',
-      [...PROTECTIONS, ...transportBorne(delai), ...epingle, ...args],
+      [...PROTECTIONS, ...transportBorne(delai), ...designation, ...args],
       {
-        cwd: local ? path.dirname(ou.workTree) : ou,
+        cwd,
         env: envGitHote(ssh, identite),
         shell: false, // jamais d'interprétation shell (contrainte §5.1)
         windowsHide: true,

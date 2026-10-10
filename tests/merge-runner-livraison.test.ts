@@ -16,11 +16,11 @@
 //   · ce que le code testé écrit dans le `.git` du clone ne gouverne AUCUNE
 //     commande de l'hôte : ni la destination, ni le parent, ni un crochet.
 
-import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { simpleGit } from 'simple-git';
 import { runMerge } from '../src/node-client/merge-runner.js';
 import type { MergeDiff } from '../src/node-client/merge-runner.js';
@@ -461,6 +461,65 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
       expect(res.livraison.motif).toMatch(/effacerait leur travail/);
       expect((await git(origine).raw(['rev-parse', 'hive/mission-humain-1'])).trim()).toBe(humain);
       expect((await git(depotLocal).raw(['rev-parse', 'hive/mission-humain-1'])).trim()).toBe(c1);
+    },
+  );
+
+  it(
+    'un membre en `safe.bareRepository=explicit` livre quand même : rangée, poussée, prolongée',
+    PLAFOND_DEUX_LIVRAISONS,
+    async () => {
+      // Le durcissement que recommande git-config(1) : git ne travaille plus
+      // dans un dépôt NU qu'il trouve depuis son répertoire courant, seulement
+      // dans celui qu'on lui NOMME (`--git-dir`). Le transit et le dépôt durable
+      // sont nus : lancé dedans, chaque git de la livraison mourait sur
+      // « cannot use bare repository ». La configuration globale du membre est
+      // lue à dessein (`git-protege.ts`) : c'est elle qui porte le réglage.
+      const home = path.join(racine, 'membre-explicite');
+      mkdirSync(home);
+      writeFileSync(path.join(home, '.gitconfig'), '[safe]\n\tbareRepository = explicit\n');
+      // Le dépôt durable existe déjà (une livraison précédente) : la livraison
+      // neuve y relit aussi ses numéros.
+      const depotLocal = path.join(racine, 'livraisons', 'explicite.git');
+      await simpleGit().raw(['init', '--bare', '--quiet', depotLocal]);
+      const branche = 'hive/mission-explicite-1';
+      vi.stubEnv('HOME', home);
+      onTestFinished(() => vi.unstubAllEnvs());
+      const premiere = await livrer({
+        projectId: 'explicite',
+        diffs: [{ taskId: 'ta', diff: patchA }],
+        pousser: true,
+        consentie: true,
+        depotLocal,
+      });
+      expect(premiere.res.livraison, premiere.res.logs).toMatchObject({
+        etat: 'commitee',
+        branche,
+        poussee: 'poussee',
+      });
+      if (premiere.res.livraison?.etat !== 'commitee') throw new Error(premiere.res.logs);
+      const c1 = premiere.res.livraison.commit;
+      const { res } = await livrer({
+        projectId: 'explicite',
+        diffs: [
+          { taskId: 'ta', diff: patchA },
+          { taskId: 'tb', diff: patchB },
+        ],
+        pousser: true,
+        consentie: true,
+        suite: { n: 1, commit: c1 },
+        depotLocal,
+      });
+      expect(res.livraison, res.logs).toMatchObject({
+        etat: 'commitee',
+        branche,
+        poussee: 'poussee',
+      });
+      if (res.livraison?.etat !== 'commitee') throw new Error(res.logs);
+      const c2 = res.livraison.commit;
+      // Le banc, lui, relit ses dépôts nus sans les nommer : hors du réglage.
+      vi.unstubAllEnvs();
+      expect((await git(depotLocal).raw(['rev-parse', `${c2}^@`])).trim()).toBe(c1);
+      expect((await git(origine).raw(['rev-parse', branche])).trim()).toBe(c2);
     },
   );
 
