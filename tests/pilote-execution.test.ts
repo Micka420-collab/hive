@@ -20,7 +20,7 @@
 
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -714,6 +714,44 @@ describe.runIf(process.platform === 'linux')(
         sommeRss * 0.6,
       );
       expect(bilan.picOctets).toBeGreaterThan(sommePss * 0.5);
+      pilote.fermer();
+    });
+
+    it('un ZOMBIE dans l’arbre (un parent qui ne moissonne pas) est SORTI — le Pss tient', async () => {
+      // `sleep 0.2 &` puis `exec sleep 30` : le `sh` devient `sleep`, qui ne
+      // moissonne jamais — son enfant mort reste zombie tant qu'il vit. Son
+      // `smaps_rollup` répond ESRCH : le prendre pour « Pss illisible » faisait
+      // tomber CHAQUE relevé, et le pic, à la somme des RSS.
+      const racine = spawn('sh', ['-c', 'sleep 0.2 & exec sleep 30'], {
+        stdio: 'ignore',
+        detached: true,
+      });
+      enfants.push(racine);
+      const zombie = (): boolean =>
+        readdirSync('/proc')
+          .filter((e) => /^\d+$/.test(e))
+          .some((e) => {
+            try {
+              const t = readFileSync(`/proc/${e}/stat`, 'utf8');
+              const champs = t
+                .slice(t.lastIndexOf(')') + 1)
+                .trim()
+                .split(/\s+/);
+              return champs[0] === 'Z' && Number(champs[1]) === racine.pid;
+            } catch {
+              return false;
+            }
+          });
+      await attendre(zombie, 'l’enfant de `sleep` n’est jamais zombie');
+      const pilote = new PiloteExecution(() => undefined, SONDES_REELLES, 50);
+      const detacher = pilote.attacher({ pid: racine.pid!, commande: 'sleep 30' });
+      await attendre(() => {
+        const r = pilote.ressources();
+        return r.portee === 'arbre' && r.releves >= 3;
+      }, 'aucun relevé de l’arbre');
+      expect(zombie(), 'le zombie doit avoir été là à chaque relevé').toBe(true);
+      detacher();
+      expect(pilote.ressources()).toMatchObject({ portee: 'arbre', memoire: 'pss' });
       pilote.fermer();
     });
 
