@@ -303,4 +303,81 @@ describe('le relecteur ne sait pas qui a produit — les humains, si', () => {
       modeles: ['hermes-agent'],
     });
   }, 30_000);
+
+  it('UN RELECTEUR AU FOURNISSEUR ÉPUISÉ (G13) : le relais de sa famille, puis le secours d’une autre, sont aveugles — la production avait tourné en rond, déclaré son fournisseur et sa mesure', async () => {
+    const srv = await ruche();
+    const producteur = await noeud(srv, 'producteur', 'claude-code');
+    const projet = srv.store.createProject({ name: 'P' });
+    const t = srv.store.createTask({ projectId: projet.id, title: 'Garde du jeton', prompt: 'p' });
+    srv.store.patchTask(t.id, { status: 'ready' });
+
+    // 1re tentative : la vigie l'a arrêtée, enlisée sur un outil de SON CLI.
+    const enlise = 'même appel d’outil répété 4 fois, même résultat (Read)';
+    expect((await attendre(() => producteur.recues[0]))?.task?.id).toBe(t.id);
+    producteur.rendre(t.id, {
+      success: false,
+      logs: `[hive] enlisé : ${enlise} — agent arrêté avant son délai`,
+      enlisement: { motif: 'repetition', fois: 4, outil: 'Read' },
+    });
+    // 2e tentative, chez lui encore : réussie, avec ce que son CLI déclare
+    // (source, modèle) et la mesure de son arbre (G28a). Les relecteurs
+    // n'arrivent qu'ensuite.
+    expect((await attendre(() => producteur.recues[1]))?.task?.id).toBe(t.id);
+    const codexA = await noeud(srv, 'relecteur-a', 'codex');
+    const codexB = await noeud(srv, 'relecteur-b', 'codex');
+    producteur.rendre(t.id, {
+      diff: 'diff --git a/src/auth.ts b/src/auth.ts\n+  if (jeton === undefined) return false;',
+      logs: `${libelleAgent('claude-code')} (claude-code) démarré — modèle ${MODELE}\n`,
+      fournisseur: { source: 'claude-code', modeles: [MODELE], coutUsd: 0.01 },
+      ressources: { portee: 'arbre', releves: 3, cpuMs: 120, picOctets: 5e7, memoire: 'pss' },
+    });
+
+    // Le fournisseur du relecteur est épuisé jusqu'à dans une heure (G13).
+    const epuise = (n: Noeud, taskId: string): void =>
+      n.ws.send(
+        JSON.stringify({
+          type: 'task_reject',
+          taskId,
+          reason: 'You’ve hit your usage limit.',
+          infra: true,
+          epuisement: { cause: 'limite', remiseA: Date.now() + 3_600_000 },
+          retryAfterMs: 3_600_000,
+          durationMs: 5,
+        }),
+      );
+    const vue = (n: Noeud) => n.recues.find((r) => r.relecture === true);
+    const premiere = await attendre(() => vue(codexA) ?? vue(codexB));
+    expect(premiere, 'aucune relecture reçue').toBeDefined();
+    const [premier, relais] = vue(codexA) ? [codexA, codexB] : [codexB, codexA];
+    const aveugleG13 = (m: Assignation): void => {
+      aveugle(m, 'claude-code');
+      expect(
+        JSON.stringify(m),
+        'l’enlisement de la production parvient au relecteur',
+      ).not.toContain('répété 4 fois');
+    };
+    aveugleG13(premiere!);
+
+    // Un autre nœud de la famille, hors refroidissement : le RELAIS reprend.
+    epuise(premier, premiere!.task!.id);
+    const reprise = await relectureRecue(relais);
+    expect(reprise.task?.id).toBe(premiere!.task!.id);
+    aveugleG13(reprise);
+
+    // Le relais épuisé à son tour, plus personne de la famille : la relecture
+    // se clôt `relecteur_epuise`, et le SECOURS part à une autre famille.
+    const hermes = await noeud(srv, 'hermes', 'hermes-agent');
+    epuise(relais, reprise.task!.id);
+    const secours = await relectureRecue(hermes);
+    aveugleG13(secours);
+
+    // Les humains, eux, gardent la famille et la cause.
+    expect(evenements(srv, 'task_failed')).toContainEqual(
+      expect.objectContaining({ taskId: reprise.task!.id, reason: 'relecteur_epuise' }),
+    );
+    expect(evenements(srv, 'contre_expertise').find((e) => e.secours === true)).toMatchObject({
+      producteur: 'claude-code',
+      modeles: ['hermes-agent'],
+    });
+  }, 30_000);
 });
