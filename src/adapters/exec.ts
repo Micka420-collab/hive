@@ -274,6 +274,12 @@ export const LIGNE_ANNULATION = '[hive] tâche annulée — processus arrêté a
  * qui ferait lire « annulée » une tâche que personne n'a annulée.
  */
 export class ArretMotive extends Error {
+  /**
+   * Vrai quand l'arbre de l'agent a été abattu sur CET arrêt — posé par
+   * `executer`, seul à le savoir. Faux quand l'agent était déjà sorti de
+   * lui-même : sa vigie a pu conclure sur sa dernière ligne, lue à la sortie.
+   */
+  abattu = false;
   constructor(readonly ligne: string) {
     super(ligne);
   }
@@ -433,13 +439,14 @@ function executer(
           ? borneTexteFinal(sortieStandard)
           : (flux ?? suivi)?.texte();
       const bilan = flux?.bilan(code, arrete);
+      const annulee = issue.issue === 'arret' && issue.motif === 'annule';
+      const motive = annulee && ctx.signal.reason instanceof ArretMotive ? ctx.signal.reason : null;
+      if (motive) motive.abattu = true;
       const logs = journalAvecFin(output, [
         ...(issue.issue === 'arret' && issue.motif === 'delai'
           ? [`[hive] timeout après ${opts.timeoutMs} ms — processus tué`]
           : []),
-        ...(issue.issue === 'arret' && issue.motif === 'annule'
-          ? [ctx.signal.reason instanceof ArretMotive ? ctx.signal.reason.ligne : LIGNE_ANNULATION]
-          : []),
+        ...(annulee ? [motive ? motive.ligne : LIGNE_ANNULATION] : []),
         ...(issue.issue === 'sortie' && issue.tenue
           ? [
               "[hive] la sortie est restée ouverte après la fin de l'agent : " +
@@ -452,7 +459,6 @@ function executer(
       // Échec dont le TEXTE évoque un problème d'auth/quota → infra
       // (réaffectation). Pas les logs bruts : voir `INFRA_FAILURE_RE`. Jamais
       // une annulation : voir l'en-tête.
-      const annulee = issue.issue === 'arret' && issue.motif === 'annule';
       const infra = !success && !annulee && INFRA_FAILURE_RE.test(texteDEchec(logs, finalText));
       resolve({
         success,

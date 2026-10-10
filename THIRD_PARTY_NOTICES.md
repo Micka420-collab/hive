@@ -52,9 +52,14 @@ StuckDetector : `openhands-sdk/openhands/sdk/conversation/stuck_detector.py` et
 `types.py` (`StuckDetectionThresholds`), https://github.com/OpenHands/software-agent-sdk,
 commit `b66c724361571aa5c982883173c71b04739b247d`. Modifications de Hive :
 appels et retours appariés par l'identifiant que le CLI leur donne, un fil par
-sous-agent, empreintes au lieu des événements, la « pensée » hors de l'égalité
-d'un appel (idée de `tool_monitor.rs`, goose, Apache-2.0 — aucune ligne
-reprise), monologue et erreur de contexte non portés.
+sous-agent, empreintes au lieu des événements ; l'`AgentErrorEvent` (une erreur
+du cadre, pas une sortie de commande) lu comme le rejet d'un appel par le CLI
+(`<tool_use_error>` et permission refusée de Claude Code, code -1 de Codex,
+erreur d'un appel MCP) ;
+répétition et oscillation tues pendant du travail de fond ; la « pensée » hors
+de l'égalité d'un appel (idée de `tool_monitor.rs`, goose, Apache-2.0 — aucune
+ligne reprise) ; monologue, erreur de contexte et rappel au 3e rejet non
+portés. La notice est rappelée en tête du fichier et reproduite à sa fin.
 
 ```
 MIT License
@@ -82,11 +87,21 @@ SOFTWARE.
 
 ## SWE-bench — `src/shared/lecture-tests.ts`, `src/shared/validations-bac.ts`
 
-La comparaison des verdicts test par test à la base (`grading.py`,
-`get_eval_tests_report`) et la table des pannes du bac
-(`INFRA_FAILURE_SIGNATURES`, `infra_failure.py`), portées de
-https://github.com/SWE-bench/SWE-bench. La notice est aussi reprise en tête de
-section dans `src/shared/lecture-tests.ts`.
+La comparaison des verdicts test par test à la base (`swebench/harness/
+grading.py` : `get_eval_tests_report`, `test_passed` / `test_failed` /
+`test_maintained`, `get_resolution_status`) et la table des pannes du bac
+(`INFRA_FAILURE_SIGNATURES`, `swebench/harness/infra_failure.py`), portées de
+https://github.com/SWE-bench/SWE-bench, version v5.0.0. La notice complète est
+reproduite au bas de `src/shared/lecture-tests.ts` ; les deux sections portées
+y renvoient. Modifications de Hive : la BASE, exécutée à côté, tient lieu du
+correctif de référence (F2P/P2P calculées contre elle) ; un test rouge à
+chaque exécution de la base et de la tête, de même empreinte, est dit « déjà
+rouge à la base », jamais bloquant ; chaque côté qui peut changer le verdict
+est observé jusqu'à deux fois (instabilité) ; de la table, le seul niveau
+« environment », lu seulement sur un code de sortie non nul sans échec de test
+lu — `^Killed$` exige le code 137, « Could not resolve host », « Failed to
+launch » et « Failed to connect to the bus » retirés, le plafond de tas d'un
+processus laissé au verdict, ENOSPC, EDQUOT et ENOMEM ajoutés.
 
 ```
 MIT License

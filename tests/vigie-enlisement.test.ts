@@ -22,14 +22,21 @@
 //   · `codex-injoignable` : codex-cli 0.156.0 sur un port fermé —
 //     « Reconnecting... waiting for network » sans fin, coupé par `timeout`.
 //
-// CONSTRUITE d'après le contrat, faute de compte claude.ai sur la machine
+// CONSTRUITES d'après le contrat, faute de compte claude.ai sur la machine
 // d'enregistrement — suivi nommé « preuve réelle » :
 //
 //   · `claude-limite-abonnement.contrat` : la ligne `init` et le résultat
 //     d'erreur de `claude-429`, le message « You've hit your session limit ·
 //     resets 3:45pm » (code.claude.com/docs/en/errors), et un
 //     `rate_limit_event` à la forme de `SDKRateLimitEvent` (SDK 0.3.289) :
-//     `status: rejected`, `rateLimitType: five_hour`, `resetsAt` en SECONDES.
+//     `status: rejected`, `rateLimitType: five_hour`, `resetsAt` en SECONDES ;
+//   · le travail de fond : `system/background_tasks_changed` à la forme de
+//     `SDKBackgroundTasksChangedMessage` (SDK 0.3.289 — « a level signal »,
+//     l'ensemble des tâches vivantes, `ambient` exclu de l'activité) ;
+//   · le rejet d'un appel par le cadre : `<tool_use_error>…</tool_use_error>`,
+//     le motif par lequel le binaire 2.1.289 reconnaît ses propres erreurs
+//     d'outil ; la sortie d'une commande en échec : « Exit code N » et sa
+//     sortie, SANS cette enveloppe (même binaire).
 //
 // Les boucles d'outils de Claude Code reprennent, ligne pour ligne, la forme
 // des `tool_use` / `tool_result` ENREGISTRÉS (tests/fixtures/texte-final/
@@ -41,18 +48,22 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createLecteurFluxCodex } from '../src/adapters/flux-codex.js';
 import {
+  ATTENTE_RESEAU_MAX_MS,
   createVigie,
   ERREURS_ENLISEMENT,
   evenementsClaude,
   evenementsCodex,
   OSCILLATION_ENLISEMENT,
-  RELANCES_BORNEES_CLAUDE,
-  RELANCES_BORNEES_CODEX,
   REPETITIONS_ENLISEMENT,
   resultatSelonVigie,
   type EvenementVigie,
 } from '../src/adapters/vigie-enlisement.js';
-import { direArret, type ArretVigie } from '../src/shared/enlisement.js';
+import {
+  direArret,
+  direRemise,
+  epuisementDepuis,
+  type ArretVigie,
+} from '../src/shared/enlisement.js';
 import { parseClientMessage } from '../src/shared/protocol.js';
 
 const fixture = (dossier: string, nom: string): string[] =>
@@ -60,29 +71,36 @@ const fixture = (dossier: string, nom: string): string[] =>
     .split('\n')
     .filter((l) => l.trim() !== '');
 
-/** Ce que la vigie rend sur un flux, et à quelle ligne, et sur quel genre d'événement. */
+/** L'horloge des bancs : juste avant la remise à zéro de la fixture de contrat (19:15 UTC). */
+const T0 = 1_791_140_000_000;
+
+/**
+ * Ce que la vigie fait d'un flux : l'arrêt EN VOL (sa ligne, le genre de
+ * l'événement), et l'ISSUE rendue une fois le CLI sorti. `pas` : l'écart
+ * d'horloge entre deux lignes.
+ */
 function suivre(
   lignes: readonly string[],
   lire: (ligne: string) => EvenementVigie[],
-  borne: number,
-): { arret: ArretVigie; ligne: number; genre: EvenementVigie['genre'] } | undefined {
-  const vigie = createVigie(borne);
+  pas = 0,
+): {
+  enVol?: { arret: ArretVigie; ligne: number; genre: EvenementVigie['genre'] };
+  issue?: ArretVigie;
+} {
+  const vigie = createVigie();
+  let enVol: { arret: ArretVigie; ligne: number; genre: EvenementVigie['genre'] } | undefined;
   for (const [i, ligne] of lignes.entries()) {
     for (const e of lire(ligne)) {
-      const arret = vigie.observer(e);
-      if (arret) return { arret, ligne: i, genre: e.genre };
+      const arret = vigie.observer(e, T0 + i * pas);
+      if (arret) enVol = { arret, ligne: i, genre: e.genre };
     }
   }
-  return undefined;
+  const issue = vigie.issue();
+  return { ...(enVol ? { enVol } : {}), ...(issue ? { issue } : {}) };
 }
-const claude = (lignes: readonly string[]) =>
-  suivre(lignes, evenementsClaude, RELANCES_BORNEES_CLAUDE);
-const codex = (lignes: readonly string[]) =>
-  suivre(
-    lignes,
-    (l) => evenementsCodex(JSON.parse(l) as Record<string, unknown>),
-    RELANCES_BORNEES_CODEX,
-  );
+const claude = (lignes: readonly string[], pas = 0) => suivre(lignes, evenementsClaude, pas);
+const codex = (lignes: readonly string[], pas = 0) =>
+  suivre(lignes, (l) => evenementsCodex(JSON.parse(l) as Record<string, unknown>), pas);
 
 // ─── Une boucle d'outils de Claude Code, à la forme enregistrée ─────────────
 
@@ -121,13 +139,25 @@ function outil(
 }
 const fois = (n: number, f: (i: number) => string[]): string[] =>
   Array.from({ length: n }, (_, i) => f(i)).flat();
+/** Le travail de fond vivant, tel que le CLI le redit à chaque changement. */
+const fond = (taches: Array<{ ambient?: boolean }>): string =>
+  JSON.stringify({
+    type: 'system',
+    subtype: 'background_tasks_changed',
+    tasks: taches.map((t, i) => ({
+      task_id: `b${i}`,
+      task_type: 'local_bash',
+      description: 'npm run build',
+      ...t,
+    })),
+  });
 
 describe('la vigie — un agent qui tourne en rond (règles portées d’OpenHands)', () => {
-  it('les seuils sont ceux du StuckDetector d’OpenHands, et ceux de chaque CLI par défaut', () => {
+  it('les seuils sont ceux du StuckDetector d’OpenHands ; l’attente sans borne du réseau, 10 min', () => {
     // `StuckDetectionThresholds` : action_observation 4, action_error 3 (> 3),
-    // alternating_pattern 6. `CLAUDE_CODE_MAX_RETRIES` 10, `DEFAULT_STREAM_MAX_RETRIES` 5.
+    // alternating_pattern 6.
     expect([REPETITIONS_ENLISEMENT, ERREURS_ENLISEMENT, OSCILLATION_ENLISEMENT]).toEqual([4, 4, 6]);
-    expect([RELANCES_BORNEES_CLAUDE, RELANCES_BORNEES_CODEX]).toEqual([10, 5]);
+    expect(ATTENTE_RESEAU_MAX_MS).toBe(10 * 60_000);
   });
 
   it('MÊME APPEL, MÊME RÉSULTAT : arrêté au 4e — jamais au 3e', () => {
@@ -137,30 +167,85 @@ describe('la vigie — un agent qui tourne en rond (règles portées d’OpenHan
           outil('Read', { file_path: '/travail/tasks/tache-hive/auth.ts' }, 'export {}'),
         ),
       );
-    expect(lire(3)).toBeUndefined();
-    expect(lire(4)).toMatchObject({
+    expect(lire(3)).toEqual({});
+    expect(lire(4).enVol).toMatchObject({
       arret: { issue: 'enlisement', motif: 'repetition', fois: 4, outil: 'Read' },
       ligne: 7,
     });
   });
 
-  it('MÊME APPEL EN ÉCHEC, quel que soit le message : arrêté au 4e (OpenHands : au-delà de 3)', () => {
-    // Le message d'échec change à chaque fois (une durée, un horodatage) : la
-    // règle ne compare QUE l'appel, comme `_action_error_streak` — rien n'a été
-    // fait ENTRE les quatre essais, qui n'ont donc aucune raison de réussir.
-    // Compromis assumé, celui d'OpenHands : attendre quelque chose en relançant
-    // quatre fois de suite la même commande qui échoue se lit comme une boucle.
+  it('LA MÊME COMMANDE EN ÉCHEC, SORTIE CHAQUE FOIS DIFFÉRENTE : jamais enlisée — c’est une sortie, pas un rejet du cadre', () => {
+    // La forme d'un `Bash` qui sort en 1 (binaire 2.1.289 : « Exit code N »,
+    // puis la sortie), `is_error` sans `<tool_use_error>` : chez OpenHands
+    // aussi, une observation ordinaire. Sa durée change d'une fois à l'autre.
     const echoue = (n: number) =>
       fois(n, (i) =>
-        outil('Bash', { command: 'npm test' }, `FAIL après ${100 + i} ms`, { erreur: true }),
+        outil(
+          'Bash',
+          { command: 'npm test' },
+          `Exit code 1\n FAIL  a.test.ts\n Duration  ${578 + i * 53}ms`,
+          { erreur: true },
+        ),
       );
-    expect(claude(echoue(3))).toBeUndefined();
-    expect(claude(echoue(4))?.arret).toEqual({
+    expect(claude(echoue(12))).toEqual({});
+    // La MÊME sortie quatre fois : la règle de répétition la prend.
+    const meme = fois(4, () =>
+      outil('Bash', { command: 'npm test' }, 'Exit code 1\n FAIL  a.test.ts', { erreur: true }),
+    );
+    expect(claude(meme).enVol?.arret).toMatchObject({ motif: 'repetition', outil: 'Bash' });
+  });
+
+  it('LE MÊME APPEL REJETÉ PAR LE CADRE, message changeant : arrêté au 4e (OpenHands : au-delà de 3)', () => {
+    // Le texte du rejet change (un nombre, une liste) : la règle ne compare
+    // QUE l'appel, comme `_action_error_streak` sur ses `AgentErrorEvent`.
+    const rejete = (n: number) =>
+      fois(n, (i) =>
+        outil(
+          'Edit',
+          { file_path: 'a.ts', old_string: 'x', new_string: 'y' },
+          `<tool_use_error>String to replace not found in file (${i + 3} near matches)</tool_use_error>`,
+          { erreur: true },
+        ),
+      );
+    expect(claude(rejete(3))).toEqual({});
+    expect(claude(rejete(4)).enVol?.arret).toEqual({
+      issue: 'enlisement',
+      motif: 'erreurs',
+      fois: 4,
+      outil: 'Edit',
+    });
+  });
+
+  it('UNE PERMISSION REFUSÉE est un rejet du cadre : annoncée par `system/permission_denied` (SDK 0.3.289), même si son message change', () => {
+    // Le message rendu au modèle porte la raison du refus, qui peut changer :
+    // seule l'annonce du CLI en fait un rejet du cadre — pas le texte.
+    const refusee = (annoncee: boolean) =>
+      fois(4, (i) => {
+        const [appel, retour] = outil(
+          'Bash',
+          { command: 'rm -rf build' },
+          `Permission to use Bash has been denied. (essai ${i})`,
+          { erreur: true },
+        );
+        const blocs = (JSON.parse(appel!) as LigneOutil).message.content as Array<{ id: string }>;
+        const annonce = JSON.stringify({
+          type: 'system',
+          subtype: 'permission_denied',
+          tool_name: 'Bash',
+          tool_use_id: blocs[0]!.id,
+          decision_reason_type: 'mode',
+          message: `Permission to use Bash has been denied. (essai ${i})`,
+        });
+        return annoncee ? [appel!, annonce, retour!] : [appel!, retour!];
+      });
+    expect(claude(refusee(true)).enVol?.arret).toEqual({
       issue: 'enlisement',
       motif: 'erreurs',
       fois: 4,
       outil: 'Bash',
     });
+    // Sans l'annonce, ce n'est que la sortie d'un appel qui change : rien.
+    expect(claude(refusee(false))).toEqual({});
   });
 
   it('OSCILLATION A→B→A→B→A→B : arrêtée au 6e appel, jamais au 5e', () => {
@@ -168,8 +253,8 @@ describe('la vigie — un agent qui tourne en rond (règles portées d’OpenHan
       i % 2 === 0
         ? outil('Edit', { file_path: 'a.ts', old_string: 'x', new_string: 'y' }, 'ok')
         : outil('Edit', { file_path: 'a.ts', old_string: 'y', new_string: 'x' }, 'ok');
-    expect(claude(fois(5, cycle))).toBeUndefined();
-    expect(claude(fois(6, cycle))?.arret).toMatchObject({
+    expect(claude(fois(5, cycle))).toEqual({});
+    expect(claude(fois(6, cycle)).enVol?.arret).toMatchObject({
       motif: 'oscillation',
       fois: 6,
       outil: 'Edit',
@@ -177,7 +262,6 @@ describe('la vigie — un agent qui tourne en rond (règles portées d’OpenHan
   });
 
   it('UN AGENT QUI PROGRESSE N’EST JAMAIS ENLISÉ — tests qui changent, fichiers neufs, corrections différentes', () => {
-    // Une correction, puis les tests : leur sortie change d'un tour à l'autre.
     expect(
       claude(
         fois(40, (i) => [
@@ -189,13 +273,10 @@ describe('la vigie — un agent qui tourne en rond (règles portées d’OpenHan
           ...outil('Bash', { command: 'npm test' }, `${40 - i} échecs`, { erreur: i < 39 }),
         ]),
       ),
-    ).toBeUndefined();
-    // La même commande quarante fois, sa sortie RÉUSSIE change (un journal qui
-    // grandit pendant qu'un travail tourne) : ce n'est pas une boucle.
+    ).toEqual({});
     expect(
       claude(fois(40, (i) => outil('Bash', { command: 'tail -n 1 build.log' }, `étape ${i}`))),
-    ).toBeUndefined();
-    // Une correction DIFFÉRENTE entre deux relances identiques du même test rouge.
+    ).toEqual({});
     expect(
       claude(
         fois(30, (i) => [
@@ -207,12 +288,10 @@ describe('la vigie — un agent qui tourne en rond (règles portées d’OpenHan
           ...outil('Bash', { command: 'npm test' }, '1 échec : a.test.ts', { erreur: true }),
         ]),
       ),
-    ).toBeUndefined();
-    // Cent fichiers neufs lus ou écrits.
+    ).toEqual({});
     expect(
       claude(fois(100, (i) => outil('Write', { file_path: `f${i}.ts`, content: 'x' }, 'ok'))),
-    ).toBeUndefined();
-    // Trois répétitions, un fichier neuf, trois répétitions : la boucle est rompue.
+    ).toEqual({});
     const ls = () => outil('Bash', { command: 'ls' }, 'a.ts');
     expect(
       claude([
@@ -220,12 +299,36 @@ describe('la vigie — un agent qui tourne en rond (règles portées d’OpenHan
         ...outil('Write', { file_path: 'neuf.ts', content: '1' }, 'ok'),
         ...fois(3, ls),
       ]),
-    ).toBeUndefined();
+    ).toEqual({});
+  });
+
+  it('ATTENDRE DU TRAVAIL DE FOND n’est pas tourner en rond — la répétition reprend quand il s’arrête', () => {
+    // La sortie d'une commande de fond, relue tant qu'elle tourne : le CLI
+    // répond chaque fois la même chose. Et l'agent principal qui liste ses
+    // agents pendant qu'un sous-agent de fond avance.
+    const relire = () =>
+      outil(
+        'Read',
+        { file_path: '/tmp/bash-1.out' },
+        'Wasted call — file unchanged since your last Read.',
+      );
+    const lister = () => outil('ListAgents', {}, '1 agent : build (running)');
+    expect(claude([fond([{}]), ...fois(10, relire)])).toEqual({});
+    expect(claude([fond([{}]), ...fois(10, lister)])).toEqual({});
+    // Une tâche `ambient` (une veille) n'est pas de l'activité : la règle tient.
+    expect(claude([fond([{ ambient: true }]), ...fois(4, relire)]).enVol?.arret).toMatchObject({
+      motif: 'repetition',
+    });
+    // Le fond fini (ensemble vide), quatre relectures identiques : enlisé — et
+    // celles d'avant ne comptent pas dans la fenêtre.
+    const apres = claude([fond([{}]), ...fois(3, relire), fond([]), ...fois(3, relire)]);
+    expect(apres).toEqual({});
+    expect(
+      claude([fond([{}]), ...fois(3, relire), fond([]), ...fois(4, relire)]).enVol?.arret,
+    ).toMatchObject({ motif: 'repetition', outil: 'Read' });
   });
 
   it('CHAQUE SOUS-AGENT A SON FIL : leurs appels mêlés ne font pas une boucle, la boucle de l’un est vue', () => {
-    // Deux sous-agents lancent chacun deux fois le même appel, entrelacés :
-    // quatre appels identiques dans le flux, deux par fil — personne n'est enlisé.
     const meme = (agent: string) => outil('Grep', { pattern: 'TODO' }, 'a.ts:1', { agent });
     expect(
       claude([
@@ -234,85 +337,120 @@ describe('la vigie — un agent qui tourne en rond (règles portées d’OpenHan
         ...meme('toolu_sa_1'),
         ...meme('toolu_sa_2'),
       ]),
-    ).toBeUndefined();
-    // Un sous-agent tourne en rond pendant que l'agent principal avance.
+    ).toEqual({});
     const boucle = fois(4, (i) => [
       ...meme('toolu_sa_1'),
       ...outil('Write', { file_path: `p${i}.ts`, content: 'x' }, 'ok'),
     ]);
-    expect(claude(boucle)?.arret).toMatchObject({ motif: 'repetition', outil: 'Grep' });
+    expect(claude(boucle).enVol?.arret).toMatchObject({ motif: 'repetition', outil: 'Grep' });
   });
 
   it('rendu UNE fois, l’état borné : un retour sans appel, ou d’un appel oublié, ne compte pas', () => {
-    const vigie = createVigie(RELANCES_BORNEES_CLAUDE);
-    // Dix mille appels jamais rendus : la mémoire des appels en vol reste bornée,
-    // et le retour du tout premier, oublié, ne s'apparie plus à rien.
+    const vigie = createVigie();
     for (let i = 0; i < 10_000; i += 1) {
-      vigie.observer({
-        genre: 'appel',
-        id: `a${i}`,
-        agent: 'principal',
-        outil: 'Read',
-        empreinte: 'x',
-      });
+      vigie.observer(
+        { genre: 'appel', id: `a${i}`, agent: 'principal', outil: 'Read', empreinte: 'x' },
+        T0,
+      );
     }
     for (let i = 0; i < 4; i += 1) {
       expect(
-        vigie.observer({ genre: 'retour', id: 'a0', empreinte: 'y', erreur: false }),
+        vigie.observer({ genre: 'retour', id: 'a0', empreinte: 'y', cadre: false }, T0),
       ).toBeUndefined();
     }
-    const v = createVigie(RELANCES_BORNEES_CLAUDE);
+    const v = createVigie();
     const arrets = fois(8, () => outil('Read', { file_path: 'a.ts' }, 'x'))
       .flatMap(evenementsClaude)
-      .map((e) => v.observer(e))
+      .map((e) => v.observer(e, T0))
       .filter(Boolean);
     expect(arrets).toHaveLength(1);
   });
 });
 
-describe('la vigie — Claude Code 2.1.289 face à un fournisseur épuisé (flux enregistrés)', () => {
-  it('429 EN SÉRIE : le CLI relance dix fois (sa borne), puis conclut — la vigie ne le devance pas, et range une LIMITE', () => {
+describe('la vigie — Claude Code 2.1.289 face à un fournisseur épuisé : elle ne devance jamais le CLI', () => {
+  it('429 EN SÉRIE : dix relances (sa borne), puis il conclut — aucun arrêt en vol, l’issue est une LIMITE', () => {
     const flux = fixture('enlisement', 'claude-429.stream.jsonl');
     expect(flux.filter((l) => l.includes('"subtype":"api_retry"'))).toHaveLength(10);
-    const vu = claude(flux);
-    // Sur la DERNIÈRE ligne — l'erreur finale —, jamais pendant les relances.
-    expect(vu).toMatchObject({ genre: 'fin', ligne: flux.length - 1 });
-    expect(vu?.arret).toEqual({ issue: 'epuisement_fournisseur', cause: 'limite' });
+    expect(claude(flux)).toEqual({ issue: { issue: 'epuisement_fournisseur', cause: 'limite' } });
   });
 
   it('529 EN SÉRIE : « API Error: 529 Overloaded… » est une SURCHARGE, pas un échec du modèle', () => {
-    const flux = fixture('enlisement', 'claude-529.stream.jsonl');
-    const vu = claude(flux);
-    expect(vu).toMatchObject({ genre: 'fin', ligne: flux.length - 1 });
-    expect(vu?.arret).toEqual({ issue: 'epuisement_fournisseur', cause: 'surcharge' });
+    expect(claude(fixture('enlisement', 'claude-529.stream.jsonl'))).toEqual({
+      issue: { issue: 'epuisement_fournisseur', cause: 'surcharge' },
+    });
   });
 
-  it('SOUS LE CHIEN DE GARDE (`max_retries: 300`), la 11e relance arrête l’agent EN VOL', () => {
-    const flux = fixture('enlisement', 'claude-529-watchdog.stream.jsonl');
-    const relances = flux.filter((l) => l.includes('"subtype":"api_retry"'));
-    expect(relances.length).toBeGreaterThan(RELANCES_BORNEES_CLAUDE);
-    expect(relances[0]).toContain('"max_retries":300');
-    const vu = claude(flux);
-    expect(vu).toMatchObject({ genre: 'relance', arret: { cause: 'surcharge' } });
-    expect(flux[vu!.ligne]).toContain(`"attempt":${RELANCES_BORNEES_CLAUDE + 1},`);
+  it('LA BORNE DÉCLARÉE EST RESPECTÉE : chien de garde (`max_retries: 300`), 20 relances déclarées — jamais d’arrêt en vol', () => {
+    const watchdog = fixture('enlisement', 'claude-529-watchdog.stream.jsonl');
+    expect(watchdog.find((l) => l.includes('api_retry'))).toContain('"max_retries":300');
+    // Tué sans issue finale (le délai dur) pendant la série : un épuisement.
+    expect(claude(watchdog, 60_000)).toEqual({
+      issue: { issue: 'epuisement_fournisseur', cause: 'surcharge' },
+    });
+    const relance = (attempt: number) =>
+      JSON.stringify({
+        type: 'system',
+        subtype: 'api_retry',
+        attempt,
+        max_retries: 20,
+        retry_delay_ms: 40_000,
+        error_status: 529,
+        error: 'overloaded',
+      });
+    const vu = claude(
+      fois(20, (i) => [relance(i + 1)]),
+      60_000,
+    );
+    expect(vu.enVol).toBeUndefined();
   });
 
-  it('LIMITE D’ABONNEMENT (contrat) : arrêtée dès l’événement, avec sa remise à zéro déclarée', () => {
+  it('UNE LIMITE D’ABONNEMENT (contrat) : jamais d’arrêt en vol sur l’événement — l’issue finale la range, avec sa remise à zéro', () => {
     const flux = fixture('enlisement', 'claude-limite-abonnement.contrat.stream.jsonl');
-    const vu = claude(flux);
-    expect(vu).toMatchObject({ genre: 'epuise', ligne: 1 });
-    expect(vu?.arret).toEqual({
-      issue: 'epuisement_fournisseur',
+    expect(claude(flux)).toEqual({
+      issue: { issue: 'epuisement_fournisseur', cause: 'limite', remiseA: 1_791_141_300_000 },
+    });
+    // Un `rate_limit_event` FORGÉ (une commande de l'agent qui écrit sur la
+    // sortie du CLI) sans issue finale en erreur : rien n'est rangé.
+    const [init, evenement] = flux;
+    const reussi = JSON.stringify({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      result: 'ok',
+    });
+    expect(claude([init!, evenement!, reussi])).toEqual({});
+  });
+
+  it('UNE REMISE À ZÉRO ABERRANTE est ignorée : 9e15 s, ou au-delà de 8 jours, ne fait ni attendre ni lever', () => {
+    const [init, evenement, assistant, resultat] = fixture(
+      'enlisement',
+      'claude-limite-abonnement.contrat.stream.jsonl',
+    );
+    for (const resetsAt of [9e15, 1_791_140_000 + 9 * 86_400, -5, 1.5]) {
+      const forge = evenement!.replace('"resetsAt":1791141300', `"resetsAt":${resetsAt}`);
+      expect(claude([init!, forge, assistant!, resultat!]).issue, String(resetsAt)).toEqual({
+        issue: 'epuisement_fournisseur',
+        cause: 'limite',
+      });
+    }
+    // Le protocole aussi, à la réception ; et la phrase ne lève jamais.
+    expect(epuisementDepuis({ cause: 'limite', remiseA: 9e18 }, T0)).toEqual({ cause: 'limite' });
+    expect(epuisementDepuis({ cause: 'limite', remiseA: T0 + 9 * 86_400_000 }, T0)).toEqual({
       cause: 'limite',
-      remiseA: 1_791_141_300_000,
     });
     expect(
-      direArret(
-        vu!.arret,
-        (fr) => fr,
-        (ms) => new Date(ms).toISOString().slice(11, 16),
+      direRemise(
+        9e18,
+        T0,
+        () => 'h',
+        () => 'd',
       ),
-    ).toBe('fournisseur épuisé : limite atteinte, remise à zéro à 19:15');
+    ).toBe('?');
+    // Au-delà d'un jour, la DATE avec l'heure.
+    const iso = (d: Date) => d.toISOString().slice(0, 16);
+    const heure = (d: Date) => d.toISOString().slice(11, 16);
+    expect(direRemise(T0 + 3_600_000, T0, heure, iso)).toBe('19:53');
+    expect(direRemise(T0 + 3 * 86_400_000, T0, heure, iso)).toBe('2026-10-07T18:53');
   });
 
   it('une limite qui n’arrête pas TOUS les modèles, un dépassement payant permis, un avertissement : rien', () => {
@@ -332,22 +470,39 @@ describe('la vigie — Claude Code 2.1.289 face à un fournisseur épuisé (flux
       expect(evenementsClaude(evenement(info)), JSON.stringify(info)).toEqual([]);
     }
     expect(evenementsClaude(evenement({ status: 'rejected', rateLimitType: 'seven_day' }))).toEqual(
-      [{ genre: 'epuise', cause: 'limite', remiseA: 1_791_141_300_000 }],
+      [{ genre: 'limite', remiseA: 1_791_141_300_000 }],
     );
   });
 
-  it('une réponse du fournisseur remet la série à zéro ; une erreur d’identifiants n’est pas un épuisement', () => {
-    const relance = (statut: number | null) =>
-      JSON.stringify({ type: 'system', subtype: 'api_retry', error_status: statut });
-    const reponse = outil('Read', { file_path: 'x' }, 'x').slice(0, 1);
-    expect(
-      claude([...fois(8, () => [relance(529)]), ...reponse, ...fois(8, () => [relance(529)])]),
-    ).toBeUndefined();
-    expect(claude(fois(30, () => [relance(401)]))).toBeUndefined();
-    expect(claude(fois(11, () => [relance(null)]))?.arret).toEqual({
+  it('LE 502 D’UNE PASSERELLE (celle de Hive comprise) est un fournisseur INJOIGNABLE, jamais une surcharge', () => {
+    const fin = (statut: number | null) =>
+      JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        is_error: true,
+        api_error_status: statut,
+      });
+    expect(claude([fin(502)]).issue).toEqual({
       issue: 'epuisement_fournisseur',
       cause: 'injoignable',
     });
+    expect(claude([fin(504)]).issue).toMatchObject({ cause: 'injoignable' });
+    expect(claude([fin(503)]).issue).toMatchObject({ cause: 'surcharge' });
+    // Une erreur d'identifiants, ou pas d'erreur d'API du tout : rien.
+    expect(claude([fin(401)])).toEqual({});
+    expect(claude([fin(null)])).toEqual({});
+  });
+
+  it('une réponse du fournisseur clôt la série : une erreur ordinaire ensuite n’est pas un épuisement', () => {
+    const relance = JSON.stringify({
+      type: 'system',
+      subtype: 'api_retry',
+      attempt: 1,
+      error_status: 529,
+    });
+    const reponse = outil('Read', { file_path: 'x' }, 'x').slice(0, 1);
+    expect(claude([relance, ...reponse])).toEqual({});
+    expect(claude([relance]).issue).toMatchObject({ cause: 'surcharge' });
   });
 });
 
@@ -360,26 +515,48 @@ describe('la vigie — Codex 0.156.0 (flux enregistrés)', () => {
   ])(
     '%s : l’erreur finale est un épuisement (%s), rangé sans arrêter le CLI qui conclut',
     (nom, cause) => {
-      const flux = fixture('enlisement', nom);
-      expect(codex(flux)).toMatchObject({
-        genre: 'fin',
-        arret: { issue: 'epuisement_fournisseur', cause },
+      expect(codex(fixture('enlisement', nom))).toEqual({
+        issue: { issue: 'epuisement_fournisseur', cause },
       });
     },
   );
 
-  it('« waiting for network » sans fin : arrêté à la 6e relance, au-delà de la borne de Codex', () => {
+  it('« waiting for network » : bornée en DURÉE (10 min), jamais en nombre — l’enregistrement (6 avis en 153 s) ne l’arrête pas', () => {
     const flux = fixture('enlisement', 'codex-injoignable.json.stdout.jsonl');
-    const vu = codex(flux);
-    expect(vu).toMatchObject({ genre: 'relance', arret: { cause: 'injoignable' } });
-    expect(flux.slice(0, vu!.ligne + 1).filter((l) => l.includes('Reconnecting...'))).toHaveLength(
-      RELANCES_BORNEES_CODEX + 1,
+    // Les avis espacés comme sur le vrai binaire : pas d'arrêt, et tué sans
+    // issue finale, la série en cours se range en fournisseur injoignable.
+    expect(codex(flux, 30_000)).toEqual({
+      issue: { issue: 'epuisement_fournisseur', cause: 'injoignable' },
+    });
+    // La même attente sur plus de dix minutes : arrêtée en vol.
+    const vu = codex(flux, 3 * 60_000);
+    expect(vu.enVol).toMatchObject({ genre: 'relance', arret: { cause: 'injoignable' } });
+    // « Reconnecting... 6/10 » : une borne déclarée — jamais devancée, même longue.
+    const declaree = Array.from({ length: 10 }, (_, i) =>
+      JSON.stringify({
+        type: 'error',
+        message: `Reconnecting... ${i + 1}/10 (We’re currently experiencing high demand, which may cause temporary errors.)`,
+      }),
     );
+    expect(codex(declaree, 5 * 60_000).enVol).toBeUndefined();
   });
 
-  it('LA MÊME COMMANDE, LA MÊME SORTIE : enlisé ; des correctifs entre deux relances : jamais', () => {
+  it('un 502 de Codex (passerelle) est injoignable', () => {
+    const echec = JSON.stringify({
+      type: 'turn.failed',
+      error: { message: 'unexpected status 502 Bad Gateway: Hive : l’API openai ne répond pas.' },
+    });
+    expect(codex([echec]).issue).toMatchObject({ cause: 'injoignable' });
+  });
+
+  it('LA MÊME COMMANDE, LA MÊME SORTIE : enlisé ; le CADRE qui la rejette : enlisé ; un code 1 aux sorties changeantes, ou des correctifs entre deux relances : jamais', () => {
     let n = 0;
-    const commande = (cmd: string, sortie: string, code = 0) => {
+    const commande = (
+      cmd: string,
+      sortie: string,
+      code = 0,
+      statut = code === 0 ? 'completed' : 'failed',
+    ) => {
       n += 1;
       const item = {
         id: `item_${n}`,
@@ -387,7 +564,7 @@ describe('la vigie — Codex 0.156.0 (flux enregistrés)', () => {
         command: cmd,
         aggregated_output: sortie,
         exit_code: code,
-        status: code === 0 ? 'completed' : 'failed',
+        status: statut,
       };
       return [JSON.stringify({ type: 'item.completed', item })];
     };
@@ -401,21 +578,34 @@ describe('la vigie — Codex 0.156.0 (flux enregistrés)', () => {
       };
       return [JSON.stringify({ type: 'item.completed', item })];
     };
-    const ls = () => commande("/bin/bash -lc 'ls'", 'a.ts\n');
-    expect(codex(fois(4, ls))?.arret).toEqual({
+    expect(codex(fois(4, () => commande("/bin/bash -lc 'ls'", 'a.ts\n'))).enVol?.arret).toEqual({
       issue: 'enlisement',
       motif: 'repetition',
       fois: 4,
       outil: 'commande',
     });
-    // Le contenu d'un correctif n'est pas dans le flux : il compte comme du
-    // progrès, et l'agent qui corrige puis relance les tests n'est jamais arrêté.
-    expect(
-      codex(fois(30, () => [...correctif(), ...commande('npm test', '1 failed', 1)])),
-    ).toBeUndefined();
+    // Rejetée par le cadre (`ToolEventFailure::Rejected` : code -1, `declined`),
+    // le message changeant : la règle des rejets la prend.
+    const refusee = (i: number) =>
+      commande('rm -rf build', `rejected by policy (${i})`, -1, 'declined');
+    expect(codex(fois(4, refusee)).enVol?.arret).toMatchObject({ motif: 'erreurs', fois: 4 });
+    // Lancée, elle sort en 1 avec une sortie qui change : jamais.
+    expect(codex(fois(12, (i) => commande('npm test', `Duration ${600 + i}ms`, 1)))).toEqual({});
+    expect(codex(fois(30, () => [...correctif(), ...commande('npm test', '1 failed', 1)]))).toEqual(
+      {},
+    );
   });
 
-  it('PAR LE VRAI LECTEUR DU FLUX : l’arrêt en vol part au nœud, l’erreur finale reste rangée sans arrêt', () => {
+  it('QUATRE RECHERCHES WEB n’en font pas une boucle — leurs deux `id` aplatis ne les rendent pas identiques', () => {
+    // `WebSearchItem` porte son `id`, aplati dans `ThreadItem` : deux clés
+    // `id`, et `JSON.parse` garde la dernière — la même à chaque fois.
+    const recherche = (i: number) => [
+      `{"type":"item.completed","item":{"id":"item_${i}","type":"web_search","id":"search-1","query":"vitest retry","action":{"type":"search"}}}`,
+    ];
+    expect(codex(fois(6, recherche))).toEqual({});
+  });
+
+  it('PAR LE VRAI LECTEUR DU FLUX : l’arrêt en vol part au nœud, l’issue finale reste rangée sans arrêt', () => {
     const lire = (nom: string) => {
       const arrets: ArretVigie[] = [];
       const lecteur = createLecteurFluxCodex({ surArret: (a) => arrets.push(a) });
@@ -423,7 +613,7 @@ describe('la vigie — Codex 0.156.0 (flux enregistrés)', () => {
       return { enVol: arrets, rangee: lecteur.arret() };
     };
     expect(lire('codex-injoignable.json.stdout.jsonl')).toEqual({
-      enVol: [{ issue: 'epuisement_fournisseur', cause: 'injoignable' }],
+      enVol: [],
       rangee: { issue: 'epuisement_fournisseur', cause: 'injoignable' },
     });
     expect(lire('codex-503.json.stdout.jsonl')).toEqual({
@@ -439,19 +629,12 @@ describe('l’issue rangée, et ce qu’elle devient sur le fil', () => {
   it('un épuisement prend le chemin des pannes d’infrastructure ; un enlisement reste un échec ; une réussite reste une réussite', () => {
     expect(
       resultatSelonVigie(echec, { issue: 'epuisement_fournisseur', cause: 'limite', remiseA: 5 }),
-    ).toEqual({
-      ...echec,
-      infra: true,
-      epuisement: { cause: 'limite', remiseA: 5 },
-    });
-    const enlise = resultatSelonVigie(echec, {
-      issue: 'enlisement',
-      motif: 'erreurs',
-      fois: 4,
-      outil: 'Bash',
-    });
+    ).toEqual({ ...echec, infra: true, epuisement: { cause: 'limite', remiseA: 5 } });
+    const enlise = resultatSelonVigie(
+      { ...echec, infra: true },
+      { issue: 'enlisement', motif: 'erreurs', fois: 4, outil: 'Bash' },
+    );
     expect(enlise).toEqual({ ...echec, enlisement: { motif: 'erreurs', fois: 4, outil: 'Bash' } });
-    expect(enlise.infra).toBeUndefined();
     const reussie = { ...echec, success: true };
     expect(
       resultatSelonVigie(reussie, {
@@ -463,7 +646,17 @@ describe('l’issue rangée, et ce qu’elle devient sur le fil', () => {
     ).toBe(reussie);
   });
 
-  it('le protocole lit le fait, et le laisse tomber SEUL quand il est mal formé', () => {
+  it('la phrase d’un rejet du cadre le nomme ainsi', () => {
+    expect(
+      direArret(
+        { issue: 'enlisement', motif: 'erreurs', fois: 4, outil: 'Edit' },
+        (fr) => fr,
+        String,
+      ),
+    ).toBe('enlisé : même appel d’outil rejeté par le CLI 4 fois de suite (Edit)');
+  });
+
+  it('le protocole lit les faits — et ce qu’a coûté une tentative épuisée —, et laisse tomber SEUL ce qui est mal formé', () => {
     const resultat = (enlisement: unknown) =>
       parseClientMessage(
         JSON.stringify({
@@ -493,17 +686,31 @@ describe('l’issue rangée, et ce qu’elle devient sur le fil', () => {
       parseClientMessage(
         JSON.stringify({ type: 'task_reject', taskId: 't1', reason: 'r', ...champs }),
       );
-    expect(refus({ infra: true, epuisement: { cause: 'surcharge' } })).toMatchObject({
+    expect(
+      refus({
+        infra: true,
+        epuisement: { cause: 'surcharge' },
+        durationMs: 217_000,
+        fournisseur: { source: 'claude-code', coutUsd: 0 },
+      }),
+    ).toMatchObject({
       infra: true,
       epuisement: { cause: 'surcharge' },
+      durationMs: 217_000,
+      fournisseur: { source: 'claude-code', coutUsd: 0 },
     });
-    // Sans `infra`, un épuisement ne se croit pas : ce serait une saturation.
+    // Sans `infra`, un épuisement ne se croit pas : ce serait une saturation ;
+    // sans le fait, ni durée ni coût.
     expect(refus({ epuisement: { cause: 'limite' } })).not.toHaveProperty('epuisement');
+    expect(refus({ infra: true, durationMs: 5 })).not.toHaveProperty('durationMs');
     expect(refus({ infra: true, epuisement: { cause: 'fatigue' } })).not.toHaveProperty(
       'epuisement',
     );
     expect(refus({ infra: true, epuisement: { cause: 'limite', remiseA: -1 } })).toMatchObject({
       epuisement: { cause: 'limite' },
     });
+    expect(
+      refus({ infra: true, epuisement: { cause: 'limite' }, durationMs: -3 }),
+    ).not.toHaveProperty('durationMs');
   });
 });

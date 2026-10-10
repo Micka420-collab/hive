@@ -32,9 +32,10 @@ export interface AdapterProgress {
    */
   sortie?: readonly BlocSortie[];
   /**
-   * La vigie de l'adaptateur (G13, `vigie-enlisement.ts`) juge l'agent enlisé,
-   * ou son fournisseur épuisé, EN VOL : le nœud l'arrête par le geste de
-   * l'annulation (`ctrl.abort`). L'adaptateur, lui, ne tue rien.
+   * Un arrêt EN VOL de la vigie de l'adaptateur (G13, `vigie-enlisement.ts`) :
+   * l'agent enlisé, ou l'attente sans borne du réseau de Codex au-delà de sa
+   * durée. Le nœud l'arrête par le geste de l'annulation, sur le seul signal
+   * de l'agent (`signalDeLAgent`, client.ts). L'adaptateur, lui, ne tue rien.
    */
   arret?: ArretVigie;
 }

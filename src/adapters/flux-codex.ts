@@ -96,7 +96,7 @@ import type { GraviteAgent } from '../shared/niveaux-sortie.js';
 import type { UsageFournisseur } from '../shared/types.js';
 import type { LecteurFlux } from './exec.js';
 import { borneTexteFinal } from './texte-final.js';
-import { createVigie, evenementsCodex, RELANCES_BORNEES_CODEX } from './vigie-enlisement.js';
+import { createVigie, evenementsCodex } from './vigie-enlisement.js';
 import type { ArretVigie } from '../shared/enlisement.js';
 
 type Objet = Record<string, unknown>;
@@ -267,7 +267,7 @@ function rendreElement(phase: string, item: Objet): string | undefined {
 export interface LecteurFluxCodex extends LecteurFlux {
   /** Les jetons déclarés par le dernier `turn.completed` ; absents sinon. */
   declaration(): UsageFournisseur | undefined;
-  /** L'issue que la vigie a rendue sur ce flux (G13) ; absente sinon. */
+  /** L'issue que la vigie rend sur ce flux (G13), une fois le CLI sorti ; absente sinon. */
   arret(): ArretVigie | undefined;
 }
 
@@ -324,9 +324,8 @@ const TENTATIVE_REFAITE = 'Reconnecting...';
 export function createLecteurFluxCodex(
   opts: { bacCodexEnEcriture?: boolean; surArret?: (arret: ArretVigie) => void } = {},
 ): LecteurFluxCodex {
-  /** La vigie du flux (G13) : `surArret` reçoit un arrêt EN VOL, jamais une erreur finale. */
-  const vigie = createVigie(RELANCES_BORNEES_CODEX);
-  let arretVigie: ArretVigie | undefined;
+  /** La vigie du flux (G13) : `surArret` reçoit un arrêt EN VOL — jamais l'issue finale. */
+  const vigie = createVigie();
   /** Le dernier message de l'agent, pas encore une réponse : le tour court. */
   let dernierMessage: string | undefined;
   let reponse: string | undefined;
@@ -439,11 +438,9 @@ export function createLecteurFluxCodex(
     // sait pas lire, ni un appelant qui n'a pas pu arrêter — l'issue, elle,
     // reste rendue par `arret()`.
     try {
-      for (const evenement of arretVigie ? [] : evenementsCodex(e)) {
-        arretVigie = vigie.observer(evenement);
-        if (!arretVigie) continue;
-        if (evenement.genre !== 'fin') opts.surArret?.(arretVigie);
-        break;
+      for (const evenement of evenementsCodex(e)) {
+        const arret = vigie.observer(evenement, Date.now());
+        if (arret) opts.surArret?.(arret);
       }
     } catch {
       /* la ligne se rend quand même : la vigie n'en a rien tiré */
@@ -493,6 +490,6 @@ export function createLecteurFluxCodex(
       return `codex : échec — ${sortie} sans que le tour se conclue (ni \`turn.completed\` ni \`turn.failed\` : tour interrompu)`;
     },
     declaration: () => declaration,
-    arret: () => arretVigie,
+    arret: () => vigie.issue(),
   };
 }
