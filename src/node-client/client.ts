@@ -112,7 +112,7 @@ import type { ValidationsBac } from '../shared/validations-bac.js';
 import type { PorteSecurite } from '../shared/porte-securite.js';
 import { passerLaPorte } from './porte-securite.js';
 import { memoireDesBases, reglesAutorisationDeBase, validerProduction } from './validations-bac.js';
-import { dossierDuMagasin } from './cache-dependances.js';
+import { direRamassage, dossierDuMagasin, ramasserMagasin } from './cache-dependances.js';
 import { COMMANDE_DIRECT_MAX, DIFF_DIRECT_MAX } from '../shared/bac-direct.js';
 import type { EtatDirect } from '../shared/bac-direct.js';
 import type { MinuteurSuspendable } from '../shared/minuteur-suspendable.js';
@@ -755,6 +755,7 @@ export class HiveNodeClient {
     this.closed = false;
     this.warnIfInsecureTransport();
     this.preparerRendezVous();
+    this.ramasserLeMagasin();
     // Les efforts se SONDENT avant la première inscription (`claude --help`,
     // quelques centaines de ms, borné par `STATUT_MAX_MS`) : s'inscrire avant
     // les annoncerait à la reconnexion suivante seulement. Une sonde qui échoue
@@ -790,6 +791,34 @@ export class HiveNodeClient {
     if (!estAgentType(agent) || binaireMcpDansBac(agent) === null) return;
     const alerte = this.rendezVous.alerte();
     if (alerte) this.log(`⚠ ${alerte}`);
+  }
+
+  /**
+   * Le niveau d'isolement sous lequel ce nœud fait tourner ses validations :
+   * `conteneur` avec un bac — sans lui, aucune ne tourne (`sans_bac`).
+   */
+  private niveauDIsolement(): string {
+    return this.opts.bac ? 'conteneur' : (this.opts.isolement?.niveau ?? 'processus');
+  }
+
+  /**
+   * Le magasin de dépendances, au démarrage (G18 D) : ce qu'un nœud tué a
+   * laissé, les entrées périmées ou en trop — et le magasin ENTIER quand le
+   * niveau d'isolement a changé depuis son peuplement. Sans attendre : le
+   * ramassage n'écrit que dans le magasin, et une validation qui le croiserait
+   * retombe sur l'installation (`cache-dependances.ts`).
+   */
+  private ramasserLeMagasin(): void {
+    void ramasserMagasin(dossierDuMagasin(this.workRoot), { niveau: this.niveauDIsolement() }).then(
+      (bilan) => {
+        const ligne = direRamassage(bilan);
+        if (ligne) this.log(ligne);
+      },
+      (err: unknown) =>
+        this.log(
+          `magasin de dépendances non ramassé : ${err instanceof Error ? err.message : String(err)}`,
+        ),
+    );
   }
 
   /**
@@ -2413,6 +2442,7 @@ export class HiveNodeClient {
         racine: dossierDuMagasin(this.workRoot),
         projet: task.projectId,
         reseau: `${niveau}:${reseau ? 'filtre' : 'libre'}`,
+        niveau: this.niveauDIsolement(),
       },
       // Chaque validation à l'écran dès qu'elle part, puis dès qu'elle conclut.
       surControle: (cle, etat) => pilote.controle(cle, etat),

@@ -839,8 +839,12 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
   ne compte pas.
   L'installation se fait dans
   `<installation>/.hive-work/<nœud>/tasks/<task-id>.deps`, effacé aussitôt.
-  Le supprimer ne perd rien : le prochain besoin réinstalle. Il n'a pas encore
-  de rétention : chaque nouveau lockfile y ajoute une entrée.
+  Le supprimer ne perd rien : le prochain besoin réinstalle. Il est borné, au
+  démarrage du nœud et après chaque nouvelle entrée : une entrée part après 7
+  jours sans servir, au-delà de 3 par projet ou de 4 Gio en tout (les moins
+  récemment servies d'abord, jamais une en cours de copie) — et le magasin
+  entier quand le niveau d'isolement du nœud change (un nœud qui démarre sans
+  bac le vide).
 - **un dépôt privé par SSH** (`git@hôte:…`) : le nœud clone — et, pour une
   livraison locale, liste et pousse — en mode lot
   (`ssh -o BatchMode=yes`), sans jamais attendre une invite. La clé d'hôte

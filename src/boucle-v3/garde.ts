@@ -149,7 +149,7 @@ export const SURFACES_SENSIBLES: readonly SurfaceSensible[] = [
     motif:
       /^src\/(node-client|shared)\/cache-dependances\.ts$|^tests\/cache-dependances[^/]*\.test\.ts$/,
     pourquoi:
-      'le magasin de dépendances des validations (G18) et ses bancs : peuplé depuis la seule base vérifiée, jamais monté, restauré par copie, éligible au plus strict — l’affaiblir laisserait une production empoisonner les dépendances des tentatives suivantes, un lien du magasin sortir de la tâche, ou un verdict dépendre du cache',
+      'le magasin de dépendances des validations (G18) et ses bancs : peuplé depuis la seule base vérifiée, jamais monté, restauré par copie, éligible au plus strict, borné et vidé quand le niveau d’isolement change — l’affaiblir laisserait une production empoisonner les dépendances des tentatives suivantes, un lien du magasin sortir de la tâche, un magasin écrit sans bac servir sous un bac quand le nœud change honnêtement de niveau (au niveau processus, l’agent peut forger magasin et marque : ce cas-là, la marque ne le ferme pas), ou un verdict dépendre du cache',
   },
   {
     categorie: 'securite',
