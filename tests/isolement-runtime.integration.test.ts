@@ -1,6 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -229,9 +230,10 @@ describe('isolement — intégration runtime réel', () => {
           path.join(outil, 'package.json'),
           JSON.stringify({ name: 'outil-dev', version: '1.0.0', bin: { 'outil-dev': 'bin.js' } }),
         );
+        // Il laisse une trace dans la tâche : un `passed` ne porte pas d'extrait.
         writeFileSync(
           path.join(outil, 'bin.js'),
-          "#!/usr/bin/env node\nconsole.log('outil-dev présent');\n",
+          "#!/usr/bin/env node\nrequire('node:fs').writeFileSync('outil-dev.ran', '');\n",
         );
         execFileSync('npm', ['pack', '--pack-destination', projet], {
           cwd: outil,
@@ -289,7 +291,7 @@ describe('isolement — intégration runtime réel', () => {
           raison: 'termine',
           code: 0,
         });
-        expect(tests.extrait).toContain('outil-dev présent');
+        expect(existsSync(path.join(projet, 'outil-dev.ran'))).toBe(true);
       } finally {
         rmSync(root, { recursive: true, force: true, maxRetries: 3 });
       }
