@@ -28,9 +28,17 @@ FROM node:24-bookworm-slim
 # instruction ». Les runners CI et les machines modernes l'exécutent sans souci ;
 # c'est le même compromis que tout binaire précompilé.
 
+# ─── PAS DE NODE_ENV DANS L'ENVIRONNEMENT DE L'IMAGE ─────────────────────────
+#
+# Tout ce qui tourne dans le conteneur hérite de cet ENV : l'agent et ses
+# commandes, et les validations du nœud (`npm ci` puis les scripts du projet ;
+# le bac ne relaie que `CI`). `NODE_ENV=production` y faisait omettre les
+# devDependencies (npm : `omit=dev`) : le `test` d'un projet ne trouvait plus
+# vitest ni jest — 127, `outil_introuvable`, aucune production jugée. Les CLI
+# n'en ont pas besoin : leur installation dit `--omit=dev` elle-même, et aucun
+# des trois ne lit la variable pour décider (bundles compilés en production).
 ENV DEBIAN_FRONTEND=noninteractive \
     HOME=/tmp/hive-home \
-    NODE_ENV=production \
     PATH=/opt/hive-agents/node_modules/.bin:$PATH
 
 COPY docker/agents/package.json docker/agents/package-lock.json /opt/hive-agents/
