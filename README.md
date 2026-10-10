@@ -442,7 +442,10 @@ construit sur chaque nœud par `npm run bac:image` ; Hive ne la télécharge
 jamais. Le nœud retient le premier moteur dont le preflight passe (image
 présente, agent exécutable) et dit pourquoi les autres sont écartés. Chaque
 conteneur porte l'étiquette de son nœud : relancé après un arrêt brutal, le
-nœud supprime ceux qu'il avait laissés.
+nœud supprime ceux qu'il avait laissés. Une mise à jour de Hive ne reconstruit
+pas l'image : **relancez `npm run bac:image` après chaque mise à jour**. Oubliée,
+l'image se dit « périmée » au démarrage du nœud et dans `hive doctor` — elle
+porte l'empreinte de ce qui l'a construite.
 
 Dans le bac, l'agent a un HOME éphémère : la session de `claude login` ou de
 `codex login` n'y entre pas. Hive y transmet **par leur nom** les identifiants

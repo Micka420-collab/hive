@@ -40,6 +40,7 @@ import {
 } from './isolement.js';
 import { CODE, type CodeSortie } from '../codes-sortie.js';
 import { requisitionSiCredentialsManquantes, type AgentType } from './agent-detect.js';
+import { commandeImage, raisonPeremption, type FraicheurImage } from './empreinte-image.js';
 import type { IsolementDeclare } from '../shared/types.js';
 import { variablesAgentSansSecrets } from './workspace.js';
 import { occuperIdentite } from './identite-noeud.js';
@@ -183,15 +184,52 @@ export function raisonPontMcpDansBac(
 }
 
 /**
- * Où le preflight a cherché l'agent, pour le dire à l'humain.
+ * Où le preflight a cherché l'agent, pour le dire à l'humain — et ce que
+ * l'étiquette de l'image dit d'elle, quand l'image a été inspectée.
  *
  * Un conteneur cherche dans son IMAGE ; bubblewrap n'en a pas — il remonte
  * l'installation de l'hôte en lecture seule. Lui prêter « (image
  * docker.io/library/node:20-slim) » envoyait l'humain corriger une image que
  * rien n'utilise.
  */
-function lieuDuBac(fournisseur: Fournisseur, image: string): string {
-  return fournisseur.bin === 'bwrap' ? '' : ` (image ${image})`;
+function lieuDuBac(fournisseur: Fournisseur, image: string, fraicheur?: FraicheurImage): string {
+  if (fournisseur.bin === 'bwrap') return '';
+  return ` (image ${image}${fraicheur ? NOTE_FRAICHEUR[fraicheur.etat] : ''})`;
+}
+
+/** Ce que la ligne d'un moteur dit de son image ; périmée, un ⚠ la détaille (`avertirPeremption`). */
+const NOTE_FRAICHEUR: Record<FraicheurImage['etat'], string> = {
+  a_jour: '',
+  perimee: ', périmée',
+  non_geree: ', non gérée par Hive',
+  inconnue: ', fraîcheur non vérifiable sur cette installation',
+};
+
+/**
+ * L'image par défaut est périmée : la ligne qui le dit, avec la commande.
+ *
+ * ─── UN AVERTISSEMENT, PAS UN REFUS ──────────────────────────────────────────
+ *
+ * Refuser le conteneur ne rendrait pas ce qu'une image à jour apporte. Les murs
+ * du bac (racine en lecture seule, capacités retirées, uid, bornes) sont posés
+ * au LANCEMENT (`envelopper`), pas par l'image : une image périmée isole
+ * exactement autant, et `exige` tient sa promesse. Sans elle, le repli est
+ * bubblewrap, sans bornes mémoire ni CPU, ou — macOS, Windows, Ubuntu 24.04
+ * d'origine — la sandbox de processus, où les validations ne tournent PAS du
+ * tout (`sans_bac`) : le disque exposé, et pas un verdict de plus. Refuser le
+ * nœud entier ferait de chaque retouche de `docker/agents` — un commentaire
+ * suffit à changer l'empreinte — une panne de toutes les ouvrières jusqu'à leur
+ * reconstruction. Ce qui manquait, c'était que quelqu'un le DISE.
+ */
+function avertirPeremption(
+  fournisseur: Fournisseur,
+  image: string,
+  p: Extract<FraicheurImage, { etat: 'perimee' }>,
+): string {
+  return (
+    `⚠ Image ${image} périmée (${raisonPeremption(p)}) — reconstruisez-la pour cette ` +
+    `version : ${commandeImage(fournisseur.nom)}, puis relancez le nœud.`
+  );
 }
 
 /** Le bac est écarté : `auto` le dit et se replie, `exige` refuse. */
@@ -242,7 +280,8 @@ export interface OutilsBac {
 
 /**
  * Éprouve UN moteur : l'image (conteneurs seulement), puis l'agent, puis le
- * `node` du pont MCP. Rend le premier refus, ou ce qui a passé.
+ * `node` du pont MCP. Rend le premier refus, ou ce qui a passé — avec, dans les
+ * deux cas, la fraîcheur de l'image : périmée, elle explique peut-être le refus.
  */
 async function eprouverMoteur(
   fournisseur: Fournisseur,
@@ -261,14 +300,27 @@ async function eprouverMoteur(
     moteur = dernier.fournisseur ?? fournisseur;
   }
   if (!binAgent) return dernier ?? { executable: true, motif: 'aucun agent à éprouver' };
+  const fraicheur = dernier?.fraicheur ? { fraicheur: dernier.fraicheur } : {};
   const agent = await outils.sonderAgent(moteur, binAgent, image);
-  if (!agent.executable) return agent;
+  if (!agent.executable) return { ...agent, ...fraicheur };
   const appris = moteur === fournisseur ? {} : { fournisseur: moteur };
-  if (!binPont) return { ...agent, ...appris };
+  if (!binPont) return { ...agent, ...appris, ...fraicheur };
   const pont = await outils.sonderAgent(moteur, binPont, image);
   return pont.executable
-    ? { ...agent, ...appris }
-    : { executable: false, motif: `${pont.motif} — runtime Node requis par le pont MCP CLI` };
+    ? { ...agent, ...appris, ...fraicheur }
+    : {
+        executable: false,
+        motif: `${pont.motif} — runtime Node requis par le pont MCP CLI`,
+        ...fraicheur,
+      };
+}
+
+/** Ce que rend `choisirMoteur`. */
+interface ChoixMoteur {
+  retenu: Fournisseur | null;
+  motif: string | null;
+  ecartes: string[];
+  perimees: string[];
 }
 
 /**
@@ -293,6 +345,9 @@ async function eprouverMoteur(
  * PREMIER qui ne l'avait pas, et lui seul ; bubblewrap, sans image, ne vient
  * qu'ensuite : un opérateur qui nomme une image veut un conteneur, et c'est
  * l'ordre qui le lui donnait déjà.
+ *
+ * `perimees` : la ligne de chaque moteur éprouvé dont l'image par défaut est
+ * périmée, retenu ou écarté — elle se reconstruit dans le magasin où elle est.
  */
 async function choisirMoteur(
   moteurs: readonly Fournisseur[],
@@ -300,8 +355,9 @@ async function choisirMoteur(
   binAgent: string | null,
   binPont: string | null,
   outils: Required<Pick<OutilsBac, 'preparerImage' | 'sonderAgent'>>,
-): Promise<{ retenu: Fournisseur | null; motif: string | null; ecartes: string[] }> {
+): Promise<ChoixMoteur> {
   const ecartes: string[] = [];
+  const perimees: string[] = [];
   const conteneurs = moteurs.filter((f) => f.bin !== 'bwrap');
   let aTirer: Fournisseur | null = null;
   let retenu: { fournisseur: Fournisseur; motif: string | null } | null = null;
@@ -312,7 +368,11 @@ async function choisirMoteur(
       aTirer ??= fournisseur;
       return false;
     }
-    const motif = `${r.motif}${lieuDuBac(fournisseur, image)}`;
+    const fraicheur = r.fraicheur;
+    if (fraicheur?.etat === 'perimee') {
+      perimees.push(avertirPeremption(fournisseur, image, fraicheur));
+    }
+    const motif = `${r.motif}${lieuDuBac(fournisseur, image, fraicheur)}`;
     if (r.executable) {
       // Rien n'a été lancé (bubblewrap, sans agent) : pas de preflight à citer.
       retenu = {
@@ -324,10 +384,11 @@ async function choisirMoteur(
     ecartes.push(moteurs.length > 1 ? `${fournisseur.nom} : ${motif}` : motif);
     return false;
   };
-  const fin = (): { retenu: Fournisseur | null; motif: string | null; ecartes: string[] } => ({
+  const fin = (): ChoixMoteur => ({
     retenu: retenu?.fournisseur ?? null,
     motif: retenu?.motif ?? null,
     ecartes,
+    perimees,
   });
   for (const f of conteneurs) if (await essayer(f, false)) return fin();
   if (aTirer && (await essayer(aTirer, true))) return fin();
@@ -388,6 +449,7 @@ export async function preparerBac(
   let decision = decider(mode, fournisseur);
   let preflight: string | null = null;
   let ecartes: string[] = [];
+  let perimees: string[] = [];
   const binAgent = agent ? binaireDansBac(agent, env) : null;
 
   // Les identifiants AVANT le preflight : c'est gratuit (aucun `spawn`), et si
@@ -404,6 +466,7 @@ export async function preparerBac(
     const binPont = agent ? binaireMcpDansBac(agent) : null;
     const choix = await choisirMoteur(moteurs, image, binAgent, binPont, epreuves);
     ecartes = choix.ecartes;
+    perimees = choix.perimees;
     if (choix.retenu) {
       fournisseur = choix.retenu;
       decision = decider(mode, fournisseur);
@@ -413,15 +476,16 @@ export async function preparerBac(
     }
   }
   const lignes = annonce(decision, fournisseur);
-  if (fournisseur) {
-    // Un moteur écarté AVANT celui qu'on garde se dit : l'humain qui a
-    // installé podman doit savoir pourquoi c'est docker qui isole.
-    const details = [
-      ...(preflight ? [`   Preflight : ${preflight}`] : []),
-      ...ecartes.map((e) => `   Écarté : ${e}`),
-    ];
-    lignes.splice(1, 0, ...details);
-  }
+  // Un moteur écarté AVANT celui qu'on garde se dit : l'humain qui a installé
+  // podman doit savoir pourquoi c'est docker qui isole. (Sans moteur retenu,
+  // les écartés sont déjà dans le motif.) Une image périmée se dit dans tous
+  // les cas, retenue ou non : c'est la ligne qui porte la commande.
+  const details = [
+    ...(fournisseur && preflight ? [`   Preflight : ${preflight}`] : []),
+    ...(fournisseur ? ecartes.map((e) => `   Écarté : ${e}`) : []),
+    ...perimees.map((p) => `   ${p}`),
+  ];
+  lignes.splice(1, 0, ...details);
   return {
     decision,
     fournisseur,

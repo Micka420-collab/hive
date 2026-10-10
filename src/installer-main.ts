@@ -28,8 +28,8 @@ import { CODE, legendeCodes } from './codes-sortie.js';
 import { MODE_SECRET, ecrireAtomique } from './ecriture-atomique.js';
 import { assistant } from './installer-assistant.js';
 import { detectBestAgent } from './node-client/agent-detect.js';
+import { commandeImage } from './node-client/empreinte-image.js';
 import {
-  commandeImage,
   decider,
   IMAGE_DEFAUT,
   imageDepuisEnv,
@@ -269,7 +269,9 @@ async function main(): Promise<void> {
   const fournisseur = bac.pret;
   // L'image par défaut, absente de tout moteur : la commande qui la construit.
   const aConstruire =
-    !fournisseur && bac.absente && imageVisee === IMAGE_DEFAUT ? commandeImage(bac.absente) : null;
+    !fournisseur && bac.absente && imageVisee === IMAGE_DEFAUT
+      ? commandeImage(bac.absente.nom)
+      : null;
 
   const agent = agentDetecte && agentDetecte.agent !== 'shell' ? agentDetecte.label : null;
   const isolement = decider(modeDepuisEnv(process.env), fournisseur);

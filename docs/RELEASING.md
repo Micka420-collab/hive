@@ -221,7 +221,12 @@ d'éditer `docker/Caddyfile.cloud` : une seule fois, déplacer le domaine dans
 
 La Reine et ses ouvrières parlent un protocole **sans numéro de version** :
 montez-les ensemble, surtout pour une mineure. Une ouvrière posée par git suit
-la même marche que ci-dessus. Une ouvrière entrée par `npx` se relance sur la
+la même marche que ci-dessus, puis, si elle isole par Podman ou Docker,
+reconstruit l'image de son bac — `npm run bac:image` (`-- --moteur docker` pour
+Docker) : la mise à jour ne la touche pas. Oubliée, l'ouvrière le dit à son
+démarrage (« image … périmée »), comme `hive doctor`
+([`docker/agents/README.md`](../docker/agents/README.md)). Une ouvrière entrée
+par `npx` se relance sur la
 version voulue, **depuis le même dossier et avec le même billet** : la clé
 qu'elle a obtenue la première fois (`.hive-work/join`) est reprise, et le
 billet n'est pas redemandé.

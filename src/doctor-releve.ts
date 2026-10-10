@@ -44,8 +44,9 @@ import { gardiennesDepuisEnv } from './shared/reglages.js';
 import { boucleLocale } from './shared/joignable.js';
 import { modeRunnerDepuisEnv } from './orchestrator/essaim-runner.js';
 import { inventaireAgents, type InventaireAgents } from './node-client/agent-detect.js';
+import { commandeImage, empreinteImage } from './node-client/empreinte-image.js';
 import {
-  commandeImage,
+  fraicheurImage,
   IMAGE_DEFAUT,
   imageDepuisEnv,
   inspecterImage,
@@ -306,23 +307,28 @@ export function octetsLibres(chemin: string): number | null {
 
 /**
  * L'image que le nœud utiliserait (`imageDepuisEnv`), cherchée par la MÊME
- * règle que lui (`moteurPret`) dans les moteurs joignables — `null` s'il n'y
- * en a aucun. Voir le diagnostic `isolement`.
+ * règle que lui (`moteurPret`) dans les moteurs joignables, et jugée par la
+ * même règle (`fraicheurImage`) contre l'empreinte que l'installation examinée
+ * attend (`attendue`) — `null` s'il n'y a aucun moteur. Voir le diagnostic
+ * `isolement`.
  */
 export async function imageDuBac(
   env: NodeJS.ProcessEnv,
   moteurs: readonly Fournisseur[],
+  attendue: string | null,
   inspecter: (f: Fournisseur, image: string) => Promise<EtatImage> = (f, image) =>
     inspecterImage(f, image, 5_000),
 ): Promise<Releve['imageBac']> {
   if (moteurs.length === 0) return null;
   const image = imageDepuisEnv(env);
-  const { pret, absente } = await moteurPret(moteurs, image, inspecter);
+  const { pret, empreinte, absente } = await moteurPret(moteurs, image, inspecter);
   return {
     image,
     dans: pret?.nom ?? null,
     absenteDe: absente?.nom ?? null,
-    construire: !pret && absente && image === IMAGE_DEFAUT ? commandeImage(absente) : null,
+    construire: !pret && absente && image === IMAGE_DEFAUT ? commandeImage(absente.nom) : null,
+    // Bubblewrap n'a pas d'image : rien à juger.
+    fraicheur: pret && pret.bin !== 'bwrap' ? fraicheurImage(image, empreinte, attendue) : null,
   };
 }
 
@@ -436,10 +442,18 @@ export async function relever(
     agentsNonConnectes: agents.nonConnectes,
     isolement: joignables[0]?.nom ?? null,
     // Une inspection qui plante n'est ni « présente » ni « absente » : inconnue.
-    imageBac: await imageDuBac(env, joignables).catch(() =>
+    // L'empreinte attendue est celle de l'installation EXAMINÉE : ce sont ses
+    // nœuds qui jugeront l'image.
+    imageBac: await imageDuBac(env, joignables, empreinteImage(racine)).catch(() =>
       joignables.length === 0
         ? null
-        : { image: imageDepuisEnv(env), dans: null, absenteDe: null, construire: null },
+        : {
+            image: imageDepuisEnv(env),
+            dans: null,
+            absenteDe: null,
+            construire: null,
+            fraicheur: null,
+          },
     ),
     wsJoignable: ws,
     reglages: {

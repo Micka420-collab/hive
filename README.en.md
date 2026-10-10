@@ -267,7 +267,10 @@ The default image, `localhost/hive-agent:local` (Claude Code, Codex, Cline), is
 built on each node with `npm run bac:image`; Hive never downloads it. The node
 keeps the first engine whose preflight passes (image present, agent runnable)
 and says why the others were skipped. Every container carries its node's label:
-restarted after a hard stop, the node removes the ones it left behind.
+restarted after a hard stop, the node removes the ones it left behind. Updating
+Hive does not rebuild the image: **re-run `npm run bac:image` after every
+update**. Forgotten, the image reads as “stale” (« périmée ») when the node
+starts and in `hive doctor` — it carries the fingerprint of what built it.
 
 Inside the sandbox the agent gets an ephemeral HOME: a `claude login` or
 `codex login` session does not reach it. Hive forwards the headless credentials

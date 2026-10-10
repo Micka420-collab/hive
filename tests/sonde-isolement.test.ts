@@ -224,31 +224,60 @@ describe('le vrai bubblewrap, là où il ouvre un bac', () => {
 describe('l’image du bac : le docteur suit la règle du nœud', () => {
   const PODMAN = fournisseurParNom('podman') as Fournisseur;
   const DOCKER = fournisseurParNom('docker') as Fournisseur;
+  const BWRAP = fournisseurParNom('bubblewrap') as Fournisseur;
+  /** Ce que l'installation examinée attend de son image. */
+  const ATTENDUE = 'sha256:' + 'a'.repeat(64);
 
   it('l’image par défaut absente partout : la commande qui la construit, pour le PREMIER moteur', async () => {
-    const r = await imageDuBac({}, [DOCKER], async () => ({ etat: 'absente' }));
+    const r = await imageDuBac({}, [DOCKER], ATTENDUE, async () => ({ etat: 'absente' }));
     expect(r).toEqual({
       image: IMAGE_DEFAUT,
       dans: null,
       absenteDe: 'docker',
       construire: 'npm run bac:image -- --moteur docker',
+      fraicheur: null,
     });
   });
 
   it('Podman sans l’image, Docker avec : c’est Docker qui est prêt', async () => {
     const vus: string[] = [];
-    const r = await imageDuBac({}, [PODMAN, DOCKER], async (f) => {
+    const r = await imageDuBac({}, [PODMAN, DOCKER], ATTENDUE, async (f) => {
       vus.push(f.nom);
-      return f.nom === 'docker' ? { etat: 'presente' } : { etat: 'absente' };
+      return f.nom === 'docker' ? { etat: 'presente', empreinte: ATTENDUE } : { etat: 'absente' };
     });
-    expect(r).toMatchObject({ dans: 'docker', construire: null });
+    expect(r).toMatchObject({ dans: 'docker', construire: null, fraicheur: { etat: 'a_jour' } });
     expect(vus).toEqual(['podman', 'docker']);
+  });
+
+  it('l’image du moteur prêt, sans étiquette — d’avant la mise à jour : périmée', async () => {
+    const r = await imageDuBac({}, [PODMAN], ATTENDUE, async () => ({
+      etat: 'presente',
+      empreinte: null,
+    }));
+    expect(r).toMatchObject({
+      dans: 'podman',
+      fraicheur: { etat: 'perimee', lue: null, attendue: ATTENDUE },
+    });
+  });
+
+  it('une installation sans les entrées de l’image ne conclut rien', async () => {
+    const r = await imageDuBac({}, [PODMAN], null, async () => ({
+      etat: 'presente',
+      empreinte: ATTENDUE,
+    }));
+    expect(r).toMatchObject({ dans: 'podman', fraicheur: { etat: 'inconnue' } });
+  });
+
+  it('bubblewrap n’a pas d’image : rien à juger', async () => {
+    const r = await imageDuBac({}, [BWRAP], ATTENDUE, async () => ({ etat: 'absente' }));
+    expect(r).toMatchObject({ dans: 'bubblewrap', fraicheur: null });
   });
 
   it('l’image que le nœud utiliserait : HIVE_ISOLEMENT_IMAGE, et rien à construire', async () => {
     const r = await imageDuBac(
       { HIVE_ISOLEMENT_IMAGE: 'ghcr.io/x/agent:1' },
       [PODMAN],
+      ATTENDUE,
       async () => ({
         etat: 'absente',
       }),
@@ -258,15 +287,31 @@ describe('l’image du bac : le docteur suit la règle du nœud', () => {
       dans: null,
       absenteDe: 'podman',
       construire: null,
+      fraicheur: null,
     });
   });
 
+  it('une image NOMMÉE présente : jamais périmée, non gérée par Hive', async () => {
+    const r = await imageDuBac(
+      { HIVE_ISOLEMENT_IMAGE: 'ghcr.io/x/agent:1' },
+      [PODMAN],
+      ATTENDUE,
+      async () => ({ etat: 'presente', empreinte: null }),
+    );
+    expect(r).toMatchObject({ dans: 'podman', fraicheur: { etat: 'non_geree' } });
+  });
+
   it('un moteur injoignable ne se lit ni présent ni absent', async () => {
-    const r = await imageDuBac({}, [PODMAN], async () => ({ etat: 'injoignable', motif: 'x' }));
-    expect(r).toMatchObject({ dans: null, absenteDe: null, construire: null });
+    const r = await imageDuBac({}, [PODMAN], ATTENDUE, async () => ({
+      etat: 'injoignable',
+      motif: 'x',
+    }));
+    expect(r).toMatchObject({ dans: null, absenteDe: null, construire: null, fraicheur: null });
   });
 
   it('aucun moteur joignable : rien à dire de l’image', async () => {
-    expect(await imageDuBac({}, [], async () => ({ etat: 'presente' }))).toBeNull();
+    expect(
+      await imageDuBac({}, [], ATTENDUE, async () => ({ etat: 'presente', empreinte: null })),
+    ).toBeNull();
   });
 });

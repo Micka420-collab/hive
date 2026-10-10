@@ -29,6 +29,7 @@ import {
   RUCHE_COMPLETE,
 } from '../src/shared/doctor.js';
 import type { Diagnostic, Releve } from '../src/shared/doctor.js';
+import type { FraicheurImage } from '../src/node-client/empreinte-image.js';
 import { LONGUEUR_MIN_SECRET_JWT, secretJwtDepuisEnv } from '../src/orchestrator/auth.js';
 
 /** Une ruche en parfait état. Chaque test n'en dérange qu'un point. */
@@ -55,6 +56,7 @@ const SAINE: Releve = {
     dans: 'podman',
     absenteDe: null,
     construire: null,
+    fraicheur: { etat: 'a_jour' },
   },
   wsJoignable: true,
   reglages: { runner: 'off', bindPublic: false, gardiennes: 'strict', corsOuvert: false },
@@ -365,7 +367,17 @@ describe('8. LE BAC À SABLE', () => {
     dans: null,
     absenteDe: 'docker',
     construire: 'npm run bac:image -- --moteur docker',
+    fraicheur: null,
   };
+  /** L'image est dans `dans` ; ce que son étiquette dit d'elle. */
+  const prete = (dans: string, fraicheur: FraicheurImage | null) => ({
+    image: IMAGE,
+    dans,
+    absenteDe: null,
+    construire: null,
+    fraicheur,
+  });
+  const ATTENDUE = 'sha256:' + 'a'.repeat(64);
 
   it('un moteur qui répond SANS l’image par défaut n’est pas un bac : risque, et la commande', () => {
     const d = diag(avec({ isolement: 'docker', imageBac: sansImage }), 'isolement');
@@ -374,13 +386,76 @@ describe('8. LE BAC À SABLE', () => {
     expect(d.reparation).toContain('npm run bac:image -- --moteur docker');
   });
 
-  it('le moteur qui A l’image est celui qu’on annonce', () => {
+  it('le moteur qui A l’image est celui qu’on annonce — et son image est à jour', () => {
     const d = diag(
-      avec({ isolement: 'podman', imageBac: { ...sansImage, dans: 'docker', construire: null } }),
+      avec({ isolement: 'podman', imageBac: prete('docker', { etat: 'a_jour' }) }),
       'isolement',
     );
     expect(d).toMatchObject({ gravite: 'ok', reparation: null });
-    expect(d.constat).toBe(`bac à sable disponible : docker (image ${IMAGE})`);
+    expect(d.constat).toBe(`bac à sable disponible : docker (image ${IMAGE}, à jour)`);
+  });
+
+  // ─── L'IMAGE D'AVANT LA MISE À JOUR ──────────────────────────────────────
+  //
+  // Construite sur le nœud, elle survit à `git pull` : le docteur la disait
+  // « disponible » pendant que le nœud servait celle que la nouvelle version
+  // avait corrigée.
+  it('l’image sans empreinte — d’une version antérieure : risque, et la commande DU moteur qui l’a', () => {
+    for (const [moteur, commande] of [
+      ['podman', 'npm run bac:image  (depuis ce clone)'],
+      ['docker', 'npm run bac:image -- --moteur docker  (depuis ce clone)'],
+    ] as const) {
+      const d = diag(
+        avec({
+          isolement: moteur,
+          imageBac: prete(moteur, { etat: 'perimee', lue: null, attendue: ATTENDUE }),
+        }),
+        'isolement',
+      );
+      expect(d.gravite).toBe('risque');
+      expect(d.constat).toContain(`image ${IMAGE} est périmée`);
+      expect(d.constat).toContain('construite par une version antérieure de Hive');
+      expect(d.reparation).toBe(`${commande}, puis relancez le nœud`);
+    }
+  });
+
+  it('une autre empreinte — d’autres entrées : risque, et les deux empreintes se lisent', () => {
+    const lue = 'sha256:' + 'b'.repeat(64);
+    const d = diag(
+      avec({ imageBac: prete('podman', { etat: 'perimee', lue, attendue: ATTENDUE }) }),
+      'isolement',
+    );
+    expect(d.gravite).toBe('risque');
+    expect(d.constat).toContain('sha256:bbbbbbbbbbbb… au lieu de sha256:aaaaaaaaaaaa…');
+  });
+
+  it('une image NOMMÉE présente n’est jamais périmée : « non gérée par Hive »', () => {
+    const d = diag(
+      avec({
+        imageBac: { ...prete('podman', { etat: 'non_geree' }), image: 'ghcr.io/x/agent:1' },
+      }),
+      'isolement',
+    );
+    expect(d).toMatchObject({ gravite: 'ok', reparation: null });
+    expect(d.constat).toContain('non gérée par Hive');
+  });
+
+  it('rien à quoi comparer l’étiquette : inconnu, jamais « à jour »', () => {
+    for (const fraicheur of [{ etat: 'inconnue' } as const, null]) {
+      const d = diag(avec({ imageBac: prete('podman', fraicheur) }), 'isolement');
+      expect(d.gravite).toBe('inconnu');
+      expect(d.constat).not.toContain('à jour');
+      expect(d.reparation).toContain('hive doctor');
+    }
+  });
+
+  it('bubblewrap n’a pas d’image : rien à juger, rien à reconstruire', () => {
+    const d = diag(avec({ imageBac: prete('bubblewrap', null) }), 'isolement');
+    expect(d).toMatchObject({
+      gravite: 'ok',
+      constat: 'bac à sable disponible : bubblewrap (sans image)',
+      reparation: null,
+    });
   });
 
   it('une image NOMMÉE absente sera téléchargée par le nœud : pas de risque inventé', () => {
@@ -389,6 +464,7 @@ describe('8. LE BAC À SABLE', () => {
       dans: null,
       absenteDe: 'podman',
       construire: null,
+      fraicheur: null,
     };
     const d = diag(avec({ isolement: 'podman', imageBac: nommee }), 'isolement');
     expect(d.gravite).toBe('ok');
@@ -396,7 +472,7 @@ describe('8. LE BAC À SABLE', () => {
   });
 
   it('aucun moteur n’a su dire si l’image est là : inconnu, jamais « ok »', () => {
-    const muet = { image: IMAGE, dans: null, absenteDe: null, construire: null };
+    const muet = { image: IMAGE, dans: null, absenteDe: null, construire: null, fraicheur: null };
     const d = diag(avec({ isolement: 'docker', imageBac: muet }), 'isolement');
     expect(d.gravite).toBe('inconnu');
     expect(d.reparation).toContain(`docker image inspect ${IMAGE}`);

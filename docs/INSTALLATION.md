@@ -575,7 +575,9 @@ Ce qui fonde chaque case :
   au lieu de le sauter ;
 - **Podman et Docker sous Linux** : le job `image` construit l'image des agents
   (`npm run bac:image`) et y passe le preflight réel de Hive, une fois par
-  moteur — Docker du runner, puis Podman rootless (`--userns=keep-id`) ;
+  moteur — Docker du runner, puis Podman rootless (`--userns=keep-id`) ; chaque
+  moteur y relit aussi l'empreinte de l'image (« à jour »), et une image sans
+  étiquette s'y lit « sans empreinte » ;
 - **macOS avec un moteur** : les runners macOS n'en ont aucun. Le preflight
   décide sur la machine du membre, et le pont de délégation (un socket Unix
   dans le dossier monté) n'a jamais été éprouvé à travers la machine virtuelle
@@ -585,6 +587,27 @@ Ce qui fonde chaque case :
   (`raisonPontMcpDansBac`). Pour les autres agents, rien n'est prouvé : le
   Docker Desktop du runner sert des conteneurs Windows, et le banc
   d'intégration s'y déclare indisponible plutôt que d'inventer un résultat.
+
+### Après une mise à jour : l'image du bac se reconstruit
+
+L'image des agents (`localhost/hive-agent:local`) est construite **sur le
+nœud** ; mettre Hive à jour ne la touche pas. Après chaque mise à jour, sur
+chaque nœud qui isole par Podman ou Docker :
+
+```sh
+npm run bac:image                      # Podman
+npm run bac:image -- --moteur docker   # Docker
+```
+
+puis relancez le nœud. Un oubli se voit : la construction pose sur l'image
+l'empreinte de ses entrées (étiquette `hive.empreinte`), et quand celle de
+l'image n'est pas celle de la version installée — ou qu'elle manque, comme sur
+toute image construite avant cette étiquette —, le nœud écrit au démarrage
+`⚠ Image localhost/hive-agent:local périmée (…) — reconstruisez-la …`, et
+`hive doctor` passe l'isolement en ⚠ avec la même commande. Le nœud garde
+l'image et continue d'isoler : il le dit, il ne refuse pas. Une image nommée par
+`HIVE_ISOLEMENT_IMAGE` n'est jamais jugée (« non gérée par Hive »). Le détail :
+[`docker/agents/README.md`](../docker/agents/README.md).
 
 ### Arrêter un nœud : ce qui part avec lui
 
