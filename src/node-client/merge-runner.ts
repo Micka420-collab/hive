@@ -42,6 +42,7 @@ import { composerMission, garderMission } from './livraison-locale.js';
 import type { LivraisonDuNoeud, MissionComposee } from './livraison-locale.js';
 import type { RapportDuNoeud } from '../shared/livraison-locale.js';
 import { marqueOmission } from '../shared/caviardage.js';
+import { LIMITS } from '../shared/protocol.js';
 import { gitHote } from '../shared/git-protege.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import { commitDeDepart, diffContreBase, epinglerClone } from './git-hote.js';
@@ -371,6 +372,14 @@ export async function runMerge(opts: MergeRunOptions): Promise<MergeRunResult> {
     for (const { taskId, diff } of opts.diffs) {
       if (!diff.trim()) {
         applied.push(taskId); // rien à appliquer (diff vide) : non bloquant
+        continue;
+      }
+      // À `LIMITS.diff`, le diff a été TRONQUÉ par le nœud qui l'a remonté
+      // (`task_result`) : coupé net entre deux hunks, `git apply` l'accepterait
+      // — et livrerait une partie seulement de ce qui a été jugé.
+      if (diff.length >= LIMITS.diff) {
+        conflicts.push({ taskId, reason: 'diff tronqué à la limite du protocole' });
+        logs.push(`✘ ${taskId} : diff tronqué (${LIMITS.diff} caractères)`);
         continue;
       }
       // `segmentSur` : `aux.patch` viserait le port auxiliaire sous Windows.

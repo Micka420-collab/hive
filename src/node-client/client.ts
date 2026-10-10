@@ -2378,6 +2378,13 @@ export class HiveNodeClient {
     // contre un blob de base forgé : `git diff` lit la base sans vérifier son
     // empreinte, mais `git apply` sur la vraie base ne ment pas. La porte et
     // les validations jugent la tête ; ce contrôle lie la tête au livré.
+    //
+    // Contrôlé : le diff BRUT. La Reine reçoit `sortant.diff(diff)` tronqué à
+    // `LIMITS.diff` (`task_result`). Le caviardage est un écart VOULU, borné aux
+    // secrets : dans une ligne ajoutée le secret n'est pas livré, dans une ligne
+    // de contexte l'application échoue. Un diff tronqué n'est livré nulle part :
+    // la rustine refuse tout ce qui passe `MAX_DIFF` (< `LIMITS.diff`), le merge
+    // refuse un diff de `LIMITS.diff` (`runMerge`).
     if (duRepertoire && depot && diff.trim() !== '') {
       const verif = await verifierLivraison({ cwd: workspace.cwd, depot, diff });
       if (verif.etat === 'falsifie') {
