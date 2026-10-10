@@ -46,18 +46,23 @@
 //      tests écrivent dans leur copie ne touche pas l'entrée.
 //   6. À LA MOINDRE ANOMALIE, L'INSTALLATION D'AVANT : une copie interrompue
 //      ou incomplète est effacée APRÈS que ses gestes en vol ont fini, et
-//      l'appelant installe l'arbre (`npm ci`) dans ce qui reste du délai. Une
+//      l'appelant installe l'arbre (`npm ci`), avec tout son délai. Une
 //      entrée refusée l'est pour la vie du nœud (`refusees`) : elle ne se
 //      repeuple pas à chaque arbre. Le verdict ne dépend jamais du magasin.
 //
-// ─── UNE ÉCHÉANCE, UNE FILE PAR ENTRÉE — SANS Y ATTENDRE ─────────────────────
+// ─── UN DÉLAI PAR GESTE, UNE FILE PAR ENTRÉE — SANS Y ATTENDRE ───────────────
 //
-// L'appelant donne UNE échéance, `DELAI_PREPARATION_MS` après son départ : la
-// sonde, le peuplement, la copie et son repli y tiennent tous — aucun délai du
-// hub ne bouge —, et l'annulation de la tâche les arrête. Un seul peuplement
+// L'installation garde le délai d'avant (`delaiInstallationMs`, celui des
+// validations), compté depuis SON lancement : celle du peuplement comme celle
+// du repli, dans l'arbre — une installation qui passait avant le magasin passe
+// encore. La vérification et la copie au magasin tiennent dans ce même délai
+// (au-delà, rien n'est gardé, et l'arbre reçoit quand même son installation),
+// une restauration aussi. La sonde du bac (`SONDE_MAX_MS`) et l'extraction de
+// la base (`DELAI_EXTRACTION_MS`) ont leur propre borne : quelques secondes
+// en pratique. L'annulation de la tâche arrête tout. Un seul peuplement
 // par entrée à la fois (sa FILE, même forme que `sousVerrouIndex`) ; un arbre
-// qui en trouve un en cours ne l'attend pas — attendre lui coûterait son
-// échéance — et s'installe, comme avant. La sonde du bac ne se paie qu'une
+// qui en trouve un en cours ne l'attend pas — sa validation attendrait
+// d'autant — et s'installe, comme avant. La sonde du bac ne se paie qu'une
 // fois par validation (`SondeDuBac`).
 //
 // ─── CE QUI RESTE, DIT ───────────────────────────────────────────────────────
@@ -86,13 +91,14 @@ import type {
   EmpreinteBac,
   EntreesNpm,
   FichierEntree,
+  PlateformeBac,
   RaisonHorsMagasin,
 } from '../shared/cache-dependances.js';
 import { effacerDossier } from '../shared/effacement.js';
 import type { DepotEpingle } from '../shared/git-protege.js';
 import { segmentSur } from '../shared/noms-windows.js';
 import { lireFichierDeBaseVerifie } from './base-verifiee.js';
-import { extraireBase } from './git-hote.js';
+import { DELAI_EXTRACTION_MS, extraireBase } from './git-hote.js';
 import { INSPECTION_MAX_MS, identifiantImage } from './isolement.js';
 import type { BacExecution } from './isolement.js';
 import { effacerRejeu } from './workspace.js';
@@ -137,13 +143,22 @@ export interface MagasinDependances {
   plafonds?: PlafondsEntree;
 }
 
+/** La sonde du bac : un conteneur froid peut mettre quelques secondes à démarrer. */
+const SONDE_MAX_MS = 60_000;
+
+/** Ce que la sonde a lu du bac : son empreinte (la clé), et sa plateforme (l'éligibilité). */
+interface BacSonde {
+  empreinte: EmpreinteBac;
+  plateforme: PlateformeBac;
+}
+
 /**
- * Ce que le bac apporte à la clé, sondé UNE fois par validation : l'appelant
- * garde cet objet le temps d'une validation, et la tâche comme ses rejeux le
- * partagent (une sonde lance un bac).
+ * La sonde du bac, faite UNE fois par validation : l'appelant garde cet objet
+ * le temps d'une validation, et la tâche comme ses rejeux le partagent (une
+ * sonde lance un bac).
  */
 export interface SondeDuBac {
-  empreinte?: Promise<EmpreinteBac>;
+  resultat?: Promise<BacSonde>;
 }
 
 /** Ce que l'exécuteur des validations rend d'une commande. */
@@ -270,10 +285,14 @@ const MARQUE_EMPREINTE = 'HIVE-EMPREINTE ';
 const SONDE_NODE = [
   "const p = require('node:path'), fs = require('node:fs'), c = require('node:crypto');",
   "const h = (t) => c.createHash('sha256').update(t).digest('hex');",
-  "let g = ''; try { g = fs.readFileSync(p.join(p.dirname(p.dirname(process.execPath)), 'etc', 'npmrc'), 'utf8'); } catch {}",
+  // Un npmrc global absent est la règle ; toute autre panne fait échouer la sonde.
+  "let g = ''; try { g = fs.readFileSync(p.join(p.dirname(p.dirname(process.execPath)), 'etc', 'npmrc'), 'utf8'); } catch (e) { if (e.code !== 'ENOENT') throw e; }",
   // La configuration EFFECTIVE de npm — intégrée, globale, de l'environnement
-  // de l'image — sans ce qui ne dépend que du HOME.
-  "let n = ''; try { const o = JSON.parse(require('node:child_process').execFileSync('npm', ['config', 'ls', '-l', '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); for (const k of ['cache', 'init-module', 'init.module', 'userconfig']) delete o[k]; n = JSON.stringify(Object.keys(o).sort().map((k) => [k, o[k]])); } catch {}",
+  // de l'image — sans ce qui ne dépend que du HOME. Si npm ne la donne pas, la
+  // sonde échoue : une clé qui ne la couvrirait plus le tairait.
+  "const o = JSON.parse(require('node:child_process').execFileSync('npm', ['config', 'ls', '-l', '--json'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }));",
+  "for (const k of ['cache', 'init-module', 'init.module', 'userconfig']) delete o[k];",
+  'const n = JSON.stringify(Object.keys(o).sort().map((k) => [k, o[k]]));',
   'const r = process.report && process.report.getReport ? process.report.getReport() : null;',
   `console.log(${JSON.stringify(MARQUE_EMPREINTE)} + JSON.stringify([process.version, process.versions.modules, process.versions.napi, process.platform, process.arch, (r && r.header && r.header.glibcVersionRuntime) || null, h(g), h(n)]));`,
 ].join('\n');
@@ -290,7 +309,7 @@ const SONDE_NODE = [
 async function sonderLeBac(
   p: { lancer: Lancer<Execution>; vide: string; bac: BacExecution; npm: string },
   reste: () => number,
-): Promise<EmpreinteBac> {
+): Promise<BacSonde> {
   await sous('empreinte_bac', async () => {
     await effacerRejeu(p.vide);
     await fsp.mkdir(p.vide, { recursive: true });
@@ -300,7 +319,14 @@ async function sonderLeBac(
     r.code === 0 && !r.arret
       ? r.output.split(/\r?\n/).find((l) => l.startsWith(MARQUE_EMPREINTE))
       : undefined;
-  if (ligne === undefined) throw new HorsMagasin('empreinte_bac');
+  if (ligne === undefined) {
+    throw new HorsMagasin('empreinte_bac', `sonde → ${r.arret ?? `code ${String(r.code)}`}`);
+  }
+  const node = ligne.slice(MARQUE_EMPREINTE.length);
+  // [version, ABI, N-API, plateforme, architecture, …] : voir `SONDE_NODE`.
+  const champs = await sous('empreinte_bac', async () => JSON.parse(node) as unknown);
+  const [, , , os, cpu] = Array.isArray(champs) ? (champs as unknown[]) : [];
+  if (typeof os !== 'string' || typeof cpu !== 'string') throw new HorsMagasin('empreinte_bac');
   const { fournisseur, image } = p.bac;
   const id =
     fournisseur.bin === 'bwrap'
@@ -308,11 +334,8 @@ async function sonderLeBac(
       : await identifiantImage(fournisseur, image, Math.min(reste(), INSPECTION_MAX_MS));
   if (id === null) throw new HorsMagasin('empreinte_bac', 'image inspect');
   return {
-    fournisseur: fournisseur.nom,
-    image,
-    identifiantImage: id,
-    node: ligne.slice(MARQUE_EMPREINTE.length),
-    npm: p.npm,
+    empreinte: { fournisseur: fournisseur.nom, image, identifiantImage: id, node, npm: p.npm },
+    plateforme: { os, cpu },
   };
 }
 
@@ -493,11 +516,14 @@ async function parcourir(
 }
 
 /**
- * Copie l'arbre `source` vers `cible`, qui ne doit pas exister : dossiers
- * recréés à leur mode, fichiers copiés sans jamais écraser, liens revérifiés
- * (`lienDeplacable`) puis recréés à l'identique, rien d'autre (voir l'en-tête)
- * — puis RECOMPTÉE : une copie qui ne porte pas ce qu'`attendu` compte (un
- * manifeste, une vérification) est refusée, jamais rendue partielle en silence.
+ * Copie l'arbre `source` vers `cible`, qui ne doit pas exister : fichiers
+ * copiés sans jamais écraser, liens revérifiés (`lienDeplacable`) puis recréés
+ * à l'identique, rien d'autre (voir l'en-tête) ; dossiers recréés, et remis à
+ * leur mode APRÈS leurs enfants — les plus profonds d'abord : un dossier
+ * fermé en écriture se remplit quand même. Puis RECOMPTÉE, octets compris :
+ * une copie qui ne porte pas ce qu'`attendu` compte (un manifeste, une
+ * vérification) — un fichier tronqué par une coupure — est refusée, jamais
+ * rendue partielle en silence.
  */
 async function copierArbre(
   source: string,
@@ -505,7 +531,8 @@ async function copierArbre(
   attendu: Comptes,
   reste: () => number,
 ): Promise<void> {
-  const copie = { fichiers: 0, dossiers: 0, liens: 0 };
+  const copie: Comptes = { fichiers: 0, dossiers: 0, liens: 0, octets: 0 };
+  const modes: { dossier: string; mode: number }[] = [];
   await fsp.mkdir(cible);
   await parcourir(
     source,
@@ -514,11 +541,15 @@ async function copierArbre(
       if (e.isDirectory()) {
         const { mode } = await fsp.lstat(chemin);
         await fsp.mkdir(d);
-        if (process.platform !== 'win32') await fsp.chmod(d, mode & 0o777);
+        modes.push({ dossier: d, mode: mode & 0o777 });
         copie.dossiers += 1;
       } else if (e.isFile()) {
         await fsp.copyFile(chemin, d, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
+        // Lu AVANT l'addition : `x += await …` lirait x avant l'attente, et
+        // les gestes parallèles s'écraseraient l'un l'autre.
+        const { size } = await fsp.lstat(d);
         copie.fichiers += 1;
+        copie.octets += size;
       } else if (e.isSymbolicLink()) {
         const lien = await lienDeplacable(source, chemin);
         // Le genre ne compte que sous Windows, où un lien vers un dossier en diffère.
@@ -532,9 +563,18 @@ async function copierArbre(
     },
     reste,
   );
-  const ecart = (['fichiers', 'dossiers', 'liens'] as const).find((k) => copie[k] !== attendu[k]);
+  const ecart = (['fichiers', 'dossiers', 'liens', 'octets'] as const).find(
+    (k) => copie[k] !== attendu[k],
+  );
   if (ecart !== undefined) {
     throw new HorsMagasin('copie', `${copie[ecart]} ${ecart} copiés, ${attendu[ecart]} attendus`);
+  }
+  if (process.platform === 'win32') return;
+  const profondeur = (d: string): number => d.split(path.sep).length;
+  for (const { dossier, mode } of modes.sort(
+    (a, b) => profondeur(b.dossier) - profondeur(a.dossier),
+  )) {
+    await fsp.chmod(dossier, mode);
   }
 }
 
@@ -623,7 +663,10 @@ interface Peuplement<E extends Execution> {
   argv: readonly string[];
   lancer: Lancer<E>;
   plafonds: PlafondsEntree;
-  reste: () => number;
+  /** Une borne de `ms`, comptée d'ici, que l'annulation de la tâche arrête aussi. */
+  borne: (ms: number) => () => number;
+  /** Le délai de l'installation, compté depuis SON lancement (voir l'en-tête). */
+  delaiInstallationMs: number;
 }
 
 /** Ce qu'un peuplement a fait. */
@@ -643,11 +686,14 @@ async function peupler<E extends Execution>(
   entree: string,
   cle: string,
 ): Promise<Peuplee<E>> {
+  const extraction = p.borne(DELAI_EXTRACTION_MS);
   await sous('peuplement', () =>
-    extraireBase(p.depot.depot, p.depot.baseSha, p.dossier, p.reste()),
+    extraireBase(p.depot.depot, p.depot.baseSha, p.dossier, extraction()),
   );
   const avant = await sous('peuplement', () => releverArbre(p.dossier));
-  const installation = await p.lancer([...p.argv], p.dossier, p.reste());
+  // L'installation, puis ce que le magasin en fait, dans SON délai.
+  const reste = p.borne(p.delaiInstallationMs);
+  const installation = await p.lancer([...p.argv], p.dossier, reste());
   if (installation.code !== 0 || installation.arret) return { genre: 'echec', installation };
   const ecart = premierEcart(avant, await sous('peuplement', () => releverArbre(p.dossier)));
   // Ce que l'installation a écrit ailleurs, l'arbre ne le recevrait pas : il s'installe.
@@ -662,9 +708,9 @@ async function peupler<E extends Execution>(
   const neuf = `${entree}.neuf-${randomUUID()}`;
   let refus: HorsMagasin | null = null;
   try {
-    const comptes = await verifierEntree(produit, p.plafonds, p.reste);
+    const comptes = await verifierEntree(produit, p.plafonds, reste);
     await fsp.mkdir(neuf, { recursive: true });
-    await copierArbre(produit, path.join(neuf, 'node_modules'), comptes, p.reste);
+    await copierArbre(produit, path.join(neuf, 'node_modules'), comptes, reste);
     const manifeste = {
       version: VERSION_MAGASIN,
       cle,
@@ -710,8 +756,8 @@ export async function depuisLeMagasin<E extends Execution>(p: {
   /** La sonde du bac, gardée par l'appelant le temps d'une validation. */
   sonde: SondeDuBac;
   lancer: Lancer<E>;
-  /** L'échéance de TOUTE la préparation, repli compris. */
-  echeance: number;
+  /** Le délai d'une installation, compté depuis son lancement — celui d'avant le magasin. */
+  delaiInstallationMs: number;
   /** L'annulation de la tâche : tout s'arrête avec elle. */
   signal?: AbortSignal;
 }): Promise<IssueMagasin<E>> {
@@ -722,11 +768,15 @@ export async function depuisLeMagasin<E extends Execution>(p: {
   });
   // Avant toute lecture de la base : une autre installation ne la paie pas.
   if (!estNpmCi(p.argv)) return hors('pas_npm_ci');
-  const reste = (): number => {
-    if (p.signal?.aborted) throw new HorsMagasin('annule');
-    const ms = p.echeance - Date.now();
-    if (ms <= 0) throw new HorsMagasin('delai');
-    return ms;
+  // Chaque geste a sa borne, comptée depuis son départ (voir l'en-tête).
+  const borne = (ms: number): (() => number) => {
+    const fin = Date.now() + ms;
+    return () => {
+      if (p.signal?.aborted) throw new HorsMagasin('annule');
+      const reste = fin - Date.now();
+      if (reste <= 0) throw new HorsMagasin('delai');
+      return reste;
+    };
   };
   const cible = path.join(p.ou, 'node_modules');
   let entree: string | null = null;
@@ -734,14 +784,24 @@ export async function depuisLeMagasin<E extends Execution>(p: {
   try {
     const base = await sous('base_illisible', p.base);
     const arbre = await sous('base_illisible', () => etatDeLArbre(p.ou, base));
-    const verdict = eligibilite({ argv: p.argv, base, ...arbre });
-    if (!verdict.eligible) return hors(verdict.raison, verdict.detail);
+    const sansBac = eligibilite({ argv: p.argv, base, ...arbre });
+    // Un script de dépendance peut n'être que celui d'un paquet optionnel d'une
+    // autre plateforme : la sonde dira laquelle est celle du bac.
+    if (!sansBac.eligible && sansBac.raison !== 'script_dependance') {
+      return hors(sansBac.raison, sansBac.detail);
+    }
     // Une sonde ratée n'est pas gardée : l'arbre suivant la retente.
-    p.sonde.empreinte ??= sonderLeBac({ ...p, vide: p.peuplement }, reste).catch((err) => {
-      p.sonde.empreinte = undefined;
-      throw err;
-    });
-    const bac = await p.sonde.empreinte;
+    p.sonde.resultat ??= sonderLeBac({ ...p, vide: p.peuplement }, borne(SONDE_MAX_MS)).catch(
+      (err: unknown) => {
+        p.sonde.resultat = undefined;
+        throw err;
+      },
+    );
+    const { empreinte: bac, plateforme } = await p.sonde.resultat;
+    if (!sansBac.eligible) {
+      const verdict = eligibilite({ argv: p.argv, base, ...arbre, plateforme });
+      if (!verdict.eligible) return hors(verdict.raison, verdict.detail);
+    }
     const cle = cleDuMagasin({ ...p.magasin, argv: p.argv, bac, entrees: base });
     const ici = path.join(path.resolve(p.magasin.racine), segmentSur(p.magasin.projet), cle);
     entree = ici;
@@ -756,7 +816,7 @@ export async function depuisLeMagasin<E extends Execution>(p: {
         dossier: p.peuplement,
         cible,
         plafonds: p.magasin.plafonds ?? PLAFONDS_ENTREE,
-        reste,
+        borne,
       };
       const fait = await sousFile(ici, async () => {
         const deja = await lireManifeste(ici, cle);
@@ -781,6 +841,8 @@ export async function depuisLeMagasin<E extends Execution>(p: {
     if (typeof manifeste !== 'object') return hors('copie', 'manifeste illisible');
     const attendu = manifeste;
     copie = true;
+    // Une restauration remplace l'installation : elle a son délai.
+    const reste = borne(p.delaiInstallationMs);
     await sous('copie', () => copierArbre(path.join(ici, 'node_modules'), cible, attendu, reste));
     return { genre: 'restaure' };
   } catch (err) {

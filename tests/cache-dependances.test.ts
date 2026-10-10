@@ -15,7 +15,7 @@ import {
   eligibilite,
   estNpmCi,
 } from '../src/shared/cache-dependances.js';
-import type { EntreesNpm, FichierEntree } from '../src/shared/cache-dependances.js';
+import type { EntreesNpm, FichierEntree, PlateformeBac } from '../src/shared/cache-dependances.js';
 
 const AUCUN = Object.fromEntries(FICHIERS_ENTREE.map((f) => [f, null])) as Record<
   FichierEntree,
@@ -61,6 +61,7 @@ const juger = (
     argv?: readonly string[];
     modifies?: readonly FichierEntree[];
     nodeModules?: boolean;
+    plateforme?: PlateformeBac;
   } = {},
 ) =>
   eligibilite({
@@ -68,6 +69,7 @@ const juger = (
     base: entrees,
     modifies: extra.modifies ?? [],
     nodeModules: extra.nodeModules ?? false,
+    ...(extra.plateforme ? { plateforme: extra.plateforme } : {}),
   });
 
 describe('l’éligibilité au magasin', () => {
@@ -162,6 +164,75 @@ describe('l’éligibilité au magasin', () => {
       eligible: false,
       raison: 'script_dependance',
       detail: 'node_modules/esbuild',
+    });
+  });
+
+  it.each([
+    ['1', 1],
+    ['"true"', 'true'],
+  ])('`hasInstallScript: %s` compte comme `true` : npm en teste la vérité', (_cas, drapeau) => {
+    // `arborist/lib/rebuild.js`, `node.js` : le postinstall tourne pour `1`.
+    const lock = LOCKFILE({
+      'node_modules/dep-b': {
+        version: '1.0.0',
+        resolved: 'https://registry.npmjs.org/dep-b/-/dep-b-1.0.0.tgz',
+        integrity: 'sha512-BBBB',
+        hasInstallScript: drapeau,
+      },
+    });
+    expect(juger(base({ 'package-lock.json': lock }))).toMatchObject({
+      raison: 'script_dependance',
+    });
+  });
+
+  describe('un paquet OPTIONNEL que npm n’installe jamais dans ce bac ne compte pas', () => {
+    // `fsevents` : optionnel, macOS seulement, à script — dans le lockfile de
+    // presque tout projet jest ou vite, et de Hive.
+    const optionnel = (champs: Record<string, unknown>): string =>
+      LOCKFILE({
+        'node_modules/fsevents': {
+          version: '2.3.3',
+          resolved: 'https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz',
+          integrity: 'sha512-DDDD',
+          dev: true,
+          optional: true,
+          hasInstallScript: true,
+          ...champs,
+        },
+      });
+    const LINUX: PlateformeBac = { os: 'linux', cpu: 'x64' };
+
+    it('fsevents, sous le Linux SONDÉ dans le bac : éligible', () => {
+      const lock = optionnel({ os: ['darwin'] });
+      expect(juger(base({ 'package-lock.json': lock }), { plateforme: LINUX })).toEqual({
+        eligible: true,
+      });
+      // Une architecture exclue suffit aussi : npm l'écarte pareil.
+      const arm = optionnel({ cpu: ['arm64'] });
+      expect(juger(base({ 'package-lock.json': arm }), { plateforme: LINUX })).toEqual({
+        eligible: true,
+      });
+    });
+
+    it.each([
+      ['installable dans ce bac (macOS)', { os: ['darwin'] }, { os: 'darwin', cpu: 'arm64' }],
+      ['sans liste os ni cpu', {}, LINUX],
+      ['à liste vide (aucune restriction)', { os: [] }, LINUX],
+      ['à négation (`!win32`)', { os: ['!win32'] }, LINUX],
+      ['à négation dans l’autre liste', { os: ['darwin'], cpu: ['!arm'] }, LINUX],
+      ['« any »', { os: ['any'] }, LINUX],
+      ['REQUIS (pas optionnel)', { os: ['darwin'], optional: false }, LINUX],
+    ] as const)('mais %s : hors du magasin', (_cas, champs, plateforme) => {
+      const lock = optionnel(champs);
+      expect(juger(base({ 'package-lock.json': lock }), { plateforme })).toMatchObject({
+        raison: 'script_dependance',
+      });
+    });
+
+    it('sans la plateforme du bac (pas encore sondée) : hors du magasin', () => {
+      expect(juger(base({ 'package-lock.json': optionnel({ os: ['darwin'] }) }))).toMatchObject({
+        raison: 'script_dependance',
+      });
     });
   });
 

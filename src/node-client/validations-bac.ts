@@ -539,14 +539,14 @@ async function lancerLePlan(
 
   // Les dépendances d'un arbre — la tâche, ou un côté rejoué à part (G11b) —
   // depuis le magasin du nœud quand il sert (`cache-dependances.ts`, G18),
-  // sinon par l'installation déclarée, comme avant. UNE échéance couvre tout,
-  // repli compris : `DELAI_PREPARATION_MS`, celle d'avant. La base et la sonde
-  // du bac se lisent une fois pour la tâche et ses rejeux.
+  // sinon par l'installation déclarée, comme avant. Toute installation — celle
+  // du magasin à la base, ou le repli dans l'arbre — garde `DELAI_PREPARATION_MS`,
+  // compté depuis SON lancement : celui d'avant. La base et la sonde du bac se
+  // lisent une fois pour la tâche et ses rejeux.
   const base = depot;
   let entreesDeBase: Promise<EntreesNpm> | null = null;
   const sondeDuBac: SondeDuBac = {};
   const dependances: PreparerDependances = async (ou, preparation) => {
-    const echeance = Date.now() + DELAI_PREPARATION_MS;
     const issue = opts.magasin
       ? await depuisLeMagasin({
           magasin: opts.magasin,
@@ -559,7 +559,7 @@ async function lancerLePlan(
           npm: sonde.output.trim(),
           sonde: sondeDuBac,
           lancer: executer,
-          echeance,
+          delaiInstallationMs: DELAI_PREPARATION_MS,
           ...(opts.signal ? { signal: opts.signal } : {}),
         })
       : null;
@@ -572,11 +572,7 @@ async function lancerLePlan(
       const pourquoi = direHorsMagasin(issue.raison, issue.detail);
       return { code: 0, output: '', note: caviarder(`${NOTE_MAGASIN.installe} : ${pourquoi}`) };
     }
-    const reste = echeance - Date.now();
-    const r: Execution =
-      reste > 0
-        ? await executer(preparation, ou, reste)
-        : { code: null, output: '[hive] délai de préparation épuisé', arret: 'delai' };
+    const r = await executer(preparation, ou, DELAI_PREPARATION_MS);
     const note = issue
       ? caviarder(`hors magasin : ${direHorsMagasin(issue.raison, issue.detail)}`)
       : '';
