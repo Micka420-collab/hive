@@ -143,8 +143,15 @@ import type {
   ValidationsBac,
 } from '../shared/validations-bac.js';
 import type { EtatControleDirect } from '../shared/bac-direct.js';
-import { BaseFalsifiee, lireFichierDeBaseVerifie, oidDeBaseVerifie } from './base-verifiee.js';
-import { DELAI_EXTRACTION_MS, extraireBase, extraireLivre, figerArbreLivre } from './git-hote.js';
+import { BaseFalsifiee, lireFichierDeBaseVerifie } from './base-verifiee.js';
+import {
+  DELAI_EXTRACTION_MS,
+  extraireBase,
+  extraireLivre,
+  figerArbreLivre,
+  verifierLivreContreBase,
+} from './git-hote.js';
+import type { VerificationLivre } from './git-hote.js';
 import { MONTAGE } from './isolement.js';
 import type { BacExecution } from './isolement.js';
 import { runProc } from './merge-runner.js';
@@ -154,6 +161,7 @@ import {
   buildSandboxEnv,
   dossierDeBase,
   dossierDeTete,
+  dossierDeVerif,
   effacerRejeu,
   retirerFichiersIgnores,
   sousVerrouIndex,
@@ -349,33 +357,13 @@ export async function reglesAutorisationDeBase(
   }
 }
 
-/** L'empreinte de `chemin` dans un arbre que GIT a écrit (`write-tree`) — ou `null`. */
-async function oidDansArbre(
-  depot: DepotEpingle,
-  arbre: string,
-  chemin: string,
-): Promise<string | null> {
-  const sortie = (
-    await gitHote(['ls-tree', '--format=%(objectname)', arbre, '--', chemin], depot)
-  ).trim();
-  return sortie === '' ? null : sortie;
-}
-
 /**
  * L'arbre livré, figé avant que rien ne tourne (`figerArbreLivre`) — et la
- * production a-t-elle touché `.npmrc` ? Par COMPARAISON D'EMPREINTES, pas par
- * `git diff <baseSha>` : ce diff lit l'objet de base SANS vérifier son
- * empreinte (git ne la vérifie jamais, mesuré 2.53), et un agent qui forge le
- * `.npmrc` de base pour qu'il soit identique au livré rendait le diff VIDE — la
- * garde sautait, et un `.npmrc` trafiqué (qui règle comment npm lance un
- * script : `script-shell`, `registry`…) gouvernait les validations. On compare
- * donc l'empreinte du blob LIVRÉ (que git vient d'écrire, `oidDansArbre`) à
- * celle de la BASE, lue par la porte VÉRIFIÉE (`oidDeBaseVerifie`) : forger le
- * blob de base ne change pas le pointeur que son arbre porte, et forger l'arbre
- * lève `BaseFalsifiee`. L'empreinte normalise comme git (CRLF compris : un
- * `.npmrc` que `core.autocrlf` réécrit garde l'empreinte de son blob normalisé,
- * identique de part et d'autre). Un `.npmrc` ignoré n'est pas vu ici — il est
- * retiré avant le lancement.
+ * production a-t-elle touché `.npmrc` ? C'est GIT qui le dit, pas une
+ * comparaison d'octets : sous Windows, `core.autocrlf` extrait le fichier en
+ * CRLF quand le blob est en LF, et une comparaison brute accusait la
+ * production de l'avoir réécrit à chaque tâche. Un `.npmrc` ignoré n'est pas
+ * vu ici — il est retiré avant le lancement.
  */
 async function arbreLivre(
   depot: DepotEpingle,
@@ -386,18 +374,63 @@ async function arbreLivre(
   // diff demandé en direct (Sandbox Live) pendant les validations — croisés,
   // le second trouvait `index.lock`, et toutes les validations devenaient
   // `interrompue`.
-  const arbre = await sousVerrouIndex(depot, () => figerArbreLivre(depot));
-  const [teteNpmrc, baseNpmrc] = await Promise.all([
-    oidDansArbre(depot, arbre, '.npmrc'),
-    oidDeBaseVerifie(depot, baseSha, '.npmrc'),
-  ]);
-  return { arbre, npmrcModifie: teteNpmrc !== baseNpmrc };
+  return sousVerrouIndex(depot, async () => {
+    const arbre = await figerArbreLivre(depot);
+    const modifies = await gitHote(
+      ['diff', '--no-ext-diff', '--no-textconv', '--name-only', baseSha, '--', '.npmrc'],
+      depot,
+    );
+    return { arbre, npmrcModifie: modifies.trim() !== '' };
+  });
 }
 
 /**
  * Lance ce que la base du dépôt déclare, et rend un constat par validation.
  * Ne lève jamais.
  */
+/**
+ * Toutes les validations à `base_falsifiee` (état `missing`, jamais un vert) —
+ * la base de l'espace de travail ne compile aucun plan fiable. `sortie` dit
+ * pourquoi, déjà caviardée. Partagé avec le contrôle « livré == jugé »
+ * (`client.ts`), qui court-circuite la porte ET les validations.
+ */
+export function validationsBaseFalsifiee(baseSha: string | undefined, sortie: string): ValidationsBac {
+  const controles = {} as Record<ValidationKey, ControleBac>;
+  for (const cle of VALIDATION_KEYS) {
+    controles[cle] = { etat: 'missing', raison: 'base_falsifiee', ...extraitDe(sortie) };
+  }
+  return { ...(baseSha ? { baseSha } : {}), controles };
+}
+
+/**
+ * Le contrôle « ce qui sera LIVRÉ est exactement ce qui a été JUGÉ », une fois
+ * par production, AVANT la porte et les validations (`client.ts`). Fige l'arbre
+ * jugé (`figerArbreLivre`), puis `verifierLivreContreBase` : récupère la base
+ * par `fetch` vérifié, y applique le diff qui sera livré, et exige l'arbre jugé.
+ * Le dossier de vérification est effacé ensuite (il ne porte que des objets +
+ * un index, aucun arbre de travail). Ne lève pas : une panne de ce contrôle
+ * (hors falsification) rend `invérifiable` et laisse la production suivre.
+ */
+export async function verifierLivraison(opts: {
+  cwd: string;
+  depot: { depot: DepotEpingle; baseSha: string };
+  diff: string;
+  delaiMs?: number;
+}): Promise<VerificationLivre> {
+  const { depot, baseSha } = opts.depot;
+  const dossier = dossierDeVerif(opts.cwd);
+  try {
+    const arbre = await sousVerrouIndex(depot, () => figerArbreLivre(depot));
+    return await verifierLivreContreBase(depot, baseSha, arbre, opts.diff, dossier, opts.delaiMs);
+  } catch (err) {
+    // Une panne du contrôle lui-même (git, disque) n'est pas une falsification :
+    // invérifiable, la production suit — la porte et les validations jugent la tête.
+    return { etat: 'invérifiable', cause: err instanceof Error ? err.message : String(err) };
+  } finally {
+    await effacerRejeu(dossier);
+  }
+}
+
 export async function validerProduction(opts: OptionsValidation): Promise<ValidationsBac> {
   const { depot, cwd } = opts;
   const rapport = (controles: Record<ValidationKey, ControleBac>): ValidationsBac => ({
@@ -405,31 +438,16 @@ export async function validerProduction(opts: OptionsValidation): Promise<Valida
     controles,
   });
 
-  // Une base forgée (le `package.json` ici, ou un objet d'arbre que `arbreLivre`
-  // relit pour `.npmrc`) ne compile aucun plan fiable : toutes les validations
-  // sont `base_falsifiee`, raison dite, jamais un vert sur un manifeste maquillé.
-  const toutesFalsifiees = (err: BaseFalsifiee, plan: Record<ValidationKey, Etape> | null) => {
-    const sortie = opts.caviarder?.(err.message) ?? err.message;
-    const controles = {} as Record<ValidationKey, ControleBac>;
-    for (const cle of VALIDATION_KEYS) {
-      const etape = plan?.[cle];
-      const script = etape?.genre === 'lancer' ? { script: etape.script } : {};
-      controles[cle] = {
-        etat: 'missing',
-        raison: 'base_falsifiee',
-        ...script,
-        ...extraitDe(sortie),
-      };
-    }
-    return rapport(controles);
-  };
-
   let base: string | null;
   try {
     base = depot ? await fichierDeBase(depot.depot, depot.baseSha, 'package.json') : null;
   } catch (err) {
+    // La base relue est falsifiée : l'agent a forgé l'objet git du
+    // `package.json` de base (`base-verifiee.ts`). On ne lit pas les scripts
+    // d'un manifeste forgé, et aucune validation ne passe — la raison le dit,
+    // caviardée comme tout ce qui part au hub.
     if (!(err instanceof BaseFalsifiee)) throw err;
-    return toutesFalsifiees(err, null);
+    return rapport(validationsBaseFalsifiee(undefined, opts.caviarder?.(err.message) ?? err.message).controles);
   }
   const produit = fichierDeTravail(cwd, 'package.json');
   const plan = planDeValidation(scriptsDe(manifeste(base)), scriptsDe(manifeste(produit)));
@@ -442,9 +460,7 @@ export async function validerProduction(opts: OptionsValidation): Promise<Valida
     if (livre?.npmrcModifie) return rapport(manquantes(plan, 'npmrc_reecrit'));
     return rapport(await lancerLePlan(plan, opts, manifeste(produit), livre?.arbre ?? null));
   } catch (err) {
-    // Base d'arbre forgée relue pour `.npmrc` : même verdict que le manifeste.
-    if (err instanceof BaseFalsifiee) return toutesFalsifiees(err, plan);
-    // Sinon un défaut du nœud, pas du projet : dit tel quel dans l'extrait, pour
+    // Un défaut du nœud, pas du projet : dit tel quel dans l'extrait, pour
     // qu'on le trouve — et surtout pas pris pour un verdict.
     const message = err instanceof Error ? err.message : String(err);
     return rapport(manquantes(plan, 'interrompue', opts.caviarder?.(message) ?? message));

@@ -19,12 +19,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { simpleGit } from 'simple-git';
-import { poserRegistre } from '../src/node-client/git-hote.js';
+import { execFileSync } from 'node:child_process';
 import {
-  BaseFalsifiee,
-  lireFichierDeBaseVerifie,
-  oidDeBaseVerifie,
-} from '../src/node-client/base-verifiee.js';
+  diffContreBase,
+  figerArbreLivre,
+  poserRegistre,
+  verifierLivreContreBase,
+} from '../src/node-client/git-hote.js';
+import { BaseFalsifiee, lireFichierDeBaseVerifie } from '../src/node-client/base-verifiee.js';
 import { fichierDeBase } from '../src/node-client/validations-bac.js';
 import type { DepotEpingle } from '../src/shared/git-protege.js';
 
@@ -165,41 +167,92 @@ describe('lireFichierDeBaseVerifie — la base saine lue, la base forgée rejet�
       const depot = await poserRegistre(dir, registre, baseSha);
 
       expect(await lireFichierDeBaseVerifie(depot, baseSha, 'lien')).toBeNull();
-      expect(await oidDeBaseVerifie(depot, baseSha, 'lien')).toBeNull();
     },
     30_000,
   );
 });
 
-describe('oidDeBaseVerifie — l’empreinte vérifiée, sans lire le blob', () => {
-  it('rend l’empreinte de l’entrée d’arbre d’un fichier sain, null si absent', async () => {
-    const pkg = '{\n  "name": "p"\n}\n';
-    const { dir, depot, baseSha } = await depotEtRegistre({
-      'package.json': pkg,
-      'a/b.txt': 'x\n',
+/**
+ * Un dépôt source, son clone et son registre. `superficiel` reproduit le clone
+ * de production (`--depth 1`, objets EMPAQUETÉS) ; sans lui, les objets sont
+ * LIBRES (liens durs) — forger en remplace alors la SEULE copie.
+ */
+async function cloneEtRegistre(
+  fichiers: Record<string, string>,
+  superficiel = true,
+): Promise<{ dir: string; depot: DepotEpingle; baseSha: string }> {
+  const source = mkdtempSync(path.join(os.tmpdir(), 'base-verifiee-src-'));
+  dossiers.push(source);
+  for (const [nom, contenu] of Object.entries(fichiers)) {
+    mkdirSync(path.dirname(path.join(source, nom)), { recursive: true });
+    writeFileSync(path.join(source, nom), contenu);
+  }
+  const git = simpleGit({ baseDir: source });
+  await git.init();
+  await git.addConfig('user.email', 'banc@hive.test');
+  await git.addConfig('user.name', 'Banc Hive');
+  await git.addConfig('commit.gpgsign', 'false');
+  await git.add('.');
+  await git.commit('base');
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'base-verifiee-clone-'));
+  dossiers.push(dir, `${dir}.verif`, `${dir}.verif.tmp`);
+  rmSync(dir, { recursive: true, force: true });
+  const args = superficiel
+    ? ['clone', '-q', '--depth', '1', `file://${source}`, dir]
+    : ['clone', '-q', source, dir];
+  execFileSync('git', args);
+  const baseSha = (await simpleGit({ baseDir: dir }).revparse(['HEAD'])).trim();
+  const registre = mkdtempSync(`${dir}.registre-`);
+  dossiers.push(registre);
+  const depot = await poserRegistre(dir, registre, baseSha);
+  return { dir, depot, baseSha };
+}
+
+describe('verifierLivreContreBase — ce qui serait livré est-il ce qui est jugé', () => {
+  it('CONFORME : base saine, le diff livré redonne l’arbre jugé', async () => {
+    const { dir, depot, baseSha } = await cloneEtRegistre({
+      'package.json': '{"a":1}\n',
+      'code.js': 'x\n',
     });
-    const attendu = (
-      await simpleGit({ baseDir: dir }).revparse([`${baseSha}:package.json`])
-    ).trim();
+    writeFileSync(path.join(dir, 'code.js'), 'y\n'); // « production »
+    const arbre = await figerArbreLivre(depot);
+    const diff = await diffContreBase(depot, baseSha);
+    const r = await verifierLivreContreBase(depot, baseSha, arbre, diff, `${dir}.verif`);
+    expect(r.etat).toBe('conforme');
+  }, 60_000);
 
-    expect(await oidDeBaseVerifie(depot, baseSha, 'package.json')).toBe(attendu);
-    expect(await oidDeBaseVerifie(depot, baseSha, 'a/b.txt')).toBe(
-      (await simpleGit({ baseDir: dir }).revparse([`${baseSha}:a/b.txt`])).trim(),
+  it('FALSIFIE : base forgée dont la copie saine a disparu — non récupérable intègre', async () => {
+    // Objets LIBRES (clone non superficiel) : forger remplace la SEULE copie du
+    // blob de base — c'est le cas où `git diff` lit le forgé et livrerait autre
+    // chose que le jugé. Le `fetch` vérifié ne peut plus récupérer la base saine.
+    const { dir, depot, baseSha } = await cloneEtRegistre(
+      { 'fixtures/vieux.json': '{"v":"1.2.0"}\n', 'code.js': 'x\n' },
+      false,
     );
-    expect(await oidDeBaseVerifie(depot, baseSha, 'manquant')).toBeNull();
-    expect(await oidDeBaseVerifie(depot, baseSha, 'a')).toBeNull(); // un dossier n'est pas un fichier
-  }, 30_000);
-
-  it('lève sur un ARBRE forgé — l’empreinte vient d’un pointeur vérifié', async () => {
-    const { dir, depot, baseSha } = await depotEtRegistre({ 'sous/lock.json': '{}\n' });
-    const treeSous = (await simpleGit({ baseDir: dir }).revparse([`${baseSha}:sous`])).trim();
-    // L'arbre `sous` remplacé par un autre arbre valide sous son nom.
     forger(
       path.join(dir, '.git'),
-      treeSous,
-      'tree',
-      Buffer.concat([Buffer.from('100644 lock.json\0'), Buffer.alloc(20)]),
+      empreinte('blob', Buffer.from('{"v":"1.2.0"}\n')),
+      'blob',
+      Buffer.from('{"v":"1.2.6"}\n'),
     );
-    await expect(oidDeBaseVerifie(depot, baseSha, 'sous/lock.json')).rejects.toThrow(BaseFalsifiee);
-  }, 30_000);
+    rmSync(path.join(dir, 'fixtures', 'vieux.json'));
+    writeFileSync(path.join(dir, 'package-lock.json'), '{"v":"1.2.6"}\n');
+    const arbre = await figerArbreLivre(depot);
+    const diff = await diffContreBase(depot, baseSha);
+    const r = await verifierLivreContreBase(depot, baseSha, arbre, diff, `${dir}.verif`);
+    expect(r.etat).toBe('falsifie');
+  }, 60_000);
+
+  it('FALSIFIE : l’arbre obtenu diffère de l’arbre jugé (diff qui ne redonne pas la tête)', async () => {
+    // Base saine récupérable, mais le diff livré n'aboutit pas à l'arbre jugé :
+    // c'est exactement ce qu'une base forgée produit quand le `fetch` rend le
+    // sain mais que `git diff` a lu autre chose. Éprouvé en passant un arbre
+    // jugé qui n'est pas celui que le diff reconstruit.
+    const { dir, depot, baseSha } = await cloneEtRegistre({ 'code.js': 'x\n' });
+    writeFileSync(path.join(dir, 'code.js'), 'y\n');
+    const diff = await diffContreBase(depot, baseSha);
+    const arbreFaux = empreinte('blob', Buffer.from('rien de tel\n')); // un OID qui n'est pas l'arbre livré
+    const r = await verifierLivreContreBase(depot, baseSha, arbreFaux, diff, `${dir}.verif`);
+    expect(r.etat).toBe('falsifie');
+  }, 60_000);
 });

@@ -109,8 +109,15 @@ import type {
 import { VALIDATION_KEYS } from '../shared/validations-bac.js';
 import type { ValidationsBac } from '../shared/validations-bac.js';
 import type { PorteSecurite } from '../shared/porte-securite.js';
+import { PORTE_BASE_FALSIFIEE } from '../shared/porte-securite.js';
 import { passerLaPorte } from './porte-securite.js';
-import { memoireDesBases, reglesAutorisationDeBase, validerProduction } from './validations-bac.js';
+import {
+  memoireDesBases,
+  reglesAutorisationDeBase,
+  validationsBaseFalsifiee,
+  validerProduction,
+  verifierLivraison,
+} from './validations-bac.js';
 import { COMMANDE_DIRECT_MAX, DIFF_DIRECT_MAX } from '../shared/bac-direct.js';
 import type { EtatDirect } from '../shared/bac-direct.js';
 import type { MinuteurSuspendable } from '../shared/minuteur-suspendable.js';
@@ -2361,6 +2368,35 @@ export class HiveNodeClient {
       : result.success
         ? 'diff_hors_arbre'
         : 'production_en_echec';
+    // ─── CE QUI SERA LIVRÉ EST-IL CE QUI A ÉTÉ JUGÉ ? ────────────────────────
+    //
+    // AVANT la porte et les validations, une seule fois. Le diff qui partira à
+    // la Reine (`diff`) est appliqué sur la base VÉRIFIÉE (fetch) ; l'arbre
+    // obtenu doit être l'arbre jugé (`figerArbreLivre`). Sinon l'agent a forgé
+    // la base de son espace de travail pour faire JUGER un arbre et en faire
+    // LIVRER un autre — un renommage depuis un fichier non surveillé, un hunk
+    // contre un blob de base forgé : `git diff` lit la base sans vérifier son
+    // empreinte, mais `git apply` sur la vraie base ne ment pas. La porte et
+    // les validations jugent la tête ; ce contrôle lie la tête au livré.
+    if (duRepertoire && depot && diff.trim() !== '') {
+      const verif = await verifierLivraison({ cwd: workspace.cwd, depot, diff });
+      if (verif.etat === 'falsifie') {
+        const cause = `base falsifiée dans l’espace de travail — ${verif.cause}`;
+        const caviardeur = this.caviardeurDuNoeud();
+        this.log(`porte de sécurité : production rejetée — ${cause}`);
+        surEtape(`base falsifiée : ${cause}`);
+        return {
+          porteSecurite: PORTE_BASE_FALSIFIEE,
+          validations: validationsBaseFalsifiee(depot.baseSha, caviardeur.texte(cause)),
+          caviardeur,
+        };
+      }
+      if (verif.etat === 'invérifiable') {
+        this.log(
+          `contrôle livré==jugé invérifiable (${verif.cause}) — la porte et les validations jugent la tête`,
+        );
+      }
+    }
     // La porte a SON réseau quand le bac filtre (`ouvrirReseauPorte`) — jamais
     // celui de la tâche : ni sa liste blanche, où osv.dev n'est pas, ni son
     // bilan de refus, qui les imputerait au producteur. Ses refus : ici seulement.

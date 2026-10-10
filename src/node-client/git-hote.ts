@@ -69,19 +69,21 @@
 //     FORGER un — un objet valide rangé sous le nom d'un autre : git ne
 //     vérifie pas l'empreinte de ce qu'il lit (mesuré, git 2.53), et une
 //     lecture de la base par le registre rendait alors le contenu forgé, sans
-//     un mot. DEUX remparts ferment cela. Ce qui doit être la base pour un
-//     REJEU passe par `extraireBase` (un `fetch`, qui renomme chaque objet par
-//     son contenu). Et tout ce qu'un VERDICT lit de la base — scripts du
-//     `package.json`, lockfiles (porte G10), règles compilées (G12), garde
-//     `.npmrc`, énumération des lockfiles touchés — passe par la porte VÉRIFIÉE
-//     (`fichierDeBase`/`oidDeBaseVerifie` → `base-verifiee.ts`), qui recalcule
-//     l'empreinte de chaque objet du chemin et LÈVE sur un objet forgé. Reste
-//     SEUL `git diff <base>` : le diff de revue envoyé à la Reine (`collectDiff`,
-//     `workspace.ts`) et le diff cumulé d'un merge (`merge-runner.ts`). Le
-//     premier n'arbitre plus aucun verdict (les lecteurs ci-dessus ne s'y
-//     fient plus pour énumérer) et la livraison le re-vérifie à l'application
-//     sur un clone neuf ; le second tourne sur un clone du nœud où aucun agent
-//     n'a écrit (`epinglerClone`). `GIT_NO_REPLACE_OBJECTS` ferme en plus la
+//     un mot. TROIS remparts ferment cela. (1) Ce qui doit être la base pour
+//     un REJEU passe par `extraireBase` (un `fetch`, qui renomme chaque objet
+//     par son contenu). (2) Ce qu'un VERDICT lit nommément de la base — scripts
+//     du `package.json` (plan), lockfiles (porte G10), règles compilées (G12) —
+//     passe par la porte VÉRIFIÉE (`fichierDeBase` → `base-verifiee.ts`), qui
+//     recalcule l'empreinte de chaque objet du chemin et LÈVE sur un objet
+//     forgé. (3) Le diff ENTIER qui sera livré (`collectDiff`/`diffContreBase`)
+//     est, lui, lu par `git diff <base>` SANS vérification — un objet de base
+//     forgé pouvait y cacher un changement (renommage 100 %, hunk contre un
+//     blob forgé) et faire livrer autre chose que l'arbre jugé. Donc, une fois
+//     par production, `verifierLivreContreBase` applique ce diff sur la base
+//     VÉRIFIÉE (fetch) et exige l'arbre jugé (`figerArbreLivre`) : sinon
+//     `base_falsifiee`. Le diff cumulé d'un MERGE (`merge-runner.ts`) n'a pas
+//     ce risque : il tourne sur un clone du nœud où aucun agent n'a écrit
+//     (`epinglerClone`). `GIT_NO_REPLACE_OBJECTS` coupe en plus toute
 //     substitution par ref de remplacement (`shared/git-protege.ts`).
 //   · Les configurations SYSTÈME et GLOBALE : celles de la machine et du
 //     membre, jamais montées dans le bac. On ne les coupe pas
@@ -379,6 +381,100 @@ export async function extraireLivre(
   ).trim();
   await gitHote(['update-ref', REF_LIVRE, commit], depot, { delaiMs });
   await extraireCommit(depot, REF_LIVRE, commit, dossier, delaiMs - (Date.now() - debut));
+}
+
+/** Le verdict de `verifierLivreContreBase` : conforme, falsifié, ou invérifiable. */
+export type VerificationLivre =
+  | { etat: 'conforme' }
+  | { etat: 'falsifie'; cause: string }
+  // Le diff livré ne se vérifie pas par `apply` (fichier binaire, sous-module) :
+  // il n'est pas non plus livrable par `git apply` au merge, donc rien de forgé
+  // ne passe silencieusement — on ne bloque pas pour autant la production.
+  | { etat: 'invérifiable'; cause: string };
+
+/**
+ * L'INVARIANT « ce qui sera LIVRÉ est exactement ce qui a été JUGÉ ».
+ *
+ * ─── LE TROU QUE CECI FERME ─────────────────────────────────────────────────
+ *
+ * `diffContreBase` (`collectDiff`, le diff envoyé à la Reine et appliqué au
+ * merge) se calcule DANS le registre, qui emprunte les objets de la tâche
+ * (`alternates`). git ne vérifie pas l'empreinte d'un objet qu'il lit : l'agent
+ * peut forger l'objet d'un fichier de base pour qu'il paraisse IDENTIQUE au
+ * livré — le diff complet (par contenu) ne montre alors ni hunk ni le fichier,
+ * ou le réduit à un renommage 100 %. La porte et les validations jugent l'arbre
+ * livré (la tête), mais `git apply` de ce diff sur la VRAIE base livre autre
+ * chose : une dépendance vulnérable, un code non jugé. Mesuré, git 2.53 : le
+ * `fetch` du registre renvoie l'objet EMPAQUETÉ d'origine même quand un objet
+ * libre forgé le masque pour `cat-file` — la vraie base est donc récupérable,
+ * et c'est elle qui tranche.
+ *
+ * ─── COMMENT ─────────────────────────────────────────────────────────────────
+ *
+ * On récupère la base par `fetch` (vérifié) dans un dépôt neuf, SANS checkout
+ * (index seulement), on y APPLIQUE le diff qui sera livré, et on exige que
+ * l'arbre obtenu (`write-tree`) soit EXACTEMENT l'arbre figé jugé (`arbre` de
+ * `figerArbreLivre`). Sinon la production est `falsifie` : ce qui serait livré
+ * n'est pas ce qui a été jugé. Une base saine donne toujours `conforme` (le
+ * diff est, par construction, celui de la vraie base vers la tête). Borné par
+ * `delaiMs` ; aucun code de la tâche n'y tourne (ni checkout, ni hook).
+ */
+export async function verifierLivreContreBase(
+  depot: DepotEpingle,
+  base: string,
+  arbreJuge: string,
+  diffLivre: string,
+  dossier: string,
+  delaiMs = DELAI_EXTRACTION_MS,
+): Promise<VerificationLivre> {
+  const echeance = Date.now() + delaiMs;
+  const reste = (): { delaiMs: number } => {
+    const ms = echeance - Date.now();
+    if (ms <= 0) throw new Error(`vérification abandonnée au-delà de ${Math.round(delaiMs / 1000)} s`);
+    return { delaiMs: ms };
+  };
+  await effacerDossier(dossier);
+  mkdirSync(dossier, { recursive: true });
+  const format = base.length === 64 ? ['--object-format=sha256'] : [];
+  await gitHote(['init', '-q', '--template=', ...format, dossier], path.dirname(dossier), reste());
+  const recu = { gitDir: path.join(dossier, '.git'), workTree: dossier };
+  // Le `fetch` renomme chaque objet par son contenu (`index-pack`) : un objet
+  // forgé n'arrive jamais sous le nom qu'il usurpe. Quand un objet EMPAQUETÉ
+  // sain coexiste (clone superficiel — le cas de Hive), le `fetch` l'envoie et
+  // l'on obtient la VRAIE base ; quand SEULE la copie forgée existe (objets
+  // libres), le `fetch` ÉCHOUE — et c'est précisément là que `git diff` aurait
+  // lu le forgé : base non récupérable intègre = falsifiée.
+  try {
+    await gitHote(['fetch', '-q', '--no-tags', '--depth=1', '--', depot.gitDir, base], recu, reste());
+  } catch (e) {
+    if (e instanceof EchecGitHote && e.delaiDepasse) throw e; // un délai n'est pas un verdict
+    return { etat: 'falsifie', cause: `base non récupérable intègre (${e instanceof Error ? e.message : String(e)})` };
+  }
+  const tete = (await gitHote(['rev-parse', '--verify', '-q', 'FETCH_HEAD^{commit}'], recu, reste())).trim();
+  if (tete !== base) return { etat: 'falsifie', cause: `commit de base reçu ${tete.slice(0, 12)}, attendu ${base.slice(0, 12)}` };
+  // L'index reflète la VRAIE base, sans écrire l'arbre de travail (`--cached`).
+  await gitHote(['read-tree', base], recu, reste());
+  const patch = path.join(dossier, 'livre.diff');
+  writeFileSync(patch, diffLivre.endsWith('\n') ? diffLivre : `${diffLivre}\n`);
+  try {
+    // `--cached` : applique à l'index (niveau blob), aucun filtre d'arbre de
+    // travail, aucun code exécuté. `--allow-empty` : un diff vide est conforme.
+    await gitHote(['apply', '--cached', '--allow-empty', '--whitespace=nowarn', patch], recu, reste());
+  } catch (e) {
+    const brut = e instanceof Error ? e.message : String(e);
+    // Un diff binaire/sous-module ne s'applique pas (git diff ne le porte pas
+    // sans `--binary`) — invérifiable ainsi, mais pas livrable non plus.
+    if (/Binary files|GIT binary patch|Subproject commit/.test(diffLivre)) {
+      return { etat: 'invérifiable', cause: 'diff binaire ou sous-module' };
+    }
+    // Un diff qui ne s'applique PAS sur la vraie base n'a pas été calculé contre
+    // elle : la base lue par le registre était forgée.
+    return { etat: 'falsifie', cause: `le diff livré ne s'applique pas sur la base vérifiée (${brut})` };
+  }
+  const arbre = (await gitHote(['write-tree'], recu, reste())).trim();
+  return arbre === arbreJuge
+    ? { etat: 'conforme' }
+    : { etat: 'falsifie', cause: `l'arbre livré ${arbre.slice(0, 12)} diffère de l'arbre jugé ${arbreJuge.slice(0, 12)}` };
 }
 
 /**

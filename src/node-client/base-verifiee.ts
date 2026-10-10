@@ -220,8 +220,8 @@ async function naviguerVersEntree(
   }
   const commit = await objetVerifie(depot, baseSha, 'commit', format, fichier);
   let arbreOid = arbreDuCommit(commit, format, fichier);
-  // Les chemins git sont en `/`, partout : le fichier vient du diff, d'une
-  // table du dépôt ou de `ls-files`, jamais d'un chemin d'hôte.
+  // Les chemins git sont en `/`, partout : le fichier vient du diff ou d'une
+  // table du dépôt, jamais d'un chemin d'hôte.
   const segments = fichier.split('/').filter((s) => s !== '' && s !== '.');
   if (segments.length === 0) return { genre: 'absent' };
   for (let k = 0; k < segments.length; k += 1) {
@@ -258,22 +258,4 @@ export async function lireFichierDeBaseVerifie(
   if (entree.genre === 'absent') return null;
   const blob = await objetVerifie(depot, entree.oid, 'blob', format, fichier);
   return blob.toString('utf8');
-}
-
-/**
- * L'empreinte VÉRIFIÉE du blob de `fichier` au commit de BASE — `null` s'il est
- * absent ou n'est pas un fichier ordinaire. Lève `BaseFalsifiee` si un ARBRE du
- * chemin est forgé. L'empreinte vient de l'entrée d'arbre vérifiée : comparer
- * deux empreintes (base contre tête) dit si le fichier a changé sans lire son
- * contenu — et une base forgée ne peut pas déguiser ce changement, puisque
- * forger le blob ne change pas le pointeur que l'arbre (vérifié) porte.
- */
-export async function oidDeBaseVerifie(
-  depot: DepotEpingle,
-  baseSha: string,
-  fichier: string,
-): Promise<string | null> {
-  const format = await formatObjets(depot);
-  const entree = await naviguerVersEntree(depot, baseSha, fichier, format);
-  return entree.genre === 'fichier' ? entree.oid : null;
 }

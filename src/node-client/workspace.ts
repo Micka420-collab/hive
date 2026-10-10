@@ -174,6 +174,8 @@ export async function retirerFichiersIgnores(depot: DepotEpingle): Promise<void>
  */
 export const dossierDeBase = (cwd: string): string => `${cwd}.base`;
 export const dossierDeTete = (cwd: string): string => `${cwd}.tete`;
+/** Où la base vérifiée est récupérée pour contrôler que le livré == le jugé. */
+export const dossierDeVerif = (cwd: string): string => `${cwd}.verif`;
 
 /**
  * Efface un rejeu à part, et son TEMP (`buildSandboxEnv`). Ici, parce que ce
@@ -195,9 +197,13 @@ export async function effacerRejeu(dossier: string): Promise<void> {
   );
 }
 
-/** Les deux rejeux d'une tâche — sa base, sa tête. */
+/** Les rejeux et contrôles à part d'une tâche — sa base, sa tête, sa vérification. */
 async function effacerRejeux(cwd: string): Promise<void> {
-  await Promise.all([effacerRejeu(dossierDeBase(cwd)), effacerRejeu(dossierDeTete(cwd))]);
+  await Promise.all([
+    effacerRejeu(dossierDeBase(cwd)),
+    effacerRejeu(dossierDeTete(cwd)),
+    effacerRejeu(dossierDeVerif(cwd)),
+  ]);
 }
 
 export function variablesAgentSansSecrets(variables: readonly string[]): string[] {
