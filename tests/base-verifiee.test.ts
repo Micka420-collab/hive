@@ -255,4 +255,99 @@ describe('verifierLivreContreBase — ce qui serait livré est-il ce qui est jug
     const r = await verifierLivreContreBase(depot, baseSha, arbreFaux, diff, `${dir}.verif`);
     expect(r.etat).toBe('falsifie');
   }, 60_000);
+
+  it('CONFORME : binaires créé/modifié/supprimé/renommé, lien à la place d’un binaire, sous-module', async () => {
+    // Rien de cela ne s'applique par le contenu (« Binary files … differ ») ou
+    // ne se lit comme du texte (`Subproject commit`) — et tout est conforme :
+    // ni faux `falsifie`, ni `invérifiable` qui éteindrait le contrôle.
+    const gros = `\0${'x'.repeat(3000)}`;
+    const { dir, depot, baseSha } = await cloneEtRegistre({
+      'code.js': 'x\n',
+      'img.bin': '\0a',
+      'vieux.bin': `\0${'v'.repeat(50)}`,
+      'lien.bin': '\0l',
+      'gros.bin': gros,
+    });
+    writeFileSync(path.join(dir, 'code.js'), 'y\n');
+    writeFileSync(path.join(dir, 'img.bin'), '\0b');
+    rmSync(path.join(dir, 'vieux.bin'));
+    writeFileSync(path.join(dir, 'neuf.bin'), `\0${'n'.repeat(50)}`);
+    rmSync(path.join(dir, 'gros.bin'));
+    writeFileSync(path.join(dir, 'gros2.bin'), `${gros}zz`); // renommé ET modifié
+    if (process.platform !== 'win32') {
+      // Binaire → lien : deux strophes du même chemin, suppression puis création.
+      rmSync(path.join(dir, 'lien.bin'));
+      symlinkSync('code.js', path.join(dir, 'lien.bin'));
+    }
+    const sous = path.join(dir, 'sous');
+    mkdirSync(sous);
+    writeFileSync(path.join(sous, 'f'), '1\n');
+    const ident = ['-c', 'user.name=b', '-c', 'user.email=b@h', '-c', 'commit.gpgsign=false'];
+    execFileSync('git', ['-C', sous, 'init', '-q']);
+    execFileSync('git', ['-C', sous, ...ident, 'add', 'f']);
+    execFileSync('git', ['-C', sous, ...ident, 'commit', '-qm', 's']);
+    const diff = await diffContreBase(depot, baseSha);
+    const arbre = await figerArbreLivre(depot);
+    expect(diff).toContain('\nBinary files ');
+    expect(diff).toContain('\nrename from gros.bin\n');
+    expect(diff).toContain('\n+Subproject commit ');
+    const r = await verifierLivreContreBase(depot, baseSha, arbre, diff, `${dir}.verif`);
+    expect(r).toEqual({ etat: 'conforme' });
+  }, 60_000);
+
+  it('CONFORME sous la configuration globale du membre (`diff.noprefix`, couleur, sous-modules)', async () => {
+    // gitHote lit la configuration globale à dessein : sous `diff.noprefix`, le
+    // diff n'avait plus de préfixes et `apply` le refusait — chaque production
+    // du membre aurait été dite « base falsifiée ».
+    const { dir, depot, baseSha } = await cloneEtRegistre({ 'src/code.js': 'x\n' });
+    writeFileSync(path.join(dir, 'src', 'code.js'), 'y\n');
+    const maison = mkdtempSync(path.join(os.tmpdir(), 'base-verifiee-maison-'));
+    dossiers.push(maison);
+    writeFileSync(
+      path.join(maison, '.gitconfig'),
+      '[diff]\n\tnoprefix = true\n\tsubmodule = log\n[color]\n\tui = always\n',
+    );
+    const avant = process.env.HOME;
+    process.env.HOME = maison;
+    try {
+      const diff = await diffContreBase(depot, baseSha);
+      const arbre = await figerArbreLivre(depot);
+      const r = await verifierLivreContreBase(depot, baseSha, arbre, diff, `${dir}.verif`);
+      expect(r).toEqual({ etat: 'conforme' });
+      expect(diff).toContain('diff --git a/src/code.js b/src/code.js\n');
+    } finally {
+      if (avant === undefined) delete process.env.HOME;
+      else process.env.HOME = avant;
+    }
+  }, 60_000);
+
+  it('FALSIFIE : un binaire n’éteint pas le contrôle — le texte livré reste vérifié', async () => {
+    // Le hunk qu'aurait calculé une base forgée : il s'applique sur la vraie
+    // base, en un contenu que personne n'a jugé. La strophe binaire faisait
+    // échouer `apply` en entier, et le contrôle rendait `invérifiable`.
+    const { dir, depot, baseSha } = await cloneEtRegistre({ 'code.js': 'x\n', 'img.bin': '\0a' });
+    writeFileSync(path.join(dir, 'code.js'), 'y\n');
+    writeFileSync(path.join(dir, 'img.bin'), '\0b');
+    const diff = await diffContreBase(depot, baseSha);
+    const arbre = await figerArbreLivre(depot);
+    const livre = diff.replace('\n+y\n', '\n+z\n');
+    expect(livre).not.toBe(diff);
+    const r = await verifierLivreContreBase(depot, baseSha, arbre, livre, `${dir}.verif`);
+    expect(r.etat).toBe('falsifie');
+  }, 60_000);
+
+  it('FALSIFIE : « Subproject commit » ou « Binary files » dans une ligne de CONTENU ne rend pas invérifiable', async () => {
+    // Un hunk contre un blob que la vraie base n'a pas (ce que donne une base
+    // forgée) ne s'applique pas ; le marqueur, écrit par l'agent dans une
+    // ligne ajoutée, faisait passer cet échec pour un sous-module.
+    const { dir, depot, baseSha } = await cloneEtRegistre({ 'code.js': 'x\n' });
+    const marqueurs = `Subproject commit ${'0'.repeat(40)}\nBinary files a and b differ\n`;
+    writeFileSync(path.join(dir, 'code.js'), `y\n${marqueurs}`);
+    const diff = await diffContreBase(depot, baseSha);
+    const arbre = await figerArbreLivre(depot);
+    const livre = diff.replace('\n-x\n', '\n-forge\n');
+    expect(livre).not.toBe(diff);
+    const r = await verifierLivreContreBase(depot, baseSha, arbre, livre, `${dir}.verif`);
+    expect(r.etat).toBe('falsifie');
+  }, 60_000);
 });

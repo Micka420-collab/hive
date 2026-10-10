@@ -423,8 +423,18 @@ export async function verifierLivraison(opts: {
   const { depot, baseSha } = opts.depot;
   const dossier = dossierDeVerif(opts.cwd);
   try {
-    const arbre = await sousVerrouIndex(depot, () => figerArbreLivre(depot));
-    return await verifierLivreContreBase(depot, baseSha, arbre, opts.diff, dossier, opts.delaiMs);
+    // Figer PUIS vérifier sous LE verrou de l'index : la vérification relit
+    // l'index que `figerArbreLivre` vient d'écrire (les binaires jugés).
+    return await sousVerrouIndex(depot, async () =>
+      verifierLivreContreBase(
+        depot,
+        baseSha,
+        await figerArbreLivre(depot),
+        opts.diff,
+        dossier,
+        opts.delaiMs,
+      ),
+    );
   } catch (err) {
     // Une panne du contrôle lui-même (git, disque) n'est pas une falsification :
     // invérifiable, la production suit — la porte et les validations jugent la tête.

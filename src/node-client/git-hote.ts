@@ -238,6 +238,14 @@ export async function diffContreBase(
       'diff',
       '--no-ext-diff',
       '--no-textconv',
+      // Un FORMAT fixe, quelle que soit la configuration globale du membre (lue
+      // à dessein, `shared/git-protege.ts`) : sous `diff.noprefix`,
+      // `color.ui=always` ou `diff.submodule=log`, ce diff ne se réappliquait
+      // plus — ni au merge, ni au contrôle livré==jugé (mesuré, git 2.53).
+      '--src-prefix=a/',
+      '--dst-prefix=b/',
+      '--no-color',
+      '--submodule=short',
       // Un dépôt IMBRIQUÉ dans l'arbre est un sous-module aux yeux de git, et
       // juger s'il est « sale » lancerait un `git status` DANS ce dépôt — avec
       // SA configuration, que l'agent a écrite. `dirty` coupe CE jugement-là
@@ -383,14 +391,36 @@ export async function extraireLivre(
   await extraireCommit(depot, REF_LIVRE, commit, dossier, delaiMs - (Date.now() - debut));
 }
 
-/** Le verdict de `verifierLivreContreBase` : conforme, falsifié, ou invérifiable. */
+/**
+ * Le verdict de `verifierLivreContreBase`. `invérifiable` : le contrôle lui-même
+ * n'a pas abouti (`fetch` hors délai, panne de git ou du disque) — jamais
+ * décidé sur le CONTENU du diff, que l'agent écrit.
+ */
 export type VerificationLivre =
   | { etat: 'conforme' }
   | { etat: 'falsifie'; cause: string }
-  // Le diff livré ne se vérifie pas par `apply` (fichier binaire, sous-module) :
-  // il n'est pas non plus livrable par `git apply` au merge, donc rien de forgé
-  // ne passe silencieusement — on ne bloque pas pour autant la production.
   | { etat: 'invérifiable'; cause: string };
+
+/**
+ * Le diff livré, séparé pour `verifierLivreContreBase` : le TEXTE à appliquer,
+ * et les strophes BINAIRES (« Binary files … differ » — sans contenu,
+ * `diffContreBase` n'ayant pas `--binary`). Coupé aux SEULS `\n` (un `\r` dans
+ * une ligne ± n'ouvre pas de strophe) et lu aux EN-TÊTES : une ligne de
+ * contenu commence par ` `, `+`, `-` ou `\`, si bien qu'un marqueur écrit par
+ * l'agent n'est jamais pris pour un en-tête. Un binaire renommé ou copié reste
+ * dans le texte, SANS son contenu : `apply` en fait un renommage pur.
+ */
+function separerBinaires(diff: string): { texte: string; binaires: string[] } {
+  const strophes = diff.split(/(?<=\n)(?=diff --git )/);
+  const porte = (s: string, entete: string): boolean => s.includes(`\n${entete}`);
+  const binaires = strophes.filter((s) => porte(s, 'Binary files '));
+  const texte = strophes.flatMap((s) => {
+    if (!porte(s, 'Binary files ')) return [s];
+    if (!porte(s, 'rename from ') && !porte(s, 'copy from ')) return [];
+    return [s.replace(/\n(?:index|Binary files) [^\n]*/g, '')];
+  });
+  return { texte: texte.join(''), binaires };
+}
 
 /**
  * L'INVARIANT « ce qui sera LIVRÉ est exactement ce qui a été JUGÉ ».
@@ -414,10 +444,25 @@ export type VerificationLivre =
  * On récupère la base par `fetch` (vérifié) dans un dépôt neuf, SANS checkout
  * (index seulement), on y APPLIQUE le diff qui sera livré, et on exige que
  * l'arbre obtenu (`write-tree`) soit EXACTEMENT l'arbre figé jugé (`arbre` de
- * `figerArbreLivre`). Sinon la production est `falsifie` : ce qui serait livré
- * n'est pas ce qui a été jugé. Une base saine donne toujours `conforme` (le
- * diff est, par construction, celui de la vraie base vers la tête). Borné par
- * `delaiMs` ; aucun code de la tâche n'y tourne (ni checkout, ni hook).
+ * `figerArbreLivre`). Sinon — ou si le diff ne s'applique pas, pour quelque
+ * raison que ce soit — la production est `falsifie` : ce qui serait livré n'est
+ * pas ce qui a été jugé. Une base saine donne toujours `conforme` (le diff est,
+ * par construction, celui de la vraie base vers la tête).
+ *
+ * Un fichier BINAIRE n'a pas de contenu dans le diff — ni `apply` ni la
+ * livraison GitHub (`analyserRustine`, qui l'écarte et livre le reste) ne
+ * l'appliquent. Sa strophe sort du patch (`separerBinaires`) : supprimé, le
+ * binaire quitte l'index AVANT (un lien peut prendre sa place) ; posé, il y
+ * reçoit APRÈS son entrée jugée, lue dans l'index du registre que
+ * `figerArbreLivre` vient d'écrire — l'appelant tient le verrou de l'index
+ * entre les deux (`verifierLivraison`). Un fichier d'index : aucun objet de la
+ * tâche n'est lu. Le texte, lui, s'applique ou c'est `falsifie` : un binaire
+ * n'éteint pas le contrôle.
+ *
+ * `delaiMs` borne la récupération (`init`, `fetch`, `read-tree`). Le reste a le
+ * délai d'un git local : un diff calculé contre la vraie base s'y applique
+ * d'emblée, et son échec, délai compris, est un verdict. Aucun code de la
+ * tâche n'y tourne (ni checkout, ni hook).
  */
 export async function verifierLivreContreBase(
   depot: DepotEpingle,
@@ -468,31 +513,55 @@ export async function verifierLivreContreBase(
     };
   // L'index reflète la VRAIE base, sans écrire l'arbre de travail (`--cached`).
   await gitHote(['read-tree', base], recu, reste());
+  const { texte, binaires } = separerBinaires(diffLivre);
+  const finiParSaut = (t: string): string => (t === '' || t.endsWith('\n') ? t : `${t}\n`);
   const patch = path.join(dossier, 'livre.diff');
-  writeFileSync(patch, diffLivre.endsWith('\n') ? diffLivre : `${diffLivre}\n`);
+  writeFileSync(patch, finiParSaut(texte));
+  const zero = '0'.repeat(base.length);
+  const sortir = (chemins: readonly string[]): string =>
+    chemins.map((c) => `0 ${zero}\t${c}\0`).join(''); // mode 0 : retire l'entrée
+  const poses: string[] = [];
   try {
+    if (binaires.length > 0) {
+      // Le chemin de chaque binaire — supprimé, ou tel qu'après —, dans l'ordre
+      // des strophes : git lit les en-têtes, guillemets compris.
+      const stat = await gitHote(['apply', '--numstat', '-z'], recu, {
+        entree: finiParSaut(binaires.join('')),
+      });
+      const retires: string[] = [];
+      const lignes = stat.split('\0').filter((l) => l !== '');
+      for (const [i, ligne] of lignes.entries()) {
+        const chemin = ligne.split('\t').slice(2).join('\t');
+        (binaires[i]?.includes('\ndeleted file mode ') ? retires : poses).push(chemin);
+      }
+      if (retires.length > 0) {
+        await gitHote(['update-index', '-z', '--index-info'], recu, { entree: sortir(retires) });
+      }
+    }
     // `--cached` : applique à l'index (niveau blob), aucun filtre d'arbre de
     // travail, aucun code exécuté. `--allow-empty` : un diff vide est conforme.
-    await gitHote(
-      ['apply', '--cached', '--allow-empty', '--whitespace=nowarn', patch],
-      recu,
-      reste(),
-    );
+    await gitHote(['apply', '--cached', '--allow-empty', '--whitespace=nowarn', patch], recu);
   } catch (e) {
-    const brut = e instanceof Error ? e.message : String(e);
-    // Un diff binaire/sous-module ne s'applique pas (git diff ne le porte pas
-    // sans `--binary`) — invérifiable ainsi, mais pas livrable non plus.
-    if (/Binary files|GIT binary patch|Subproject commit/.test(diffLivre)) {
-      return { etat: 'invérifiable', cause: 'diff binaire ou sous-module' };
-    }
+    if (!(e instanceof EchecGitHote)) throw e;
     // Un diff qui ne s'applique PAS sur la vraie base n'a pas été calculé contre
     // elle : la base lue par le registre était forgée.
     return {
       etat: 'falsifie',
-      cause: `le diff livré ne s'applique pas sur la base vérifiée (${brut})`,
+      cause: `le diff livré ne s'applique pas sur la base vérifiée (${e.message})`,
     };
   }
-  const arbre = (await gitHote(['write-tree'], recu, reste())).trim();
+  if (poses.length > 0) {
+    const voulus = new Set(poses);
+    const juges = (await gitHote(['ls-files', '-s', '-z'], depot))
+      .split('\0')
+      .filter((r) => r !== '' && voulus.has(r.slice(r.indexOf('\t') + 1)));
+    await gitHote(['update-index', '-z', '--index-info'], recu, {
+      entree: sortir(poses) + juges.map((r) => `${r}\0`).join(''),
+    });
+  }
+  // `--missing-ok` : le contenu d'un binaire jugé n'est pas dans ce dépôt — seule
+  // son empreinte entre dans celle de l'arbre.
+  const arbre = (await gitHote(['write-tree', '--missing-ok'], recu)).trim();
   return arbre === arbreJuge
     ? { etat: 'conforme' }
     : {
