@@ -835,7 +835,7 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
   script d'installation — ni à sa racine, ni dans une de ses dépendances
   (`hasInstallScript` au lockfile : esbuild, sharp…) — y a droit : un tel
   script peut lire le projet, et son résultat ne vaudrait que pour lui. Un
-  paquet optionnel qu'npm n'installe pas dans le bac (`fsevents` sous Linux)
+  paquet optionnel que npm n'installe pas dans le bac (`fsevents` sous Linux)
   ne compte pas.
   L'installation se fait dans
   `<installation>/.hive-work/<nœud>/tasks/<task-id>.deps`, effacé aussitôt.
