@@ -28,17 +28,23 @@ FROM node:24-bookworm-slim
 # instruction ». Les runners CI et les machines modernes l'exécutent sans souci ;
 # c'est le même compromis que tout binaire précompilé.
 
-# ─── PAS DE NODE_ENV DANS L'ENVIRONNEMENT DE L'IMAGE ─────────────────────────
+# ─── NI NODE_ENV, NI HOME DANS L'ENVIRONNEMENT DE L'IMAGE ────────────────────
 #
 # Tout ce qui tourne dans le conteneur hérite de cet ENV : l'agent et ses
 # commandes, et les validations du nœud (`npm ci` puis les scripts du projet ;
-# le bac ne relaie que `CI`). `NODE_ENV=production` y faisait omettre les
-# devDependencies (npm : `omit=dev`) : le `test` d'un projet ne trouvait plus
-# vitest ni jest — 127, `outil_introuvable`, aucune production jugée. Les CLI
-# n'en ont pas besoin : leur installation dit `--omit=dev` elle-même, et aucun
-# des trois ne lit la variable pour décider (bundles compilés en production).
+# le bac ne relaie que `CI`).
+#
+#   · `NODE_ENV=production` y faisait omettre les devDependencies (npm :
+#     `omit=dev`) : le `test` d'un projet ne trouvait plus vitest ni jest —
+#     127, `outil_introuvable`, aucune production jugée. Les CLI n'en ont pas
+#     besoin : leur installation dit `--omit=dev` elle-même, et aucun des trois
+#     ne lit la variable pour décider (bundles compilés en production).
+#   · `HOME` appartient au bac, qui pose le sien à chaque lancement
+#     (`HOME_CONTENEUR`, dans le /tmp en mémoire). Posé ici, il faisait écrire
+#     la construction — `npm ci`, en root — dans ce HOME : Docker masque /tmp
+#     par un tmpfs vide, mais Podman y RECOPIE le /tmp de l'image (tmpcopyup),
+#     et l'agent héritait d'un `~/.npm` à root — `npm ci` en EACCES.
 ENV DEBIAN_FRONTEND=noninteractive \
-    HOME=/tmp/hive-home \
     PATH=/opt/hive-agents/node_modules/.bin:$PATH
 
 COPY docker/agents/package.json docker/agents/package-lock.json /opt/hive-agents/

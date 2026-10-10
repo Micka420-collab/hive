@@ -67,8 +67,12 @@ Les validations du nœud tournent aussi dans ce conteneur, avec l’environnemen
 de l’image (Hive n’y relaie que `CI`) : `npm ci`, puis les scripts du projet.
 Une image ne pose donc pas `NODE_ENV=production` — npm en déduit `omit=dev`,
 les devDependencies (vitest, jest…) manquent, et le test rend « outil
-introuvable » au lieu d’un verdict. C’est le banc « les validations du nœud
-installent les devDependencies » qui le tient en CI, sous Docker et Podman.
+introuvable » au lieu d’un verdict. Elle ne pose pas non plus de `HOME` : le
+bac pose le sien (`/tmp/hive-home`, en mémoire) à chaque lancement, et Podman
+recopie dans ce tmpfs ce que l’image a laissé sous `/tmp` — une construction
+qui y écrit en root lègue à l’agent un HOME où il ne peut pas écrire. C’est le
+banc « les validations du nœud installent les devDependencies » qui tient les
+deux en CI, sous Docker et sous Podman.
 
 Tout CLI ajouté à ce Dockerfile doit aussi être ajouté à la liste des binaires
 de `tests/isolement-runtime.integration.test.ts` : c’est ce test, lancé en CI
