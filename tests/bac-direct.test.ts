@@ -303,6 +303,9 @@ describe('lire une mesure — telle qu’elle est, ou pas du tout', () => {
       cpuEnfantsMs: 400,
     });
     expect(lireStatProc(1, 'illisible', 4096)).toBeNull();
+    // Un zombie (`Z`) a fini : le relevé le saute, il ne rend pas son Pss « illisible ».
+    expect(lireStatProc(42, ligne.replace(') S ', ') Z '), 4096)).toMatchObject({ sorti: true });
+    expect(lireStatProc(42, ligne, 4096)).not.toHaveProperty('sorti');
   });
 
   it('le BILAN de l’arbre : enfants moissonnés comptés, orphelin gardé, pic échantillonné', () => {

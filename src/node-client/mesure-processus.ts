@@ -84,6 +84,11 @@ export interface ProcessusVu {
   /** Linux : la session du processus (champ 6 de `stat`). */
   session?: number;
   /**
+   * Linux : il a FINI (`Z`, zombie que son parent n'a pas encore moissonné ;
+   * `X`) — plus de mémoire, plus d'avenir. Absent : il vit.
+   */
+  sorti?: true;
+  /**
    * Linux : son Pss (`smaps_rollup`), en octets — absent quand il ne se lit
    * pas (un processus d'un autre utilisateur, un `bwrap` setuid).
    */
@@ -180,6 +185,7 @@ export function lireStatProc(
     pid,
     ppid,
     session,
+    ...(champs[0] === 'Z' || champs[0] === 'X' ? { sorti: true as const } : {}),
     cpuMs: ((utime + stime) * 1000) / TICS_PAR_SECONDE,
     cpuEnfantsMs: (Math.max(0, cutime + cstime) * 1000) / TICS_PAR_SECONDE,
     ...(taillePageOctets !== null ? { rssOctets: Math.max(0, rss) * taillePageOctets } : {}),
@@ -333,12 +339,23 @@ export async function relireArbreProc(arbre: readonly ProcessusVu[]): Promise<Pr
     try {
       // Séquentiel À DESSEIN : c'est l'ordre des lectures qui compte.
       const p = lireStatProc(pid, await readFile(`/proc/${pid}/stat`, 'utf8'), page);
-      if (!p) continue;
+      // Un zombie a FINI : ni mémoire (son `smaps_rollup` répond ESRCH), ni
+      // place dans le relevé — son CPU passera au cumul de son parent quand
+      // celui-ci le moissonnera. Le compter « Pss illisible » faisait tomber
+      // tout le relevé, et le pic de toute l'exécution, à la somme des RSS.
+      if (!p || p.sorti) continue;
       // Le Pss, de l'arbre seulement (quelques millisecondes pour un gros
-      // processus : le noyau parcourt ses pages). Illisible — un processus
-      // d'un autre utilisateur — il reste absent, et le relevé le dira.
-      const pss = await readFile(`/proc/${pid}/smaps_rollup`, 'utf8').then(pssDeSmaps, () => null);
-      relus.push(pss === null ? p : { ...p, pssOctets: pss });
+      // processus : le noyau parcourt ses pages).
+      const lu = await readFile(`/proc/${pid}/smaps_rollup`, 'utf8').then(
+        (texte) => ({ pss: pssDeSmaps(texte) }),
+        (e: NodeJS.ErrnoException) =>
+          // Parti entre les deux lectures : sorti, comme un zombie. Toute autre
+          // erreur (EACCES : un processus d'un autre utilisateur, un `bwrap`
+          // setuid) laisse le Pss ILLISIBLE, et le relevé le dira.
+          e.code === 'ESRCH' || e.code === 'ENOENT' ? ('sorti' as const) : { pss: null },
+      );
+      if (lu === 'sorti') continue;
+      relus.push(lu.pss === null ? p : { ...p, pssOctets: lu.pss });
     } catch {
       /* sorti depuis la table */
     }
