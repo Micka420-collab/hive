@@ -19,7 +19,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { HiveNode, Task } from '../src/shared/types';
+import type { HiveNode, RessourcesExecution, Task } from '../src/shared/types';
 import type { DroneRace } from '../src/orchestrator/drone-wars';
 import { setLang } from '../dashboard/src/i18n';
 
@@ -207,26 +207,86 @@ describe('le tiroir — les métadonnées et le geste qui coupe', () => {
     expect(dom.textContent).toContain('construire le rayon');
   });
 
-  it('affiche les ressources réellement observées par le Worker', async () => {
-    const task = {
-      ...tache('done'),
-      result: {
-        success: true,
-        nodeId: 'noeud-1',
-        durationMs: 1_250,
-        usage: {
-          userCpuMicros: 8_000,
-          systemCpuMicros: 2_000,
-          maxRssBytes: 2 * 1024 * 1024,
-          rssBytes: 1 * 1024 * 1024,
-          heapUsedBytes: 512 * 1024,
-        },
-      },
+  it('les ressources observées sont celles de l’AGENT — ou la raison de leur absence', async () => {
+    const ligne = async (ressources: RessourcesExecution) => {
+      act(() => racine?.unmount());
+      const task: Task = {
+        ...tache('done'),
+        result: { success: true, nodeId: 'noeud-1', durationMs: 1_250, ressources },
+      };
+      const dom = await monter(<TaskDrawer task={task} nodes={NOEUDS} onClose={() => {}} />);
+      return dom.querySelector('[data-testid="task-observed-resources"]')?.textContent;
     };
-    const dom = await monter(<TaskDrawer task={task} nodes={NOEUDS} onClose={() => {}} />);
-    expect(dom.querySelector('[data-testid="task-observed-resources"]')?.textContent).toContain(
-      'processus Worker : 10 ms CPU · 2.0 MiB RSS · coût fournisseur à part (« Où est passé le temps »)',
+    const MIO = 1024 * 1024;
+    expect(
+      await ligne({
+        portee: 'arbre',
+        releves: 12,
+        cpuMs: 1_200,
+        picOctets: 54 * MIO,
+        memoire: 'pss',
+      }),
+    ).toBe(
+      'Arbre de processus de l’agent : au moins 1.2 s CPU · pic mémoire échantillonné 54.0 Mio ' +
+        '(Pss — pages partagées réparties) · 12 relevés toutes les 5 s · ' +
+        'coût fournisseur à part (« Où est passé le temps »)',
     );
+    // Là où le Pss ne se lit pas : la somme des RSS — NOMMÉE, avec ce qu'elle compte.
+    expect(
+      await ligne({
+        portee: 'arbre',
+        releves: 3,
+        cpuMs: 90,
+        picOctets: 175 * MIO,
+        memoire: 'somme_rss',
+      }),
+    ).toContain(
+      'pic échantillonné de la somme des RSS de l’arbre 175 Mio (pages partagées comptées par processus)',
+    );
+    expect(
+      await ligne({
+        portee: 'conteneur',
+        releves: 2,
+        cpuMs: 80,
+        picOctets: 300 * MIO,
+        memoire: 'noyau',
+      }),
+    ).toContain(
+      'Conteneur de l’agent : au moins 80 ms CPU · pic mémoire du conteneur 300 Mio (tenu par le noyau) · 2 relevés',
+    );
+    expect(
+      await ligne({ portee: 'conteneur', releves: 2, picOctets: MIO, memoire: 'moteur' }),
+    ).toContain(
+      'CPU non mesuré (cgroup illisible ici, pas de cumul dans le `stats` du moteur) · ' +
+        'pic mémoire échantillonné 1.0 Mio (selon le moteur)',
+    );
+    // Un seul relevé, au départ : pas de fenêtre — jamais « au moins 0 ms ».
+    const bref = await ligne({
+      portee: 'arbre',
+      releves: 1,
+      cpuMs: 0,
+      picOctets: 5 * MIO,
+      memoire: 'pss',
+    });
+    expect(bref).toContain(
+      'Arbre de processus de l’agent : trop bref pour être mesuré (un seul relevé)',
+    );
+    expect(bref).not.toContain('au moins');
+    // Ce qu'un nœud d'avant mesurait était LUI-MÊME : jamais affiché pour l'agent.
+    const ancien = await ligne({ portee: 'aucune', raison: 'noeud_ancien' });
+    expect(ancien).toBe(
+      'Ressources de l’agent non mesurées — nœud d’une version antérieure, qui ne mesurait que ' +
+        'lui-même · coût fournisseur à part (« Où est passé le temps »)',
+    );
+    expect(ancien).not.toMatch(/Worker|CPU|RSS/);
+    expect(await ligne({ portee: 'aucune', raison: 'plateforme' })).toContain(
+      'non mesurées — Windows hors conteneur, sans table des processus lisible',
+    );
+    // En anglais, des MiB — pas des Mio.
+    act(() => setLang('en'));
+    expect(
+      await ligne({ portee: 'arbre', releves: 2, cpuMs: 10, picOctets: 54 * MIO, memoire: 'pss' }),
+    ).toContain('sampled memory peak 54.0 MiB (PSS — shared pages split)');
   });
 
   it('ANNULER n’existe que si la tâche peut encore l’être — et le clic annule VRAIMENT', async () => {
@@ -329,10 +389,69 @@ describe('le tiroir — le graphe de délégation réel', () => {
     expect(dom.textContent).toContain('parent : tache-du-tiroir');
     expect(dom.textContent).toContain('isoler les tests de sécurité');
     expect(dom.textContent).toContain('Budget réservé : 60.0 s · coût 42 µUSD · ressources 1');
+    // Ce journal vient d'un nœud d'avant : `usage` était le processus du NŒUD.
+    // Et un coût que le CLI n'a pas déclaré est inconnu — jamais estimé.
     expect(dom.textContent).toContain(
-      'Dernière exécution mesurée : 1.3 s · processus Worker : 15 ms CPU · 4.0 MiB RSS · coût fournisseur non mesuré',
+      'Dernière exécution mesurée : 1.3 s · ressources de l’agent non mesurées — nœud d’une ' +
+        'version antérieure, qui ne mesurait que lui-même · coût fournisseur inconnu — jamais estimé',
     );
+    expect(dom.textContent).not.toContain('processus Worker');
     expect(dom.textContent).toContain('terminée');
+  });
+
+  it('la ligne d’un enfant dit SES ressources et le coût que SON CLI a déclaré', async () => {
+    vi.mocked(fetchDelegationGraph).mockResolvedValue({
+      taskId: 'tache-du-tiroir',
+      rootTaskId: 'tache-du-tiroir',
+      graph: [
+        {
+          taskId: 'tache-du-tiroir',
+          rootTaskId: 'tache-du-tiroir',
+          parentTaskId: null,
+          depth: 0,
+          status: 'running',
+          origine: 'native',
+        },
+        {
+          taskId: 'enfant-1',
+          rootTaskId: 'tache-du-tiroir',
+          parentTaskId: 'tache-du-tiroir',
+          depth: 1,
+          status: 'done',
+          origine: 'hive',
+        },
+      ],
+      delegations: [],
+      events: [
+        {
+          id: 2,
+          ts: 2,
+          type: 'delegation_result',
+          payload: {
+            childTaskId: 'enfant-1',
+            durationMs: 9_000,
+            success: true,
+            coutUsd: 0.0421,
+            ressources: {
+              portee: 'arbre',
+              releves: 3,
+              cpuMs: 300,
+              picOctets: 20 * 1024 * 1024,
+              memoire: 'pss',
+            },
+          },
+        },
+      ],
+    });
+    const dom = await monter(
+      <TaskDrawer task={tache('running')} nodes={NOEUDS} onClose={() => {}} />,
+    );
+    await act(async () => {});
+    expect(dom.textContent).toContain(
+      'Dernière exécution mesurée : 9.0 s · arbre de processus de l’agent : au moins 300 ms CPU · ' +
+        'pic mémoire échantillonné 20.0 Mio (Pss — pages partagées réparties) · 3 relevés ' +
+        'toutes les 5 s · coût fournisseur : 0,0421\u00a0$US déclarés par le CLI',
+    );
   });
 
   it('dit POURQUOI un enfant a été annulé avec le sous-arbre de son ancêtre', async () => {

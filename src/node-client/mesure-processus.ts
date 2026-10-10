@@ -6,7 +6,12 @@
 // serveurs MCP, `npm test` lance un runner. Mesurer le seul enfant direct
 // dirait « 40 Mo » pour un arbre qui en occupe deux gigas. On mesure donc
 // l'ARBRE : l'enfant et toute sa descendance, retrouvée par les liens
-// parent → enfant de la table des processus.
+// parent → enfant de la table des processus — et, sous Linux, tout ce qui
+// reste dans une SESSION que l'arbre a ouverte : `cmd &` dans un `bash -c`,
+// ou un démon double-forké, quittent l'arbre des parents quand leur parent
+// meurt (reparentés à init), pas leur session. L'agent est lancé `detached`,
+// donc chef d'une session à lui (`setsid`) : deux tâches n'en partagent
+// jamais une. Un démon qui ouvre SA session (`setsid`) échappe encore.
 //
 //   · Linux : `/proc` — lu directement, sans lancer quoi que ce soit ;
 //   · macOS et autres POSIX : `ps -A -o pid=,ppid=,rss=,time=`, un seul
@@ -27,6 +32,33 @@
 // ou mort entre les deux n'a pas de différence mesurable (son temps partirait
 // en négatif, ou compterait toute sa vie en cinq secondes).
 //
+// ─── LE BILAN DE FIN D'EXÉCUTION : LA MÊME MESURE, CUMULÉE ───────────────────
+//
+// Ce que le résultat porte (`RessourcesExecution`) sort de CES relevés, jamais
+// du processus du nœud — dont le CPU ignorait tout de l'agent, son enfant, et
+// dont le pic de mémoire était celui du nœud depuis son démarrage.
+//
+//   · CPU de l'arbre : sous Linux, chaque processus compte son CPU propre ET
+//     celui des descendants qu'il a moissonnés (`cutime`/`cstime`, cumulés de
+//     proche en proche — à travers l'init de bubblewrap aussi). Un `git` de
+//     dix millisecondes né et mort entre deux relevés est donc compté, par son
+//     parent. Ailleurs (`ps`), le CPU propre de chaque processus au dernier
+//     relevé où on l'a vu. Échappent : ce qui suit le DERNIER relevé, un
+//     orphelin après qu'il a quitté l'arbre (reparenté), les enfants d'un
+//     parent qui ignore SIGCHLD. Le bilan est donc un PLANCHER, dit tel quel ;
+//   · le pic de mémoire est le plus haut des relevés : un pic ÉCHANTILLONNÉ,
+//     que rien n'oblige à tomber sur un relevé. Et il dit QUELLE mémoire
+//     (`MemoireMesuree`) : sous Linux le Pss (`smaps_rollup`), où une page
+//     partagée est RÉPARTIE entre ceux qui la partagent ; la somme des RSS la
+//     compte une fois PAR processus — un Claude Code et trois serveurs MCP
+//     inactifs : 175 Mio de RSS additionnés pour 54 Mio de Pss. La somme des
+//     RSS ne sert que là où le Pss ne se lit pas (`ps`, un processus d'un
+//     autre utilisateur), et elle est NOMMÉE ainsi ;
+//   · un conteneur : son cgroup v2, quand l'hôte le voit (Linux, moteur local)
+//     — `usage_usec` compte TOUT ce qui y a tourné, `memory.peak` est le pic
+//     tenu par le noyau. Lus à chaque relevé : le cgroup disparaît avec le
+//     conteneur (`--rm`), le dernier relevé est le dernier mot.
+//
 // Module sans état global — sauf la taille de page de la machine, lue une
 // fois (`taillePageMachine`) ; la table et le lanceur sont injectables.
 
@@ -34,6 +66,7 @@ import { spawn } from 'node:child_process';
 import { endianness } from 'node:os';
 import { readdir, readFile } from 'node:fs/promises';
 import type { MetriquesDirect } from '../shared/bac-direct.js';
+import type { MemoireMesuree } from '../shared/types.js';
 
 /** Une ligne de la table des processus : ce dont une mesure a besoin. */
 export interface ProcessusVu {
@@ -41,8 +74,37 @@ export interface ProcessusVu {
   ppid: number;
   /** Temps CPU cumulé (utilisateur + système), en millisecondes. */
   cpuMs: number;
+  /**
+   * Linux seulement : le CPU des descendants que ce processus a MOISSONNÉS
+   * (`cutime` + `cstime`), en millisecondes. Absent sous `ps`.
+   */
+  cpuEnfantsMs?: number;
   /** Mémoire résidente, en octets ; absente quand on ne sait pas la convertir. */
   rssOctets?: number;
+  /** Linux : la session du processus (champ 6 de `stat`). */
+  session?: number;
+  /**
+   * Linux : il a FINI (`Z`, zombie que son parent n'a pas encore moissonné ;
+   * `X`) — plus de mémoire, plus d'avenir. Absent : il vit.
+   */
+  sorti?: true;
+  /**
+   * Linux : son Pss (`smaps_rollup`), en octets — absent quand il ne se lit
+   * pas (un processus d'un autre utilisateur, un `bwrap` setuid).
+   */
+  pssOctets?: number;
+}
+
+/**
+ * Ce que des relevés ont vu d'une exécution, cumulé (voir l'en-tête). `pics` :
+ * le plus haut relevé de CHAQUE mémoire qui s'est lue — c'est au bilan d'en
+ * retenir une, jamais à l'affichage de deviner laquelle.
+ */
+export interface BilanReleves {
+  /** Relevés qui ont rendu au moins un nombre. */
+  releves: number;
+  cpuMs?: number;
+  pics: Partial<Record<MemoireMesuree, number>>;
 }
 
 /**
@@ -105,22 +167,35 @@ export function lireStatProc(
 ): ProcessusVu | null {
   const fin = texte.lastIndexOf(')');
   if (fin < 0) return null;
-  // Après « ) » : état (champ 3), ppid (4)… utime (14), stime (15)… rss (24).
+  // Après « ) » : état (champ 3), ppid (4), groupe (5), session (6)… utime
+  // (14), stime (15), cutime (16), cstime (17)… rss (24).
   const champs = texte
     .slice(fin + 1)
     .trim()
     .split(/\s+/);
   const ppid = Number(champs[1]);
+  const session = Number(champs[3]);
   const utime = Number(champs[11]);
   const stime = Number(champs[12]);
+  const cutime = Number(champs[13]);
+  const cstime = Number(champs[14]);
   const rss = Number(champs[21]);
-  if (![ppid, utime, stime, rss].every(Number.isFinite)) return null;
+  if (![ppid, session, utime, stime, cutime, cstime, rss].every(Number.isFinite)) return null;
   return {
     pid,
     ppid,
+    session,
+    ...(champs[0] === 'Z' || champs[0] === 'X' ? { sorti: true as const } : {}),
     cpuMs: ((utime + stime) * 1000) / TICS_PAR_SECONDE,
+    cpuEnfantsMs: (Math.max(0, cutime + cstime) * 1000) / TICS_PAR_SECONDE,
     ...(taillePageOctets !== null ? { rssOctets: Math.max(0, rss) * taillePageOctets } : {}),
   };
+}
+
+/** `smaps_rollup` : le `Pss`, en octets ; `null` s'il n'y est pas. */
+export function pssDeSmaps(texte: string): number | null {
+  const m = /^Pss:\s+(\d+) kB$/m.exec(texte);
+  return m ? Number(m[1]) * 1024 : null;
 }
 
 /** `[[jj-]hh:]mm:ss[.cc]` (colonne `time` de `ps`) en millisecondes ; `null` sinon. */
@@ -144,10 +219,18 @@ export function lireSortiePs(sortie: string): ProcessusVu[] {
   return table;
 }
 
-/** La racine et toute sa descendance, racine en tête ; vide si la racine est absente. */
+/**
+ * La racine et toute sa descendance, racine en tête ; vide si la racine est
+ * absente. TOUJOURS les parents avant leurs enfants : la relecture du CPU
+ * (`relireArbreProc`) et la pause en dépendent.
+ *
+ * Sous Linux, s'y ajoutent les ÉCHAPPÉS : ce qui reste dans une session qu'un
+ * processus de l'arbre a ouverte (il en est le chef : `pid === session`),
+ * hors de sa descendance — un orphelin reparenté à init (voir l'en-tête). Ils
+ * viennent après, chacun suivi des siens.
+ */
 export function descendance(table: readonly ProcessusVu[], racine: number): ProcessusVu[] {
-  const parPid = new Map(table.map((p) => [p.pid, p]));
-  const tete = parPid.get(racine);
+  const tete = table.find((p) => p.pid === racine);
   if (!tete) return [];
   const enfants = new Map<number, ProcessusVu[]>();
   for (const p of table) {
@@ -158,15 +241,26 @@ export function descendance(table: readonly ProcessusVu[], racine: number): Proc
   }
   const arbre: ProcessusVu[] = [];
   const vus = new Set<number>();
-  const file = [tete];
-  // En largeur : les parents avant leurs enfants — l'ordre que la pause suit.
-  while (file.length > 0) {
-    const p = file.shift()!;
-    if (vus.has(p.pid)) continue;
-    vus.add(p.pid);
-    arbre.push(p);
-    file.push(...(enfants.get(p.pid) ?? []));
-  }
+  // En largeur : les parents avant leurs enfants.
+  const parcourir = (depart: ProcessusVu): void => {
+    const file = [depart];
+    while (file.length > 0) {
+      const p = file.shift()!;
+      if (vus.has(p.pid)) continue;
+      vus.add(p.pid);
+      arbre.push(p);
+      file.push(...(enfants.get(p.pid) ?? []));
+    }
+  };
+  parcourir(tete);
+  const sessions = new Set(arbre.filter((p) => p.session === p.pid).map((p) => p.pid));
+  const echappes = table.filter(
+    (p) => !vus.has(p.pid) && p.session !== undefined && sessions.has(p.session),
+  );
+  // Depuis ceux dont le parent n'est pas lui-même un échappé : un orphelin et
+  // son enfant restent dans cet ordre.
+  const parmiEux = new Set(echappes.map((p) => p.pid));
+  for (const p of echappes) if (!parmiEux.has(p.ppid)) parcourir(p);
   return arbre;
 }
 
@@ -228,6 +322,48 @@ async function tableProc(): Promise<ProcessusVu[]> {
 }
 
 /**
+ * Linux : relit les processus d'un arbre UN PAR UN, dans l'ordre donné — les
+ * parents avant leurs enfants (`descendance`). Un processus sorti est sauté.
+ *
+ * L'ordre est ce qui rend le cumul (`cpuMs` + `cpuEnfantsMs`) juste : quand un
+ * parent moissonne un enfant, le CPU de l'enfant PASSE dans le `cutime` du
+ * parent. Lus pêle-mêle, l'enfant lu avant de mourir puis le parent lu après
+ * l'avoir moissonné le comptaient deux fois. Parent d'abord, il ne peut plus
+ * qu'être compté une fois — ou pas du tout dans ce relevé, si le parent l'a
+ * moissonné entre les deux lectures : un plancher reste un plancher.
+ */
+export async function relireArbreProc(arbre: readonly ProcessusVu[]): Promise<ProcessusVu[]> {
+  const page = await taillePageMachine();
+  const relus: ProcessusVu[] = [];
+  for (const { pid } of arbre) {
+    try {
+      // Séquentiel À DESSEIN : c'est l'ordre des lectures qui compte.
+      const p = lireStatProc(pid, await readFile(`/proc/${pid}/stat`, 'utf8'), page);
+      // Un zombie a FINI : ni mémoire (son `smaps_rollup` répond ESRCH), ni
+      // place dans le relevé — son CPU passera au cumul de son parent quand
+      // celui-ci le moissonnera. Le compter « Pss illisible » faisait tomber
+      // tout le relevé, et le pic de toute l'exécution, à la somme des RSS.
+      if (!p || p.sorti) continue;
+      // Le Pss, de l'arbre seulement (quelques millisecondes pour un gros
+      // processus : le noyau parcourt ses pages).
+      const lu = await readFile(`/proc/${pid}/smaps_rollup`, 'utf8').then(
+        (texte) => ({ pss: pssDeSmaps(texte) }),
+        (e: NodeJS.ErrnoException) =>
+          // Parti entre les deux lectures : sorti, comme un zombie. Toute autre
+          // erreur (EACCES : un processus d'un autre utilisateur, un `bwrap`
+          // setuid) laisse le Pss ILLISIBLE, et le relevé le dira.
+          e.code === 'ESRCH' || e.code === 'ENOENT' ? ('sorti' as const) : { pss: null },
+      );
+      if (lu === 'sorti') continue;
+      relus.push(lu.pss === null ? p : { ...p, pssOctets: lu.pss });
+    } catch {
+      /* sorti depuis la table */
+    }
+  }
+  return relus;
+}
+
+/**
  * La table des processus de CETTE machine, ou `null` quand on ne sait pas la
  * lire ici (Windows) — l'appelant dit alors « inconnu ».
  */
@@ -255,13 +391,52 @@ export async function tableDesProcessus(
  */
 export class MesureArbre {
   private precedent: { a: number; cpu: Map<number, number> } | null = null;
+  private releves = 0;
+  /** Le plus grand total relevé : CPU propre + enfants moissonnés, de tout l'arbre. */
+  private cumulMax = 0;
+  /** Le plus haut CPU PROPRE vu de chaque processus : il ne passe jamais à un autre. */
+  private readonly propres = new Map<number, number>();
+  /** Le plus haut de chaque mémoire relevée (voir `relever`). */
+  private picRss: number | undefined;
+  private picPss: number | undefined;
+  /** Faux dès qu'un relevé a eu la somme des RSS sans le Pss de TOUT l'arbre. */
+  private pssPartout = true;
 
   constructor(private readonly racine: number) {}
+
+  /**
+   * Ce que les relevés ont vu de l'arbre (voir l'en-tête du module). Le CPU
+   * est le plus haut de deux planchers : le total relevé (enfants moissonnés
+   * compris, Linux), et la somme des CPU propres de tout processus vu — qui
+   * garde un orphelin sorti de l'arbre, et tout le CPU sous `ps`.
+   */
+  bilan(): BilanReleves {
+    if (this.releves === 0) return { releves: 0, pics: {} };
+    let propres = 0;
+    for (const ms of this.propres.values()) propres += ms;
+    return {
+      releves: this.releves,
+      cpuMs: Math.round(Math.max(this.cumulMax, propres)),
+      // Le pic Pss seulement s'il a été lu à CHAQUE relevé : un plus haut fait
+      // de Pss ici et de sommes de RSS là ne serait ni l'un ni l'autre.
+      pics: {
+        ...(this.picPss !== undefined && this.pssPartout ? { pss: this.picPss } : {}),
+        ...(this.picRss !== undefined ? { somme_rss: this.picRss } : {}),
+      },
+    };
+  }
 
   /** `null` : la racine n'est plus dans la table (sortie, ou pas encore visible). */
   relever(table: readonly ProcessusVu[], maintenant: number): MetriquesDirect | null {
     const arbre = descendance(table, this.racine);
     if (arbre.length === 0) return null;
+    this.releves += 1;
+    let total = 0;
+    for (const p of arbre) {
+      total += p.cpuMs + (p.cpuEnfantsMs ?? 0);
+      this.propres.set(p.pid, Math.max(this.propres.get(p.pid) ?? 0, p.cpuMs));
+    }
+    this.cumulMax = Math.max(this.cumulMax, total);
     const cpu = new Map(arbre.map((p) => [p.pid, p.cpuMs]));
     let cpuPct: number | undefined;
     if (this.precedent && maintenant > this.precedent.a) {
@@ -274,14 +449,27 @@ export class MesureArbre {
     }
     this.precedent = { a: maintenant, cpu };
     // Une seule mémoire inconnue rend la somme inconnue : un total partiel
-    // passerait pour celui de tout l'arbre.
-    const rss = arbre.every((p) => p.rssOctets !== undefined)
-      ? arbre.reduce((s, p) => s + (p.rssOctets ?? 0), 0)
-      : undefined;
+    // passerait pour celui de tout l'arbre. Le Pss d'abord ; la somme des RSS,
+    // qui compte une page partagée par processus, quand il manque.
+    const somme = (lu: (p: ProcessusVu) => number | undefined): number | undefined =>
+      arbre.every((p) => lu(p) !== undefined)
+        ? arbre.reduce((t, p) => t + (lu(p) ?? 0), 0)
+        : undefined;
+    const rss = somme((p) => p.rssOctets);
+    const pss = somme((p) => p.pssOctets);
+    if (rss !== undefined) this.picRss = Math.max(this.picRss ?? 0, rss);
+    if (pss !== undefined) this.picPss = Math.max(this.picPss ?? 0, pss);
+    else if (rss !== undefined) this.pssPartout = false;
+    const memoire =
+      pss !== undefined
+        ? { memoireOctets: pss, memoire: 'pss' as const }
+        : rss !== undefined
+          ? { memoireOctets: rss, memoire: 'somme_rss' as const }
+          : {};
     return {
       source: 'arbre',
       ...(cpuPct !== undefined ? { cpuPct } : {}),
-      ...(rss !== undefined ? { rssOctets: rss } : {}),
+      ...memoire,
       processus: arbre.length,
     };
   }
@@ -293,6 +481,22 @@ export class MesureArbre {
  * ces trois champs-là, non.
  */
 export const FORMAT_STATS_MOTEUR = '{{.CPUPerc}}|{{.MemUsage}}|{{.PIDs}}';
+
+/**
+ * Le gabarit de `stats` pour CE moteur. Podman y ajoute le CPU CUMULÉ du
+ * conteneur (`.CPUNano`, en nanosecondes — podman-stats(1)). Docker n'a aucun
+ * cumul dans le sien (`docker stats` ne formate que CPUPerc, MemUsage, MemPerc,
+ * NetIO, BlockIO, PIDs) : le lui demander ferait échouer toute la commande.
+ */
+export function formatStatsMoteur(bin: string): string {
+  return bin === 'podman' ? `${FORMAT_STATS_MOTEUR}|{{.CPUNano}}` : FORMAT_STATS_MOTEUR;
+}
+
+/** Le CPU cumulé d'une ligne `stats` de Podman (4e champ, en ns), en ms ; `null` sinon. */
+export function cumulCpuMoteur(ligne: string): number | null {
+  const nano = ligne.trim().split('\n')[0]!.split('|')[3]?.trim() ?? '';
+  return /^\d{1,19}$/.test(nano) ? Math.floor(Number(nano) / 1e6) : null;
+}
 
 const UNITES: Readonly<Record<string, number>> = {
   b: 1,
@@ -325,12 +529,51 @@ export function lireStatsMoteur(ligne: string): MetriquesDirect | null {
   if (cpu === undefined || memoire === undefined || pids === undefined) return null;
   const pct = /^([\d.]+)%$/.exec(cpu.trim());
   const cpuPct = pct ? Number(pct[1]) : undefined;
-  const rssOctets = octetsDe(memoire.split('/')[0] ?? '');
+  const memoireOctets = octetsDe(memoire.split('/')[0] ?? '');
   const processus = /^\d+$/.test(pids.trim()) ? Number(pids.trim()) : undefined;
   return {
     source: 'conteneur',
     ...(cpuPct !== undefined && Number.isFinite(cpuPct) ? { cpuPct } : {}),
-    ...(rssOctets !== undefined ? { rssOctets } : {}),
+    ...(memoireOctets !== undefined ? { memoireOctets, memoire: 'moteur' as const } : {}),
     ...(processus !== undefined ? { processus } : {}),
   };
+}
+
+/**
+ * Le gabarit d'`inspect` que Podman et Docker comprennent tous deux :
+ * l'identifiant complet du conteneur, et le pid de son init VU DE L'HÔTE.
+ */
+export const FORMAT_INSPECT_CGROUP = '{{.Id}} {{.State.Pid}}';
+
+/** La sortie d'`inspect` ; `null` si illisible, ou pas encore lancé (pid 0). */
+export function lireInspect(sortie: string): { id: string; pid: number } | null {
+  const [id = '', pid = ''] = sortie.trim().split(/\s+/);
+  return /^[0-9a-f]{64}$/.test(id) && /^[1-9]\d{0,9}$/.test(pid) ? { id, pid: Number(pid) } : null;
+}
+
+/**
+ * Le dossier cgroup v2 d'un conteneur sur l'hôte, d'après le `/proc/<pid>/cgroup`
+ * de son init — ou `null`.
+ *
+ * Le chemin DOIT porter l'identifiant du conteneur (`docker-<id>.scope`,
+ * `docker/<id>`, `libpod-<id>.scope`) : le pid d'un moteur qui vit ailleurs
+ * (la VM de Docker Desktop, un démon rootless dans son propre espace de pid)
+ * nomme sur l'hôte un INCONNU, dont le cgroup passerait pour celui de l'agent.
+ */
+export function dossierCgroup(id: string, cgroupDuPid: string): string | null {
+  const chemin = /^0::(\/\S*)$/m.exec(cgroupDuPid)?.[1];
+  if (!chemin || !chemin.includes(id) || chemin.split('/').includes('..')) return null;
+  return `/sys/fs/cgroup${chemin}`;
+}
+
+/** `cpu.stat` d'un cgroup : `usage_usec` — TOUT ce qui y a tourné —, en ms ; `null` sinon. */
+export function cpuDuCgroup(cpuStat: string): number | null {
+  const m = /^usage_usec (\d+)$/m.exec(cpuStat);
+  return m ? Math.floor(Number(m[1]) / 1000) : null;
+}
+
+/** `memory.peak` d'un cgroup : un entier d'octets ; `null` sinon. */
+export function picDuCgroup(memoirePeak: string): number | null {
+  const texte = memoirePeak.trim();
+  return /^\d{1,16}$/.test(texte) ? Number(texte) : null;
 }

@@ -9,7 +9,9 @@
 //   · le PROCESSUS de l'agent, que `exec.ts` lui attache au lancement
 //     (`attacher`) — et, s'il tourne dans un conteneur, le nom du conteneur ;
 //   · la MESURE de ce processus, relevée toutes les `INTERVALLE_METRIQUES_MS`
-//     (`mesure-processus.ts`) ;
+//     (`mesure-processus.ts`) — et son BILAN (`ressources`), ce que le
+//     résultat de la tâche porte : la même mesure, cumulée, jamais celle du
+//     processus du nœud ;
 //   · la PAUSE, et les HORLOGES qu'elle doit suspendre.
 //
 // ─── LA PAUSE, ET POURQUOI ELLE ARRÊTE AUSSI LES HORLOGES ────────────────────
@@ -56,6 +58,7 @@
 // perdait son « en pause » et son bouton Reprendre — gelé pour de bon,
 // horloges suspendues.
 
+import { readFile } from 'node:fs/promises';
 import { creerMinuteurSuspendable } from '../shared/minuteur-suspendable.js';
 import type { MinuteurSuspendable } from '../shared/minuteur-suspendable.js';
 import { fusionnerDirect, INTERVALLE_METRIQUES_MS } from '../shared/bac-direct.js';
@@ -66,16 +69,25 @@ import type {
   MetriquesDirect,
   PhaseDirect,
 } from '../shared/bac-direct.js';
+import { MEMOIRES_PAR_PORTEE } from '../shared/types.js';
+import type { RessourcesExecution } from '../shared/types.js';
 import type { ValidationKey } from '../shared/validations-bac.js';
 import {
+  cpuDuCgroup,
+  cumulCpuMoteur,
   descendance,
-  FORMAT_STATS_MOTEUR,
+  dossierCgroup,
+  FORMAT_INSPECT_CGROUP,
+  formatStatsMoteur,
   lancerBorne,
+  lireInspect,
   lireStatsMoteur,
   MesureArbre,
+  picDuCgroup,
+  relireArbreProc,
   tableDesProcessus,
 } from './mesure-processus.js';
-import type { ProcessusVu } from './mesure-processus.js';
+import type { BilanReleves, ProcessusVu } from './mesure-processus.js';
 
 /** Un conteneur à piloter par son moteur : le client, son nom, son environnement. */
 export interface ConteneurPilote {
@@ -106,6 +118,14 @@ export interface PiloteProcessus {
 export interface SondesPilote {
   plateforme: NodeJS.Platform;
   table(): Promise<ProcessusVu[] | null>;
+  /**
+   * Relit un arbre parents d'abord (`relireArbreProc`), pour que le cumul de
+   * son CPU ne compte personne deux fois. Absente : la table fait foi — sous
+   * `ps`, aucun CPU ne passe d'un processus à l'autre.
+   */
+  relire?(arbre: readonly ProcessusVu[]): Promise<ProcessusVu[]>;
+  /** Lit un petit fichier de l'hôte (`/proc`, `/sys/fs/cgroup`). Absente : aucun cgroup lu. */
+  lireFichier?(chemin: string): Promise<string>;
   signaler(pid: number, signal: 'SIGSTOP' | 'SIGCONT'): void;
   moteur(
     bin: string,
@@ -123,6 +143,10 @@ const TOURS_ARRET_MAX = 8;
 export const SONDES_REELLES: SondesPilote = {
   plateforme: process.platform,
   table: () => tableDesProcessus(process.platform),
+  // `/proc` et `/sys/fs/cgroup` : Linux seulement.
+  ...(process.platform === 'linux'
+    ? { relire: relireArbreProc, lireFichier: (chemin: string) => readFile(chemin, 'utf8') }
+    : {}),
   signaler: (pid, signal) => process.kill(pid, signal),
   moteur: (bin, args, env) => lancerBorne(bin, args, env, DELAI_MOTEUR_MS),
   maintenant: () => Date.now(),
@@ -134,10 +158,19 @@ interface Attache {
   minuteur: NodeJS.Timeout;
   /** Une mesure en vol : la suivante attend (un moteur lent ne s'empile pas). */
   enMesure: boolean;
+  /**
+   * Un conteneur : ce que ses relevés ont vu — CPU cumulé (cgroup, ou `stats`
+   * de Podman), pic du noyau (`memory.peak`) et pic du `stats` du moteur.
+   */
+  bilan: BilanReleves;
+  /** Son dossier cgroup v2 : à chercher (`undefined`), introuvable ici (`null`), ou trouvé. */
+  cgroup?: string | null;
 }
 
 export class PiloteExecution implements PiloteProcessus {
   private attache: Attache | null = null;
+  /** Tout ce qui a été attaché, dans l'ordre : le bilan les additionne. */
+  private readonly passages: Attache[] = [];
   private pause = false;
   /** Les pid arrêtés par SIGSTOP : exactement ceux que la reprise doit relancer. */
   private readonly arretes = new Set<number>();
@@ -225,8 +258,15 @@ export class PiloteExecution implements PiloteProcessus {
     this.detacher();
     const minuteur = setInterval(() => void this.mesurer(), this.intervalleMs);
     minuteur.unref?.();
-    const attache: Attache = { p, mesure: new MesureArbre(p.pid), minuteur, enMesure: false };
+    const attache: Attache = {
+      p,
+      mesure: new MesureArbre(p.pid),
+      minuteur,
+      enMesure: false,
+      bilan: { releves: 0, pics: {} },
+    };
     this.attache = attache;
+    this.passages.push(attache);
     this.emettre({ commande: p.commande, pausable: this.pausable(), enPause: false });
     // Une première mesure tout de suite : la mémoire se lit dès le premier
     // relevé (le CPU, lui, attend le second — voir `MesureArbre`).
@@ -261,15 +301,30 @@ export class PiloteExecution implements PiloteProcessus {
     try {
       if (a.p.conteneur) {
         const { bin, nom, env } = a.p.conteneur;
-        const r = await this.sondes.moteur(
-          bin,
-          ['stats', '--no-stream', '--format', FORMAT_STATS_MOTEUR, nom],
-          env,
-        );
+        const [r, cgroupLu] = await Promise.all([
+          this.sondes.moteur(
+            bin,
+            ['stats', '--no-stream', '--format', formatStatsMoteur(bin), nom],
+            env,
+          ),
+          this.releverCgroup(a),
+        ]);
         m = r.code === 0 ? lireStatsMoteur(r.sortie) : null;
+        // Le pourcentage de CPU du `stats` est celui de l'instant ; son cumul
+        // (Podman seul) et sa mémoire — un pic échantillonné — entrent au bilan.
+        const cumul = r.code === 0 ? cumulCpuMoteur(r.sortie) : null;
+        if (cumul !== null) a.bilan.cpuMs = Math.max(a.bilan.cpuMs ?? 0, cumul);
+        if (m?.memoireOctets !== undefined) {
+          a.bilan.pics.moteur = Math.max(a.bilan.pics.moteur ?? 0, m.memoireOctets);
+        }
+        if (cgroupLu || cumul !== null || m?.memoireOctets !== undefined) a.bilan.releves += 1;
       } else {
         const table = await this.sondes.table();
-        m = table ? a.mesure.relever(table, this.sondes.maintenant()) : null;
+        const arbre =
+          table && this.sondes.relire
+            ? await this.sondes.relire(descendance(table, a.p.pid))
+            : table;
+        m = arbre ? a.mesure.relever(arbre, this.sondes.maintenant()) : null;
       }
     } catch {
       m = null;
@@ -280,6 +335,85 @@ export class PiloteExecution implements PiloteProcessus {
     if (this.attache !== a || this.ferme) return;
     // Rien de mesurable : « inconnu », jamais un zéro.
     this.emettre({ metriques: m });
+  }
+
+  /**
+   * Le cgroup v2 d'un conteneur — Linux, moteur local : trouvé une fois par
+   * `inspect`, puis relu à chaque relevé (`mesure-processus.ts`). Vrai s'il a
+   * rendu un nombre. Ne lève jamais : un cgroup absent laisse le `stats` seul.
+   */
+  private async releverCgroup(a: Attache): Promise<boolean> {
+    const lire = this.sondes.lireFichier;
+    const c = a.p.conteneur;
+    if (!lire || !c || a.cgroup === null) return false;
+    try {
+      if (a.cgroup === undefined) {
+        const r = await this.sondes.moteur(
+          c.bin,
+          ['inspect', '--format', FORMAT_INSPECT_CGROUP, c.nom],
+          c.env,
+        );
+        // Pas encore lancé (ou déjà reparti) : le relevé suivant réessaiera.
+        const vu = r.code === 0 ? lireInspect(r.sortie) : null;
+        if (!vu) return false;
+        // Un pid sans `/proc` ici (VM, moteur distant, autre espace de pid), ou
+        // un cgroup qui ne porte pas l'identifiant du conteneur : ce n'est pas
+        // le sien. On cesse de chercher — un `inspect` par relevé, sinon —
+        // plutôt que de lire celui d'un inconnu.
+        const texte = await lire(`/proc/${vu.pid}/cgroup`).catch(() => null);
+        a.cgroup = texte === null ? null : dossierCgroup(vu.id, texte);
+        if (a.cgroup === null) return false;
+      }
+      const dossier = a.cgroup;
+      const [cpu, pic] = await Promise.all([
+        lire(`${dossier}/cpu.stat`).then(cpuDuCgroup, () => null),
+        lire(`${dossier}/memory.peak`).then(picDuCgroup, () => null),
+      ]);
+      if (cpu !== null) a.bilan.cpuMs = Math.max(a.bilan.cpuMs ?? 0, cpu);
+      if (pic !== null) a.bilan.pics.noyau = Math.max(a.bilan.pics.noyau ?? 0, pic);
+      return cpu !== null || pic !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Les ressources de l'AGENT pour cette exécution : le bilan des relevés de
+   * tout ce qui a été attaché — ou POURQUOI rien ne se mesure, jamais un
+   * nombre d'autre chose. Lu par le client quand l'agent a rendu, avant les
+   * validations : comme sa durée, il décrit l'agent.
+   *
+   * Une exécution a UNE portée : le bac du nœud vaut pour toutes les commandes
+   * de l'adaptateur (`exec.ts`).
+   */
+  ressources(): RessourcesExecution {
+    if (this.passages.length === 0) return { portee: 'aucune', raison: 'aucun_processus' };
+    const conteneur = this.passages.some((a) => a.p.conteneur !== undefined);
+    if (!conteneur && this.sondes.plateforme === 'win32') {
+      return { portee: 'aucune', raison: 'plateforme' };
+    }
+    const bilans = this.passages
+      .map((a) => (a.p.conteneur ? a.bilan : a.mesure.bilan()))
+      .filter((b) => b.releves > 0);
+    const releves = bilans.reduce((n, b) => n + b.releves, 0);
+    const cpus = bilans.flatMap((b) => (b.cpuMs !== undefined ? [b.cpuMs] : []));
+    const avecMemoire = bilans.filter((b) => Object.keys(b.pics).length > 0);
+    // La plus juste que TOUS les passages ont lue : un plus haut fait de deux
+    // mémoires différentes ne serait ni l'une ni l'autre.
+    const memoire = MEMOIRES_PAR_PORTEE[conteneur ? 'conteneur' : 'arbre'].find(
+      (k) => avecMemoire.length > 0 && avecMemoire.every((b) => b.pics[k] !== undefined),
+    );
+    if (cpus.length === 0 && memoire === undefined) {
+      return { portee: 'aucune', raison: 'aucun_releve' };
+    }
+    return {
+      portee: conteneur ? 'conteneur' : 'arbre',
+      releves,
+      ...(cpus.length > 0 ? { cpuMs: cpus.reduce((t, ms) => t + ms, 0) } : {}),
+      ...(memoire !== undefined
+        ? { picOctets: Math.max(...avecMemoire.map((b) => b.pics[memoire]!)), memoire }
+        : {}),
+    };
   }
 
   /** Les gestes s'enchaînent : une reprise attend la pause qui la précède. */

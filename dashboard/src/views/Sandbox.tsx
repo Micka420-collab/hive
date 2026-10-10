@@ -148,8 +148,23 @@ function SousAgents({ agents, t }: { agents: SubAgent[] | undefined; t: Translat
   );
 }
 
+/** Quelle mémoire le nœud a lue : celle de l'arbre se dit, jamais ne se devine. */
+function natureMemoire(
+  nature: ReturnType<typeof mesuresLisibles>['natureMemoire'],
+  t: Translate,
+): string {
+  if (nature === 'pss') return t('Pss — pages partagées réparties', 'PSS — shared pages split');
+  if (nature === 'somme_rss') {
+    return t(
+      'somme des RSS — pages partagées comptées par processus',
+      'summed RSS — shared pages counted per process',
+    );
+  }
+  return t('selon le moteur', 'as reported by the engine');
+}
+
 function Mesures({ direct, t }: { direct: DirectTache | undefined; t: Translate }) {
-  const m = mesuresLisibles(direct);
+  const m = mesuresLisibles(direct, useLang());
   const inconnu = t('inconnu', 'unknown');
   return (
     <dl className="bd-mesures" data-testid="bd-mesures">
@@ -159,7 +174,12 @@ function Mesures({ direct, t }: { direct: DirectTache | undefined; t: Translate 
       </div>
       <div>
         <dt>{t('Mémoire', 'Memory')}</dt>
-        <dd className={m.memoire ? '' : 'bd-inconnu'}>{m.memoire ?? inconnu}</dd>
+        <dd className={m.memoire ? '' : 'bd-inconnu'}>
+          {m.memoire ?? inconnu}
+          {m.memoire && m.natureMemoire && (
+            <span className="bd-nature"> ({natureMemoire(m.natureMemoire, t)})</span>
+          )}
+        </dd>
       </div>
       <div>
         <dt>{t('Processus', 'Processes')}</dt>
