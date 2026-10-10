@@ -37,6 +37,11 @@
 //     par l'agent ne sont dans aucun diff, donc sous les yeux de personne ;
 //   · les dépendances déclarées sont réinstallées depuis le lockfile. Sans
 //     lockfile, rien ne peut être reconstruit à l'identique : `missing`.
+//     Quand le projet y est éligible, l'installation vient du MAGASIN du nœud
+//     (`cache-dependances.ts`, G18) : le `node_modules` que le même `npm ci`
+//     a produit À LA BASE vérifiée, COPIÉ dans l'arbre — jamais celui qu'une
+//     production a eu entre les mains (voir plus bas), jamais monté. À la
+//     moindre anomalie, l'arbre s'installe, comme avant.
 //
 // ─── LES TESTS EN ÉCHEC, COMPARÉS À LA BASE REJOUÉE (G11b) ───────────────────
 //
@@ -47,7 +52,8 @@
 // moindre doute), chaque échec est comparé à la BASE, rejouée À PART
 // (`comparerALaBaseRejouee`) : un dépôt neuf à côté de la tâche
 // (`extraireBase` — par `fetch`, jamais en lisant les objets que l'agent a pu
-// forger), une installation FRAÎCHE depuis le lockfile de la base, son build
+// forger), une installation FRAÎCHE depuis le lockfile de la base — ou sa
+// copie neuve, prise au magasin du nœud qui l'a faite à la base —, son build
 // s'il est déclaré, puis le même script de test, dans le même bac. Rien de ce
 // que la production a touché n'y entre — pas même son `node_modules`, partagé
 // quand le lockfile n'a pas bougé comme le suggérait la carte : les tests de
@@ -144,7 +150,11 @@ import type {
   ValidationsBac,
 } from '../shared/validations-bac.js';
 import type { EtatControleDirect } from '../shared/bac-direct.js';
+import { direHorsMagasin } from '../shared/cache-dependances.js';
+import type { EntreesNpm } from '../shared/cache-dependances.js';
 import { BaseFalsifiee, lireFichierDeBaseVerifie } from './base-verifiee.js';
+import { depuisLeMagasin, lireEntreesDeBase } from './cache-dependances.js';
+import type { MagasinDependances } from './cache-dependances.js';
 import { DELAI_EXTRACTION_MS, extraireBase, extraireLivre, figerArbreLivre } from './git-hote.js';
 import { MONTAGE } from './isolement.js';
 import type { BacExecution } from './isolement.js';
@@ -154,6 +164,7 @@ import type { DepotEpingle } from '../shared/git-protege.js';
 import {
   buildSandboxEnv,
   dossierDeBase,
+  dossierDePeuplement,
   dossierDeTete,
   effacerRejeu,
   retirerFichiersIgnores,
@@ -264,6 +275,12 @@ export interface OptionsValidation {
    * rejoue sa base.
    */
   memoire?: MemoireDesBases;
+  /**
+   * Le magasin de dépendances du nœud, et ce qui en sépare les espaces — le
+   * projet, le réseau des validations (`cache-dependances.ts`, G18). Le nœud
+   * le passe toujours ; absent, chaque arbre s'installe.
+   */
+  magasin?: MagasinDependances;
 }
 
 /**
@@ -450,6 +467,22 @@ interface Execution {
 /** Lance `argv` dans le bac, dans le répertoire `ou` (la tâche, ou sa base rejouée). */
 type Executer = (argv: string[], ou: string, delaiMs: number) => Promise<Execution>;
 
+/**
+ * Prépare les dépendances de l'arbre `ou` par `preparation` — ce que l'arbre
+ * a reçu, et une note pour la ligne de progrès : le magasin a servi, ou
+ * pourquoi pas (vide sans magasin).
+ */
+type PreparerDependances = (
+  ou: string,
+  preparation: string[],
+) => Promise<Execution & { note: string }>;
+
+/** Ce que le magasin a fait, dit au journal de la tâche. */
+const NOTE_MAGASIN = {
+  restaure: 'dépendances restaurées du magasin du nœud',
+  peuple: 'dépendances installées à la base, rangées au magasin du nœud',
+} as const;
+
 async function lancerLePlan(
   plan: Record<ValidationKey, Etape>,
   opts: OptionsValidation,
@@ -501,6 +534,42 @@ async function lancerLePlan(
   }
   durees.fin('sonde');
 
+  // Les dépendances d'un arbre — la tâche, ou un côté rejoué à part (G11b) —
+  // depuis le magasin du nœud quand il sert (`cache-dependances.ts`, G18),
+  // sinon par l'installation déclarée, comme avant. UNE échéance couvre tout,
+  // repli compris : `DELAI_PREPARATION_MS`, celle d'avant.
+  const base = depot;
+  let entreesDeBase: Promise<EntreesNpm> | null = null;
+  const dependances: PreparerDependances = async (ou, preparation) => {
+    const echeance = Date.now() + DELAI_PREPARATION_MS;
+    const issue = opts.magasin
+      ? await depuisLeMagasin({
+          magasin: opts.magasin,
+          ou,
+          peuplement: dossierDePeuplement(cwd),
+          depot: base,
+          base: () => (entreesDeBase ??= lireEntreesDeBase(base.depot, base.baseSha)),
+          argv: preparation,
+          bac,
+          npm: sonde.output.trim(),
+          lancer: executer,
+          echeance,
+        })
+      : null;
+    if (issue && issue.genre !== 'hors_magasin') {
+      return { code: 0, output: '', note: NOTE_MAGASIN[issue.genre] };
+    }
+    const reste = echeance - Date.now();
+    const r: Execution =
+      reste > 0
+        ? await executer(preparation, ou, reste)
+        : { code: null, output: '[hive] délai de préparation épuisé', arret: 'delai' };
+    const note = issue
+      ? caviarder(`hors magasin : ${direHorsMagasin(issue.raison, issue.detail)}`)
+      : '';
+    return { ...r, note };
+  };
+
   if (declareDesDependances(manifesteProduit)) {
     const preparation = preparationDepuisLockfile((f) => existsSync(path.join(cwd, f)));
     if (!preparation) return manquantes(plan, 'sans_lockfile');
@@ -509,18 +578,20 @@ async function lancerLePlan(
     const garde = jugerPreparation(preparation);
     if (!garde.ok) return manquantes(plan, 'preparation_echouee', garde.motif);
     opts.surEtape?.(`validations : préparation « ${preparation.join(' ')} »…`);
-    const prep = await lancer(preparation, DELAI_PREPARATION_MS);
+    const prep = await dependances(cwd, preparation);
     if (prep.code !== 0 || prep.arret) {
       return manquantes(
         plan,
         prep.arret === 'annule' ? 'annule' : 'preparation_echouee',
         // La commande EN DERNIER : l'extrait garde la fin de la sortie.
-        `${prep.output}\n[hive] ${preparation.join(' ')} → ${prep.arret ?? `code ${String(prep.code)}`}`,
+        `${prep.output}\n[hive] ${prep.note ? `${prep.note}\n[hive] ` : ''}` +
+          `${preparation.join(' ')} → ${prep.arret ?? `code ${String(prep.code)}`}`,
       );
     }
     const ms = durees.fin('préparation');
     opts.surEtape?.(
-      `validations : préparation « ${preparation.join(' ')} » faite en ${dureeCourte(ms)}`,
+      `validations : préparation « ${preparation.join(' ')} » faite en ${dureeCourte(ms)}` +
+        (prep.note ? ` — ${prep.note}` : ''),
     );
   }
 
@@ -565,6 +636,7 @@ async function lancerLePlan(
         argv,
         delaiMs,
         executer,
+        dependances,
         premiere: r,
         constat: { ...premier, code: controle.code ?? 1 },
       });
@@ -687,6 +759,7 @@ interface ContexteRejeu {
   argv: string[];
   delaiMs: number;
   executer: Executer;
+  dependances: PreparerDependances;
 }
 
 /**
@@ -835,6 +908,7 @@ function rejeuAPart(
   /** Extraire, installer, construire : `null` si tout est prêt, sinon pourquoi pas. */
   const preparer = async (): Promise<string | null> => {
     const durees = chronometre();
+    let note = '';
     try {
       if (cote === 'base') await extraireBase(depot.depot, depot.baseSha, dossier);
       else await extraireLivre(depot.depot, ctx.livre, dossier);
@@ -849,11 +923,12 @@ function rejeuAPart(
       const garde = jugerPreparation(preparation);
       if (!garde.ok) return garde.motif;
       dire(`installation « ${preparation.join(' ')} »…`);
-      const prep = await ctx.executer(preparation, dossier, DELAI_PREPARATION_MS);
+      const prep = await ctx.dependances(dossier, preparation);
       if (prep.code !== 0 || prep.arret) {
         return `installation en échec (${prep.arret ?? `code ${String(prep.code)}`})`;
       }
       durees.fin('installation');
+      note = prep.note;
     }
     // Des tests lisent parfois ce que le build produit (`ORDRE_DE_LANCEMENT`) :
     // chaque côté se construit comme la tête l'a été, et un côté qui ne se
@@ -870,7 +945,7 @@ function rejeuAPart(
       }
       durees.fin('build');
     }
-    dire(`prête en ${durees.bilan()}`);
+    dire(`prête en ${durees.bilan()}${note ? ` — ${note}` : ''}`);
     return null;
   };
 

@@ -269,6 +269,14 @@ export function empreinte(ctx: Contexte): Emplacement[] {
           quoi: 'les rejeux à part des tests en échec (la base, l’arbre livré) — effacés dès la comparaison faite',
         },
         {
+          // Le magasin de dépendances (`node-client/cache-dependances.ts`, G18) :
+          // un `node_modules` par projet et par lockfile de base, peuplé dans
+          // `<tâche>.deps` (effacé aussitôt), restauré par copie. Il se refait
+          // au prochain besoin — au prix d'un `npm ci`.
+          chemin: p.join(ctx.workdir, '<nœud>', 'dependances', '<projet>', '<clé>'),
+          quoi: 'le magasin de dépendances des validations — un `node_modules` par lockfile de base, réinstallé au prochain besoin',
+        },
+        {
           // Le seul contenu d'ici qui ne se REFAIT pas : une mission livrée
           // sans GitHub et sans poussée vit dans ce dépôt nu, et nulle part
           // ailleurs (`node-client/livraison-locale.ts`).

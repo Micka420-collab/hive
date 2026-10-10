@@ -112,6 +112,7 @@ import type { ValidationsBac } from '../shared/validations-bac.js';
 import type { PorteSecurite } from '../shared/porte-securite.js';
 import { passerLaPorte } from './porte-securite.js';
 import { memoireDesBases, reglesAutorisationDeBase, validerProduction } from './validations-bac.js';
+import { dossierDuMagasin } from './cache-dependances.js';
 import { COMMANDE_DIRECT_MAX, DIFF_DIRECT_MAX } from '../shared/bac-direct.js';
 import type { EtatDirect } from '../shared/bac-direct.js';
 import type { MinuteurSuspendable } from '../shared/minuteur-suspendable.js';
@@ -2233,12 +2234,13 @@ export class HiveNodeClient {
       // la vitesse des tests du projet.
       const durationMs = Date.now() - started;
       const verifie = await this.validerSiProduction(
-        task.id,
+        task,
         result,
         diff,
         workspace,
         ctrl,
         pilote,
+        reseau,
         reseauBac,
       );
       // Ce que la porte a trouvé se caviarde dans tout ce qui part — diff,
@@ -2332,12 +2334,14 @@ export class HiveNodeClient {
    * AWS que l'agent a écrite ne part pas plus au hub que le diff qui la porte.
    */
   private async validerSiProduction(
-    taskId: string,
+    task: Pick<Task, 'id' | 'projectId'>,
     result: AdapterResult,
     diff: string,
     workspace: Workspace,
     ctrl: AbortController,
     pilote: PiloteExecution,
+    /** Le niveau réseau du projet : il sépare les espaces du magasin de dépendances. */
+    niveau: NiveauReseau,
     /** Le réseau filtré de la tâche : ses validations tournent derrière le même proxy. */
     reseau?: ReseauBac,
   ): Promise<{
@@ -2345,6 +2349,7 @@ export class HiveNodeClient {
     porteSecurite?: PorteSecurite;
     caviardeur?: Caviardeur;
   }> {
+    const taskId = task.id;
     // Sandbox Live : l'agent a rendu la main ; la porte de sécurité puis les
     // validations jugent sa production — plus « Agent » à l'écran.
     pilote.phase('validations');
@@ -2402,6 +2407,13 @@ export class HiveNodeClient {
       signal: ctrl.signal,
       surEtape,
       memoire: this.memoireDesBases,
+      // Le magasin de dépendances du nœud (G18) : un espace par projet et par
+      // réseau de validation — filtré ou non, un `npm ci` n'y joint pas pareil.
+      magasin: {
+        racine: dossierDuMagasin(this.workRoot),
+        projet: task.projectId,
+        reseau: `${niveau}:${reseau ? 'filtre' : 'libre'}`,
+      },
       // Chaque validation à l'écran dès qu'elle part, puis dès qu'elle conclut.
       surControle: (cle, etat) => pilote.controle(cle, etat),
     });
@@ -2572,12 +2584,13 @@ export class HiveNodeClient {
       const diff = result.diff !== '' ? result.diff : await workspace.collectDiff();
       const durationMs = Date.now() - started;
       const verifie = await this.validerSiProduction(
-        task.id,
+        task,
         result,
         diff,
         workspace,
         ctrl,
         pilote,
+        reseau,
         reseauBac,
       );
       const sortant = verifie.caviardeur ?? caviardeur;

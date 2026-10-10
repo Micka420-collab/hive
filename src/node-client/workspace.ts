@@ -203,6 +203,12 @@ export async function retirerFichiersIgnores(depot: DepotEpingle): Promise<void>
  */
 export const dossierDeBase = (cwd: string): string => `${cwd}.base`;
 export const dossierDeTete = (cwd: string): string => `${cwd}.tete`;
+/**
+ * Où la base d'une tâche est extraite et installée pour PEUPLER le magasin de
+ * dépendances du nœud (`cache-dependances.ts`, G18) — à côté de la tâche, effacé
+ * dès l'entrée publiée, et ici avec les rejeux si un nœud tué l'a laissé.
+ */
+export const dossierDePeuplement = (cwd: string): string => `${cwd}.deps`;
 
 /**
  * Efface un rejeu à part, et son TEMP (`buildSandboxEnv`). Ici, parce que ce
@@ -224,9 +230,11 @@ export async function effacerRejeu(dossier: string): Promise<void> {
   );
 }
 
-/** Les deux rejeux d'une tâche — sa base, sa tête. */
+/** Les rejeux d'une tâche — sa base, sa tête — et le peuplement du magasin. */
 async function effacerRejeux(cwd: string): Promise<void> {
-  await Promise.all([effacerRejeu(dossierDeBase(cwd)), effacerRejeu(dossierDeTete(cwd))]);
+  await Promise.all(
+    [dossierDeBase(cwd), dossierDeTete(cwd), dossierDePeuplement(cwd)].map(effacerRejeu),
+  );
 }
 
 export function variablesAgentSansSecrets(variables: readonly string[]): string[] {

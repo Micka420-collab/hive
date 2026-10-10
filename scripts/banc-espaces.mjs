@@ -308,6 +308,14 @@ async function tentative(m, contexte) {
       depot: { depot: espace.depot, baseSha: espace.baseSha },
       bac,
       surEtape: (ligne) => lignes.push({ t: performance.now(), ligne }),
+      // Le magasin de dépendances du nœud (G18 C), comme le client le passe :
+      // une révision qui ne le connaît pas ignore ce champ — le même banc
+      // mesure donc l'avant et l'après.
+      magasin: {
+        racine: path.join(travail, 'dependances'),
+        projet: nom,
+        reseau: 'ouvert:libre',
+      },
     });
     const validationsMs = performance.now() - debut;
     // L'installation : de la ligne qui l'ouvre à celle qui la conclut.

@@ -694,8 +694,14 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     'src/node-client/reseau-tache.ts':
       'efface le dossier de session réseau de la tâche (sous hive-pont-*) à sa fin',
     'src/node-client/workspace.ts':
-      '<workdir>/<nom>, son .tmp voisin, et ses rejeux à part (<nom>.base, <nom>.tete) qu’il ' +
-      'efface — déclarés dans `empreinte()` comme contenu nommé de « travail »',
+      '<workdir>/<nom>, son .tmp voisin, et ses rejeux à part (<nom>.base, <nom>.tete) et le ' +
+      'peuplement du magasin de dépendances (<nom>.deps) qu’il efface — déclarés dans ' +
+      '`empreinte()` comme contenu nommé de « travail »',
+    'src/node-client/cache-dependances.ts':
+      '<workdir>/<nœud>/dependances/<projet>/<clé> — le magasin de dépendances des validations ' +
+      '(G18), peuplé depuis la base dans <tâche>.deps puis publié par renommage, et le ' +
+      '`node_modules` qu’il COPIE dans la tâche ou un rejeu. Déclaré dans `empreinte()` comme ' +
+      'contenu nommé de « travail » ; rien dans `os.tmpdir()`.',
     'src/node-client/porte-securite.ts':
       '<workdir>/<nœud>/tasks/<tâche>/.hive-porte-* — le miroir de la porte de sécurité, ' +
       'écrit DANS la tâche (le seul dossier que le bac monte) après le calcul du diff, et ' +
