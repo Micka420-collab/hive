@@ -365,6 +365,26 @@ describe('la vigie — un agent qui tourne en rond (règles portées d’OpenHan
       .filter(Boolean);
     expect(arrets).toHaveLength(1);
   });
+
+  it('UN AVIS AU SCHÉMA que le CLI refuse (StructuredOutput, G15a) ne compte pas : le CLI borne ces relances lui-même — l’enregistrement va à son terme', () => {
+    // Claude Code 2.1.289 sous `--json-schema` : cinq appels identiques hors
+    // schéma, cinq refus identiques, puis `error_max_structured_output_retries`.
+    // Arrêtée au 4e, une relecture devançait la borne que le CLI applique.
+    const horsSchema = fixture('avis-structure', 'claude-hors-schema.stream.jsonl');
+    expect(horsSchema.filter((l) => l.includes('"name":"StructuredOutput"'))).toHaveLength(5);
+    expect(horsSchema.at(-1)).toContain('"subtype":"error_max_structured_output_retries"');
+    expect(claude(horsSchema)).toEqual({});
+    // Le même refus répété par un VRAI outil reste une boucle : arrêté au 4e.
+    const outilReel = horsSchema.map((l) =>
+      l.replaceAll('"name":"StructuredOutput"', '"name":"Bash"'),
+    );
+    expect(claude(outilReel).enVol?.arret).toEqual({
+      issue: 'enlisement',
+      motif: 'repetition',
+      fois: REPETITIONS_ENLISEMENT,
+      outil: 'Bash',
+    });
+  });
 });
 
 describe('la vigie — Claude Code 2.1.289 face à un fournisseur épuisé : elle ne devance jamais le CLI', () => {

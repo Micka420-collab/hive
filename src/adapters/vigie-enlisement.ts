@@ -375,6 +375,16 @@ const FENETRES_PARTAGEES = new Set(['five_hour', 'seven_day']);
  */
 const REJET_DU_CADRE = /^\s*<tool_use_error>[\s\S]*<\/tool_use_error>\s*$/;
 
+/**
+ * L'outil par lequel Claude Code rend l'avis d'une relecture au schéma
+ * (`--json-schema`, G15a). Un appel hors schéma, le CLI le refuse puis le
+ * redemande, et borne lui-même ces relances (cinq, puis
+ * `error_max_structured_output_retries` — tests/fixtures/avis-structure/
+ * claude-hors-schema.stream.jsonl) : aucune règle ne les compte, la vigie ne
+ * devance pas une borne que le CLI applique.
+ */
+const OUTIL_AVIS_AU_SCHEMA = 'StructuredOutput';
+
 function texteDuRetour(contenu: unknown): string {
   if (typeof contenu === 'string') return contenu;
   if (!Array.isArray(contenu)) return '';
@@ -392,8 +402,9 @@ function texteDuRetour(contenu: unknown): string {
  * enregistrés sur le CLI 2.1.289 (tests/fixtures/enlisement) :
  *
  *   · `assistant` : ses `tool_use` (`parent_tool_use_id` : le sous-agent qui
- *     l'émet), et une RÉPONSE du fournisseur — sauf le message d'erreur que le
- *     CLI synthétise (`is_api_error_message`) ;
+ *     l'émet) — sauf l'avis au schéma, que le CLI borne (`OUTIL_AVIS_AU_SCHEMA`) —,
+ *     et une RÉPONSE du fournisseur — sauf le message d'erreur que le CLI
+ *     synthétise (`is_api_error_message`) ;
  *   · `user` : ses `tool_result` (`is_error`, et `REJET_DU_CADRE`) ;
  *   · `system/permission_denied` : la permission d'un appel refusée
  *     (`tool_use_id`) — émis à la décision, avant son `tool_result` ; en `-p`,
@@ -430,8 +441,13 @@ export function evenementsClaude(ligne: string): EvenementVigie[] {
   switch (lu.type) {
     case 'assistant': {
       const agent = typeof lu.parent_tool_use_id === 'string' ? lu.parent_tool_use_id : PRINCIPAL;
+      // Un avis au schéma n'est pas apparié : son retour et son refus ne
+      // trouvent aucun appel, et ne comptent pas (`OUTIL_AVIS_AU_SCHEMA`).
       const appels = blocs(lu.message).flatMap<EvenementVigie>((b) =>
-        b.type === 'tool_use' && typeof b.id === 'string' && typeof b.name === 'string'
+        b.type === 'tool_use' &&
+        typeof b.id === 'string' &&
+        typeof b.name === 'string' &&
+        b.name !== OUTIL_AVIS_AU_SCHEMA
           ? [
               {
                 genre: 'appel',
@@ -610,8 +626,9 @@ export function evenementsCodex(e: Objet): EvenementVigie[] {
 // l'`AgentErrorEvent` lu comme le rejet d'un appel par le cadre du CLI
 // (`<tool_use_error>` et permission refusée de Claude Code, code -1 de Codex,
 // erreur d'un appel MCP) ;
-// répétition et oscillation tues pendant du travail de fond ; la « pensée »
-// hors de l'égalité d'un appel (idée de `tool_monitor.rs`, goose, Apache-2.0 —
+// répétition et oscillation tues pendant du travail de fond ; l'avis au schéma
+// de Claude Code (`StructuredOutput`), dont le CLI borne les relances, hors des
+// règles ; la « pensée » hors de l'égalité d'un appel (idée de `tool_monitor.rs`, goose, Apache-2.0 —
 // aucune ligne reprise) ; monologue, erreur de contexte et rappel au 3e rejet
 // non portés (voir `enlise`). Sa licence :
 //

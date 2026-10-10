@@ -56,8 +56,9 @@ sous-agent, empreintes au lieu des événements ; l'`AgentErrorEvent` (une erreu
 du cadre, pas une sortie de commande) lu comme le rejet d'un appel par le CLI
 (`<tool_use_error>` et permission refusée de Claude Code, code -1 de Codex,
 erreur d'un appel MCP) ;
-répétition et oscillation tues pendant du travail de fond ; la « pensée » hors
-de l'égalité d'un appel (idée de `tool_monitor.rs`, goose, Apache-2.0 — aucune
+répétition et oscillation tues pendant du travail de fond ; l'avis au schéma de
+Claude Code (`StructuredOutput`), dont le CLI borne les relances, hors des
+règles ; la « pensée » hors de l'égalité d'un appel (idée de `tool_monitor.rs`, goose, Apache-2.0 — aucune
 ligne reprise) ; monologue, erreur de contexte et rappel au 3e rejet non
 portés. La notice est rappelée en tête du fichier et reproduite à sa fin.
 
