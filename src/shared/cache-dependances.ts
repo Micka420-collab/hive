@@ -16,7 +16,17 @@
 //   · l'installation est `npm ci`, d'un SEUL lockfile npm, de version 2 ou
 //     plus, dont chaque paquet est désigné par une URL http(s) et une empreinte
 //     `integrity` — ni `file:`, ni lien, ni git : leur contenu vient de l'arbre
-//     ou d'ailleurs, hors de la clé ;
+//     ou d'ailleurs, hors de la clé. Seul un paquet EMBARQUÉ par une
+//     dépendance (`inBundle`, sous elle) s'en passe : il arrive dans l'archive
+//     vérifiée de son parent. Ce que la racine embarque (`bundleDependencies`),
+//     npm l'installe comme le reste : la règle commune s'y applique ;
+//   · aucun paquet ne déclare de script d'installation (`hasInstallScript`) :
+//     npm donne à chacun la racine du projet (`INIT_CWD`,
+//     `@npmcli/config/lib/set-envs.js`), et un script autorisé (`allowScripts`)
+//     peut y lire un fichier hors de la clé — le schéma que `@prisma/client`
+//     compile — et le figer dans `node_modules`, que la tête aurait changé
+//     (mesuré, npm 12.2.0). Les paquets à module natif (esbuild, sharp…) en
+//     déclarent un : le magasin ne les sert pas ;
 //   · `package.json` ne déclare ni `workspaces`, ni `patchedDependencies` (npm
 //     12 lit les fichiers de patch DANS l'arbre, `arborist/patched-
 //     dependencies.js`), ni script d'installation à la racine : `npm ci` lance
@@ -31,8 +41,9 @@
 //   · `.npmrc` ne porte que des réglages qui ne désignent aucun fichier
 //     (`REGLAGE_NPMRC`) : un `script-shell`, un `cafile`, un `extension-file`
 //     feraient lire à npm un fichier de l'arbre ;
-//   · la tête porte ces fichiers IDENTIQUES, octet pour octet, à ceux de la base
-//     relue par la porte vérifiée ; et rien ne reste de `node_modules`.
+//   · la tête porte ces fichiers IDENTIQUES à ceux de la base relue par la
+//     porte vérifiée — tels que npm les lit : en UTF-8, aux fins de ligne CRLF
+//     près (le `core.autocrlf` de Windows) ; et rien ne reste de `node_modules`.
 //
 // Sinon — et c'est le cas d'une production qui change ses dépendances —
 // l'arbre s'installe comme avant, et la ligne de progrès dit pourquoi.
@@ -43,16 +54,22 @@
 // (un projet sans accès à un registre privé ne reçoit jamais les paquets
 // privés d'un autre au lockfile identique), le réseau de ses validations,
 // l'argv, l'empreinte du bac (Node — version, ABI, N-API, plateforme,
-// architecture, glibc —, la configuration globale de npm, npm, le moteur et
-// l'image) et les octets des fichiers d'entrée. Pas le commit de base :
-// l'entrée resert tant que les dépendances ne bougent pas.
+// architecture, glibc —, la configuration globale et effective de npm, npm,
+// le moteur, le nom de l'image et son identifiant) et les fichiers d'entrée de
+// la base. Pas le commit de base : l'entrée resert tant que les dépendances ne
+// bougent pas.
 //
 // Module PUR, sauf l'empreinte SHA-256 de la clé.
 
 import { createHash } from 'node:crypto';
 
-/** La version du FORMAT du magasin : la changer rend toutes les entrées étrangères. */
-export const VERSION_MAGASIN = 1;
+/**
+ * La version du FORMAT du magasin : la changer rend toutes les entrées
+ * étrangères. 2 : aucune dépendance à script d'installation, et un manifeste
+ * qui compte aussi les dossiers — une entrée de la version 1 a pu être peuplée
+ * sous les anciennes règles, elle ne sert plus.
+ */
+export const VERSION_MAGASIN = 2;
 
 /** Les fichiers de la racine que `npm ci` lit — comparés de la base à la tête. */
 export const FICHIERS_ENTREE = [
@@ -108,18 +125,30 @@ export const RAISONS_HORS_MAGASIN = {
   lockfile_illisible: 'lockfile illisible',
   lockfile_ancien: 'lockfile de version 1',
   paquet_hors_registre: 'un paquet sans URL http(s) ni `integrity`',
+  script_dependance: 'une dépendance à script d’installation (elle peut lire l’arbre)',
   base_illisible: 'base illisible',
   empreinte_bac: 'empreinte du bac illisible',
   delai: 'délai de préparation épuisé',
+  annule: 'tâche annulée',
   peuplement: 'peuplement depuis la base impossible',
+  ecrit_hors: 'l’installation a écrit hors de `node_modules`',
+  peuplement_en_cours: 'un peuplement de la même entrée est en cours : pas d’attente derrière lui',
+  refusee_plus_tot: 'refusée plus tôt sur ce nœud',
   entree_refusee: 'entrée refusée',
   copie: 'copie interrompue',
 } as const;
 export type RaisonHorsMagasin = keyof typeof RAISONS_HORS_MAGASIN;
 
-/** Une raison, dite pour la ligne de progrès — son détail est une donnée du dépôt, bornée. */
+/**
+ * Une raison, dite pour la ligne de progrès. Son détail est une donnée du
+ * dépôt (un chemin du lockfile, une clé de `.npmrc`) : bornée, et sans
+ * caractère de contrôle — un saut de ligne y forgerait une fausse ligne
+ * `[hive]` dans l'extrait qui part au hub.
+ */
 export function direHorsMagasin(raison: RaisonHorsMagasin, detail?: string): string {
-  const borne = detail && detail.length > 120 ? `${detail.slice(0, 119)}…` : detail;
+  // eslint-disable-next-line no-control-regex -- c'est précisément ce qu'on retire.
+  const sain = detail?.replace(/[\u0000-\u001f\u007f]/g, ' ');
+  const borne = sain && sain.length > 120 ? `${sain.slice(0, 119)}…` : sain;
   return borne ? `${RAISONS_HORS_MAGASIN[raison]} (${borne})` : RAISONS_HORS_MAGASIN[raison];
 }
 
@@ -146,9 +175,13 @@ function lireJson(texte: string): Record<string, unknown> | null {
   }
 }
 
-/** Le premier réglage de `.npmrc` qui n'est pas sûr, ou `null`. */
+/**
+ * Le premier réglage de `.npmrc` qui n'est pas sûr, ou `null`. Découpé comme
+ * le lit le parseur `ini` de npm (`/[\r\n]+/`, `ini/lib/ini.js`) : un retour
+ * chariot SEUL y sépare deux réglages, et y cachait le second.
+ */
 function reglageNonSur(npmrc: string): string | null {
-  for (const brute of npmrc.split(/\r?\n/)) {
+  for (const brute of npmrc.split(/[\r\n]+/)) {
     const ligne = brute.trim();
     if (ligne === '' || ligne.startsWith('#') || ligne.startsWith(';')) continue;
     const egal = ligne.indexOf('=');
@@ -158,21 +191,39 @@ function reglageNonSur(npmrc: string): string | null {
   return null;
 }
 
-/** Le premier paquet du lockfile qui n'est pas un tarball http(s) à empreinte, ou `null`. */
-function paquetHorsRegistre(paquets: Record<string, unknown>): string | null {
+/**
+ * Le premier paquet du lockfile que le magasin ne sert pas, et pourquoi — ou
+ * `null` : un tarball http(s) à empreinte, sans script d'installation. Un
+ * paquet embarqué SOUS une dépendance, sans `resolved`, arrive dans l'archive
+ * de celle-ci ; `embarquesSurs` est faux quand la racine embarque aussi.
+ */
+function paquetNonSur(
+  paquets: Record<string, unknown>,
+  embarquesSurs: boolean,
+): { raison: 'paquet_hors_registre' | 'script_dependance'; chemin: string } | null {
   for (const [chemin, brut] of Object.entries(paquets)) {
     if (chemin === '') continue;
     const p = objet(brut);
+    if (p?.hasInstallScript === true) return { raison: 'script_dependance', chemin };
     const resolu = p?.resolved;
     const integrite = p?.integrity;
-    const sur =
+    const sousUneDependance = chemin.lastIndexOf('node_modules/') > 0;
+    const embarque =
+      embarquesSurs &&
+      sousUneDependance &&
       p !== null &&
+      p.inBundle === true &&
       p.link !== true &&
-      typeof resolu === 'string' &&
-      /^https?:\/\//i.test(resolu) &&
-      typeof integrite === 'string' &&
-      integrite.trim() !== '';
-    if (!sur) return chemin;
+      resolu === undefined;
+    const sur =
+      embarque ||
+      (p !== null &&
+        p.link !== true &&
+        typeof resolu === 'string' &&
+        /^https?:\/\//i.test(resolu) &&
+        typeof integrite === 'string' &&
+        integrite.trim() !== '');
+    if (!sur) return { raison: 'paquet_hors_registre', chemin };
   }
   return null;
 }
@@ -183,6 +234,10 @@ function paquetHorsRegistre(paquets: Record<string, unknown>): string | null {
  * `base` : les fichiers d'entrée du commit de BASE, lus par la porte
  * vérifiée. `modifies` : ceux que l'arbre ne porte pas à l'identique.
  */
+/** L'installation que le magasin sait servir : `npm ci`, nu — testée avant toute lecture. */
+export const estNpmCi = (argv: readonly string[]): boolean =>
+  argv.length === 2 && argv[0] === 'npm' && argv[1] === 'ci';
+
 export function eligibilite(p: {
   argv: readonly string[];
   base: EntreesNpm;
@@ -190,7 +245,7 @@ export function eligibilite(p: {
   nodeModules: boolean;
 }): Eligibilite {
   const { base } = p;
-  if (p.argv.length !== 2 || p.argv[0] !== 'npm' || p.argv[1] !== 'ci') return non('pas_npm_ci');
+  if (!estNpmCi(p.argv)) return non('pas_npm_ci');
   if (base['package-lock.json'] !== null && base['npm-shrinkwrap.json'] !== null) {
     return non('deux_lockfiles');
   }
@@ -218,8 +273,11 @@ export function eligibilite(p: {
   if (typeof version !== 'number' || version < 2) return non('lockfile_ancien');
   const paquets = objet(lockfile.packages);
   if (!paquets) return non('lockfile_illisible');
-  const horsRegistre = paquetHorsRegistre(paquets);
-  if (horsRegistre !== null) return non('paquet_hors_registre', horsRegistre);
+  const racineEmbarque = ['bundleDependencies', 'bundledDependencies'].some(
+    (champ) => manifeste[champ] !== undefined,
+  );
+  const nonSur = paquetNonSur(paquets, !racineEmbarque);
+  if (nonSur !== null) return non(nonSur.raison, nonSur.chemin);
   return { eligible: true };
 }
 
@@ -227,8 +285,15 @@ export function eligibilite(p: {
 export interface EmpreinteBac {
   /** Le moteur (`podman`, `docker`, `bubblewrap`). */
   fournisseur: string;
+  /** Son nom — une étiquette, qui peut changer de contenu… */
   image: string;
-  /** Ce que la sonde a lu de Node DANS le bac — et la configuration globale de npm. */
+  /** …et ce que le moteur dit de l'image (`image inspect`), qui ne bouge pas ; vide sans image. */
+  identifiantImage: string;
+  /**
+   * Ce que la sonde a lu DANS le bac : Node, la configuration globale de npm,
+   * et sa configuration EFFECTIVE (`npm config ls -l`, sans ce qui dépend du
+   * HOME) — `NODE_ENV=production` d'une image y change `omit`.
+   */
   node: string;
   /** `npm --version`, dans le bac. */
   npm: string;
@@ -253,6 +318,7 @@ export function cleDuMagasin(p: {
     p.argv,
     p.bac.fournisseur,
     p.bac.image,
+    p.bac.identifiantImage,
     p.bac.node,
     p.bac.npm,
     FICHIERS_ENTREE.map((f) => [f, p.entrees[f]]),

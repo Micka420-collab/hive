@@ -263,16 +263,23 @@ export function empreinte(ctx: Contexte): Emplacement[] {
           // Les validations du bac (`node-client/validations-bac.ts`, G11b)
           // rejouent à part la base d'une tâche et l'arbre qu'elle livre, À
           // CÔTÉ d'elle — hors du montage du bac —, `node_modules` compris, et
-          // les effacent dès la comparaison faite ; un nœud tué au mauvais
-          // moment les laisse, et le prochain passage de la tâche les reprend.
-          chemin: p.join(ctx.workdir, '<nœud>', 'tasks', '<tâche>.base, <tâche>.tete'),
-          quoi: 'les rejeux à part des tests en échec (la base, l’arbre livré) — effacés dès la comparaison faite',
+          // les effacent dès la comparaison faite ; la base s'y installe aussi
+          // pour le magasin de dépendances (`<tâche>.deps`, G18), effacé dès
+          // l'installation remise. Un nœud tué au mauvais moment les laisse,
+          // et le prochain passage de la tâche les reprend.
+          chemin: p.join(
+            ctx.workdir,
+            '<nœud>',
+            'tasks',
+            '<tâche>.base, <tâche>.tete, <tâche>.deps',
+          ),
+          quoi: 'les rejeux à part des tests en échec (la base, l’arbre livré) et l’installation de la base pour le magasin de dépendances — effacés dès leur usage fini',
         },
         {
           // Le magasin de dépendances (`node-client/cache-dependances.ts`, G18) :
-          // un `node_modules` par projet et par lockfile de base, peuplé dans
-          // `<tâche>.deps` (effacé aussitôt), restauré par copie. Il se refait
-          // au prochain besoin — au prix d'un `npm ci`.
+          // un `node_modules` par projet et par lockfile de base, copié de
+          // l'installation faite dans `<tâche>.deps`, restauré par copie. Il se
+          // refait au prochain besoin — au prix d'un `npm ci`.
           chemin: p.join(ctx.workdir, '<nœud>', 'dependances', '<projet>', '<clé>'),
           quoi: 'le magasin de dépendances des validations — un `node_modules` par lockfile de base, réinstallé au prochain besoin',
         },
