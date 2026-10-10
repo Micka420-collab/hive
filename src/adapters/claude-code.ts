@@ -34,7 +34,11 @@ import { graviteStreamJson, lecteurAvisStreamJson, texteFinalStreamJson } from '
 import { createVigie, evenementsClaude, resultatSelonVigie } from './vigie-enlisement.js';
 import type { AdapterContext, AdapterResult, AgentAdapter, VerdictPlafond } from './index.js';
 
-const CLAUDE_TIMEOUT_MS = 15 * 60_000;
+/**
+ * Le délai dur d'un run de Claude Code : au-delà, le processus est tué avec sa
+ * descendance. Ce que la vigie arrête (G13) l'est AVANT lui.
+ */
+export const CLAUDE_TIMEOUT_MS = 15 * 60_000;
 
 /**
  * Les réglages que Hive impose à CHAQUE exécution (`--settings`, en JSON sur la

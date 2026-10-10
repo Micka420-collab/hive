@@ -28,7 +28,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createClaudeCodeAdapter } from '../src/adapters/claude-code.js';
+import { CLAUDE_TIMEOUT_MS, createClaudeCodeAdapter } from '../src/adapters/claude-code.js';
 import { createCodexAdapter } from '../src/adapters/codex.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { antecedentsDuVecu } from '../src/orchestrator/aiguillage.js';
@@ -255,7 +255,14 @@ describe('la vigie, de la Reine au CLI', () => {
       expect(echec.payload).toMatchObject({ attempts: 3, enlisement });
       const reprises = evenements(srv, 'task_retry', id);
       expect(reprises.map((e) => e.payload.enlisement)).toEqual([enlisement, enlisement]);
-      for (const e of [...reprises, echec]) expect(e.payload.durationMs).toBeLessThan(10_000);
+      // Chaque tentative arrêtée AVANT le délai dur de l'adaptateur : un agent que
+      // la vigie laisse boucler ne finit qu'à lui (15 min), loin après la fenêtre
+      // où le banc attend l'échec (`attendre`). Pas une borne de quelques
+      // secondes : la durée d'une tentative compte aussi l'effacement de la
+      // précédente et le clone — 11,7 s sur un Windows chargé (CI 38040798884).
+      for (const e of [...reprises, echec]) {
+        expect(e.payload.durationMs).toBeLessThan(CLAUDE_TIMEOUT_MS);
+      }
       const ligne =
         '[hive] enlisé : même appel d’outil répété 4 fois, même résultat (Read) — agent arrêté avant son délai';
       expect(journal(srv, id).filter((l) => l === ligne)).toHaveLength(3);
