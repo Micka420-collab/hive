@@ -563,8 +563,11 @@ async function lancerLePlan(
           ...(opts.signal ? { signal: opts.signal } : {}),
         })
       : null;
-    if (issue?.genre === 'restaure' || issue?.genre === 'peuple') {
-      return { code: 0, output: '', note: NOTE_MAGASIN[issue.genre] };
+    if (issue?.genre === 'restaure') return { code: 0, output: '', note: NOTE_MAGASIN.restaure };
+    if (issue?.genre === 'peuple') {
+      // La rétention a peut-être fait de la place (G18 D) : elle se dit aussi.
+      const evincees = issue.evincees > 0 ? ` (${issue.evincees} entrée(s) évincée(s))` : '';
+      return { code: 0, output: '', note: `${NOTE_MAGASIN.peuple}${evincees}` };
     }
     // L'installation de la base EST celle de l'arbre : ni second essai, ni second `npm ci`.
     if (issue?.genre === 'echec') return { ...issue.installation, note: NOTE_MAGASIN.echec };

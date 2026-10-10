@@ -304,6 +304,7 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['tests/cache-dependances.test.ts', 'securite'],
     ['tests/cache-dependances-noeud.test.ts', 'securite'],
     ['tests/cache-dependances-bac.test.ts', 'securite'],
+    ['tests/cache-dependances-retention.test.ts', 'securite'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');

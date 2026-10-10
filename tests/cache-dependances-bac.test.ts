@@ -34,6 +34,7 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { MagasinDependances } from '../src/node-client/cache-dependances.js';
 import { poserRegistre } from '../src/node-client/git-hote.js';
 import { fournisseurParNom } from '../src/node-client/isolement.js';
 import type { Fournisseur } from '../src/node-client/isolement.js';
@@ -190,7 +191,7 @@ function projet(nom: string, paquet: string, extra: Record<string, string>): str
 async function valider(
   src: string,
   nom: string,
-  magasin: { racine: string; projet: string; reseau: string },
+  magasin: MagasinDependances,
   production: Record<string, string>,
 ) {
   const parent = path.join(racine, nom);
@@ -223,6 +224,7 @@ describe('le magasin de dépendances dans un vrai bac (bubblewrap)', () => {
         racine: path.join(racine, 'magasin-bin'),
         projet: 'projet-bin',
         reseau: 'dependances:libre',
+        niveau: 'conteneur',
       };
       const production = { 'produit.txt': 'une production\n' };
 
@@ -260,6 +262,7 @@ describe('le magasin de dépendances dans un vrai bac (bubblewrap)', () => {
         racine: path.join(racine, 'magasin-schema'),
         projet: 'projet-schema',
         reseau: 'dependances:libre',
+        niveau: 'conteneur',
       };
 
       // La tête change le schéma ; le postinstall, lancé dans SON arbre, le lit.
