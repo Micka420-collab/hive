@@ -188,13 +188,13 @@ function paquet(dossierRegistre, registre, nom, n, octets, avecBin) {
     writeFileSync(path.join(contenu, 'lib', `m${i}.js`), `// ${corps}\n`);
   }
   const archive = `${nom}-1.0.0.tgz`;
-  const r = spawnSync('tar', [
-    '-czf',
-    path.join(dossierRegistre, archive),
-    '-C',
-    source,
-    'package',
-  ]);
+  const r = spawnSync(
+    'tar',
+    ['-czf', path.join(dossierRegistre, archive), '-C', source, 'package'],
+    {
+      shell: false,
+    },
+  );
   if (r.status !== 0) throw new Error(`tar : ${String(r.stderr)}`);
   const empreinte = createHash('sha512')
     .update(readFileSync(path.join(dossierRegistre, archive)))
@@ -266,7 +266,9 @@ function projet(racine, nom, taille, registre, dossierRegistre) {
 /** Le bac du poste : bubblewrap s'il lance vraiment, sinon le faux moteur des bancs. */
 function bacDuPoste(racine, fournisseurParNom) {
   const bwrap = fournisseurParNom('bubblewrap');
-  const essai = spawnSync('bwrap', ['--ro-bind', '/', '/', '--unshare-all', '--', 'true']);
+  const essai = spawnSync('bwrap', ['--ro-bind', '/', '/', '--unshare-all', '--', 'true'], {
+    shell: false,
+  });
   if (bwrap && essai.status === 0) {
     return { nom: 'bubblewrap', bac: { fournisseur: bwrap, image: 'sans-objet', variables: [] } };
   }

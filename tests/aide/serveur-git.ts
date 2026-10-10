@@ -153,11 +153,14 @@ export class ServeurGit {
     let vus: Buffer | null = Buffer.alloc(0);
     // Tout ce qui part au client passe par cette file, dans l'ordre d'arrivée :
     // la latence d'un pack (`latencePackMs`) y retient la suite, fin comprise.
+    // Un geste qui échoue n'arrête pas la file : la fin de la réponse part
+    // toujours, et aucun client ne reste pendu à un serveur de banc.
     let suite: Promise<void> = Promise.resolve();
     const ensuite = (geste: () => void | Promise<void>): void => {
-      suite = suite.then(geste);
+      suite = suite.then(geste).catch(() => undefined);
     };
     const ecrire = (corps: Buffer): void => {
+      if (res.destroyed) return;
       if (!couper) {
         res.write(corps);
         return;
