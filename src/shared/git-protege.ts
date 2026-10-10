@@ -71,7 +71,16 @@ import { laverIdentifiantsDuTexte } from './projet-public.js';
  *     en mode lot. Le transfert d'agent reste coupé (`ssh` sans `-A`) : le
  *     serveur distant ne peut pas s'en servir ;
  *   · `GIT_NO_LAZY_FETCH=1` : un objet manquant ne déclenche jamais de
- *     téléchargement depuis une commande locale (diff, add, apply).
+ *     téléchargement depuis une commande locale (diff, add, apply) ;
+ *   · `GIT_NO_REPLACE_OBJECTS=1` : défense en profondeur. Un `refs/replace/<oid>`
+ *     fait lire à git un AUTRE objet à la place de `<oid>`. Celui que l'agent
+ *     poserait dans le `.git` de sa TÂCHE n'est PAS suivi par le registre
+ *     (`node-client/git-hote.ts`) — un git dir distinct, avec ses propres refs ;
+ *     l'alternate ne partage que les objets, jamais les refs (mesuré). Ce n'est
+ *     donc pas un trou ouvert ici. Mais la ruche n'utilise JAMAIS de ref de
+ *     remplacement, et la couper garantit qu'aucun git de l'hôte — quel que
+ *     soit le git dir qu'un code futur lui donnerait — ne substitue un objet.
+ *     Aucun effet de bord.
  */
 export function envGitHote(ssh = 'ssh', identite?: IdentiteCommit): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
@@ -86,6 +95,7 @@ export function envGitHote(ssh = 'ssh', identite?: IdentiteCommit): NodeJS.Proce
     GCM_INTERACTIVE: 'Never',
     GIT_SSH_COMMAND: `${ssh} -o BatchMode=yes -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4`,
     GIT_NO_LAZY_FETCH: '1',
+    GIT_NO_REPLACE_OBJECTS: '1',
   };
   if (process.env.SSH_AUTH_SOCK !== undefined) env.SSH_AUTH_SOCK = process.env.SSH_AUTH_SOCK;
   return env;

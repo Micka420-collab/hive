@@ -171,6 +171,14 @@ export const ETATS_PAR_RAISON_PORTE = {
    * (`security_gate_rejected`). Posé par la Reine.
    */
   rapport_rejete: ['non_verifie'],
+  /**
+   * La base de l'espace de travail est FALSIFIÉE : le diff qui serait livré,
+   * appliqué sur la base vérifiée, ne reproduit pas l'arbre jugé
+   * (`verifierLivreContreBase`, `node-client/git-hote.ts`). Ni secrets ni
+   * dépendances ne sont examinés — ce qui serait livré n'est pas ce qui a été
+   * jugé ; la production est rejetée, sa raison le dit. Posé par le nœud.
+   */
+  base_falsifiee: ['non_verifie'],
 } as const satisfies Record<string, readonly EtatPorte[]>;
 
 export type RaisonPorte = keyof typeof ETATS_PAR_RAISON_PORTE;
@@ -214,6 +222,10 @@ export const DIRE_RAISON_PORTE: Readonly<Record<RaisonPorte, readonly [string, s
   rapport_rejete: [
     'rapport du nœud refusé à la réception, mal formé — voir le journal',
     'node report refused on receipt, malformed — see the journal',
+  ],
+  base_falsifiee: [
+    'base falsifiée dans l’espace de travail — ce qui serait livré n’est pas ce qui a été jugé',
+    'base forged in the workspace — what would be delivered is not what was judged',
   ],
 };
 
@@ -306,6 +318,12 @@ export const BORNES_PORTE = {
 export const PORTE_SANS_RAPPORT: PorteSecurite = {
   secrets: { etat: 'non_verifie', raison: 'rapport_absent', constats: [], total: 0 },
   dependances: { etat: 'non_verifie', raison: 'rapport_absent', constats: [], total: 0 },
+};
+
+/** Les deux volets non vérifiés parce que la base est falsifiée (`verifierLivreContreBase`). */
+export const PORTE_BASE_FALSIFIEE: PorteSecurite = {
+  secrets: { etat: 'non_verifie', raison: 'base_falsifiee', constats: [], total: 0 },
+  dependances: { etat: 'non_verifie', raison: 'base_falsifiee', constats: [], total: 0 },
 };
 
 /** Un volet sans constat, dans l'état que sa raison impose. */

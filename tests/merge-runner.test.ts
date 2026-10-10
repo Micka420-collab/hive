@@ -9,6 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { simpleGit } from 'simple-git';
 import type { SimpleGit } from 'simple-git';
 import { runMerge } from '../src/node-client/merge-runner.js';
+import { LIMITS } from '../src/shared/protocol.js';
 
 const WINDOWS = process.platform === 'win32';
 const ROOT = typeof process.getuid === 'function' && process.getuid() === 0;
@@ -206,5 +207,20 @@ describe('merge-runner (git réel)', () => {
     const res = await runMerge({ repoDir, diffs: [{ taskId: 'empty', diff: '' }] });
     expect(res.applied).toEqual(['empty']);
     expect(res.conflicts).toEqual([]);
+  });
+
+  it('refuse un diff TRONQUÉ à LIMITS.diff — coupé net sur une fin de hunk, il s’appliquerait', async () => {
+    // Ce que `slice(0, LIMITS.diff)` laisse d'un diff plus grand quand la coupe
+    // tombe net sur une fin de hunk : un patch VALIDE, que `git apply` accepte.
+    const patch = (n: number): string =>
+      'diff --git a/gros.txt b/gros.txt\nnew file mode 100644\n--- /dev/null\n' +
+      `+++ b/gros.txt\n@@ -0,0 +1 @@\n+${'a'.repeat(n)}\n`;
+    const tronque = patch(LIMITS.diff - patch(0).length);
+    expect(tronque.length).toBe(LIMITS.diff);
+    const res = await runMerge({ repoDir, diffs: [{ taskId: 'tronque', diff: tronque }] });
+    expect(res.applied).toEqual([]);
+    expect(res.conflicts).toEqual([
+      { taskId: 'tronque', reason: 'diff tronqué à la limite du protocole' },
+    ]);
   });
 });

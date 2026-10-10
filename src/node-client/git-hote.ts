@@ -68,10 +68,23 @@
 //     en lecture) ; il ne peut pas les faire exécuter. Il peut aussi en
 //     FORGER un — un objet valide rangé sous le nom d'un autre : git ne
 //     vérifie pas l'empreinte de ce qu'il lit (mesuré, git 2.53), et une
-//     lecture de la base par le registre rend alors le contenu forgé, sans un
-//     mot. Ce qui doit être la base À COUP SÛR passe donc par `extraireBase`
-//     (un `fetch`, qui renomme chaque objet par son contenu) ; les lectures
-//     directes de la base (`fichierDeBase`) y restent exposées — suite nommée.
+//     lecture de la base par le registre rendait alors le contenu forgé, sans
+//     un mot. TROIS remparts ferment cela. (1) Ce qui doit être la base pour
+//     un REJEU passe par `extraireBase` (un `fetch`, qui renomme chaque objet
+//     par son contenu). (2) Ce qu'un VERDICT lit nommément de la base — scripts
+//     du `package.json` (plan), lockfiles (porte G10), règles compilées (G12) —
+//     passe par la porte VÉRIFIÉE (`fichierDeBase` → `base-verifiee.ts`), qui
+//     recalcule l'empreinte de chaque objet du chemin et LÈVE sur un objet
+//     forgé. (3) Le diff ENTIER qui sera livré (`collectDiff`/`diffContreBase`)
+//     est, lui, lu par `git diff <base>` SANS vérification — un objet de base
+//     forgé pouvait y cacher un changement (renommage 100 %, hunk contre un
+//     blob forgé) et faire livrer autre chose que l'arbre jugé. Donc, une fois
+//     par production, `verifierLivreContreBase` applique ce diff sur la base
+//     VÉRIFIÉE (fetch) et exige l'arbre jugé (`figerArbreLivre`) : sinon
+//     `base_falsifiee`. Le diff cumulé d'un MERGE (`merge-runner.ts`) n'a pas
+//     ce risque : il tourne sur un clone du nœud où aucun agent n'a écrit
+//     (`epinglerClone`). `GIT_NO_REPLACE_OBJECTS` coupe en plus toute
+//     substitution par ref de remplacement (`shared/git-protege.ts`).
 //   · Les configurations SYSTÈME et GLOBALE : celles de la machine et du
 //     membre, jamais montées dans le bac. On ne les coupe pas
 //     (`shared/git-protege.ts`) : elles portent ce dont le clone a besoin, les
@@ -225,6 +238,14 @@ export async function diffContreBase(
       'diff',
       '--no-ext-diff',
       '--no-textconv',
+      // Un FORMAT fixe, quelle que soit la configuration globale du membre (lue
+      // à dessein, `shared/git-protege.ts`) : sous `diff.noprefix`,
+      // `color.ui=always` ou `diff.submodule=log`, ce diff ne se réappliquait
+      // plus — ni au merge, ni au contrôle livré==jugé (mesuré, git 2.53).
+      '--src-prefix=a/',
+      '--dst-prefix=b/',
+      '--no-color',
+      '--submodule=short',
       // Un dépôt IMBRIQUÉ dans l'arbre est un sous-module aux yeux de git, et
       // juger s'il est « sale » lancerait un `git status` DANS ce dépôt — avec
       // SA configuration, que l'agent a écrite. `dirty` coupe CE jugement-là
@@ -368,6 +389,185 @@ export async function extraireLivre(
   ).trim();
   await gitHote(['update-ref', REF_LIVRE, commit], depot, { delaiMs });
   await extraireCommit(depot, REF_LIVRE, commit, dossier, delaiMs - (Date.now() - debut));
+}
+
+/**
+ * Le verdict de `verifierLivreContreBase`. `invérifiable` : le contrôle lui-même
+ * n'a pas abouti (`fetch` hors délai, panne de git ou du disque) — jamais
+ * décidé sur le CONTENU du diff, que l'agent écrit.
+ */
+export type VerificationLivre =
+  | { etat: 'conforme' }
+  | { etat: 'falsifie'; cause: string }
+  | { etat: 'invérifiable'; cause: string };
+
+/**
+ * Le diff livré, séparé pour `verifierLivreContreBase` : le TEXTE à appliquer,
+ * et les strophes BINAIRES (« Binary files … differ » — sans contenu,
+ * `diffContreBase` n'ayant pas `--binary`). Coupé aux SEULS `\n` (un `\r` dans
+ * une ligne ± n'ouvre pas de strophe) et lu aux EN-TÊTES : une ligne de
+ * contenu commence par ` `, `+`, `-` ou `\`, si bien qu'un marqueur écrit par
+ * l'agent n'est jamais pris pour un en-tête. Un binaire renommé ou copié reste
+ * dans le texte, SANS son contenu : `apply` en fait un renommage pur.
+ */
+function separerBinaires(diff: string): { texte: string; binaires: string[] } {
+  const strophes = diff.split(/(?<=\n)(?=diff --git )/);
+  const porte = (s: string, entete: string): boolean => s.includes(`\n${entete}`);
+  const binaires = strophes.filter((s) => porte(s, 'Binary files '));
+  const texte = strophes.flatMap((s) => {
+    if (!porte(s, 'Binary files ')) return [s];
+    if (!porte(s, 'rename from ') && !porte(s, 'copy from ')) return [];
+    return [s.replace(/\n(?:index|Binary files) [^\n]*/g, '')];
+  });
+  return { texte: texte.join(''), binaires };
+}
+
+/**
+ * L'INVARIANT « ce qui sera LIVRÉ est exactement ce qui a été JUGÉ ».
+ *
+ * ─── LE TROU QUE CECI FERME ─────────────────────────────────────────────────
+ *
+ * `diffContreBase` (`collectDiff`, le diff envoyé à la Reine et appliqué au
+ * merge) se calcule DANS le registre, qui emprunte les objets de la tâche
+ * (`alternates`). git ne vérifie pas l'empreinte d'un objet qu'il lit : l'agent
+ * peut forger l'objet d'un fichier de base pour qu'il paraisse IDENTIQUE au
+ * livré — le diff complet (par contenu) ne montre alors ni hunk ni le fichier,
+ * ou le réduit à un renommage 100 %. La porte et les validations jugent l'arbre
+ * livré (la tête), mais `git apply` de ce diff sur la VRAIE base livre autre
+ * chose : une dépendance vulnérable, un code non jugé. Mesuré, git 2.53 : le
+ * `fetch` du registre renvoie l'objet EMPAQUETÉ d'origine même quand un objet
+ * libre forgé le masque pour `cat-file` — la vraie base est donc récupérable,
+ * et c'est elle qui tranche.
+ *
+ * ─── COMMENT ─────────────────────────────────────────────────────────────────
+ *
+ * On récupère la base par `fetch` (vérifié) dans un dépôt neuf, SANS checkout
+ * (index seulement), on y APPLIQUE le diff qui sera livré, et on exige que
+ * l'arbre obtenu (`write-tree`) soit EXACTEMENT l'arbre figé jugé (`arbre` de
+ * `figerArbreLivre`). Sinon — ou si le diff ne s'applique pas, pour quelque
+ * raison que ce soit — la production est `falsifie` : ce qui serait livré n'est
+ * pas ce qui a été jugé. Une base saine donne toujours `conforme` (le diff est,
+ * par construction, celui de la vraie base vers la tête).
+ *
+ * Un fichier BINAIRE n'a pas de contenu dans le diff — ni `apply` ni la
+ * livraison GitHub (`analyserRustine`, qui l'écarte et livre le reste) ne
+ * l'appliquent. Sa strophe sort du patch (`separerBinaires`) : supprimé, le
+ * binaire quitte l'index AVANT (un lien peut prendre sa place) ; posé, il y
+ * reçoit APRÈS son entrée jugée, lue dans l'index du registre que
+ * `figerArbreLivre` vient d'écrire — l'appelant tient le verrou de l'index
+ * entre les deux (`verifierLivraison`). Un fichier d'index : aucun objet de la
+ * tâche n'est lu. Le texte, lui, s'applique ou c'est `falsifie` : un binaire
+ * n'éteint pas le contrôle.
+ *
+ * `delaiMs` borne la récupération (`init`, `fetch`, `read-tree`). Le reste a le
+ * délai d'un git local : un diff calculé contre la vraie base s'y applique
+ * d'emblée, et son échec, délai compris, est un verdict. Aucun code de la
+ * tâche n'y tourne (ni checkout, ni hook).
+ */
+export async function verifierLivreContreBase(
+  depot: DepotEpingle,
+  base: string,
+  arbreJuge: string,
+  diffLivre: string,
+  dossier: string,
+  delaiMs = DELAI_EXTRACTION_MS,
+): Promise<VerificationLivre> {
+  const echeance = Date.now() + delaiMs;
+  const reste = (): { delaiMs: number } => {
+    const ms = echeance - Date.now();
+    if (ms <= 0)
+      throw new Error(`vérification abandonnée au-delà de ${Math.round(delaiMs / 1000)} s`);
+    return { delaiMs: ms };
+  };
+  await effacerDossier(dossier);
+  mkdirSync(dossier, { recursive: true });
+  const format = base.length === 64 ? ['--object-format=sha256'] : [];
+  await gitHote(['init', '-q', '--template=', ...format, dossier], path.dirname(dossier), reste());
+  const recu = { gitDir: path.join(dossier, '.git'), workTree: dossier };
+  // Le `fetch` renomme chaque objet par son contenu (`index-pack`) : un objet
+  // forgé n'arrive jamais sous le nom qu'il usurpe. Quand un objet EMPAQUETÉ
+  // sain coexiste (clone superficiel — le cas de Hive), le `fetch` l'envoie et
+  // l'on obtient la VRAIE base ; quand SEULE la copie forgée existe (objets
+  // libres), le `fetch` ÉCHOUE — et c'est précisément là que `git diff` aurait
+  // lu le forgé : base non récupérable intègre = falsifiée.
+  try {
+    await gitHote(
+      ['fetch', '-q', '--no-tags', '--depth=1', '--', depot.gitDir, base],
+      recu,
+      reste(),
+    );
+  } catch (e) {
+    if (e instanceof EchecGitHote && e.delaiDepasse) throw e; // un délai n'est pas un verdict
+    return {
+      etat: 'falsifie',
+      cause: `base non récupérable intègre (${e instanceof Error ? e.message : String(e)})`,
+    };
+  }
+  const tete = (
+    await gitHote(['rev-parse', '--verify', '-q', 'FETCH_HEAD^{commit}'], recu, reste())
+  ).trim();
+  if (tete !== base)
+    return {
+      etat: 'falsifie',
+      cause: `commit de base reçu ${tete.slice(0, 12)}, attendu ${base.slice(0, 12)}`,
+    };
+  // L'index reflète la VRAIE base, sans écrire l'arbre de travail (`--cached`).
+  await gitHote(['read-tree', base], recu, reste());
+  const { texte, binaires } = separerBinaires(diffLivre);
+  const finiParSaut = (t: string): string => (t === '' || t.endsWith('\n') ? t : `${t}\n`);
+  const patch = path.join(dossier, 'livre.diff');
+  writeFileSync(patch, finiParSaut(texte));
+  const zero = '0'.repeat(base.length);
+  const sortir = (chemins: readonly string[]): string =>
+    chemins.map((c) => `0 ${zero}\t${c}\0`).join(''); // mode 0 : retire l'entrée
+  const poses: string[] = [];
+  try {
+    if (binaires.length > 0) {
+      // Le chemin de chaque binaire — supprimé, ou tel qu'après —, dans l'ordre
+      // des strophes : git lit les en-têtes, guillemets compris.
+      const stat = await gitHote(['apply', '--numstat', '-z'], recu, {
+        entree: finiParSaut(binaires.join('')),
+      });
+      const retires: string[] = [];
+      const lignes = stat.split('\0').filter((l) => l !== '');
+      for (const [i, ligne] of lignes.entries()) {
+        const chemin = ligne.split('\t').slice(2).join('\t');
+        (binaires[i]?.includes('\ndeleted file mode ') ? retires : poses).push(chemin);
+      }
+      if (retires.length > 0) {
+        await gitHote(['update-index', '-z', '--index-info'], recu, { entree: sortir(retires) });
+      }
+    }
+    // `--cached` : applique à l'index (niveau blob), aucun filtre d'arbre de
+    // travail, aucun code exécuté. `--allow-empty` : un diff vide est conforme.
+    await gitHote(['apply', '--cached', '--allow-empty', '--whitespace=nowarn', patch], recu);
+  } catch (e) {
+    if (!(e instanceof EchecGitHote)) throw e;
+    // Un diff qui ne s'applique PAS sur la vraie base n'a pas été calculé contre
+    // elle : la base lue par le registre était forgée.
+    return {
+      etat: 'falsifie',
+      cause: `le diff livré ne s'applique pas sur la base vérifiée (${e.message})`,
+    };
+  }
+  if (poses.length > 0) {
+    const voulus = new Set(poses);
+    const juges = (await gitHote(['ls-files', '-s', '-z'], depot))
+      .split('\0')
+      .filter((r) => r !== '' && voulus.has(r.slice(r.indexOf('\t') + 1)));
+    await gitHote(['update-index', '-z', '--index-info'], recu, {
+      entree: sortir(poses) + juges.map((r) => `${r}\0`).join(''),
+    });
+  }
+  // `--missing-ok` : le contenu d'un binaire jugé n'est pas dans ce dépôt — seule
+  // son empreinte entre dans celle de l'arbre.
+  const arbre = (await gitHote(['write-tree', '--missing-ok'], recu)).trim();
+  return arbre === arbreJuge
+    ? { etat: 'conforme' }
+    : {
+        etat: 'falsifie',
+        cause: `l'arbre livré ${arbre.slice(0, 12)} diffère de l'arbre jugé ${arbreJuge.slice(0, 12)}`,
+      };
 }
 
 /**

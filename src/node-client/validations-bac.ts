@@ -144,7 +144,14 @@ import type {
 } from '../shared/validations-bac.js';
 import type { EtatControleDirect } from '../shared/bac-direct.js';
 import { BaseFalsifiee, lireFichierDeBaseVerifie } from './base-verifiee.js';
-import { DELAI_EXTRACTION_MS, extraireBase, extraireLivre, figerArbreLivre } from './git-hote.js';
+import {
+  DELAI_EXTRACTION_MS,
+  extraireBase,
+  extraireLivre,
+  figerArbreLivre,
+  verifierLivreContreBase,
+} from './git-hote.js';
+import type { VerificationLivre } from './git-hote.js';
 import { MONTAGE } from './isolement.js';
 import type { BacExecution } from './isolement.js';
 import { runProc } from './merge-runner.js';
@@ -154,6 +161,7 @@ import {
   buildSandboxEnv,
   dossierDeBase,
   dossierDeTete,
+  dossierDeVerif,
   effacerRejeu,
   retirerFichiersIgnores,
   sousVerrouIndex,
@@ -380,6 +388,62 @@ async function arbreLivre(
  * Lance ce que la base du dépôt déclare, et rend un constat par validation.
  * Ne lève jamais.
  */
+/**
+ * Toutes les validations à `base_falsifiee` (état `missing`, jamais un vert) —
+ * la base de l'espace de travail ne compile aucun plan fiable. `sortie` dit
+ * pourquoi, déjà caviardée. Partagé avec le contrôle « livré == jugé »
+ * (`client.ts`), qui court-circuite la porte ET les validations.
+ */
+export function validationsBaseFalsifiee(
+  baseSha: string | undefined,
+  sortie: string,
+): ValidationsBac {
+  const controles = {} as Record<ValidationKey, ControleBac>;
+  for (const cle of VALIDATION_KEYS) {
+    controles[cle] = { etat: 'missing', raison: 'base_falsifiee', ...extraitDe(sortie) };
+  }
+  return { ...(baseSha ? { baseSha } : {}), controles };
+}
+
+/**
+ * Le contrôle « ce qui sera LIVRÉ est exactement ce qui a été JUGÉ », une fois
+ * par production, AVANT la porte et les validations (`client.ts`). Fige l'arbre
+ * jugé (`figerArbreLivre`), puis `verifierLivreContreBase` : récupère la base
+ * par `fetch` vérifié, y applique le diff qui sera livré, et exige l'arbre jugé.
+ * Le dossier de vérification est effacé ensuite (il ne porte que des objets +
+ * un index, aucun arbre de travail). Ne lève pas : une panne de ce contrôle
+ * (hors falsification) rend `invérifiable` et laisse la production suivre.
+ */
+export async function verifierLivraison(opts: {
+  cwd: string;
+  depot: { depot: DepotEpingle; baseSha: string };
+  diff: string;
+  delaiMs?: number;
+}): Promise<VerificationLivre> {
+  const { depot, baseSha } = opts.depot;
+  const dossier = dossierDeVerif(opts.cwd);
+  try {
+    // Figer PUIS vérifier sous LE verrou de l'index : la vérification relit
+    // l'index que `figerArbreLivre` vient d'écrire (les binaires jugés).
+    return await sousVerrouIndex(depot, async () =>
+      verifierLivreContreBase(
+        depot,
+        baseSha,
+        await figerArbreLivre(depot),
+        opts.diff,
+        dossier,
+        opts.delaiMs,
+      ),
+    );
+  } catch (err) {
+    // Une panne du contrôle lui-même (git, disque) n'est pas une falsification :
+    // invérifiable, la production suit — la porte et les validations jugent la tête.
+    return { etat: 'invérifiable', cause: err instanceof Error ? err.message : String(err) };
+  } finally {
+    await effacerRejeu(dossier);
+  }
+}
+
 export async function validerProduction(opts: OptionsValidation): Promise<ValidationsBac> {
   const { depot, cwd } = opts;
   const rapport = (controles: Record<ValidationKey, ControleBac>): ValidationsBac => ({
@@ -396,12 +460,9 @@ export async function validerProduction(opts: OptionsValidation): Promise<Valida
     // d'un manifeste forgé, et aucune validation ne passe — la raison le dit,
     // caviardée comme tout ce qui part au hub.
     if (!(err instanceof BaseFalsifiee)) throw err;
-    const sortie = opts.caviarder?.(err.message) ?? err.message;
-    const controles = {} as Record<ValidationKey, ControleBac>;
-    for (const cle of VALIDATION_KEYS) {
-      controles[cle] = { etat: 'missing', raison: 'base_falsifiee', ...extraitDe(sortie) };
-    }
-    return rapport(controles);
+    return rapport(
+      validationsBaseFalsifiee(undefined, opts.caviarder?.(err.message) ?? err.message).controles,
+    );
   }
   const produit = fichierDeTravail(cwd, 'package.json');
   const plan = planDeValidation(scriptsDe(manifeste(base)), scriptsDe(manifeste(produit)));

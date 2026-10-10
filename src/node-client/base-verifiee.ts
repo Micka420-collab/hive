@@ -30,13 +30,22 @@
 //
 // Les lecteurs d'ICI — plan de validation, porte de sécurité — tournent sur
 // CHAQUE production, avant et sans ce rejeu. Ils lisent quelques fichiers
-// nommés. Pour eux, on VÉRIFIE LA CHAÎNE : depuis le `baseSha` que la Reine a
-// fourni (de confiance, épinglé sur HEAD du registre avant l'agent), on relit
-// chaque objet du chemin commit → arbre(s) → blob EN BRUT et on recalcule son
-// empreinte (`<type> <taille>\0` + contenu, puis SHA). Un pointeur n'est suivi
-// que depuis un objet dont l'empreinte est déjà vérifiée : forger un maillon
-// demanderait une collision de l'empreinte — la sécurité de git elle-même. Pas
-// de réseau, pas d'arbre extrait, une poignée d'objets par fichier.
+// nommés. Pour eux, on VÉRIFIE LA CHAÎNE : depuis le `baseSha` de confiance, on
+// relit chaque objet du chemin commit → arbre(s) → blob EN BRUT et on recalcule
+// son empreinte (`<type> <taille>\0` + contenu, puis SHA). Un pointeur n'est
+// suivi que depuis un objet dont l'empreinte est déjà vérifiée : forger un
+// maillon demanderait une collision de l'empreinte — la sécurité de git
+// elle-même. Pas de réseau, pas d'arbre extrait, une poignée d'objets par fichier.
+//
+// ─── D'OÙ VIENT LE `baseSha` DE CONFIANCE ────────────────────────────────────
+//
+// Pas du hub : `AssignTaskMsg` (`shared/protocol.ts`) ne porte AUCUN SHA. C'est
+// le NŒUD qui le capture — `commitDeDepart` du clone, lu AVANT que l'agent ne
+// tourne (`workspace.ts`), rangé dans `Workspace.baseSha`, en mémoire du nœud,
+// hors de portée de l'agent (qui n'écrit que dans l'arbre et le `.git` de sa
+// tâche). C'est ce point de départ, et lui seul, contre lequel le diff, les
+// validations et la porte jugent la production. On le revérifie quand même : il
+// ne coûte qu'une relecture, et c'est le premier maillon de la chaîne.
 //
 // Un objet qui ne correspond pas à son nom = `BaseFalsifiee`, cause lisible :
 // l'appelant REJETTE la production en le disant, jamais une lecture silencieuse
@@ -76,6 +85,12 @@ interface FormatObjets {
  * vaut `sha256` pour un dépôt SHA-256 ; absent (code 1, sans un mot), c'est
  * SHA-1. Un dépôt SHA-256 nomme ses objets sur 64 caractères et range 32
  * octets de hash par entrée d'arbre — recalculer en SHA-1 n'y vérifierait rien.
+ *
+ * `compatObjectFormat` (un dépôt SHA-256 qui porte AUSSI des noms SHA-1 pour
+ * l'interopérabilité) n'est pas géré : la base passe par `commitDeDepart`
+ * (`git rev-parse HEAD`), qui rend l'empreinte du format NATIF — jamais un nom
+ * de compatibilité. Un `baseSha` du mauvais format échouerait à `estEmpreinte`
+ * ou au premier recalcul : fermé, jamais une lecture silencieuse.
  */
 async function formatObjets(depot: DepotEpingle): Promise<FormatObjets> {
   let valeur = '';
@@ -143,9 +158,14 @@ function arbreDuCommit(commit: Buffer, format: FormatObjets, fichier: string): s
   return m[1];
 }
 
+/** Les modes git d'un fichier ORDINAIRE : seuls ceux-là se lisent comme un fichier. */
+const FICHIER_ORDINAIRE = new Set(['100644', '100755']);
+/** Le mode d'un sous-arbre (répertoire) : le seul qu'on descend. */
+const SOUS_ARBRE = '40000';
+
 /**
- * L'empreinte de l'entrée `nom` d'un arbre déjà vérifié, et si c'est un
- * sous-arbre — ou `null` si l'entrée n'existe pas (fichier absent de la base).
+ * L'entrée `nom` d'un arbre déjà vérifié — son empreinte ET son mode — ou
+ * `null` si l'entrée n'existe pas (fichier absent de la base).
  *
  * Format d'une entrée (gitformat) : `<mode ASCII octal> <nom>\0<hash BRUT>`,
  * concaténées sans séparateur. Le hash fait `format.octets` octets. On lit les
@@ -156,44 +176,43 @@ function entreeDArbre(
   nom: string,
   format: FormatObjets,
   fichier: string,
-): { oid: string; sousArbre: boolean } | null {
+): { oid: string; mode: string } | null {
   const cible = Buffer.from(nom, 'utf8');
   let i = 0;
   while (i < arbre.length) {
     const espace = arbre.indexOf(0x20, i);
-    const nul = espace >= 0 ? arbre.indexOf(0x00, espace + 1) : -1;
-    if (espace < 0 || nul < 0 || nul + format.octets >= arbre.length + 1) {
+    const nul = espace > i ? arbre.indexOf(0x00, espace + 1) : -1;
+    // Le hash occupe `[nul + 1, nul + format.octets]` : il est tronqué dès que
+    // `nul + 1 + format.octets > arbre.length`. `subarray` tronquerait en
+    // silence — on refuse plutôt.
+    if (espace < 0 || nul < 0 || nul + 1 + format.octets > arbre.length) {
       throw new BaseFalsifiee(fichier, 'arbre de base mal formé');
     }
     const mode = arbre.subarray(i, espace).toString('utf8');
     const entree = arbre.subarray(espace + 1, nul);
     const hash = arbre.subarray(nul + 1, nul + 1 + format.octets);
-    if (entree.equals(cible)) {
-      // `40000` : un sous-arbre. `160000` : un sous-module (gitlink) — pas un
-      // arbre qu'on descend, pas un fichier qu'on lit. Tout autre mode est un
-      // blob (fichier, lien symbolique) : on ne descend pas dedans.
-      return { oid: hash.toString('hex'), sousArbre: mode === '40000' };
-    }
+    if (entree.equals(cible)) return { oid: hash.toString('hex'), mode };
     i = nul + 1 + format.octets;
   }
   return null;
 }
 
+/** Ce qu'une entrée finale est, une fois le chemin vérifié. */
+type EntreeFinale = { genre: 'fichier'; oid: string } | { genre: 'absent' }; // n'existe pas, ou n'est pas un fichier ordinaire
+
 /**
- * Lit `fichier` du commit de BASE `baseSha`, en VÉRIFIANT chaque objet de la
- * chaîne (voir l'en-tête) ; `null` si le fichier n'existe pas à la base.
- * Lève `BaseFalsifiee` si un objet du chemin ne correspond pas à son empreinte.
- *
- * `baseSha` est de confiance : la Reine l'a fourni, et HEAD du registre reste
- * épinglée dessus avant l'agent (`poserRegistre`). On le revérifie quand même —
- * c'est le premier maillon, et il ne coûte qu'une relecture.
+ * Navigue de `baseSha` jusqu'à l'entrée de `fichier`, en VÉRIFIANT chaque objet
+ * du chemin commit → arbre(s). Rend l'entrée finale si c'est un fichier
+ * ordinaire, sinon `absent` (chemin inexistant, dossier, sous-module `gitlink`
+ * ou lien symbolique — aucun n'est un fichier qu'on lit). Lève `BaseFalsifiee`
+ * si un objet du chemin ne correspond pas à son empreinte.
  */
-export async function lireFichierDeBaseVerifie(
+async function naviguerVersEntree(
   depot: DepotEpingle,
   baseSha: string,
   fichier: string,
-): Promise<string | null> {
-  const format = await formatObjets(depot);
+  format: FormatObjets,
+): Promise<EntreeFinale> {
   if (!estEmpreinte(baseSha, format)) {
     throw new BaseFalsifiee(fichier, `commit de base ${baseSha.slice(0, 12)} hors format`);
   }
@@ -202,19 +221,39 @@ export async function lireFichierDeBaseVerifie(
   // Les chemins git sont en `/`, partout : le fichier vient du diff ou d'une
   // table du dépôt, jamais d'un chemin d'hôte.
   const segments = fichier.split('/').filter((s) => s !== '' && s !== '.');
-  if (segments.length === 0) return null;
+  if (segments.length === 0) return { genre: 'absent' };
   for (let k = 0; k < segments.length; k += 1) {
     const arbre = await objetVerifie(depot, arbreOid, 'tree', format, fichier);
     const entree = entreeDArbre(arbre, segments[k] ?? '', format, fichier);
-    if (!entree) return null;
-    const dernier = k === segments.length - 1;
-    if (dernier) {
-      if (entree.sousArbre) return null; // un dossier n'est pas un fichier
-      const blob = await objetVerifie(depot, entree.oid, 'blob', format, fichier);
-      return blob.toString('utf8');
+    if (!entree) return { genre: 'absent' };
+    if (k === segments.length - 1) {
+      // Un sous-module (`160000`) ou un lien symbolique (`120000`) n'est pas un
+      // fichier qu'on lit comme un blob : absent de ce point de vue, jamais une
+      // alarme (`cat-file blob` sur un gitlink échouerait, lèverait à tort).
+      return FICHIER_ORDINAIRE.has(entree.mode)
+        ? { genre: 'fichier', oid: entree.oid }
+        : { genre: 'absent' };
     }
-    if (!entree.sousArbre) return null; // un composant intermédiaire n'est pas un dossier
+    if (entree.mode !== SOUS_ARBRE) return { genre: 'absent' }; // pas un dossier
     arbreOid = entree.oid;
   }
-  return null;
+  return { genre: 'absent' };
+}
+
+/**
+ * Lit `fichier` du commit de BASE `baseSha`, en VÉRIFIANT chaque objet de la
+ * chaîne (voir l'en-tête) ; `null` si le fichier n'existe pas à la base (ou
+ * n'y est pas un fichier ordinaire). Lève `BaseFalsifiee` si un objet du
+ * chemin ne correspond pas à son empreinte.
+ */
+export async function lireFichierDeBaseVerifie(
+  depot: DepotEpingle,
+  baseSha: string,
+  fichier: string,
+): Promise<string | null> {
+  const format = await formatObjets(depot);
+  const entree = await naviguerVersEntree(depot, baseSha, fichier, format);
+  if (entree.genre === 'absent') return null;
+  const blob = await objetVerifie(depot, entree.oid, 'blob', format, fichier);
+  return blob.toString('utf8');
 }
