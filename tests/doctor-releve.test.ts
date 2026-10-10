@@ -27,7 +27,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:f
 import os from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import {
   baseIntegre,
   emplacements,
@@ -521,7 +521,17 @@ describe('LE SECRET DE SESSION EST RELEVÉ DEPUIS L’ENVIRONNEMENT INJECTÉ', (
   //
   // On corrige donc la couture, et ces assertions deviennent possibles.
 
-  const racine = (): string => mkdtempSync(path.join(os.tmpdir(), 'hive-secret-'));
+  // Une racine neuve par relevé — et chacune effacée : neuf dossiers restaient
+  // dans le dossier temporaire à chaque passage du banc.
+  const racines: string[] = [];
+  const racine = (): string => {
+    const r = mkdtempSync(path.join(os.tmpdir(), 'hive-secret-'));
+    racines.push(r);
+    return r;
+  };
+  afterEach(() => {
+    for (const r of racines.splice(0)) rmSync(r, { recursive: true, force: true });
+  });
 
   it('UN SECRET SOLIDE est relevé comme utilisable', async () => {
     const r = await relever(racine(), { HIVE_PORT: '0', HIVE_JWT_SECRET: 'x'.repeat(48) }, 'linux');
