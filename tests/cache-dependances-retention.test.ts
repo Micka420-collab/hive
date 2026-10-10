@@ -176,9 +176,12 @@ describe('la rétention du magasin de dépendances', () => {
   it('au démarrage, les restes d’un peuplement ou d’un effacement interrompus partent — jamais une entrée', async () => {
     const { travail, racine } = atelier();
     const cle = 'a'.repeat(32);
-    // Un peuplement tué APRÈS son manifeste : il en a l'air, pas le nom.
+    // Un peuplement tué APRÈS son manifeste : il en a l'air, pas le nom. Tués
+    // avant ce démarrage-ci : posés il y a une heure.
     const neuf = entree(racine, 'p', { nom: `${cle}.neuf-1`, servieIlYa: HEURE });
     const supprimee = entree(racine, 'p', { nom: `${cle}.supprimee-2`, servieIlYa: HEURE });
+    const ilYaUneHeure = (Date.now() - HEURE) / 1000;
+    for (const d of [neuf, supprimee]) utimesSync(d, ilYaUneHeure, ilYaUneHeure);
     const magasinEcarte = path.join(travail, 'dependances.supprimee-3');
     mkdirSync(path.join(magasinEcarte, 'p'), { recursive: true });
     const vraies = [3, 2, 1].map((h) => entree(racine, 'p', { servieIlYa: h * HEURE }));
@@ -198,6 +201,34 @@ describe('la rétention du magasin de dépendances', () => {
       false,
     ]);
     expect(vraies.every((d) => existsSync(d))).toBe(true);
+  });
+
+  it('un peuplement lancé PENDANT le ramassage de démarrage garde son `.neuf` : ce n’est pas un reste', async () => {
+    // Le ramassage de démarrage n'est pas attendu : une tâche peut peupler
+    // pendant qu'il tourne. Lui arracher son `.neuf` ferait échouer sa copie,
+    // et refuser sa clé pour la vie du nœud.
+    const { racine } = atelier();
+    const enVol = path.join(racine, 'p', `${'b'.repeat(32)}.neuf-4`);
+    mkdirSync(path.join(enVol, 'node_modules'), { recursive: true });
+
+    const bilan = await ramasserMagasin(racine, { niveau: 'conteneur' });
+
+    expect(existsSync(enVol)).toBe(true);
+    expect(bilan).toMatchObject({ vide: false, restes: 0 });
+  });
+
+  it('une entrée dont le manifeste ne se LIT pas (une panne) reste, ni comptée ni évincée', async () => {
+    // Une panne de lecture — ici EISDIR — n'est ni une absence ni un autre
+    // format : peut-être passagère, elle ne coûte pas l'entrée.
+    const { racine } = atelier();
+    const e = entree(racine, 'p', { servieIlYa: INUTILISEE_MAX_MS + HEURE });
+    rmSync(path.join(e, 'manifeste.json'));
+    mkdirSync(path.join(e, 'manifeste.json'));
+
+    const bilan = await ramasserMagasin(racine);
+
+    expect(existsSync(e)).toBe(true);
+    expect(bilan).toMatchObject({ evincees: 0, restes: 0 });
   });
 
   it('une entrée au manifeste illisible ou d’un autre format part, sans compter pour une entrée', async () => {

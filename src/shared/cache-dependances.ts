@@ -20,13 +20,16 @@
 //     dépendance (`inBundle`, sous elle) s'en passe : il arrive dans l'archive
 //     vérifiée de son parent. Ce que la racine embarque (`bundleDependencies`),
 //     npm l'installe comme le reste : la règle commune s'y applique ;
-//   · aucun paquet ne déclare de script d'installation (`hasInstallScript`) :
-//     npm donne à chacun la racine du projet (`INIT_CWD`,
-//     `@npmcli/config/lib/set-envs.js`), et un script autorisé (`allowScripts`)
-//     peut y lire un fichier hors de la clé — le schéma que `@prisma/client`
-//     compile — et le figer dans `node_modules`, que la tête aurait changé
-//     (mesuré, npm 12.2.0). Les paquets à module natif (esbuild, sharp…) en
-//     déclarent un : le magasin ne les sert pas ;
+//   · aucun paquet ne déclare de script d'installation (`hasInstallScript`,
+//     lu comme npm le lit : sa vérité, pas `=== true`) : npm donne à chacun la
+//     racine du projet (`INIT_CWD`, `@npmcli/config/lib/set-envs.js`), et un
+//     script autorisé (`allowScripts`) peut y lire un fichier hors de la clé —
+//     le schéma que `@prisma/client` compile — et le figer dans
+//     `node_modules`, que la tête aurait changé (mesuré, npm 12.2.0). Les
+//     paquets à module natif (esbuild, sharp…) en déclarent un : le magasin ne
+//     les sert pas. Seul un paquet OPTIONNEL que npm n'installe jamais dans ce
+//     bac y échappe — sa liste `os` ou `cpu` ne nomme pas ce que la sonde y a
+//     lu (`fsevents` sous Linux) : son script ne tourne pas ;
 //   · `package.json` ne déclare ni `workspaces`, ni `patchedDependencies` (npm
 //     12 lit les fichiers de patch DANS l'arbre, `arborist/patched-
 //     dependencies.js`), ni script d'installation à la racine : `npm ci` lance
@@ -191,20 +194,55 @@ function reglageNonSur(npmrc: string): string | null {
   return null;
 }
 
+/** Ce que la sonde a lu DANS le bac : la plateforme et l'architecture où npm installe. */
+export interface PlateformeBac {
+  os: string;
+  cpu: string;
+}
+
+/**
+ * Un paquet OPTIONNEL que npm n'installe jamais sur `plateforme` : sa liste
+ * `os` ou `cpu` ne la nomme pas — npm l'écarte alors sans l'extraire ni lancer
+ * son script (`npm-install-checks`, `checkPlatform`). Une liste à négation
+ * (`!win32`) ou `any`, une plateforme inconnue, un paquet requis ne prouvent
+ * rien : le paquet compte.
+ */
+function jamaisInstalle(p: Record<string, unknown>, plateforme: PlateformeBac | null): boolean {
+  if (plateforme === null || p.optional !== true) return false;
+  const listes = [
+    { liste: p.os, ici: plateforme.os },
+    { liste: p.cpu, ici: plateforme.cpu },
+  ].map(({ liste, ici }) => ({ liste: typeof liste === 'string' ? [liste] : liste, ici }));
+  const lisible = ({ liste }: { liste: unknown }): boolean =>
+    liste === undefined ||
+    (Array.isArray(liste) &&
+      liste.every((e) => typeof e === 'string' && !e.startsWith('!') && e !== 'any'));
+  if (!listes.every(lisible)) return false;
+  return listes.some(
+    ({ liste, ici }) => Array.isArray(liste) && liste.length > 0 && !liste.includes(ici),
+  );
+}
+
 /**
  * Le premier paquet du lockfile que le magasin ne sert pas, et pourquoi — ou
- * `null` : un tarball http(s) à empreinte, sans script d'installation. Un
- * paquet embarqué SOUS une dépendance, sans `resolved`, arrive dans l'archive
- * de celle-ci ; `embarquesSurs` est faux quand la racine embarque aussi.
+ * `null` : un tarball http(s) à empreinte, sans script d'installation (sauf
+ * `jamaisInstalle`). Un paquet embarqué SOUS une dépendance, sans `resolved`,
+ * arrive dans l'archive de celle-ci ; `embarquesSurs` est faux quand la racine
+ * embarque aussi.
  */
 function paquetNonSur(
   paquets: Record<string, unknown>,
   embarquesSurs: boolean,
+  plateforme: PlateformeBac | null,
 ): { raison: 'paquet_hors_registre' | 'script_dependance'; chemin: string } | null {
   for (const [chemin, brut] of Object.entries(paquets)) {
     if (chemin === '') continue;
     const p = objet(brut);
-    if (p?.hasInstallScript === true) return { raison: 'script_dependance', chemin };
+    // La VÉRITÉ du champ, comme npm (`arborist/lib/rebuild.js`, `node.js`) :
+    // `1` lance le script autant que `true`.
+    if (p?.hasInstallScript && !jamaisInstalle(p, plateforme)) {
+      return { raison: 'script_dependance', chemin };
+    }
     const resolu = p?.resolved;
     const integrite = p?.integrity;
     const sousUneDependance = chemin.lastIndexOf('node_modules/') > 0;
@@ -213,12 +251,12 @@ function paquetNonSur(
       sousUneDependance &&
       p !== null &&
       p.inBundle === true &&
-      p.link !== true &&
+      !p.link &&
       resolu === undefined;
     const sur =
       embarque ||
       (p !== null &&
-        p.link !== true &&
+        !p.link &&
         typeof resolu === 'string' &&
         /^https?:\/\//i.test(resolu) &&
         typeof integrite === 'string' &&
@@ -243,6 +281,8 @@ export function eligibilite(p: {
   base: EntreesNpm;
   modifies: readonly FichierEntree[];
   nodeModules: boolean;
+  /** Ce que la sonde a lu dans le bac ; sans elle, tout script de dépendance compte. */
+  plateforme?: PlateformeBac;
 }): Eligibilite {
   const { base } = p;
   if (!estNpmCi(p.argv)) return non('pas_npm_ci');
@@ -276,7 +316,7 @@ export function eligibilite(p: {
   const racineEmbarque = ['bundleDependencies', 'bundledDependencies'].some(
     (champ) => manifeste[champ] !== undefined,
   );
-  const nonSur = paquetNonSur(paquets, !racineEmbarque);
+  const nonSur = paquetNonSur(paquets, !racineEmbarque, p.plateforme ?? null);
   if (nonSur !== null) return non(nonSur.raison, nonSur.chemin);
   return { eligible: true };
 }

@@ -35,6 +35,7 @@
 
 import { execFileSync } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -50,7 +51,11 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ramasserMagasin } from '../src/node-client/cache-dependances.js';
+import {
+  depuisLeMagasin,
+  lireEntreesDeBase,
+  ramasserMagasin,
+} from '../src/node-client/cache-dependances.js';
 import type { MagasinDependances, PlafondsEntree } from '../src/node-client/cache-dependances.js';
 import { VERSION_MAGASIN } from '../src/shared/cache-dependances.js';
 import { poserRegistre } from '../src/node-client/git-hote.js';
@@ -122,6 +127,12 @@ if (mode === 'lien-antislash') {
   fs.mkdirSync(path.join('node_modules', 'a', 'b'), { recursive: true });
   fs.symlinkSync('a\\\\b/../..', path.join('node_modules', 'L'));
 }
+if (mode === 'dossier-ferme') {
+  // Un dossier fermé en écriture à son propriétaire, rempli avant d'être fermé.
+  fs.mkdirSync(path.join(premier, 'ferme'));
+  fs.writeFileSync(path.join(premier, 'ferme', 'f.txt'), 'dedans\\n');
+  fs.chmodSync(path.join(premier, 'ferme'), 0o555);
+}
 `;
 
 beforeAll(() => {
@@ -140,6 +151,10 @@ beforeAll(() => {
       `  if [ -e node_modules ]; then echo "$(pwd -P) +node_modules" >> '${journal}'; ` +
       `else pwd -P >> '${journal}'; fi\n` +
       `  exec node '${path.join(racine, 'faux-ci.cjs')}' "$(cat '${mode}' 2>/dev/null)"\n` +
+      'fi\n' +
+      // `npm config` en panne : la sonde du bac doit le dire, pas l'avaler.
+      `if [ "$1" = "config" ] && [ "$(cat '${mode}' 2>/dev/null)" = "config-ko" ]; then\n` +
+      "  echo 'faux npm : config en panne' >&2; exit 1\n" +
       'fi\n' +
       `exec '${vraiNpm}' "$@"\n`,
     { mode: 0o755 },
@@ -598,6 +613,134 @@ describe.runIf(POSIX)('le magasin de dépendances, par les validations du nœud'
     expect(noteDe(v2.etapes)).toBe(
       'hors magasin : copie interrompue (3 fichiers copiés, 4 attendus)',
     );
+  }, 90_000);
+
+  it('l’installation du peuplement a tout son délai, compté depuis SON lancement', async () => {
+    // La sonde et l'extraction de la base passent avant elle : elles ont leur
+    // propre borne, et ne mangent pas le délai d'une installation qui, avant
+    // le magasin, tenait tout juste.
+    const t = await tache(source(PROJET()));
+    const delais: number[] = [];
+    const lancer = async (argv: string[], ou: string, delaiMs: number) => {
+      if (argv[0] === 'node') {
+        await new Promise((suite) => setTimeout(suite, 400));
+        const champs = ['v24.0.0', '137', '10', 'linux', 'x64', null, 'g', 'n'];
+        return { code: 0, output: `HIVE-EMPREINTE ${JSON.stringify(champs)}\n` };
+      }
+      delais.push(delaiMs);
+      execFileSync(process.execPath, [path.join(racine, 'faux-ci.cjs'), ''], { cwd: ou });
+      return { code: 0, output: '' };
+    };
+
+    const issue = await depuisLeMagasin({
+      magasin: magasin(),
+      ou: t.dir,
+      peuplement: `${t.dir}.deps`,
+      depot: t.depot,
+      base: () => lireEntreesDeBase(t.depot.depot, t.depot.baseSha),
+      argv: ['npm', 'ci'],
+      bac: fauxBac(dossiers),
+      npm: '12.2.0',
+      sonde: {},
+      lancer,
+      delaiInstallationMs: 60_000,
+    });
+
+    expect(issue).toMatchObject({ genre: 'peuple' });
+    expect(delais).toHaveLength(1);
+    expect(delais[0]).toBeGreaterThan(60_000 - 100);
+  }, 90_000);
+
+  it('npm config en panne dans le bac : la sonde le dit, et l’arbre s’installe', async () => {
+    // Avalée, la panne laissait la clé sans la configuration effective de npm.
+    writeFileSync(mode, 'config-ko');
+    const m = magasin();
+    const t = await tache(source(PROJET()));
+
+    const v = await valider(t, m);
+
+    expect(v.tests, v.extrait).toBe('passed');
+    expect(ciLances()).toEqual([t.dir]);
+    expect(contenu(m)).toEqual([]);
+    expect(noteDe(v.etapes)).toMatch(
+      /^hors magasin : empreinte du bac illisible \(sonde → code \d+\)$/,
+    );
+  }, 90_000);
+
+  it('un fichier tronqué dans l’entrée (une coupure) : refusé aux octets, puis l’arbre s’installe', async () => {
+    const src = source(PROJET());
+    const m = magasin();
+    const t1 = await tache(src);
+    const t2 = await tache(src);
+    await valider(t1, m);
+    const [entree] = entrees(m);
+    // Même nombre de fichiers, quelques octets de moins.
+    writeFileSync(
+      path.join(m.racine, m.projet, entree ?? '', 'node_modules', 'dep-a', 'index.js'),
+      'x',
+    );
+
+    const v2 = await valider(t2, m);
+
+    expect(v2.tests, v2.extrait).toBe('passed');
+    expect(ciLances()).toEqual([`${t1.dir}.deps`, t2.dir]);
+    expect(noteDe(v2.etapes)).toMatch(
+      /^hors magasin : copie interrompue \(\d+ octets copiés, \d+ attendus\)$/,
+    );
+  }, 90_000);
+
+  it('un dossier fermé en écriture : copié quand même — son mode posé APRÈS ses enfants', async () => {
+    writeFileSync(mode, 'dossier-ferme');
+    const src = source(PROJET());
+    const m = magasin();
+    const t1 = await tache(src);
+    const t2 = await tache(src);
+    const ouvrir = (dir: string): void => {
+      if (!existsSync(dir) || !lstatSync(dir).isDirectory()) return;
+      chmodSync(dir, 0o755);
+      for (const e of readdirSync(dir, { withFileTypes: true })) {
+        if (e.isDirectory()) ouvrir(path.join(dir, e.name));
+      }
+    };
+    try {
+      const v1 = await valider(t1, m);
+      const v2 = await valider(t2, m);
+
+      expect([v1.tests, v2.tests]).toEqual(['passed', 'passed']);
+      expect(noteDe(v1.etapes)).toBe(
+        'dépendances installées à la base, rangées au magasin du nœud',
+      );
+      expect(noteDe(v2.etapes)).toBe('dépendances restaurées du magasin du nœud');
+      const ferme = path.join(t2.dir, 'node_modules', 'dep-a', 'ferme');
+      expect(lstatSync(ferme).mode & 0o777).toBe(0o555);
+      expect(readFileSync(path.join(ferme, 'f.txt'), 'utf8')).toBe('dedans\n');
+    } finally {
+      // Effaçables, après le banc.
+      for (const dir of [t1.dir, t2.dir, m.racine]) ouvrir(dir);
+    }
+  }, 90_000);
+
+  it('un paquet optionnel d’une autre plateforme, à script, ne fait pas sortir le projet', async () => {
+    // Comme `fsevents` (macOS seulement) sous Linux : npm ne l'installe pas
+    // dans ce bac, son script n'y tourne jamais. AIX : la plateforme d'aucun banc.
+    const lock = JSON.parse(LOCKFILE) as { packages: Record<string, unknown> };
+    lock.packages['node_modules/aix-seul'] = {
+      version: '1.0.0',
+      resolved: 'https://registry.example.invalid/aix-seul/-/aix-seul-1.0.0.tgz',
+      integrity: 'sha512-ZmF1eCBwYXF1ZXQ=',
+      optional: true,
+      os: ['aix'],
+      hasInstallScript: true,
+    };
+    const src = source({ ...PROJET(), 'package-lock.json': JSON.stringify(lock, null, 2) });
+    const m = magasin();
+    const t = await tache(src);
+
+    const v = await valider(t, m);
+
+    expect(v.tests, v.extrait).toBe('passed');
+    expect(ciLances()).toEqual([`${t.dir}.deps`]);
+    expect(noteDe(v.etapes)).toBe('dépendances installées à la base, rangées au magasin du nœud');
   }, 90_000);
 
   it('deux projets au même lockfile : deux entrées, chacune peuplée', async () => {

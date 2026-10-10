@@ -834,7 +834,9 @@ d'écriture réels de `src/` et **rougit** si l'un d'eux apparaît ailleurs.
   rejeu qui la demandent, au lieu d'un nouveau `npm ci`. Seul un projet sans
   script d'installation — ni à sa racine, ni dans une de ses dépendances
   (`hasInstallScript` au lockfile : esbuild, sharp…) — y a droit : un tel
-  script peut lire le projet, et son résultat ne vaudrait que pour lui.
+  script peut lire le projet, et son résultat ne vaudrait que pour lui. Un
+  paquet optionnel que npm n'installe pas dans le bac (`fsevents` sous Linux)
+  ne compte pas.
   L'installation se fait dans
   `<installation>/.hive-work/<nœud>/tasks/<task-id>.deps`, effacé aussitôt.
   Le supprimer ne perd rien : le prochain besoin réinstalle. Il est borné, au
