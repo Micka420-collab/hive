@@ -1,6 +1,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   mkdirSync,
   readFileSync,
@@ -38,6 +39,8 @@ import {
   lancerBorne,
   lireStatsMoteur,
 } from '../src/node-client/mesure-processus.js';
+import { poserRegistre } from '../src/node-client/git-hote.js';
+import { validerProduction } from '../src/node-client/validations-bac.js';
 import { createServer } from '../src/orchestrator/server.js';
 import { FAUX_CLAUDE_MCP } from './aide/faux-claude-mcp.js';
 import type { RessourcesExecution } from '../src/shared/types.js';
@@ -366,6 +369,98 @@ describe('isolement — intégration runtime réel', () => {
       }
     },
     180_000,
+  );
+
+  it.skipIf(!runtime || !imageDemandee)(
+    'les validations du nœud installent les devDependencies : le `test` du projet trouve son outil',
+    async () => {
+      // Presque tout projet lance son `test` par un outil de ses devDependencies
+      // (vitest, jest, eslint). Le VRAI chemin des validations — `npm ci`, puis
+      // `npm run test`, dans le conteneur de l'image — doit donc les installer :
+      // un environnement qui les omet (npm `omit=dev`, ce que `NODE_ENV=production`
+      // implique) rend 127, `outil_introuvable`, et aucune production n'est jugée.
+      if (!runtime || !imageDemandee) return;
+      const root = mkdtempSync(path.join(os.tmpdir(), 'hive-validations-conteneur-'));
+      const projet = path.join(root, 'projet');
+      const outil = path.join(root, 'outil-dev');
+      mkdirSync(projet);
+      mkdirSync(outil);
+      try {
+        // L'outil : un paquet minuscule, emballé en tarball DANS le dépôt —
+        // installé comme une dépendance du registre (extrait, binaire lié dans
+        // `node_modules/.bin`), sans aucun accès réseau.
+        writeFileSync(
+          path.join(outil, 'package.json'),
+          JSON.stringify({ name: 'outil-dev', version: '1.0.0', bin: { 'outil-dev': 'bin.js' } }),
+        );
+        // Il laisse une trace dans la tâche : un `passed` ne porte pas d'extrait.
+        writeFileSync(
+          path.join(outil, 'bin.js'),
+          "#!/usr/bin/env node\nrequire('node:fs').writeFileSync('outil-dev.ran', '');\n",
+        );
+        execFileSync('npm', ['pack', '--pack-destination', projet], {
+          cwd: outil,
+          stdio: 'ignore',
+        });
+        writeFileSync(
+          path.join(projet, 'package.json'),
+          JSON.stringify({
+            name: 'projet',
+            version: '1.0.0',
+            private: true,
+            scripts: { test: 'outil-dev' },
+            devDependencies: { 'outil-dev': 'file:outil-dev-1.0.0.tgz' },
+          }),
+        );
+        writeFileSync(path.join(projet, '.gitignore'), 'node_modules\n');
+        execFileSync(
+          'npm',
+          ['install', '--package-lock-only', '--offline', '--no-audit', '--no-fund'],
+          { cwd: projet, stdio: 'ignore' },
+        );
+        const git = (...args: string[]): string =>
+          execFileSync(
+            'git',
+            [
+              '-c',
+              'user.email=banc@hive.test',
+              '-c',
+              'user.name=Banc Hive',
+              '-c',
+              'commit.gpgsign=false',
+              ...args,
+            ],
+            { cwd: projet, encoding: 'utf8' },
+          ).trim();
+        git('init', '--quiet');
+        git('add', '.');
+        git('commit', '--quiet', '-m', 'base');
+        const baseSha = git('rev-parse', 'HEAD');
+        // La production de l'agent : un fichier, rien qui touche à son juge.
+        writeFileSync(path.join(projet, 'feature.js'), 'module.exports = 1;\n');
+
+        const rapport = await validerProduction({
+          cwd: projet,
+          depot: {
+            depot: await poserRegistre(projet, path.join(root, 'registre'), baseSha),
+            baseSha,
+          },
+          bac: { fournisseur: runtime, image: imageDemandee, variables: [] },
+        });
+
+        const tests = rapport.controles.tests;
+        expect(tests, JSON.stringify(tests)).toMatchObject({
+          etat: 'passed',
+          raison: 'termine',
+          code: 0,
+        });
+        expect(existsSync(path.join(projet, 'outil-dev.ran'))).toBe(true);
+      } finally {
+        rmSync(root, { recursive: true, force: true, maxRetries: 3 });
+      }
+    },
+    // Podman rootless : un `keep-id` froid peut encore copier l'image.
+    300_000,
   );
 
   it.skipIf(!runtime || !imageDemandee)(
