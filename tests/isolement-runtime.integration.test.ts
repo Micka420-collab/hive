@@ -18,12 +18,13 @@ import type { AgentAdapter } from '../src/adapters/index.js';
 import { runCommand } from '../src/adapters/exec.js';
 import { agentCredentialEnv } from '../src/node-client/agent-detect.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
+import { COMMANDE_IMAGE, empreinteAttendue } from '../src/node-client/empreinte-image.js';
 import {
-  COMMANDE_IMAGE,
   envelopper,
   ETIQUETTE_NOEUD,
   fournisseurParNom,
   IMAGE_DEFAUT,
+  inspecterImage,
   preparerImage,
   ramasserConteneurs,
   sonderAgentDansBac,
@@ -101,6 +102,58 @@ describe('isolement — intégration runtime réel', () => {
       // l'image : il est écarté, et c'est Docker qui isole. Sur la jambe
       // Podman, il l'a reçue, et il passe en premier.
       expect(bac.fournisseur?.nom, bac.lignes.join('\n')).toBe(moteurImpose);
+      // Construite à l'instant depuis ce dépôt : aucune image à reconstruire.
+      expect(bac.lignes.join('\n')).not.toContain('périmée');
+    },
+    300_000,
+  );
+
+  it.skipIf(!imageDefautConstruite || !moteurImpose)(
+    'l’image que `npm run bac:image` vient de construire porte l’empreinte de ce dépôt : à jour',
+    async () => {
+      // Le chemin entier, par les vrais moteurs : l'étiquette posée par la
+      // construction (`--label`), passée de Docker à Podman par `save | load`,
+      // relue par le gabarit d'inspection du nœud, comparée aux entrées du
+      // dépôt — rien de simulé.
+      const moteur = fournisseurParNom(moteurImpose) as Fournisseur;
+      const etat = await inspecterImage(moteur, IMAGE_DEFAUT);
+      expect(etat).toEqual({ etat: 'presente', empreinte: empreinteAttendue() });
+      const pret = await preparerImage(moteur, IMAGE_DEFAUT, { informer: () => {} });
+      expect(pret.executable, pret.motif).toBe(true);
+      expect(pret.fraicheur).toEqual({ etat: 'a_jour' });
+    },
+    300_000,
+  );
+
+  it.skipIf(!imageDefautConstruite || !moteurImpose)(
+    'une image SANS étiquette se lit « sans empreinte » par le vrai moteur — pas une panne de gabarit',
+    async () => {
+      // Toutes les images construites avant l'empreinte sont dans ce cas : si
+      // le gabarit d'inspection échouait sur elles, le nœud lirait « moteur
+      // injoignable » et se replierait, au lieu de dire « périmée ». Une image
+      // minuscule, sans aucune étiquette, construite ici et retirée après.
+      const bin = moteurImpose;
+      const contexte = mkdtempSync(path.join(os.tmpdir(), 'hive-image-sans-empreinte-'));
+      const nom = 'localhost/hive-essai-sans-empreinte:local';
+      try {
+        writeFileSync(path.join(contexte, 'vide'), '');
+        writeFileSync(path.join(contexte, 'Containerfile'), 'FROM scratch\nCOPY vide /vide\n');
+        // La sortie d'erreur est gardée : un refus du moteur se lit dans l'échec.
+        execFileSync(
+          bin,
+          ['build', '--file', path.join(contexte, 'Containerfile'), '--tag', nom, contexte],
+          { stdio: ['ignore', 'ignore', 'pipe'], timeout: 120_000 },
+        );
+        const moteur = fournisseurParNom(bin) as Fournisseur;
+        expect(await inspecterImage(moteur, nom)).toEqual({ etat: 'presente', empreinte: null });
+      } finally {
+        rmSync(contexte, { recursive: true, force: true });
+        try {
+          execFileSync(bin, ['image', 'rm', '--force', nom], { stdio: 'ignore', timeout: 60_000 });
+        } catch {
+          // Déjà absente : rien à retirer.
+        }
+      }
     },
     300_000,
   );

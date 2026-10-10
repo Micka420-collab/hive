@@ -55,6 +55,12 @@ import {
 import path, { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { envSonde } from './agent-detect.js';
+import {
+  commandeImage,
+  empreinteAttendue,
+  ETIQUETTE_EMPREINTE,
+  type FraicheurImage,
+} from './empreinte-image.js';
 
 /** Les trois positions de l'interrupteur. */
 export const MODES = ['off', 'auto', 'exige'] as const;
@@ -119,8 +125,9 @@ export const VARIABLES_CHEMIN_HOTE: readonly string[] = [
  *
  * Le défaut est désormais l'image que le dépôt sait construire
  * (`docker/agents/Dockerfile` : Node 24, Claude Code, Codex, Cline, uid 1000),
- * construite SUR LE NŒUD par `COMMANDE_IMAGE`. Rien n'est publié ni signé par
- * Hive : aucun registre tiers n'entre dans la chaîne de confiance par défaut.
+ * construite SUR LE NŒUD par `COMMANDE_IMAGE` (`empreinte-image.ts`), qui y
+ * pose l'empreinte de ses entrées. Rien n'est publié ni signé par Hive : aucun
+ * registre tiers n'entre dans la chaîne de confiance par défaut.
  *
  * Le préfixe `localhost/` n'est pas décoratif. Sans lui, Docker lirait
  * `hive-agent:local` comme `docker.io/library/hive-agent:local` et irait le
@@ -129,9 +136,6 @@ export const VARIABLES_CHEMIN_HOTE: readonly string[] = [
  * (voir `preparerImage`, qui la fait construire au lieu de la tirer).
  */
 export const IMAGE_DEFAUT = 'localhost/hive-agent:local';
-
-/** Ce qui construit `IMAGE_DEFAUT` depuis un clone du dépôt. */
-export const COMMANDE_IMAGE = 'npm run bac:image';
 
 /** Image réellement demandée par l'opérateur, sans valeur vide trompeuse. */
 export function imageDepuisEnv(env: NodeJS.ProcessEnv = process.env): string {
@@ -1083,6 +1087,8 @@ export interface ResultatPreflightAgent {
   imageAbsente?: true;
   /** Le moteur tel que l'épreuve l'a appris (`Fournisseur.rootless`), à garder pour la suite. */
   fournisseur?: Fournisseur;
+  /** Ce que l'étiquette d'une image trouvée présente dit d'elle (`preparerImage`). */
+  fraicheur?: FraicheurImage;
 }
 
 /** Ce qu'a rendu une commande d'épreuve lancée dans le bac. */
@@ -1280,19 +1286,29 @@ export const TELECHARGEMENT_MAX_MS = 10 * 60_000;
  */
 const IMAGE_ABSENTE_RE = /no such image|no such object|image not known|failed to find image/i;
 
-/** La commande qui construit `IMAGE_DEFAUT` dans CE moteur. */
-export function commandeImage(fournisseur: Fournisseur): string {
-  return `${COMMANDE_IMAGE}${fournisseur.nom === 'docker' ? ' -- --moteur docker' : ''}`;
-}
-
-/** Ce qu'un moteur dit d'une image : là, absente, ou rien d'exploitable. */
+/**
+ * Ce qu'un moteur dit d'une image : là — avec l'empreinte qu'elle PORTE
+ * (`ETIQUETTE_EMPREINTE`, `null` sans étiquette) —, absente, ou rien
+ * d'exploitable.
+ */
 export type EtatImage =
-  { etat: 'presente' } | { etat: 'absente' } | { etat: 'injoignable'; motif: string };
+  | { etat: 'presente'; empreinte: string | null }
+  | { etat: 'absente' }
+  | { etat: 'injoignable'; motif: string };
+
+/**
+ * Ce que l'inspection fait écrire au moteur : l'étiquette d'empreinte, ou une
+ * ligne vide. `with` : une image sans configuration rend la même ligne vide au
+ * lieu d'une erreur de gabarit, qui se lirait « moteur injoignable ».
+ */
+const FORMAT_EMPREINTE = `{{with .Config}}{{index .Labels "${ETIQUETTE_EMPREINTE}"}}{{end}}`;
 
 /**
  * `image inspect`, sans rien lancer ni télécharger. Partagé par le nœud
  * (`preparerImage`), le docteur et l'installeur : les trois jugent l'image par
- * la même question, et un « prêt » affiché ne peut plus contredire le nœud.
+ * la même question, et un « prêt » affiché ne peut plus contredire le nœud. La
+ * même question rend l'empreinte que l'image porte : savoir si elle est à jour
+ * ne coûte aucun lancement de plus.
  */
 export async function inspecterImage(
   fournisseur: Fournisseur,
@@ -1300,10 +1316,18 @@ export async function inspecterImage(
   timeoutMs = INSPECTION_MAX_MS,
 ): Promise<EtatImage> {
   const r = await eprouver(
-    { bin: fournisseur.bin, args: ['image', 'inspect', '--format', '{{.Id}}', image] },
-    { cwd: tmpdir(), timeoutMs, garderErreurs: true, env: envMoteur(fournisseur) },
+    { bin: fournisseur.bin, args: ['image', 'inspect', '--format', FORMAT_EMPREINTE, image] },
+    {
+      cwd: tmpdir(),
+      timeoutMs,
+      garderErreurs: true,
+      garderSortie: true,
+      env: envMoteur(fournisseur),
+    },
   );
-  if (r.issue === 'sortie' && r.code === 0) return { etat: 'presente' };
+  if (r.issue === 'sortie' && r.code === 0) {
+    return { etat: 'presente', empreinte: r.sortie.trim() || null };
+  }
   if (r.issue !== 'sortie') {
     return {
       etat: 'injoignable',
@@ -1320,7 +1344,8 @@ export async function inspecterImage(
 
 /**
  * Le premier moteur PRÊT pour `image`, dans l'ordre donné — bubblewrap n'a pas
- * d'image, il l'est d'office — et le premier où elle est absente.
+ * d'image, il l'est d'office —, l'empreinte que l'image y porte (`null` sans
+ * image ou sans étiquette), et le premier moteur où elle est absente.
  *
  * C'est la règle du nœud (`choisirMoteur`) sans le preflight de l'agent : le
  * docteur et l'installeur ne peuvent plus annoncer « ✔ docker » sur la seule
@@ -1331,15 +1356,34 @@ export async function moteurPret(
   moteurs: readonly Fournisseur[],
   image: string,
   inspecter: typeof inspecterImage = inspecterImage,
-): Promise<{ pret: Fournisseur | null; absente: Fournisseur | null }> {
+): Promise<{ pret: Fournisseur | null; empreinte: string | null; absente: Fournisseur | null }> {
   let absente: Fournisseur | null = null;
   for (const f of moteurs) {
-    if (f.bin === 'bwrap') return { pret: f, absente };
+    if (f.bin === 'bwrap') return { pret: f, empreinte: null, absente };
     const r = await inspecter(f, image);
-    if (r.etat === 'presente') return { pret: f, absente };
+    if (r.etat === 'presente') return { pret: f, empreinte: r.empreinte, absente };
     if (r.etat === 'absente') absente ??= f;
   }
-  return { pret: null, absente };
+  return { pret: null, empreinte: null, absente };
+}
+
+/**
+ * L'image présente est-elle celle que CETTE version de Hive construirait ?
+ *
+ * Seule l'image par défaut se juge : `COMMANDE_IMAGE` la construit et y pose
+ * l'empreinte de ses entrées. Une image nommée par l'opérateur
+ * (`HIVE_ISOLEMENT_IMAGE`) n'est jamais déclarée périmée — Hive n'en attend
+ * rien, même si elle hérite de l'étiquette de la nôtre. Une installation sans
+ * les entrées de l'image (`attendue` nulle) ne peut rien conclure, et le dit.
+ */
+export function fraicheurImage(
+  image: string,
+  lue: string | null,
+  attendue: string | null,
+): FraicheurImage {
+  if (image !== IMAGE_DEFAUT) return { etat: 'non_geree' };
+  if (attendue === null) return { etat: 'inconnue' };
+  return lue === attendue ? { etat: 'a_jour' } : { etat: 'perimee', lue, attendue };
 }
 
 /**
@@ -1362,6 +1406,9 @@ export async function moteurPret(
  * `tirer: false`, qui rend `imageAbsente` : le nœud cherche d'abord si un
  * AUTRE moteur l'a déjà (`choisirMoteur`) avant d'en tirer une copie. L'épreuve
  * de l'agent qui suit (`--pull=never`) ne mesure plus que l'agent.
+ *
+ * Une image présente rend aussi sa fraîcheur (`fraicheurImage`) : périmée,
+ * elle reste exécutable — c'est au nœud de le dire (`bac.ts`).
  */
 export async function preparerImage(
   fournisseur: Fournisseur,
@@ -1377,13 +1424,15 @@ export async function preparerImage(
   const echec = (motif: string): ResultatPreflightAgent => ({ executable: false, motif });
   const inspection = await inspecterImage(fournisseur, image, opts.inspectionMs);
   if (inspection.etat === 'presente') {
-    return preparerIdentite(fournisseur, image, opts, `image présente dans ${fournisseur.nom}`);
+    const fraicheur = fraicheurImage(image, inspection.empreinte, empreinteAttendue());
+    const motif = `image présente dans ${fournisseur.nom}`;
+    return { ...(await preparerIdentite(fournisseur, image, opts, motif)), fraicheur };
   }
   if (inspection.etat === 'injoignable') return echec(inspection.motif);
   if (image === IMAGE_DEFAUT) {
     return echec(
       `image absente de ${fournisseur.nom} — construisez-la depuis un clone du dépôt : ` +
-        commandeImage(fournisseur),
+        commandeImage(fournisseur.nom),
     );
   }
   if (opts.tirer === false) {

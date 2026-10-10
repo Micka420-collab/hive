@@ -43,6 +43,45 @@ npm via les `optionalDependencies` du paquet. Il pèse lourd (~150 Mo) et exige
 un CPU x86-64 récent : sur un cœur trop ancien il s’arrête en « Illegal
 instruction ». Les runners CI et les machines modernes l’exécutent sans souci.
 
+## Après une mise à jour de Hive : relancer `npm run bac:image`
+
+Une mise à jour du dépôt (`git pull`, `git checkout vX.Y.Z`) ne touche pas au
+magasin d’images du moteur : le nœud garde l’image construite avant, même quand
+ce Dockerfile ou l’arbre épinglé des CLI ont changé. Après chaque mise à jour,
+sur chaque nœud qui isole par Podman ou Docker :
+
+```bash
+npm run bac:image        # avec -- --moteur docker si c’est Docker qui isole
+```
+
+Pour que l’oubli se voie, `npm run bac:image` pose sur l’image l’étiquette
+`hive.empreinte` : l’empreinte (SHA-256) de ce Dockerfile et des fichiers qu’il
+copie, fins de ligne ramenées à LF. Le nœud la relit au démarrage, `hive doctor`
+aussi, et la compare à celle des entrées de la version installée :
+
+- **à jour** : rien de plus à dire ;
+- **périmée** — pas d’étiquette (une image construite avant cette étiquette, ou
+  à la main), ou une autre empreinte : le nœud l’écrit au démarrage
+  (`⚠ Image localhost/hive-agent:local périmée (…) — reconstruisez-la …`) et
+  `hive doctor` passe l’isolement en ⚠, avec la commande du moteur concerné.
+
+Une image périmée est **dite, jamais refusée** : les murs du bac (racine en
+lecture seule, capacités retirées, uid non privilégié, bornes) sont posés au
+lancement, pas par l’image ; la refuser ferait retomber le nœud sur un bac moins
+étanche, ou sur la sandbox de processus, où les validations ne tournent pas du
+tout. Elle peut en revanche manquer de ce que la nouvelle version y a changé —
+d’où la ligne, à chaque démarrage, jusqu’à la reconstruction.
+
+Une image nommée par `HIVE_ISOLEMENT_IMAGE` n’est jamais jugée : Hive n’en
+attend aucune empreinte, et le dit (« non gérée par Hive »). L’empreinte ne
+couvre que les entrées du dépôt : la base `node:24-bookworm-slim` est une
+étiquette flottante, qu’elle ne fige pas. Lire l’étiquette à la main :
+
+```bash
+podman image inspect localhost/hive-agent:local \
+  --format '{{index .Config.Labels "hive.empreinte"}}'
+```
+
 ## Les CLI qui NE sont PAS dans l’image, et pourquoi
 
 Hive détecte et sait piloter cinq CLI réels (`agent-detect.ts`). Deux ne sont

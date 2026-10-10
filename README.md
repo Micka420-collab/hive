@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024.18-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-8336%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-8370%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -442,7 +442,10 @@ construit sur chaque nœud par `npm run bac:image` ; Hive ne la télécharge
 jamais. Le nœud retient le premier moteur dont le preflight passe (image
 présente, agent exécutable) et dit pourquoi les autres sont écartés. Chaque
 conteneur porte l'étiquette de son nœud : relancé après un arrêt brutal, le
-nœud supprime ceux qu'il avait laissés.
+nœud supprime ceux qu'il avait laissés. Une mise à jour de Hive ne reconstruit
+pas l'image : **relancez `npm run bac:image` après chaque mise à jour**. Oubliée,
+l'image se dit « périmée » au démarrage du nœud et dans `hive doctor` — elle
+porte l'empreinte de ce qui l'a construite.
 
 Dans le bac, l'agent a un HOME éphémère : la session de `claude login` ou de
 `codex login` n'y entre pas. Hive y transmet **par leur nom** les identifiants

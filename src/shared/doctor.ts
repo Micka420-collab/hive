@@ -40,6 +40,11 @@
 // module allait lire le disque lui-même.
 
 import { LONGUEUR_MIN_SECRET_JWT } from '../orchestrator/auth.js';
+import {
+  commandeImage,
+  raisonPeremption,
+  type FraicheurImage,
+} from '../node-client/empreinte-image.js';
 import { MIN_TOKEN_LENGTH } from './types.js';
 
 /**
@@ -186,6 +191,11 @@ export interface Releve {
     absenteDe: string | null;
     /** L'image par défaut, absente partout : la commande qui la construit. */
     construire: string | null;
+    /**
+     * Ce que l'étiquette de l'image dit d'elle dans `dans` (`fraicheurImage`)
+     * — `null` sans image à juger : aucun moteur ne l'a, ou c'est bubblewrap.
+     */
+    fraicheur: FraicheurImage | null;
   } | null;
   /** Le WebSocket répond-il ? `null` si la ruche n'écoute pas — on ne peut pas conclure. */
   wsJoignable: boolean | null;
@@ -741,17 +751,17 @@ function isolement(r: Releve): Diagnostic {
   // `exige`, refusait. Le verdict suit maintenant la règle du nœud
   // (`moteurPret`) : l'image doit être dans un moteur.
   const img = r.imageBac;
-  if (img?.dans) {
+  if (img?.dans === 'bubblewrap') {
     // Bubblewrap n'a pas d'image : il monte le système de l'hôte en lecture
     // seule. Lui prêter celle du bac enverrait chercher une image qui n'existe pas.
-    const image = img.dans === 'bubblewrap' ? 'sans image' : `image ${img.image}`;
     return {
       cle: 'isolement',
       gravite: 'ok',
-      constat: `bac à sable disponible : ${img.dans} (${image})`,
+      constat: 'bac à sable disponible : bubblewrap (sans image)',
       reparation: null,
     };
   }
+  if (img?.dans) return imageDuBacPrete(img.dans, img.image, img.fraicheur);
   if (img?.construire) {
     return {
       cle: 'isolement',
@@ -780,6 +790,55 @@ function isolement(r: Releve): Diagnostic {
     gravite: 'inconnu',
     constat: `${r.isolement} répond, mais n'a rien dit de l'image du bac (${image})`,
     reparation: `${r.isolement} image inspect ${image}  — la réponse dit ce qui bloque`,
+  };
+}
+
+/**
+ * Le moteur `moteur` a l'image : est-ce celle que cette version de Hive
+ * construirait ?
+ *
+ * ─── UNE IMAGE PRÉSENTE N'EST PAS UNE IMAGE À JOUR ───────────────────────────
+ *
+ * L'image par défaut se construit sur le nœud, et une mise à jour de Hive qui
+ * change ses entrées ne la reconstruit pas : le docteur la disait
+ * « disponible » pendant que le nœud servait celle d'avant. L'empreinte qu'elle
+ * porte se compare maintenant à celle que l'installation attend — la même
+ * phrase et la même commande qu'au démarrage du nœud.
+ */
+function imageDuBacPrete(
+  moteur: string,
+  image: string,
+  fraicheur: FraicheurImage | null,
+): Diagnostic {
+  if (fraicheur?.etat === 'perimee') {
+    return {
+      cle: 'isolement',
+      gravite: 'risque',
+      constat:
+        `bac à sable disponible : ${moteur}, mais son image ${image} est périmée ` +
+        `(${raisonPeremption(fraicheur)}) — le nœud la garde, et le dit à chaque démarrage`,
+      reparation: `${commandeImage(moteur)}  (depuis ce clone), puis relancez le nœud`,
+    };
+  }
+  if (fraicheur?.etat === 'a_jour' || fraicheur?.etat === 'non_geree') {
+    const note =
+      fraicheur.etat === 'a_jour' ? 'à jour' : 'non gérée par Hive : sa fraîcheur vous revient';
+    return {
+      cle: 'isolement',
+      gravite: 'ok',
+      constat: `bac à sable disponible : ${moteur} (image ${image}, ${note})`,
+      reparation: null,
+    };
+  }
+  // Rien à quoi comparer : on ne déclare pas à jour ce qu'on n'a pas comparé.
+  return {
+    cle: 'isolement',
+    gravite: 'inconnu',
+    constat:
+      `bac à sable disponible : ${moteur} (image ${image}), mais sa fraîcheur n'a pas pu être ` +
+      'vérifiée : les entrées de l’image (docker/agents) manquent à cette installation',
+    reparation:
+      'hive doctor <chemin du clone qui construit l’image>  — il sait ce qu’elle doit porter',
   };
 }
 

@@ -4,6 +4,11 @@
 # a Chromium/VNC desktop and its entrypoint is not an agent command runner.
 # Versions — and their whole dependency tree — are pinned by package-lock.json
 # so a rebuild cannot silently change the runtime contract.
+#
+# Build it with `npm run bac:image`: it stamps the `hive.empreinte` label (the
+# fingerprint of this file and of what it copies), which the node and
+# `hive doctor` read to report an image left stale by a Hive update. A manual
+# build carries no fingerprint, and reads as stale.
 
 FROM node:24-bookworm-slim
 

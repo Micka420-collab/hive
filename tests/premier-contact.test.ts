@@ -64,6 +64,7 @@ function releveAvec(reglages: { cle: string; valeur: string }[]): Releve {
       dans: 'podman',
       absenteDe: null,
       construire: null,
+      fraicheur: { etat: 'a_jour' },
     },
     wsJoignable: true,
     reglages: { runner: 'off', bindPublic: false, gardiennes: 'strict', corsOuvert: false },

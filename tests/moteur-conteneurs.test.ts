@@ -38,6 +38,10 @@ import {
 import { cheminVerrou, occuperIdentite } from '../src/node-client/identite-noeud.js';
 import {
   COMMANDE_IMAGE,
+  empreinteAttendue,
+  ETIQUETTE_EMPREINTE,
+} from '../src/node-client/empreinte-image.js';
+import {
   envDuLanceur,
   envelopper,
   envMoteur,
@@ -62,6 +66,9 @@ import { createServer, type HiveServer } from '../src/orchestrator/server.js';
 const PODMAN = fournisseurParNom('podman') as Fournisseur;
 const DOCKER = fournisseurParNom('docker') as Fournisseur;
 const BWRAP = fournisseurParNom('bubblewrap') as Fournisseur;
+
+/** L'empreinte que ce dépôt attend de son image : celle d'une image à jour. */
+const EMPREINTE = empreinteAttendue() as string;
 
 const OK: ResultatPreflightAgent = { executable: true, motif: 'agent « claude » exécutable' };
 
@@ -213,14 +220,21 @@ describe('moteurPret — la règle que le docteur et l’installeur partagent av
       vus.push(f.nom);
       return f.nom === 'podman' ? { etat: 'absente' } : { etat: 'injoignable', motif: 'x' };
     });
-    expect(r).toEqual({ pret: BWRAP, absente: PODMAN });
+    expect(r).toEqual({ pret: BWRAP, empreinte: null, absente: PODMAN });
     // bubblewrap n'a pas d'image : rien à lui demander.
     expect(vus).toEqual(['podman', 'docker']);
   });
 
   it('aucun prêt : ni moteur, et l’absence qui dit où construire', async () => {
     const r = await moteurPret([DOCKER], IMAGE_DEFAUT, async () => ({ etat: 'absente' }));
-    expect(r).toEqual({ pret: null, absente: DOCKER });
+    expect(r).toEqual({ pret: null, empreinte: null, absente: DOCKER });
+  });
+
+  it('le moteur prêt rend l’empreinte que l’image y porte : le docteur la juge sans la redemander', async () => {
+    const r = await moteurPret([PODMAN, DOCKER], IMAGE_DEFAUT, async (f) =>
+      f.nom === 'docker' ? { etat: 'presente', empreinte: 'sha256:portee' } : { etat: 'absente' },
+    );
+    expect(r).toEqual({ pret: DOCKER, empreinte: 'sha256:portee', absente: PODMAN });
   });
 });
 
@@ -266,11 +280,28 @@ function fauxMoteur(nom: string, corps: string): { moteur: Fournisseur; appels: 
 }
 
 describe.skipIf(!surPosix)('preparerImage — trois pannes, trois motifs', () => {
-  it('une image présente passe, sans rien télécharger', async () => {
-    const { moteur, appels } = fauxMoteur('docker', `'image inspect') echo sha256:abc ;;`);
+  it('une image présente passe, sans rien télécharger — et la même inspection lit son empreinte', async () => {
+    const { moteur, appels } = fauxMoteur('docker', `'image inspect') echo ${EMPREINTE} ;;`);
     const r = await preparerImage(moteur, IMAGE_DEFAUT);
-    expect(r.executable).toBe(true);
-    expect(appels()).toEqual([`image inspect --format {{.Id}} ${IMAGE_DEFAUT}`]);
+    expect(r).toEqual({
+      executable: true,
+      motif: 'image présente dans docker',
+      fraicheur: { etat: 'a_jour' },
+    });
+    // `with` : une image sans configuration rend une ligne vide, pas une
+    // erreur de gabarit qui se lirait « moteur injoignable ».
+    expect(appels()).toEqual([
+      `image inspect --format {{with .Config}}{{index .Labels "${ETIQUETTE_EMPREINTE}"}}{{end}} ${IMAGE_DEFAUT}`,
+    ]);
+  });
+
+  it('l’image par défaut sans étiquette — construite avant l’empreinte : périmée, et TOUJOURS prête', async () => {
+    const { moteur } = fauxMoteur('docker', `'image inspect') echo ;;`);
+    const r = await preparerImage(moteur, IMAGE_DEFAUT);
+    expect(r).toMatchObject({
+      executable: true,
+      fraicheur: { etat: 'perimee', lue: null, attendue: EMPREINTE },
+    });
   });
 
   it('l’image PAR DÉFAUT absente n’est jamais tirée : le motif donne la commande qui la construit', async () => {
@@ -317,11 +348,15 @@ describe.skipIf(!surPosix)('preparerImage — trois pannes, trois motifs', () =>
     vi.spyOn(process, 'getuid').mockReturnValue(1001);
     const { moteur, appels } = fauxMoteur(
       'podman',
-      `'image inspect') echo sha256:abc ;;\n'run --rm') sleep 4 ;;`,
+      `'image inspect') echo ${EMPREINTE} ;;\n'run --rm') sleep 4 ;;`,
     );
     const dit: string[] = [];
     const r = await preparerImage(moteur, IMAGE_DEFAUT, { informer: (l) => dit.push(l) });
-    expect(r).toEqual({ executable: true, motif: 'image présente dans podman' });
+    expect(r).toEqual({
+      executable: true,
+      motif: 'image présente dans podman',
+      fraicheur: { etat: 'a_jour' },
+    });
     // Le moteur est interrogé d'abord ; muet, l'UID du nœud en décide.
     expect(appels()[1]).toBe('info --format {{.Host.Security.Rootless}}');
     // Le même bac que la tâche : l'image nommée ne tourne jamais sans ses murs.
@@ -447,6 +482,81 @@ describe.skipIf(!surPosix)('preparerImage — trois pannes, trois motifs', () =>
     expect(r.motif).toMatch(/^docker injoignable \(« Cannot connect to the Docker daemon/);
     // Rien à télécharger d'un moteur qui ne répond pas.
     expect(appels().some((a) => a.startsWith('pull'))).toBe(false);
+  });
+});
+
+describe.skipIf(!surPosix)('une image périmée se DIT au démarrage — elle ne se refuse pas', () => {
+  // ─── LE DÉFAUT ───────────────────────────────────────────────────────────
+  //
+  // Une mise à jour de Hive qui change `docker/agents/Dockerfile` ne
+  // reconstruit pas l'image : le nœud servait celle d'avant, le preflight y
+  // passait, et rien ne le disait. Un Docker de laboratoire répond ici avec
+  // l'étiquette voulue ; le reste du démarrage est le vrai (`preparerBac`,
+  // `preparerImage`).
+
+  /** La ligne qui dit l'image périmée — pas le ⚠ des garanties de Docker. */
+  const avertissement = (lignes: string[]): string | undefined =>
+    lignes.find((l) => l.trimStart().startsWith('⚠ Image'));
+
+  /** Un Docker dont l'image porte `etiquette` (vide : aucune), et la vraie préparation d'image. */
+  function dockerAvec(etiquette: string, agents: Partial<Record<string, boolean>> = {}): OutilsBac {
+    const { moteur } = fauxMoteur('docker', `'image inspect') echo ${etiquette} ;;`);
+    return {
+      ...machine([moteur], {}, agents).outils,
+      preparerImage: (f, image) => preparerImage(f, image, { informer: () => {} }),
+    };
+  }
+
+  it.each(['auto', 'exige'])(
+    '« %s » : le nœud isole quand même, et une ligne dit quoi taper',
+    async (mode) => {
+      const bac = await preparerBac(
+        { ...CLE, HIVE_ISOLEMENT: mode },
+        'claude-code',
+        dockerAvec(''),
+      );
+      // Les murs du bac sont posés au lancement, pas par l'image : refuser
+      // le conteneur n'achèterait rien, et `exige` reste tenu.
+      expect(bac.refuse).toBe(false);
+      expect(bac.fournisseur?.nom).toBe('docker');
+      expect(bac.lignes.find((l) => l.includes('Preflight'))).toContain(
+        `(image ${IMAGE_DEFAUT}, périmée)`,
+      );
+      const ligne = avertissement(bac.lignes);
+      expect(ligne).toContain('sans empreinte : construite par une version antérieure de Hive');
+      expect(ligne).toContain(
+        `reconstruisez-la pour cette version : ${COMMANDE_IMAGE} -- --moteur docker`,
+      );
+    },
+  );
+
+  it('à jour : la ligne du preflight reste celle d’avant, sans un mot de plus', async () => {
+    const bac = await preparerBac(CLE, 'claude-code', dockerAvec(EMPREINTE));
+    expect(bac.lignes.find((l) => l.includes('Preflight'))).toMatch(
+      new RegExp(`\\(image ${IMAGE_DEFAUT}\\)$`),
+    );
+    expect(avertissement(bac.lignes)).toBeUndefined();
+  });
+
+  it('une image NOMMÉE n’est jamais périmée : « non gérée par Hive »', async () => {
+    const bac = await preparerBac(
+      { ...CLE, HIVE_ISOLEMENT_IMAGE: 'ghcr.io/x/agent:1' },
+      'claude-code',
+      dockerAvec(''),
+    );
+    expect(bac.lignes.find((l) => l.includes('Preflight'))).toContain(
+      '(image ghcr.io/x/agent:1, non gérée par Hive)',
+    );
+    expect(bac.lignes.join('\n')).not.toContain('périmée');
+    expect(avertissement(bac.lignes)).toBeUndefined();
+  });
+
+  it('écarté pour une autre raison, son image périmée se dit aussi : la reconstruire est peut-être le remède', async () => {
+    // Un CLI qu'une version récente de l'image apporte, absent de celle d'avant.
+    const bac = await preparerBac(CLE, 'claude-code', dockerAvec('', { docker: false }));
+    expect(bac.fournisseur).toBeNull();
+    expect(bac.decision.motif).toContain(`(image ${IMAGE_DEFAUT}, périmée)`);
+    expect(avertissement(bac.lignes)).toContain(`${COMMANDE_IMAGE} -- --moteur docker`);
   });
 });
 

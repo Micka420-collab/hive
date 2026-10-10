@@ -21,10 +21,23 @@
 // Chaque moteur a son PROPRE magasin d'images : l'image construite par Docker
 // n'existe pas pour Podman. Le nœud éprouve les moteurs dans l'ordre et garde
 // le premier qui a l'image — construire dans l'un suffit.
+//
+// ─── L'EMPREINTE, POSÉE ICI ET RELUE PAR LE NŒUD ─────────────────────────────
+//
+// L'image porte l'étiquette `hive.empreinte` : l'empreinte du Dockerfile et de
+// ce qu'il copie, calculée par le module que le nœud et `hive doctor` utilisent
+// pour la vérifier (`src/node-client/empreinte-image.ts`, chargé sans tsx). Une
+// image construite AVANT une mise à jour de Hive qui change ces entrées se dit
+// alors « périmée », avec cette commande — au lieu de servir en silence.
 
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  ENTREES_IMAGE,
+  ETIQUETTE_EMPREINTE,
+  empreinteImage,
+} from '../src/node-client/empreinte-image.ts';
 
 const IMAGE = 'localhost/hive-agent:local';
 const MOTEURS = ['podman', 'docker'];
@@ -57,10 +70,31 @@ if (!moteur) {
   process.exit(1);
 }
 
+const empreinte = empreinteImage(racine);
+if (!empreinte) {
+  console.error(
+    `✘ Les entrées de l'image sont illisibles (${ENTREES_IMAGE.join(', ')}).\n` +
+      '  Lancez cette commande depuis un clone complet du dépôt.',
+  );
+  process.exit(1);
+}
+
 console.log(`\n🛠  Construction de ${IMAGE} avec ${moteur} (docker/agents/Dockerfile)…\n`);
 const construction = spawnSync(
   moteur,
-  ['build', '--file', 'docker/agents/Dockerfile', '--tag', IMAGE, '.'],
+  [
+    'build',
+    '--file',
+    'docker/agents/Dockerfile',
+    // Une étiquette posée à la construction, pas un `LABEL` du Dockerfile :
+    // elle ne touche aucune couche, le cache de `npm ci` reste valable, et une
+    // construction à la main (sans elle) se dira « sans empreinte ».
+    '--label',
+    `${ETIQUETTE_EMPREINTE}=${empreinte}`,
+    '--tag',
+    IMAGE,
+    '.',
+  ],
   { cwd: racine, shell: false, stdio: 'inherit' },
 );
 if (construction.status !== 0) {
@@ -68,6 +102,7 @@ if (construction.status !== 0) {
   process.exit(construction.status ?? 1);
 }
 console.log(
-  `\n✔ ${IMAGE} est prête dans ${moteur}. Relancez le nœud : son preflight y éprouvera l'agent.\n` +
+  `\n✔ ${IMAGE} est prête dans ${moteur} (${ETIQUETTE_EMPREINTE}=${empreinte}).\n` +
+    "  Relancez le nœud : son preflight y éprouvera l'agent.\n" +
     '  HIVE_ISOLEMENT_IMAGE n’a pas à être posée : c’est l’image par défaut.\n',
 );
