@@ -27,6 +27,22 @@ n’existe pas pour Podman. Au démarrage, le nœud éprouve les moteurs dans l�
 (podman, docker, bubblewrap) et garde le premier dont le preflight passe ; une
 image absente se dit « absente », avec cette commande, et jamais « agent absent ».
 
+Les versions sont épinglées dans `docker/agents/package.json`, et **tout l’arbre
+de leurs dépendances** dans `docker/agents/package-lock.json` (versions et
+empreintes d’intégrité) : l’image s’installe par `npm ci`, qui pose exactement
+cet arbre ou échoue. Un `npm install --global` n’épinglait que les trois CLI ;
+leurs dépendances transitives flottaient, et une publication en amont a suffi à
+casser la construction le 25 septembre sans qu’une ligne du dépôt change.
+
+Mettre à jour un CLI : changer sa version dans `package.json`, lancer
+`npm install --package-lock-only` dans ce dossier, reconstruire l’image et refaire
+les trois sondes.
+
+Cline se distribue en binaire compilé par plateforme (Bun embarqué), tiré par
+npm via les `optionalDependencies` du paquet. Il pèse lourd (~150 Mo) et exige
+un CPU x86-64 récent : sur un cœur trop ancien il s’arrête en « Illegal
+instruction ». Les runners CI et les machines modernes l’exécutent sans souci.
+
 ## Après une mise à jour de Hive : relancer `npm run bac:image`
 
 Une mise à jour du dépôt (`git pull`, `git checkout vX.Y.Z`) ne touche pas au
@@ -65,22 +81,6 @@ couvre que les entrées du dépôt : la base `node:24-bookworm-slim` est une
 podman image inspect localhost/hive-agent:local \
   --format '{{index .Config.Labels "hive.empreinte"}}'
 ```
-
-Les versions sont épinglées dans `docker/agents/package.json`, et **tout l’arbre
-de leurs dépendances** dans `docker/agents/package-lock.json` (versions et
-empreintes d’intégrité) : l’image s’installe par `npm ci`, qui pose exactement
-cet arbre ou échoue. Un `npm install --global` n’épinglait que les trois CLI ;
-leurs dépendances transitives flottaient, et une publication en amont a suffi à
-casser la construction le 25 septembre sans qu’une ligne du dépôt change.
-
-Mettre à jour un CLI : changer sa version dans `package.json`, lancer
-`npm install --package-lock-only` dans ce dossier, reconstruire l’image et refaire
-les trois sondes.
-
-Cline se distribue en binaire compilé par plateforme (Bun embarqué), tiré par
-npm via les `optionalDependencies` du paquet. Il pèse lourd (~150 Mo) et exige
-un CPU x86-64 récent : sur un cœur trop ancien il s’arrête en « Illegal
-instruction ». Les runners CI et les machines modernes l’exécutent sans souci.
 
 ## Les CLI qui NE sont PAS dans l’image, et pourquoi
 
