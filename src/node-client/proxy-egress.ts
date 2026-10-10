@@ -446,9 +446,24 @@ export interface OptionsSession {
   adressesLocales?: () => readonly string[];
 }
 
+/**
+ * Le dernier échec AMONT d'une passerelle d'API : l'API que la passerelle de
+ * Hive n'a pas jointe, la phrase qu'elle a rendue au bac (son 502), et combien
+ * de fois. Le fait de la passerelle, consigné là où il se produit (G13) : sans
+ * lui, le 502 que le CLI relaie se lisait « fournisseur surchargé », et
+ * l'`ENOTFOUND` disparaissait.
+ */
+export interface EchecAmont {
+  passerelle: string;
+  motif: string;
+  fois: number;
+}
+
 export interface SessionReseau {
   /** Les refus vus, dans l'ordre, bornés à `REFUS_MAX`. */
   refus(): RefusReseau[];
+  /** Le dernier échec amont d'une passerelle, ou `null` si elle a toujours joint son API. */
+  echecAmont(): EchecAmont | null;
   /** Ferme l'écoute et coupe les tunnels ouverts. Ne lève jamais. */
   fermer(): Promise<void>;
 }
@@ -512,6 +527,7 @@ export async function ouvrirSessionReseau(opts: OptionsSession): Promise<Session
   const lookup = lookupGarde(resoudre, locales);
   const vus = new Map<string, RefusReseau>();
   const ouverts = new Set<Socket | Duplex>();
+  let echecAmont: EchecAmont | null = null;
 
   const permis = politique.hotes.length > 0 ? politique.hotes.join(', ') : 'aucun hôte';
   const ports = (politique.ports ?? [...PORTS_PERMIS]).filter((p) => PORTS_PERMIS.has(p));
@@ -684,9 +700,11 @@ export async function ouvrirSessionReseau(opts: OptionsSession): Promise<Session
         reponse.pipe(res);
         reponse.on('error', () => res.destroy());
       });
-      amont.on('error', (err) =>
-        echouer(502, `Hive : l'API ${passerelle.nom} ne répond pas (${err.message}).`),
-      );
+      amont.on('error', (err) => {
+        const motif = `Hive : l'API ${passerelle.nom} ne répond pas (${err.message}).`;
+        echecAmont = { passerelle: passerelle.nom, motif, fois: (echecAmont?.fois ?? 0) + 1 };
+        echouer(502, motif);
+      });
       req.pipe(amont);
       return;
     }
@@ -746,6 +764,7 @@ export async function ouvrirSessionReseau(opts: OptionsSession): Promise<Session
 
   return {
     refus: () => [...vus.values()].map((r) => ({ ...r })),
+    echecAmont: () => (echecAmont ? { ...echecAmont } : null),
     fermer: () =>
       new Promise<void>((resolve) => {
         for (const s of ouverts) s.destroy();
