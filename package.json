@@ -11,6 +11,7 @@
     "README.md",
     "README.en.md",
     "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
     ".env.example"
   ],
   "type": "module",
@@ -89,7 +90,7 @@
     "prettier": "^3.9.4",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "simple-git": "^3.36.0",
+    "simple-git": "^4.0.2",
     "tsx": "^4.23.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.63.0",

@@ -135,6 +135,21 @@ Gardiennes inspect it (`clean`, `suspect`, `hollow`).
   other family online: the counter-review is refused **and journaled**
   (`contre_expertise`, `possible: false`) — never mistaken for "found
   nothing".
+- **Anonymity:** the reviewer does not know WHO produced. Its instructions
+  (`consigneDeCritique`) receive only the task title and the diff: neither
+  the producer's family nor its model, nor its logs (where its CLI names
+  itself), not even "another model". Its context carries neither the
+  Cerveau's episodes (Hive writes the failure as the CLI states it, « codex :
+  échec — … » included), nor Hive Mind memories (they fall back on a
+  production's logs), nor the experience graph; it keeps the rules only a
+  human writes (invariants, lessons, decisions, maps). Humans keep the family:
+  the announcement (`contre_expertise`), the verdict
+  (`contre_expertise_verdict`) and the Evaluator's evidence name producer and
+  reviewer. What escapes Hive: the diff's content (a style, a signature
+  written in a file), the task title, a human rule that would name a family —
+  and inference: in a two-family hive the reviewer knows the other one
+  produced, all the more when Hive reviews itself, its `AGENTS.md` (served as
+  the repository's instructions) describing the cross-review.
 - **The verdict:** the reviewer answers `valide` or `conteste`, then one
   objection per line (`OBJECTIONS_MAX` at most, 300 characters each), in its
   **final answer** — never read from its logs —, and **ends** with a
@@ -167,6 +182,19 @@ Gardiennes inspect it (`clean`, `suspect`, `hollow`).
   - **Without a marker**, the free-text reading applies: `conteste` always
     wins, and **one objection is enough** — written under `valide`, it counts
     as a contest (`agreger`). An unreadable verdict counts as contested too.
+  - **Schema-bound:** a review — and only a review — imposes this grid as a
+    JSON Schema (`SCHEMA_AVIS`) on a CLI that can hold it: Claude Code
+    (`--json-schema`, from 2.1.205) and Codex (`--output-schema`). The opinion
+    is read where the CLI returns it — the object Claude Code ACCEPTED from
+    its `StructuredOutput` tool, Codex's last `agent_message` —, never from its
+    prose, and written as a `HIVE_CRITIQUE` line: same reading, same grid.
+    Off-grid, it is contested, never repaired; two accepted opinions are two
+    marker lines, hence unreadable; a too-long opinion drops its least severe
+    findings to fit the final text. A CLI that ends without the required
+    opinion leaves a review with no final answer. A Codex provider that does
+    not honour the format returns text: read through its marker line, with its
+    guards, and said in the journal. An older Claude Code keeps the
+    instructions' line, and the review's journal says so, version included.
 
 - **Scoring:** there is **no single score** — it would hide _which_ criterion
   failed. Findings are **counted per criterion and severity**
@@ -209,31 +237,82 @@ at that row only:
 
 <!-- verifie:evaluator -->
 
-| #   | When                                                       | Decision                   | Retry recommended | Reason given (excerpt)           |
-| --- | ---------------------------------------------------------- | -------------------------- | ----------------- | -------------------------------- |
-| 1   | no Worker result                                           | `correction_required`      | yes               | `aucun résultat Worker`          |
-| 2   | latest result failed                                       | `rejected`                 | yes               | `le dernier résultat a échoué`   |
-| 3   | hollow production (Gardiennes `hollow`)                    | `rejected`                 | yes               | `production creuse`              |
-| 4   | Gardiennes `suspect`                                       | `correction_required`      | yes               | `signal suspect`                 |
-| 5   | human rejection                                            | `correction_required`      | yes               | `la revue humaine a rejeté`      |
-| 6   | no Gardiennes inspection                                   | `human_review_required`    | no                | `aucune inspection indépendante` |
-| 7   | the result is not the one the Parliament elected           | `correction_required`      | yes               | `faction élue`                   |
-| 8   | contested counter-review                                   | `correction_required`      | yes               | `demande une amélioration`       |
-| 9   | a failed validation                                        | `correction_required`      | yes               | `en échec`                       |
-| 10  | review impossible, with no opinion and no review in flight | `human_review_required`    | no                | `relecture impossible :`         |
-| 11  | a validation is missing (or tests are not declared)        | `additional_test_required` | no                | `preuves manquantes`             |
-| 12  | a review of this result is still in flight                 | `human_review_required`    | no                | `contre-revue en cours`          |
-| 13  | no favorable opinion from another family                   | `human_review_required`    | no                | `aucune contre-revue`            |
-| 14  | everything green **and** an independent favorable opinion  | `accepted`                 | no                | `contre-revue favorable`         |
+| #   | When                                                                   | Decision                   | Retry recommended | Reason given (excerpt)             |
+| --- | ---------------------------------------------------------------------- | -------------------------- | ----------------- | ---------------------------------- |
+| 1   | no Worker result                                                       | `correction_required`      | yes               | `aucun résultat Worker`            |
+| 2   | latest result failed                                                   | `rejected`                 | yes               | `le dernier résultat a échoué`     |
+| 3   | hollow production (Gardiennes `hollow`)                                | `rejected`                 | yes               | `production creuse`                |
+| 4   | the security gate found an added secret or an introduced vulnerability | `correction_required`      | yes               | `la porte de sécurité a trouvé`    |
+| 5   | Gardiennes `suspect`                                                   | `correction_required`      | yes               | `signal suspect`                   |
+| 6   | human rejection                                                        | `correction_required`      | yes               | `la revue humaine a rejeté`        |
+| 7   | no Gardiennes inspection                                               | `human_review_required`    | no                | `aucune inspection indépendante`   |
+| 8   | the result is not the one the Parliament elected                       | `correction_required`      | yes               | `faction élue`                     |
+| 9   | contested counter-review                                               | `correction_required`      | yes               | `demande une amélioration`         |
+| 10  | a failed validation                                                    | `correction_required`      | yes               | `en échec`                         |
+| 11  | review impossible, with no opinion and no review in flight             | `human_review_required`    | no                | `relecture impossible :`           |
+| 12  | security gate not verified, under `strict` polyethism                  | `human_review_required`    | no                | `non vérifiée, polyéthisme strict` |
+| 13  | a validation is missing (or tests are not declared)                    | `additional_test_required` | no                | `preuves manquantes`               |
+| 14  | a review of this result is still in flight                             | `human_review_required`    | no                | `contre-revue en cours`            |
+| 15  | no favorable opinion from another family                               | `human_review_required`    | no                | `aucune contre-revue`              |
+| 16  | everything green **and** an independent favorable opinion              | `accepted`                 | no                | `contre-revue favorable`           |
 
 <!-- /verifie:evaluator -->
 
-The impossible review (10) comes **before** missing evidence: no CI would
+The impossible review (11) comes **before** missing evidence: no CI would
 make `accepted` without an independent opinion, and "additional tests
 required" would send the operator after evidence that unblocks nothing. A
 first favorable opinion is not acceptance while another review of the same
-result is in flight (12): an objection stays blocking, wherever it comes
+result is in flight (14): an objection stays blocking, wherever it comes
 from.
+
+**Failing sandbox tests are compared to the base**, test by test
+(`src/shared/lecture-tests.ts`, G11b) — when their default output is readable
+(vitest, jest, `node --test`, TAP), without adding anything to the declared
+script, and **complete and consistent**: it is partly written by the agent's
+code, and a glued line, a summary that does not count everything, a duplicate
+name or a failure the runner does not restate give the script's verdict —
+never one more green. The base is replayed apart, in the sandbox: a fresh
+repository fetched from the registry (never by reading the objects the agent
+may have forged), a fresh install from its lockfile, its build, the same
+script. A **regression** (red on every run of the production, on none of the
+base) stays rule 10, and its reasons **name** it; tests **already red at the
+base**, with the same failure (the message the runner prints, and its file),
+no longer block — `accepted` (16) **says** them; a **flaky** test (seen red on
+one run and green on another, of the production or of the base) is neither:
+missing evidence (13). Each side is seen up to twice, lazily, and the second
+run of the production replays its DELIVERED tree, apart — what the first run
+left in the directory cannot make it pass —, a port of SWE-bench's
+FAIL_TO_PASS / PASS_TO_PASS logic (`grading.py`, MIT), with the base as
+reference. An unreadable or truncated output, a run with an environment
+failure, a side that cannot be replayed, or runs that do not compare give the
+script's verdict. The overhead — only when tests fail, 55 min at worst: two
+replays apart (extraction, install, build, tests) and a second run of the
+base — is announced in the progress line; each node remembers the bases it
+replayed, except those that wavered.
+
+The **security gate** (`src/shared/porte-securite.ts`) is not a fifth
+validation: the node attaches it to its result (`porteSecurite`, recorded as
+`security_gate_recorded`), part by part — secrets (Betterleaks, high
+confidence, added lines only, on EVERY result that carries a diff, failures
+included) and dependencies (osv-scanner, vulnerabilities INTRODUCED compared
+with the base, for a successful production of the task tree; what leaves for
+osv.dev: `src/shared/porte-securite-dependances.ts`). The Queen revalidates
+each part ON ITS OWN: a malformed part becomes `rapport_rejete`, journaled
+(`security_gate_rejected`), without taking the other with it. A finding (4)
+comes before everything that calls a human: `human_review_required` does not
+stop delivery, and an approval must not let a key go out; on a failed result
+(2), the findings follow the reason, so that the critique carries them. Not
+verified (tool missing, failed, osv.dev unreachable, node older than the
+gate), it is **never counted green** — `accepted` says so in its reasons, as
+it says how many introduced packages could not be queried ("passed in
+part") — and it holds the production only under `strict` polyethism (12):
+like a missing counter-visit, the production then waits for a human
+(`human_review_required`, no retry — the producer cannot install the node's
+tool). What that changes, and nothing more: delivery already required a human
+approval, which this verdict does not block; the Evaluator no longer accepts
+on its own (no memory kept in the Hive Mind without a human, no production
+"judged" in the workers' quality). A human rejection relaunches the
+production, and the gate with it.
 
 ### Step 4 — the correction, with the critique (#488)
 

@@ -449,13 +449,20 @@ describe('V2 Alpha — mission locale vérifiable', () => {
       expect(first?.diff).toContain('secure = true');
       expect(first?.diff).toContain('secure = false');
       expect(first?.nodeId).toBeTruthy();
-      expect(first?.usage).toMatchObject({
-        userCpuMicros: expect.any(Number),
-        systemCpuMicros: expect.any(Number),
-        maxRssBytes: expect.any(Number),
-        rssBytes: expect.any(Number),
-        heapUsedBytes: expect.any(Number),
-      });
+      // La mesure est celle de l'AGENT (son arbre, son conteneur) — ou la
+      // raison de son absence : jamais les compteurs du nœud, jamais rien.
+      const ressources = first?.ressources;
+      expect(
+        ressources,
+        'le nœud rend la mesure de l’agent, ou pourquoi il n’en a pas',
+      ).toBeDefined();
+      if (ressources?.portee === 'aucune') {
+        // L'agent de la fixture vit quelques dizaines de millisecondes : un
+        // moteur qui répond après lui, ou Windows, peuvent ne rien en voir.
+        expect(['plateforme', 'aucun_releve']).toContain(ressources.raison);
+      } else {
+        expect(ressources?.portee).toBe(bac ? 'conteneur' : 'arbre');
+      }
       expect(
         server.store
           .listEvents()

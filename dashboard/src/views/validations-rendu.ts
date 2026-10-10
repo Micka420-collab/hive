@@ -15,11 +15,45 @@
 // l'Evaluator dit aussi) — rien ne le tire vers le DOM.
 
 import type { ValidationProvenance } from '../../../src/orchestrator/evaluator';
-import { DIRE_PANNE, type DetailControle } from '../../../src/shared/validations-bac';
+import { DIRE_RAISON_PORTE, type PorteSecurite } from '../../../src/shared/porte-securite';
+import {
+  DIRE_PANNE,
+  type ComparaisonBase,
+  type DetailControle,
+  type TestsNommes,
+} from '../../../src/shared/validations-bac';
 import { formatDuree } from '../ui';
 
 /** Traduire, tel que `useT` le rend : `t(fr, en)`. */
 export type Traduire = (fr: string, en: string) => string;
+
+/** Les mots de chaque raison — vus comme ce qu'ils sont au réseau : peut-être une raison inconnue. */
+const MOTS_DES_RAISONS: Readonly<Record<string, readonly [string, string] | undefined>> =
+  DIRE_RAISON_PORTE;
+
+/**
+ * La porte de sécurité, volet par volet : son état, sa raison, l'outil qui a
+ * tourné, les paquets qui n'ont pas pu être interrogés. Une Reine antérieure à
+ * la porte n'en rend pas — la ligne le dit, plutôt que de laisser croire à un
+ * « rien trouvé ». Une Reine PLUS RÉCENTE peut rendre une raison que cet écran
+ * ne connaît pas : elle s'affiche telle quelle, le panneau ne tombe pas.
+ */
+export function resumePorte(porte: PorteSecurite | undefined, t: Traduire): string {
+  if (!porte) return t('non rapportée par cette Reine', 'not reported by this Queen');
+  const volet = (nom: string, v: PorteSecurite['secrets'] | PorteSecurite['dependances']) => {
+    const [fr, en] = MOTS_DES_RAISONS[v.raison] ?? [String(v.raison), String(v.raison)];
+    const combien = v.etat === 'constat' ? ` ×${v.total}` : '';
+    const outil = v.outil ? ` · ${v.outil.nom} ${v.outil.version}` : '';
+    const exclus = v.nonInterroges
+      ? t(` · ${v.nonInterroges} non interrogé(s)`, ` · ${v.nonInterroges} not queried`)
+      : '';
+    return `${nom} ${v.etat}${combien} (${t(fr, en)}${outil}${exclus})`;
+  };
+  return [
+    volet(t('secrets', 'secrets'), porte.secrets),
+    volet(t('dépendances', 'dependencies'), porte.dependances),
+  ].join(' · ');
+}
 
 /** Une ligne : quelle source, et à quoi elle est rattachée. */
 export function resumeProvenance(provenance: ValidationProvenance, t: Traduire): string {
@@ -34,6 +68,66 @@ export function resumeProvenance(provenance: ValidationProvenance, t: Traduire):
     `${t('nœud', 'node')} ${provenance.nodeId}`,
     ...(provenance.baseSha ? [`base ${provenance.baseSha.slice(0, 8)}`] : []),
   ].join(' · ');
+}
+
+/** Des tests nommés : les noms rapportés, et ce que la borne a laissé tomber. */
+function noms(tests: TestsNommes, t: Traduire): string {
+  const reste = tests.total - tests.noms.length;
+  return (
+    tests.noms.join(' ; ') +
+    (reste > 0 ? t(` ; … et ${reste} autre(s)`, ` ; … and ${reste} more`) : '')
+  );
+}
+
+/**
+ * La comparaison à la base (G11b), en une phrase : ce qui bloque d'abord, puis
+ * ce qui reste rouge sans bloquer, puis ce que la production a réparé — et ce
+ * que la comparaison a coûté, puisqu'elle double l'exécution.
+ */
+function texteComparaison(c: ComparaisonBase, t: Traduire): string {
+  const morceaux: string[] = [];
+  if (c.regressions.total > 0) {
+    morceaux.push(
+      t(
+        `régression : ${noms(c.regressions, t)} — rouge à chaque exécution, jamais à la base`,
+        `regression: ${noms(c.regressions, t)} — red on every run, never at the base`,
+      ),
+    );
+  }
+  if (c.instables.total > 0) {
+    morceaux.push(
+      t(
+        `instable : ${noms(c.instables, t)} — vu rouge à une exécution et vert à une autre, de la production ou de la base : ni régression ni vert, verdict inconnu`,
+        `flaky: ${noms(c.instables, t)} — seen red on one run and green on another, of the production or of the base: neither a regression nor green, verdict unknown`,
+      ),
+    );
+  }
+  if (c.dejaRouges.total > 0) {
+    morceaux.push(
+      t(
+        `déjà rouge à la base, du même échec, non bloquant : ${noms(c.dejaRouges, t)}`,
+        `already red at the base, with the same failure, not blocking: ${noms(c.dejaRouges, t)}`,
+      ),
+    );
+  }
+  if (c.ciblesPassees.total > 0) {
+    morceaux.push(
+      t(
+        `cibles passées : ${noms(c.ciblesPassees, t)}`,
+        `targets passed: ${noms(c.ciblesPassees, t)}`,
+      ),
+    );
+  }
+  const cout = c.memoire
+    ? t('base déjà rejouée sur ce nœud', 'base already replayed on this node')
+    : t(
+        `base rejouée à part, ${formatDuree(c.surcoutMs)} de plus`,
+        `base replayed apart, ${formatDuree(c.surcoutMs)} extra`,
+      );
+  return t(
+    `comparé test par test à la base (${c.executions.tete} exécution(s) de la production, ${c.executions.base} de la base ; ${cout}) — ${morceaux.join(' · ')}`,
+    `compared test by test with the base (${c.executions.tete} run(s) of the production, ${c.executions.base} of the base; ${cout}) — ${morceaux.join(' · ')}`,
+  );
 }
 
 /**
@@ -76,6 +170,11 @@ export function texteControle(detail: DetailControle, t: Traduire): string {
       return t(
         'la production a modifié .npmrc, qui règle la façon dont npm lance les scripts : non lancé',
         'the production changed .npmrc, which controls how npm runs scripts: not run',
+      );
+    case 'base_falsifiee':
+      return t(
+        'base falsifiée dans l’espace de travail : un objet git de la base ne correspond pas à son empreinte — non lancé, la production est rejetée',
+        'base forged in the workspace: a git object of the base does not match its hash — not run, the production is rejected',
       );
     case 'sans_bac':
       return t(
@@ -142,5 +241,17 @@ export function texteControle(detail: DetailControle, t: Traduire): string {
         'les validations ont été interrompues par une erreur du nœud',
         'validations were interrupted by a node error',
       );
+    case 'comparee':
+    case 'instable': {
+      // `controleDepuis` exige la comparaison avec ces raisons : l'absence
+      // n'est que le repli du typage, dit sans rien inventer.
+      const sortie = `${commande} → ${code}`;
+      return detail.comparaison
+        ? `${sortie} · ${texteComparaison(detail.comparaison, t)}`
+        : t(
+            `${sortie} : comparé à la base, détail absent`,
+            `${sortie}: compared with the base, detail missing`,
+          );
+    }
   }
 }

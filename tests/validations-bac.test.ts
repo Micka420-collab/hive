@@ -345,6 +345,65 @@ describe('ce qui traverse le réseau et le journal', () => {
     expect(long?.extrait?.endsWith('FIN')).toBe(true);
   });
 
+  describe('la comparaison à la base (G11b), relue à l’arrivée', () => {
+    const aucun = { total: 0, noms: [] };
+    const compare = (
+      etat: 'passed' | 'failed' | 'missing',
+      extra: Record<string, unknown> = {},
+    ) => ({
+      etat,
+      raison: etat === 'missing' ? 'instable' : 'comparee',
+      script: 'test',
+      code: 1,
+      comparaison: {
+        format: 'node-test',
+        executions: { tete: 2, base: 2 },
+        memoire: false,
+        surcoutMs: 1_000,
+        regressions: aucun,
+        dejaRouges: { total: 1, noms: ['ancien'] },
+        instables: aucun,
+        ciblesPassees: aucun,
+        ...extra,
+      },
+    });
+
+    it('traverse pour les TESTS, telle quelle', () => {
+      expect(validationsBacDepuis(rapport({ tests: compare('passed') }))?.controles.tests).toEqual(
+        compare('passed'),
+      );
+    });
+
+    it.each(['typecheck', 'build', 'lint'] as const)(
+      'refuse une comparaison sur %s : seuls les tests se comparent à la base',
+      (cle) => {
+        expect(validationsBacDepuis(rapport({ [cle]: compare('passed') }))).toBeNull();
+        expect(
+          validationsBacDepuis(
+            rapport({ [cle]: compare('missing', { instables: { total: 1, noms: ['x'] } }) }),
+          ),
+        ).toBeNull();
+      },
+    );
+
+    it('refuse un vert qui porte une régression : l’état est celui que la comparaison fonde', () => {
+      const regression = compare('passed', { regressions: { total: 1, noms: ['additionne'] } });
+      expect(validationsBacDepuis(rapport({ tests: regression }))).toBeNull();
+    });
+
+    it.each([
+      ['un saut de ligne', 'a\nb'],
+      ['une tabulation', 'a\tb'],
+      ['un échappement de terminal', `a${String.fromCharCode(0x1b)}[31mb`],
+      ['un contrôle C1', `a${String.fromCharCode(0x85)}b`],
+      ['un renversement bidirectionnel', `a${String.fromCharCode(0x202e)}b`],
+      ['un isolat bidirectionnel', `a${String.fromCharCode(0x2067)}b`],
+    ])('refuse un nom de test qui porte %s', (_cas, nom) => {
+      const douteux = compare('passed', { dejaRouges: { total: 1, noms: [nom] } });
+      expect(validationsBacDepuis(rapport({ tests: douteux }))).toBeNull();
+    });
+  });
+
   it('task_result : un rapport mal formé est abandonné, pas la production qui le porte', () => {
     const message = (validations: unknown) =>
       parseClientMessage(

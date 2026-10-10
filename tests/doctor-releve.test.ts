@@ -23,19 +23,21 @@
 // et sur un cas où elle DOIT rendre `null`. Une mesure qui ne sait que dire
 // « je ne sais pas » n'est pas une mesure.
 
-import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import {
   baseIntegre,
   emplacements,
+  identifiantsDeposes,
   moteurManquant,
   octetsLibres,
   portLibre,
   portTenuParNous,
   relever,
+  versionGitLocale,
 } from '../src/doctor-releve.js';
 import { diagnostiquer } from '../src/shared/doctor.js';
 import { SECRET_JWT_INTERDIT } from '../src/orchestrator/auth.js';
@@ -161,8 +163,14 @@ describe('LE RELEVÉ COMPLET, SUR UNE RACINE FABRIQUÉE', () => {
 
       // Et le jugement tient : douze lignes, aucune exception.
       // Treize depuis que `secret_session` est arrivé, quatorze depuis
-      // `decouverte` — voir tests/doctor.test.ts.
-      expect(diagnostiquer(r)).toHaveLength(14);
+      // `decouverte`, seize depuis `git` et `identifiants_git`, dix-sept depuis
+      // `porte_securite` — voir tests/doctor.test.ts.
+      expect(diagnostiquer(r)).toHaveLength(17);
+      // Les outils de la porte sont SONDÉS, jamais supposés : une version
+      // lue, ou `null` — jamais une valeur par défaut.
+      for (const vue of Object.values(r.porteSecurite.hote)) {
+        expect(vue === null || /^\d+\.\d+\.\d+/.test(vue), String(vue)).toBe(true);
+      }
     } finally {
       rmSync(nue, { recursive: true, force: true });
     }
@@ -411,7 +419,7 @@ describe('LA COMMANDE, LANCÉE POUR DE VRAI', () => {
         verdict: string;
         diagnostics: { cle: string; gravite: string; reparation: string | null }[];
       };
-      expect(vu.diagnostics, 'les quatorze de la mission').toHaveLength(14);
+      expect(vu.diagnostics, 'les dix-sept du docteur').toHaveLength(17);
       // Une racine nue n'a ni .env ni jeton : le verdict DOIT être bloquant, et
       // le code de sortie doit le dire à la supervision qui l'écoute.
       expect(vu.verdict).toBe('bloquant');
@@ -513,7 +521,17 @@ describe('LE SECRET DE SESSION EST RELEVÉ DEPUIS L’ENVIRONNEMENT INJECTÉ', (
   //
   // On corrige donc la couture, et ces assertions deviennent possibles.
 
-  const racine = (): string => mkdtempSync(path.join(os.tmpdir(), 'hive-secret-'));
+  // Une racine neuve par relevé — et chacune effacée : neuf dossiers restaient
+  // dans le dossier temporaire à chaque passage du banc.
+  const racines: string[] = [];
+  const racine = (): string => {
+    const r = mkdtempSync(path.join(os.tmpdir(), 'hive-secret-'));
+    racines.push(r);
+    return r;
+  };
+  afterEach(() => {
+    for (const r of racines.splice(0)) rmSync(r, { recursive: true, force: true });
+  });
 
   it('UN SECRET SOLIDE est relevé comme utilisable', async () => {
     const r = await relever(racine(), { HIVE_PORT: '0', HIVE_JWT_SECRET: 'x'.repeat(48) }, 'linux');
@@ -611,5 +629,91 @@ describe('LA DÉCOUVERTE EST RELEVÉE COMME LA RUCHE ET LE NŒUD LA LISENT', () 
     } finally {
       rmSync(racine, { recursive: true, force: true });
     }
+  });
+});
+
+describe('LES IDENTIFIANTS GIT DÉPOSÉS — relevés, jamais cités', () => {
+  // Jusqu'à la correction du clone sans identifiants, git confiait le jeton
+  // de l'URL d'un projet privé à `credential-store` du membre (en clair) ou
+  // au gestionnaire de Windows. Le relevé les cherche EN LECTURE SEULE, et
+  // ne rend que des hôtes : sa sortie s'affiche, et part en `--json`.
+  const JETON = `ghp_${'A1b2C3d4E5'.repeat(4)}`;
+
+  it('UN JETON en clair est vu — son hôte remonte, sa valeur jamais', async () => {
+    const maison = mkdtempSync(path.join(os.tmpdir(), 'hive-identifiants-'));
+    try {
+      writeFileSync(
+        path.join(maison, '.git-credentials'),
+        [
+          `https://marie:${JETON}@github.com`,
+          // Le nom seul porte le jeton (la forme de GitHub), encodé comme git l'écrit.
+          `https://${encodeURIComponent(JETON)}:@git.exemple.test`,
+          // Un mot de passe ordinaire n'est pas un jeton émis : pas de bruit.
+          'https://moi:motdepasse@interne.local',
+          'ce qui n’est pas une URL',
+        ].join('\n'),
+      );
+      const r = await identifiantsDeposes({ HOME: maison }, 'linux');
+      expect(r).toEqual({
+        enClair: [
+          {
+            fichier: path.join(maison, '.git-credentials'),
+            hotes: ['git.exemple.test', 'github.com'],
+          },
+        ],
+        illisibles: [],
+        gestionnaireWindows: [],
+      });
+      expect(JSON.stringify(r)).not.toContain(JETON);
+      expect(JSON.stringify(r)).not.toContain('marie');
+    } finally {
+      rmSync(maison, { recursive: true, force: true });
+    }
+  });
+
+  it('LE FICHIER XDG est lu aussi, et un HOME sans rien ne dit rien', async () => {
+    const maison = mkdtempSync(path.join(os.tmpdir(), 'hive-identifiants-xdg-'));
+    try {
+      expect(await identifiantsDeposes({ HOME: maison }, 'linux')).toEqual({
+        enClair: [],
+        illisibles: [],
+        gestionnaireWindows: [],
+      });
+      const xdg = path.join(maison, 'xdg');
+      mkdirSync(path.join(xdg, 'git'), { recursive: true });
+      writeFileSync(path.join(xdg, 'git', 'credentials'), `https://x:${JETON}@github.com\n`);
+      const r = await identifiantsDeposes({ HOME: maison, XDG_CONFIG_HOME: xdg }, 'linux');
+      expect(r.enClair).toEqual([
+        { fichier: path.join(xdg, 'git', 'credentials'), hotes: ['github.com'] },
+      ]);
+    } finally {
+      rmSync(maison, { recursive: true, force: true });
+    }
+  });
+
+  it('SOUS WINDOWS, les cibles `git:` de `cmdkey` donnent leurs hôtes — ni compte ni valeur', async () => {
+    // La sortie de `cmdkey /list` suit la langue du système : on y cherche
+    // `git:`, pas le libellé. Le compte (`Utilisateur`) peut être le jeton :
+    // il ne sort pas.
+    const sortie = [
+      'Informations d’identification actuellement stockées :',
+      '',
+      '    Cible : LegacyGeneric:target=git:https://github.com',
+      '    Type : Générique',
+      `    Utilisateur : ${JETON}`,
+      '',
+      '    Cible : LegacyGeneric:target=git:https://dev.azure.com',
+      '    Cible : Domain:target=serveur-de-fichiers',
+    ].join('\r\n');
+    const r = await identifiantsDeposes({}, 'win32', async () => sortie);
+    expect(r.gestionnaireWindows).toEqual(['dev.azure.com', 'github.com']);
+    expect(JSON.stringify(r)).not.toContain(JETON);
+    const muet = await identifiantsDeposes({}, 'win32', async () => null);
+    expect(muet.gestionnaireWindows, '`cmdkey` muet : on ne sait pas').toBeNull();
+  });
+
+  it('LE GIT DE CETTE MACHINE se lit : une version, pas `null`', async () => {
+    const version = await versionGitLocale(dir);
+    expect(version).toMatch(/^\d+\.\d+/);
   });
 });

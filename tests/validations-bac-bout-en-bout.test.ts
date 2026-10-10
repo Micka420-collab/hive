@@ -128,7 +128,13 @@ const agentDuBanc: AgentAdapter = {
     // « Casser » imprime aussi, au chargement, un secret du nœud (son jeton
     // de ruche) : ce que ferait un test qui affiche un fichier où l'agent
     // l'aurait écrit. L'extrait des validations part au hub — caviardé.
-    const fuite = task.title.startsWith('Casser') ? `console.log(${JSON.stringify(JETON)});\n` : '';
+    // Le jeton est ASSEMBLÉ à l'exécution : écrit en clair dans une ligne
+    // ajoutée, la porte de sécurité le trouverait (porte-securite.ts), et son
+    // constat passerait avant ce que ce banc vérifie — l'extrait du bac.
+    const moitie = Math.floor(JETON.length / 2);
+    const fuite = task.title.startsWith('Casser')
+      ? `console.log(${JSON.stringify(JETON.slice(0, moitie))} + ${JSON.stringify(JETON.slice(moitie))});\n`
+      : '';
     writeFileSync(
       path.join(ctx.cwd, 'src', 'feature.js'),
       `${fuite}module.exports = { secure: ${secure} };\n`,

@@ -5,7 +5,10 @@
 import type { PlateformeNoeud } from './machine.js';
 import type { OutilConstate } from './protocol.js';
 import type { ValidationsBac } from './validations-bac.js';
+import type { PorteSecurite, VoletPorte } from './porte-securite.js';
 import type { Effort } from './effort.js';
+import type { ArretBudgetaire } from './arret-budgetaire.js';
+import type { Enlisement } from './enlisement.js';
 
 /** Cycle de vie : pending → ready (dépendances done) → assigned → running → done | failed. */
 export type TaskStatus = 'pending' | 'ready' | 'assigned' | 'running' | 'done' | 'failed';
@@ -90,6 +93,11 @@ export interface SubAgent {
   id: string;
   name: string;
   status: 'running' | 'done' | 'failed';
+  /**
+   * Le sous-agent qui l'a lancé (Sandbox Live : l'ARBRE des délégations). Absent :
+   * lancé par l'agent principal — ou par un nœud d'avant cette information.
+   */
+  parentId?: string;
 }
 
 /** Résumé du résultat stocké sur la tâche elle-même (le détail vit dans `results`). */
@@ -97,32 +105,95 @@ export interface TaskResultSummary {
   success: boolean;
   nodeId: string;
   durationMs: number;
-  /** Mesure locale du processus Worker, absente sur les anciens résultats. */
-  usage?: ExecutionUsage;
+  /** Les ressources de l'agent pour cette tentative (voir `RessourcesExecution`). */
+  ressources?: RessourcesExecution;
+  /**
+   * Cette tentative — la dernière — s'est arrêtée dans la boucle de son agent,
+   * sur le plafond que la Reine lui avait passé : la tâche a fini sur sa borne,
+   * pas sur un échec (`arreteeParSonBudget`, shared/arret-budgetaire.ts).
+   */
+  arretBudgetaire?: ArretBudgetaire;
 }
 
 /**
- * Ressources réellement observées par le Worker pendant une tentative.
+ * Pourquoi les ressources d'une exécution ne sont PAS mesurées :
  *
- * Ces compteurs décrivent le processus Node local. Ils ne sont pas une facture
- * fournisseur et ne doivent jamais être présentés comme un coût monétaire.
+ *   · `plateforme` : Windows hors conteneur — aucune table des processus
+ *     lisible sans outil tiers ;
+ *   · `aucun_processus` : l'adaptateur n'a lancé aucun processus (simulé) ;
+ *   · `aucun_releve` : l'agent a fini avant qu'un relevé ne le trouve ;
+ *   · `noeud_ancien` : un nœud d'avant cette mesure — ce qu'il envoyait
+ *     (`usage`) décrivait SON processus Node, pas l'agent.
  */
-export interface ExecutionUsage {
-  userCpuMicros: number;
-  systemCpuMicros: number;
-  maxRssBytes: number;
-  rssBytes: number;
-  heapUsedBytes: number;
-}
+export const RAISONS_SANS_MESURE = [
+  'plateforme',
+  'aucun_processus',
+  'aucun_releve',
+  'noeud_ancien',
+] as const;
+export type RaisonSansMesure = (typeof RAISONS_SANS_MESURE)[number];
+
+/**
+ * QUELLE mémoire un relevé a lue — un fait de la mesure, jamais déduit à
+ * l'affichage :
+ *
+ *   · `pss` : l'arbre, chaque page partagée RÉPARTIE entre ceux qui la
+ *     partagent (`Pss` de `/proc/<pid>/smaps_rollup`, Linux) ;
+ *   · `somme_rss` : l'arbre, la somme des RSS — une page partagée comptée par
+ *     CHAQUE processus qui la voit (Claude Code et ses serveurs MCP : trois fois
+ *     et plus le vrai) ; ce qui reste quand le Pss ne se lit pas ;
+ *   · `noyau` : le conteneur, le pic que tient son cgroup (`memory.peak`) ;
+ *   · `moteur` : le conteneur, selon le `stats` de son moteur.
+ */
+export const MEMOIRES_MESUREES = ['pss', 'somme_rss', 'noyau', 'moteur'] as const;
+export type MemoireMesuree = (typeof MEMOIRES_MESUREES)[number];
+
+/** Ce qu'une portée peut dire de sa mémoire, de la plus juste à la moins juste. */
+export const MEMOIRES_PAR_PORTEE: Readonly<
+  Record<'arbre' | 'conteneur', readonly MemoireMesuree[]>
+> = { arbre: ['pss', 'somme_rss'], conteneur: ['noyau', 'moteur'] };
+
+/**
+ * Les ressources de l'AGENT pendant une tentative — l'arbre de ses processus,
+ * ou son conteneur ; JAMAIS le processus du nœud qui le lance. Le bilan des
+ * relevés du pilote Sandbox Live (`node-client/pilote-execution.ts`), la même
+ * mesure que le direct.
+ *
+ * Ce n'est pas un coût : le coût fournisseur est ce que le CLI déclare
+ * (`UsageFournisseur`), à part.
+ */
+export type RessourcesExecution =
+  | {
+      /** L'arbre de processus de l'agent sur l'hôte, ou son conteneur. */
+      portee: 'arbre' | 'conteneur';
+      /** Relevés qui ont rendu au moins un nombre (`INTERVALLE_METRIQUES_MS`). */
+      releves: number;
+      /**
+       * CPU (utilisateur + système) consommé jusqu'au DERNIER relevé, en ms :
+       * un plancher — ce qui a suivi ce relevé n'y est pas. Absent : la source
+       * n'a pas de cumul (le `stats` d'un moteur, sans cgroup lisible).
+       */
+      cpuMs?: number;
+      /**
+       * Le plus haut de la mémoire relevée — ÉCHANTILLONNÉ, sauf `noyau` — et
+       * laquelle (`memoire`) : présents ensemble, ou absents ensemble.
+       */
+      picOctets?: number;
+      memoire?: MemoireMesuree;
+    }
+  | { portee: 'aucune'; raison: RaisonSansMesure };
 
 /**
  * Ce que le CLI de l'agent DÉCLARE pour une exécution — coût, temps passé dans
  * les appels au modèle, modèles exacts, jetons. Hive ne l'estime jamais : un
  * champ absent veut dire « non déclaré », et l'interface le dit « inconnu ».
  *
- * `coutUsd` est le montant rapporté par le CLI (Claude Code : `total_cost_usd`,
- * calculé par le CLI au tarif public). Sur un abonnement, ce n'est pas une
- * facture : c'est la valeur déclarée, et elle est présentée comme telle.
+ * `coutUsd` est le montant rapporté par le CLI (Claude Code : `total_cost_usd`).
+ * C'est l'ESTIMATION du CLI, pas une facture : il la calcule de son côté sur
+ * une table de prix embarquée à sa construction — « client-side estimates, not
+ * authoritative billing data » (code.claude.com/docs/en/agent-sdk/cost-tracking).
+ * Hive la relaie sans l'estimer à son tour, et l'écran la dit telle
+ * (`NOTE_COUT_DECLARE`, dashboard/src/ui.tsx).
  */
 export interface UsageFournisseur {
   /** L'agent dont le CLI a fait la déclaration. */
@@ -171,8 +242,8 @@ export interface TaskResult {
   success: boolean;
   durationMs: number;
   subAgents: SubAgent[];
-  /** Ressources locales observées, quand le nœud les a mesurées. */
-  usage?: ExecutionUsage;
+  /** Les ressources de l'agent, ou pourquoi elles ne sont pas mesurées. */
+  ressources?: RessourcesExecution;
   /** Déclaration du CLI de l'agent, quand il en fait une. */
   fournisseur?: UsageFournisseur;
   /**
@@ -187,6 +258,23 @@ export interface TaskResult {
    * au `resultId`, et `resultsForTask` ne les relit pas.
    */
   validations?: ValidationsBac;
+  /**
+   * La tentative s'est arrêtée sur le plafond que Hive lui avait passé — à la
+   * réception seulement, et seulement quand la Reine le croit (`arretCru`,
+   * server.ts : la tentative qu'elle a plafonnée, en échec, au coût déclaré
+   * arrivé sur ce plafond).
+   */
+  arretBudgetaire?: ArretBudgetaire;
+  /**
+   * La vigie du nœud a arrêté l'agent qui tournait en rond (G13) — à la
+   * réception seulement : la Reine le porte sur le fait de la tentative
+   * (`task_retry`, `task_failed`), qui reste un échec du modèle.
+   */
+  enlisement?: Enlisement;
+  /** La porte de sécurité du nœud — même règle : rangée à la réception (`security_gate_recorded`). */
+  porteSecurite?: PorteSecurite;
+  /** Ses volets refusés à la réception (`TaskResultMsg.porteSecuriteRejetee`) — journalisés. */
+  porteSecuriteRejetee?: VoletPorte[];
 }
 
 /** Entrée du journal d'événements — base du futur Time-Lapse Replay (palier 3). */

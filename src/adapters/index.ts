@@ -3,8 +3,12 @@
 // connaître l'outil qui exécute réellement la tâche (contrainte §5.4).
 
 import type { PresenceFichier } from '../shared/presence.js';
+import type { BlocSortie } from '../shared/niveaux-sortie.js';
 import type { Effort } from '../shared/effort.js';
-import type { ExecutionUsage, SubAgent, Task, UsageFournisseur } from '../shared/types.js';
+import type { ActionProposee, DecisionAction } from '../shared/politique-actions.js';
+import type { ArretBudgetaire } from '../shared/arret-budgetaire.js';
+import type { ArretVigie, Enlisement, EpuisementFournisseur } from '../shared/enlisement.js';
+import type { RessourcesExecution, SubAgent, Task, UsageFournisseur } from '../shared/types.js';
 import { createClaudeCodeAdapter } from './claude-code.js';
 import { createClineAdapter } from './cline.js';
 import { createCodexAdapter } from './codex.js';
@@ -22,10 +26,18 @@ export interface AdapterProgress {
   log?: string;
   /**
    * Un morceau de la sortie de l'agent (stdout, stderr), EN DIRECT (sortie-directe.ts :
-   * ≤ 4 Kio, ≤ 4 par seconde). Éphémère : le hub le relaie aux écrans sans le
-   * journaliser — voir `TaskUpdateMsg.sortie`.
+   * ≤ 4 Kio, ≤ 4 par seconde), en blocs de lignes d'un même niveau. Éphémère :
+   * le hub le relaie aux écrans sans le journaliser — voir `TaskUpdateMsg.sortie`.
+   * Brut : c'est le nœud qui caviarde, bloc par bloc (`progresVersHub`).
    */
-  sortie?: string;
+  sortie?: readonly BlocSortie[];
+  /**
+   * Un arrêt EN VOL de la vigie de l'adaptateur (G13, `vigie-enlisement.ts`) :
+   * l'agent enlisé, ou l'attente sans borne du réseau de Codex au-delà de sa
+   * durée. Le nœud l'arrête par le geste de l'annulation, sur le seul signal
+   * de l'agent (`signalDeLAgent`, client.ts). L'adaptateur, lui, ne tue rien.
+   */
+  arret?: ArretVigie;
 }
 
 /** Demande bornée qu'un Worker peut transmettre à la Queen pour un enfant. */
@@ -56,13 +68,15 @@ export type WorkerDelegationResult =
       diff: string;
       logs: string;
       durationMs: number;
-      usage?: ExecutionUsage;
+      /** Les ressources de l'agent de l'enfant (`RessourcesExecution`). */
+      ressources?: RessourcesExecution;
       resultId?: number;
     }
   | { ok: false; code: string; message: string };
 
 import type { BacExecution } from '../node-client/isolement.js';
 import type { ReservationPont } from '../node-client/rendez-vous-pont.js';
+import type { PiloteProcessus } from '../node-client/pilote-execution.js';
 
 export interface AdapterContext {
   /** Répertoire de travail isolé de la tâche (sandbox v0). */
@@ -111,13 +125,52 @@ export interface AdapterContext {
    */
   bac?: BacExecution;
   /**
+   * Les règles `permissions.allow` compilées depuis les déclarations du dépôt
+   * de BASE (`reglesAutorisationDepot`, G12) : les scripts de validation
+   * déclarés et l'installation du lockfile. L'adaptateur les injecte dans ses
+   * réglages imposés (Claude Code : `--settings`). Absent ou vide : rien
+   * d'ajouté — l'agent garde le seul mode de permission de sa famille.
+   */
+  permissionsAllow?: readonly string[];
+  /**
+   * Décision d'approbation d'une action proposée par le CLI (G12,
+   * `--permission-prompt-tool` via le pont MCP). Le nœud classe l'action
+   * (politique-actions.ts) selon le niveau d'autonomie du projet ; une classe
+   * irréversible ouvre une réquisition dans la Chambre et ATTEND la décision
+   * humaine (ou son expiration). Comme `delegate` : une capacité bornée,
+   * jamais le socket ni SQLite. Absente : le pont répond deny (fermé).
+   * L'attente se borne à ce que les horloges du run lui laissent (`pilote`) :
+   * le nœud les lit lui-même, l'adaptateur n'a aucune échéance à fournir.
+   */
+  decideAction?: (action: ActionProposee) => Promise<DecisionAction>;
+  /**
    * `'relecture'` : la tâche est une contre-expertise — l'agent LIT une
    * production, il n'a rien à écrire. Un adaptateur peut alors réduire ses
    * droits (Codex : `--sandbox read-only`). Absent : une production. Dit par
    * le hub (`AssignTaskMsg.relecture`), jamais deviné du prompt.
    */
   role?: 'relecture';
+  /**
+   * Ce que cette tentative peut encore dépenser, en micro-USD (≥ 1), dit par
+   * la Reine (`AssignTaskMsg.plafondCoutMicros`) — posé par le nœud seulement
+   * quand `plafondCout` l'a dit TENU par le CLI qui tournera. L'adaptateur le
+   * passe à son agent (Claude Code : `--max-budget-usd`). Absent : aucun.
+   */
+  plafondCoutMicros?: number;
+  /**
+   * Le pilote Sandbox Live de la tâche (`node-client/pilote-execution.ts`) :
+   * l'exécuteur lui ATTACHE le processus qu'il lance (mesure, pause) et arme
+   * son délai dur par lui, pour que la pause le suspende. Absent (bancs,
+   * relances hors nœud) : le délai court en temps mur, rien n'est mesuré.
+   */
+  pilote?: PiloteProcessus;
 }
+
+/**
+ * Le CLI qui tournera tient-il un plafond de coût dans sa boucle ? Sinon,
+ * pourquoi — et quoi faire : le motif part tel quel au journal de la tâche.
+ */
+export type VerdictPlafond = { tenu: true } | { tenu: false; motif: string };
 
 export interface AdapterResult {
   success: boolean;
@@ -145,6 +198,18 @@ export interface AdapterResult {
    * Voir `texte-final.ts`.
    */
   finalText?: string;
+  /**
+   * Le CLI s'est arrêté sur le plafond de coût qu'il avait reçu — ce qu'IL a
+   * déclaré (le `subtype` de son résultat), jamais déduit des logs.
+   */
+  arretBudgetaire?: ArretBudgetaire;
+  /** L'agent tournait en rond (vigie, G13) : un échec du modèle, qui dit sa cause. */
+  enlisement?: Enlisement;
+  /**
+   * Le fournisseur ne servait plus (vigie, G13) — toujours avec `infra` : la
+   * tentative est réaffectée sans rien imputer au modèle.
+   */
+  epuisement?: EpuisementFournisseur;
 }
 
 export interface AgentAdapter {
@@ -163,6 +228,14 @@ export interface AgentAdapter {
    * aucun, ou des drapeaux le lui interdisent (Claude Code, `claude-code.ts`).
    */
   configurationExecutee?: readonly string[];
+  /**
+   * Un plafond de coût tenu DANS LA BOUCLE de l'agent. Présente, le nœud
+   * déclare la capacité à son inscription (`RegisterMsg.plafondCout`) et
+   * l'interroge avant chaque tentative plafonnée — HORS du budget de durée de
+   * l'enfant : la version du CLI qui tournera dit s'il le tient. Absente :
+   * l'adaptateur n'en tient aucun, et la Reine le dit à l'envoi.
+   */
+  plafondCout?: (ctx: AdapterContext) => Promise<VerdictPlafond>;
   run(task: Task, ctx: AdapterContext): Promise<AdapterResult>;
 }
 

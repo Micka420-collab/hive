@@ -10,18 +10,29 @@ import type {
   RapportDuNoeud,
   RapportLivraisonLocale,
 } from './livraison-locale.js';
+import { etatDirectDepuis, directTacheDepuis, DIFF_DIRECT_MAX } from './bac-direct.js';
+import type { DirectTache, EtatDirect } from './bac-direct.js';
 import { estPlateforme } from './machine.js';
 import { estEmpreinte } from './empreinte-ruche.js';
 import { validationsBacDepuis } from './validations-bac.js';
+import { porteSecuriteDepuis } from './porte-securite.js';
+import { niveauxValides } from './niveaux-sortie.js';
+import type { SegmentNiveau } from './niveaux-sortie.js';
 import { estEffort, estListeEfforts, type Effort } from './effort.js';
+import { estNiveauReseau, type NiveauReseau } from './reseau.js';
+import { estNiveauAutonomie, type NiveauAutonomie } from './politique-actions.js';
 import type { ValidationsBac } from './validations-bac.js';
+import type { PorteSecurite, VoletPorte } from './porte-securite.js';
 import type { PlateformeNoeud } from './machine.js';
 import type { PresenceFichier } from './presence.js';
-import { NIVEAUX_ISOLEMENT } from './types.js';
+import { estArretBudgetaire, type ArretBudgetaire } from './arret-budgetaire.js';
+import { enlisementDepuis, epuisementDepuis } from './enlisement.js';
+import type { Enlisement, EpuisementFournisseur } from './enlisement.js';
+import { MEMOIRES_PAR_PORTEE, NIVEAUX_ISOLEMENT, RAISONS_SANS_MESURE } from './types.js';
 import type {
-  ExecutionUsage,
   HiveEvent,
   IsolementDeclare,
+  RessourcesExecution,
   StateSnapshot,
   SubAgent,
   Task,
@@ -211,6 +222,15 @@ export interface RegisterMsg {
    * correction fausse. Le hub ne confie donc une reprise qu'à qui le déclare.
    */
   prolonge?: boolean;
+  /**
+   * L'adaptateur du nœud sait tenir un plafond de coût DANS LA BOUCLE de son
+   * agent (`AgentAdapter.plafondCout` — Claude Code : `--max-budget-usd`).
+   * Absent : il n'en tient aucun — Codex, Cursor, Cline, shell, ou un nœud
+   * d'avant ce contrat, qui perdrait `plafondCoutMicros` sans le dire. La Reine
+   * ne passe un plafond qu'à qui le déclare, et journalise à l'envoi celui qui
+   * ne sera pas tenu.
+   */
+  plafondCout?: boolean;
 }
 
 /** Un constat brut sur un outil, tel que le nœud le voit. */
@@ -282,6 +302,36 @@ export interface TaskUpdateMsg {
    * seule exécution bavarde aurait effacé l'histoire de la ruche.
    */
   sortie?: string;
+  /**
+   * Le niveau de chaque ligne de `sortie` (stdout, stderr, erreur déclarée
+   * par l'agent…), en segments dont le total ÉGALE ses lignes
+   * (`shared/niveaux-sortie.ts`). Absent d'un nœud d'avant ce contrat :
+   * l'écran dit alors « niveau inconnu », il ne devine pas.
+   */
+  niveaux?: SegmentNiveau[];
+  /**
+   * L'état EN DIRECT de l'exécution (Sandbox Live, `shared/bac-direct.ts`) :
+   * phase, commande caviardée, pause, mesures, validations en cours. Seulement
+   * ce qui a changé. Éphémère comme `sortie` : gardé en mémoire par le hub,
+   * jamais journalisé.
+   */
+  direct?: EtatDirect;
+}
+
+/**
+ * La réponse d'un nœud à `demande_diff_direct` : le diff de l'exécution EN
+ * COURS, caviardé au nœud et borné à `DIFF_DIRECT_MAX` (`tronque` le dit).
+ * `erreur` : le nœud n'a pas pu le calculer (tâche finie, pas de dépôt,
+ * git en échec) — dit en une ligne, jamais un diff vide qui passerait pour
+ * « rien n'a changé ».
+ */
+export interface DiffDirectMsg {
+  type: 'diff_direct';
+  taskId: string;
+  requestId: string;
+  diff: string;
+  tronque: boolean;
+  erreur?: string;
 }
 
 export interface TaskResultMsg {
@@ -292,8 +342,14 @@ export interface TaskResultMsg {
   logs: string;
   durationMs: number;
   subAgents: SubAgent[];
-  /** Compteurs locaux du Worker, optionnels pour les nœuds plus anciens. */
-  usage?: ExecutionUsage;
+  /**
+   * Les ressources de l'AGENT (`RessourcesExecution`). Un nœud plus ancien
+   * envoyait à la place `usage` — les compteurs de SON processus Node : le
+   * parseur le lit comme `{ portee: 'aucune', raison: 'noeud_ancien' }`
+   * (`ressourcesLues`), et le nœud n'envoie plus `usage`, qu'une Reine plus
+   * ancienne exige complet sous peine de rejeter le résultat entier.
+   */
+  ressources?: RessourcesExecution;
   /** Déclaration du CLI de l'agent (coût, temps modèle), jamais estimée. */
   fournisseur?: UsageFournisseur;
   /**
@@ -309,6 +365,31 @@ export interface TaskResultMsg {
    * qui le lie au `resultId` exact que la Reine attribue à la réception.
    */
   validations?: ValidationsBac;
+  /**
+   * Le CLI s'est arrêté sur le plafond que la Reine avait passé à cette
+   * tentative (`AssignTaskMsg.plafondCoutMicros`) — voir `ArretBudgetaire`. La
+   * Reine ne le croit que de la tentative qu'elle a plafonnée, en échec, au
+   * coût déclaré arrivé sur ce plafond (`arretCru`, server.ts).
+   */
+  arretBudgetaire?: ArretBudgetaire;
+  /**
+   * La vigie du nœud a arrêté l'agent qui tournait en rond (G13,
+   * `shared/enlisement.ts`) : un échec du modèle, qui dit sa cause.
+   */
+  enlisement?: Enlisement;
+  /**
+   * Ce que la porte de sécurité du nœud a vu dans ce que la production AJOUTE
+   * (`porte-securite.ts`) : secrets, dépendances introduites — jamais une
+   * valeur. ADDITIF : un nœud plus ancien ne l'envoie pas, et la Reine lit
+   * alors « non vérifié », jamais un vert.
+   */
+  porteSecurite?: PorteSecurite;
+  /**
+   * Les volets de `porteSecurite` que la Reine a REFUSÉS à la réception (mal
+   * formés, devenus `rapport_rejete`). Posé par `parseClientMessage`, jamais
+   * lu du réseau : la Reine le journalise (`security_gate_rejected`).
+   */
+  porteSecuriteRejetee?: VoletPorte[];
 }
 
 /**
@@ -327,10 +408,20 @@ export interface TaskRejectMsg {
   infra?: boolean;
   /**
    * Avec `infra` : l'échec a eu lieu AVANT que l'agent ne soit lancé — le
-   * dépôt de la tâche ne s'est pas cloné. Aucun modèle n'a tourné, aucun n'est
-   * écarté des reprises ; la tâche part ailleurs sans brûler de tentative.
+   * dépôt de la tâche ne s'est pas cloné, ou l'assignation elle-même était
+   * illisible pour ce nœud (`assignationIllisible`). Aucun modèle n'a tourné,
+   * aucun n'est écarté des reprises ; la tâche part ailleurs sans brûler de
+   * tentative.
    */
   avantAgent?: boolean;
+  /**
+   * Avec `avantAgent` : ce nœud n'a pas su LIRE l'assignation — des versions
+   * différentes ou un champ hors bornes, ni une panne de son agent ni de son
+   * poste. La Reine borne ce refus comme les autres ; il ne chauffe pas la
+   * ruche (thermo.ts) et ne fait pas de ce nœud une panne d'infrastructure
+   * (ghost.ts).
+   */
+  illisible?: true;
   /**
    * Indisponibilité PRÉVISIBLE (ex. Night Shift : fenêtre fermée) : durée en ms
    * avant laquelle il est inutile de représenter cette tâche à CE nœud. Le hub
@@ -338,6 +429,20 @@ export interface TaskRejectMsg {
    * sans ce champ, un nœud hors service serait re-sollicité en boucle.
    */
   retryAfterMs?: number;
+  /**
+   * Avec `infra` : le fournisseur de l'agent était épuisé (G13) — limite,
+   * surcharge, plus de réponse —, et, s'il l'a déclarée, quand il se remet à
+   * zéro (`retryAfterMs` l'attend alors). Ni la tâche ni le modèle n'y sont
+   * pour rien : rien ne le compte comme un échec.
+   */
+  epuisement?: EpuisementFournisseur;
+  /**
+   * Avec `epuisement` : cette tentative A TOURNÉ — sa durée, et ce que son CLI
+   * a déclaré (coût, jetons). La Reine les range comme ceux d'un résultat :
+   * ligne de dépense de l'enfant délégué, enveloppe de la racine, chronologie.
+   */
+  durationMs?: number;
+  fournisseur?: UsageFournisseur;
 }
 
 /** Demande de délégation émise par un Worker pendant l'exécution de sa tâche. */
@@ -378,6 +483,20 @@ export interface RequisitionOpenMsg {
   detail?: string;
   /** Tâche bloquée en attente de décision humaine (mid-task, ADR 0010). */
   taskId?: string;
+  /**
+   * Corrélation CLIENT (G12) : le hub la rend telle quelle dans
+   * `requisition_ack`, pour qu'un nœud aux réquisitions concurrentes retrouve
+   * l'identifiant de LA SIENNE. Jamais persistée — l'id du store fait foi.
+   */
+  requestId?: string;
+  /**
+   * Budget RESTANT (ms) du run CLI côté nœud (G12, genre `action`) : le délai
+   * dur du CLI tue le processus entier, et une échéance de Chambre posée
+   * au-delà ferait de chaque silence humain un échec opaque. Le hub ne peut
+   * que RACCOURCIR son TTL avec ce budget, jamais l'allonger — l'échéance
+   * reste une politique de la Chambre.
+   */
+  budgetMs?: number;
 }
 
 /** Conflit signalé lors d'un merge (un diff qui ne s'applique pas proprement). */
@@ -471,7 +590,8 @@ export type ClientMessage =
   | RequisitionOpenMsg
   | MergeResultMsg
   | ChantierResultMsg
-  | PoseResultMsg;
+  | PoseResultMsg
+  | DiffDirectMsg;
 
 // ─── Messages orchestrateur → client ─────────────────────────────────────────
 export interface RegisteredMsg {
@@ -508,6 +628,16 @@ export interface AssignTaskMsg {
   /** Budget persistant de l'enfant ; absent pour une tâche racine ou une revue. */
   delegationBudget?: DelegationBudget;
   /**
+   * Ce que CETTE tentative d'un enfant délégué peut encore dépenser, en
+   * micro-USD : sa réservation moins le coût déclaré de ses tentatives
+   * précédentes (`plafondCoutTentative`, delegation.ts). Le nœud le passe à
+   * son adaptateur, qui l'impose dans la boucle de l'agent (Claude Code :
+   * `--max-budget-usd`). Absent : aucun plafond — racine, revue, drone d'une
+   * course, nœud qui n'en tient pas (`RegisterMsg.plafondCout`). Jamais nul :
+   * une réservation dépensée n'est plus envoyée, la Reine clôt l'enfant.
+   */
+  plafondCoutMicros?: number;
+  /**
    * La tâche est une RELECTURE (contre-expertise, `store.relectureDe`) : le
    * nœud le dit à son adaptateur (`AdapterContext.role`), qui peut lancer son
    * agent sans droit d'écriture. Absent : une production.
@@ -528,12 +658,41 @@ export interface AssignTaskMsg {
    * tâche ordinaire. Le nom est revalidé par le nœud (`estBrancheDeLivraison`).
    */
   prolonger?: true;
+  /**
+   * Le réseau que le projet permet aux agents (`shared/reseau.ts`), réglé par
+   * son propriétaire. Absent (une Reine d'avant ce réglage) : le nœud applique
+   * le défaut, `dependances` — jamais `ouvert` par omission.
+   */
+  reseau?: NiveauReseau;
+  /**
+   * Le niveau d'autonomie du PROJET à l'assignation (G12) : le nœud y cale la
+   * décision par défaut d'une action proposée (politique-actions.ts). Absent
+   * (hub plus ancien) : le nœud décide comme à `off` — la lecture fermée.
+   */
+  autonomie?: NiveauAutonomie;
 }
 
 export interface CancelTaskMsg {
   type: 'cancel_task';
   taskId: string;
   reason: string;
+}
+
+/**
+ * Suspendre / reprendre l'agent d'une tâche (Sandbox Live). Le nœud répond par
+ * un `task_update` dont `direct.enPause` dit ce qui a VRAIMENT eu lieu — ou
+ * `direct.pausable: false` s'il ne sait pas le faire ici.
+ */
+export interface PauseTaskMsg {
+  type: 'pause_task' | 'resume_task';
+  taskId: string;
+}
+
+/** Le hub demande le diff d'une exécution en cours ; réponse : `diff_direct`. */
+export interface DemandeDiffDirectMsg {
+  type: 'demande_diff_direct';
+  taskId: string;
+  requestId: string;
 }
 
 export interface StateMsg {
@@ -589,6 +748,19 @@ export interface TaskOutputMsg {
   taskId: string;
   nodeId: string;
   sortie: string;
+  /** Voir `TaskUpdateMsg.niveaux` : relayés tels quels, absents s'ils l'étaient. */
+  niveaux?: SegmentNiveau[];
+}
+
+/**
+ * L'état en direct d'une exécution (`DirectTache`), relayé aux tableaux de
+ * bord — à chaque changement, et à chaque écran qui s'abonne. `direct: null` :
+ * l'exécution est finie, l'écran oublie son état. Jamais journalisé.
+ */
+export interface TaskDirectMsg {
+  type: 'task_direct';
+  taskId: string;
+  direct: DirectTache | null;
 }
 
 export interface ErrorMsg {
@@ -602,6 +774,13 @@ export interface RequisitionAckMsg {
   id: string;
   genre: string;
   libelle: string;
+  /** La corrélation de `requisition_open`, rendue telle quelle (G12). */
+  requestId?: string;
+  /**
+   * L'échéance EFFECTIVE (ms epoch) décidée par la Chambre — min(TTL,
+   * budget du nœud). Le nœud y cale son filet local au lieu d'un délai figé.
+   */
+  expiresAt?: number;
 }
 
 /** Accusé de création d'un enfant de délégation. */
@@ -632,7 +811,8 @@ export interface DelegationResultMsg {
   logs: string;
   durationMs: number;
   resultId?: number;
-  usage?: ExecutionUsage;
+  /** Comme `TaskResultMsg.ressources` — une Reine plus ancienne envoie `usage`. */
+  ressources?: RessourcesExecution;
 }
 
 /**
@@ -641,7 +821,8 @@ export interface DelegationResultMsg {
 export interface RequisitionResultMsg {
   type: 'requisition_result';
   id: string;
-  statut: 'accordee' | 'refusee';
+  /** `expiree` (G12) : l'échéance est passée sans décision — le nœud refuse. */
+  statut: 'accordee' | 'refusee' | 'expiree';
 }
 
 /** Un diff de tâche à intégrer lors d'un merge. */
@@ -735,9 +916,12 @@ export type ServerMessage =
   | RegisteredMsg
   | AssignTaskMsg
   | CancelTaskMsg
+  | PauseTaskMsg
+  | DemandeDiffDirectMsg
   | StateMsg
   | EventMsg
   | TaskOutputMsg
+  | TaskDirectMsg
   | ErrorMsg
   | RequisitionAckMsg
   | DelegationAcceptedMsg
@@ -752,9 +936,13 @@ const SERVER_MESSAGE_TYPES = new Set([
   'registered',
   'assign_task',
   'cancel_task',
+  'pause_task',
+  'resume_task',
+  'demande_diff_direct',
   'state',
   'event',
   'task_output',
+  'task_direct',
   'error',
   'requisition_ack',
   'delegation_accepted',
@@ -801,20 +989,78 @@ function isSubAgents(v: unknown): v is SubAgent[] {
     return (
       isId(sa.id) &&
       isStr(sa.name, LIMITS.name) &&
+      // Le parent (Sandbox Live : l'arbre des sous-agents), s'il y en a un.
+      (sa.parentId === undefined || isId(sa.parentId)) &&
       (sa.status === 'running' || sa.status === 'done' || sa.status === 'failed')
     );
   });
 }
 
-function isExecutionUsage(v: unknown): v is ExecutionUsage {
+/** Un pétaoctet, un million de relevés : au-delà, ce n'est pas une mesure. */
+const PIC_OCTETS_MAX = 2 ** 50;
+const RELEVES_MAX = 1_000_000;
+
+/** Les ressources d'une exécution, telles qu'un nœud les rend ; `null` hors contrat. */
+function ressourcesDepuis(v: unknown): RessourcesExecution | null {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
+  const r = v as Record<string, unknown>;
+  if (r.portee === 'aucune') {
+    const raison = RAISONS_SANS_MESURE.find((x) => x === r.raison);
+    return raison ? { portee: 'aucune', raison } : null;
+  }
+  if (r.portee !== 'arbre' && r.portee !== 'conteneur') return null;
+  const cpuMs = isInt(r.cpuMs, 0, Number.MAX_SAFE_INTEGER) ? r.cpuMs : undefined;
+  const picOctets = isInt(r.picOctets, 0, PIC_OCTETS_MAX) ? r.picOctets : undefined;
+  // La mémoire dit laquelle elle est, et seulement ce que SA portée peut lire.
+  const memoire = MEMOIRES_PAR_PORTEE[r.portee].find((m) => m === r.memoire);
+  // Un relevé sans aucun nombre n'en est pas un, et un champ présent mais faux
+  // ment ou bogue : le tout tombe, jamais un nombre à moitié lu.
+  if (
+    !isInt(r.releves, 1, RELEVES_MAX) ||
+    (r.cpuMs !== undefined && cpuMs === undefined) ||
+    (r.picOctets !== undefined && picOctets === undefined) ||
+    (cpuMs === undefined && picOctets === undefined) ||
+    (picOctets === undefined) !== (r.memoire === undefined) ||
+    (r.memoire !== undefined && memoire === undefined)
+  ) {
+    return null;
+  }
+  return {
+    portee: r.portee,
+    releves: r.releves,
+    ...(cpuMs !== undefined ? { cpuMs } : {}),
+    ...(picOctets !== undefined && memoire !== undefined ? { picOctets, memoire } : {}),
+  };
+}
+
+/**
+ * La mesure d'un nœud d'avant celle-ci (`usage`, ses cinq compteurs) : elle
+ * décrivait le processus Node du NŒUD — l'agent, son enfant, n'y était pas, et
+ * `maxRssBytes` était le pic du nœud depuis son démarrage. Reconnue pour dire
+ * POURQUOI rien n'est mesuré, jamais affichée comme les ressources de l'agent.
+ */
+function estUsageDuNoeud(v: unknown): boolean {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
-  const usage = v as Record<string, unknown>;
+  const u = v as Record<string, unknown>;
+  return ['userCpuMicros', 'systemCpuMicros', 'maxRssBytes', 'rssBytes', 'heapUsedBytes'].every(
+    (cle) => isInt(u[cle], 0, Number.MAX_SAFE_INTEGER),
+  );
+}
+
+/**
+ * Les ressources d'une exécution, d'où qu'elles viennent : la forme d'un nœud
+ * à jour (`nouvelles`), sinon la mesure d'un nœud plus ancien (`anciennes`),
+ * lue comme `noeud_ancien`. Un message, un événement rangé, un résumé de tâche
+ * relu : la même lecture partout. `undefined` : rien de lisible — et jamais
+ * un résultat perdu pour autant (le champ tombe seul).
+ */
+export function ressourcesLues(
+  nouvelles: unknown,
+  anciennes: unknown,
+): RessourcesExecution | undefined {
   return (
-    isInt(usage.userCpuMicros, 0, Number.MAX_SAFE_INTEGER) &&
-    isInt(usage.systemCpuMicros, 0, Number.MAX_SAFE_INTEGER) &&
-    isInt(usage.maxRssBytes, 0, Number.MAX_SAFE_INTEGER) &&
-    isInt(usage.rssBytes, 0, Number.MAX_SAFE_INTEGER) &&
-    isInt(usage.heapUsedBytes, 0, Number.MAX_SAFE_INTEGER)
+    ressourcesDepuis(nouvelles) ??
+    (estUsageDuNoeud(anciennes) ? { portee: 'aucune', raison: 'noeud_ancien' } : undefined)
   );
 }
 
@@ -1144,6 +1390,10 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           if (typeof m.prolonge !== 'boolean') return null;
           msg.prolonge = m.prolonge;
         }
+        if (m.plafondCout !== undefined) {
+          if (typeof m.plafondCout !== 'boolean') return null;
+          msg.plafondCout = m.plafondCout;
+        }
         // Les constats d'outils : mêmes règles que les deux champs au-dessus.
         // Une liste mal formée est un client qui ment ou qui bogue, et les deux
         // se disent plutôt que de se corriger en douce.
@@ -1188,17 +1438,42 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         (m.subAgents === undefined || isSubAgents(m.subAgents)) &&
         (m.presences === undefined || isPresences(m.presences)) &&
         (m.log === undefined || isStrAllowEmpty(m.log, LIMITS.log)) &&
-        (m.sortie === undefined || isStr(m.sortie, LIMITS.sortie))
+        (m.sortie === undefined || isStr(m.sortie, LIMITS.sortie)) &&
+        // Des niveaux sans texte, ou qui ne tombent pas juste sur ses lignes,
+        // décaleraient tous les niveaux à l'écran : refusés avec le message.
+        (m.niveaux === undefined ||
+          (typeof m.sortie === 'string' && niveauxValides(m.niveaux, m.sortie)))
       ) {
+        // Un état en direct hors contrat fait tomber le message entier, comme
+        // tout autre champ : le nœud qui l'enverrait ment ou bogue.
+        const direct = m.direct === undefined ? undefined : etatDirectDepuis(m.direct);
+        if (direct === null) return null;
         const msg: TaskUpdateMsg = { type: 'task_update', taskId: m.taskId, status: 'running' };
         if (m.subAgents !== undefined) msg.subAgents = m.subAgents as SubAgent[];
         if (m.presences !== undefined) msg.presences = m.presences as PresenceFichier[];
         if (m.log !== undefined) msg.log = m.log as string;
         if (m.sortie !== undefined) msg.sortie = m.sortie as string;
+        if (m.niveaux !== undefined) msg.niveaux = m.niveaux as SegmentNiveau[];
+        if (direct !== undefined) msg.direct = direct;
         return msg;
       }
       return null;
     }
+    case 'diff_direct':
+      return isId(m.taskId) &&
+        isId(m.requestId) &&
+        isStrAllowEmpty(m.diff, DIFF_DIRECT_MAX) &&
+        typeof m.tronque === 'boolean' &&
+        (m.erreur === undefined || isStr(m.erreur, LIMITS.arg))
+        ? {
+            type: 'diff_direct',
+            taskId: m.taskId,
+            requestId: m.requestId,
+            diff: m.diff,
+            tronque: m.tronque,
+            ...(typeof m.erreur === 'string' ? { erreur: m.erreur } : {}),
+          }
+        : null;
     case 'task_result': {
       if (
         isId(m.taskId) &&
@@ -1206,8 +1481,7 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         isStrAllowEmpty(m.diff, LIMITS.diff) &&
         isStrAllowEmpty(m.logs, LIMITS.log) &&
         isInt(m.durationMs, 0, 86_400_000) &&
-        isSubAgents(m.subAgents) &&
-        (m.usage === undefined || isExecutionUsage(m.usage))
+        isSubAgents(m.subAgents)
       ) {
         const fournisseur = usageFournisseurDepuis(m.fournisseur);
         const finalText = texteFinalDepuis(m.finalText);
@@ -1215,6 +1489,19 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         // elles redeviennent `missing`, ce qu'elles étaient sans rapport.
         const validations =
           m.validations === undefined ? null : validationsBacDepuis(m.validations);
+        // Un arrêt mal nommé est abandonné, comme les validations : le
+        // résultat reste un échec ordinaire, jamais une borne inventée.
+        const arretBudgetaire = estArretBudgetaire(m.arretBudgetaire)
+          ? m.arretBudgetaire
+          : undefined;
+        const enlisement = enlisementDepuis(m.enlisement);
+        // La porte, VOLET PAR VOLET : un volet mal formé devient
+        // `rapport_rejete` — « non vérifié », jamais « rien trouvé » — sans
+        // emporter l'autre, et son refus est rendu pour être journalisé.
+        const porte = m.porteSecurite === undefined ? null : porteSecuriteDepuis(m.porteSecurite);
+        // Une mesure hors contrat tombe seule, comme la déclaration du CLI :
+        // perdre le résultat pour elle laisserait la tâche pendue.
+        const ressources = ressourcesLues(m.ressources, m.usage);
         return {
           type: 'task_result',
           taskId: m.taskId,
@@ -1223,10 +1510,14 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
           logs: m.logs,
           durationMs: m.durationMs,
           subAgents: m.subAgents,
-          ...(m.usage !== undefined ? { usage: m.usage } : {}),
+          ...(ressources ? { ressources } : {}),
           ...(fournisseur ? { fournisseur } : {}),
           ...(finalText !== undefined ? { finalText } : {}),
           ...(validations ? { validations } : {}),
+          ...(arretBudgetaire ? { arretBudgetaire } : {}),
+          ...(enlisement ? { enlisement } : {}),
+          ...(porte ? { porteSecurite: porte.porte } : {}),
+          ...(porte && porte.rejetes.length > 0 ? { porteSecuriteRejetee: porte.rejetes } : {}),
         };
       }
       return null;
@@ -1237,12 +1528,24 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         isStr(m.reason, LIMITS.name) &&
         (m.infra === undefined || typeof m.infra === 'boolean') &&
         (m.avantAgent === undefined || typeof m.avantAgent === 'boolean') &&
+        (m.illisible === undefined || typeof m.illisible === 'boolean') &&
         (m.retryAfterMs === undefined || isInt(m.retryAfterMs, 0, 24 * 60 * 60 * 1000))
       ) {
         const msg: TaskRejectMsg = { type: 'task_reject', taskId: m.taskId, reason: m.reason };
         if (m.infra === true) msg.infra = true;
         if (m.infra === true && m.avantAgent === true) msg.avantAgent = true;
+        if (msg.avantAgent && m.illisible === true) msg.illisible = true;
         if (typeof m.retryAfterMs === 'number') msg.retryAfterMs = m.retryAfterMs;
+        // Mal formé, le fait tombe seul : le refus reste une panne d'infrastructure.
+        const epuisement = m.infra === true ? epuisementDepuis(m.epuisement) : undefined;
+        if (epuisement) {
+          msg.epuisement = epuisement;
+          // Ce que la tentative a coûté ne se croit qu'avec le fait qui dit
+          // qu'elle a tourné ; hors bornes, chaque champ tombe seul.
+          if (isInt(m.durationMs, 0, 86_400_000)) msg.durationMs = m.durationMs;
+          const fournisseur = usageFournisseurDepuis(m.fournisseur);
+          if (fournisseur) msg.fournisseur = fournisseur;
+        }
         return msg;
       }
       return null;
@@ -1288,6 +1591,8 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
       if (
         isStr(m.genre, LIMITS.requisitionGenre) &&
         isStr(m.libelle, LIMITS.requisitionLibelle) &&
+        (m.requestId === undefined || isId(m.requestId)) &&
+        (m.budgetMs === undefined || isInt(m.budgetMs, 1, Number.MAX_SAFE_INTEGER)) &&
         (m.detail === undefined || isStrAllowEmpty(m.detail, LIMITS.requisitionDetail)) &&
         (m.taskId === undefined || isId(m.taskId))
       ) {
@@ -1298,6 +1603,8 @@ export function parseClientMessage(raw: unknown): ClientMessage | null {
         };
         if (m.detail !== undefined) msg.detail = m.detail as string;
         if (m.taskId !== undefined) msg.taskId = m.taskId as string;
+        if (m.requestId !== undefined) msg.requestId = m.requestId as string;
+        if (m.budgetMs !== undefined) msg.budgetMs = m.budgetMs as number;
         return msg;
       }
       return null;
@@ -1434,6 +1741,12 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       if (m.delegationBudget !== undefined && !isDelegationBudget(m.delegationBudget)) {
         return null;
       }
+      if (
+        m.plafondCoutMicros !== undefined &&
+        !isInt(m.plafondCoutMicros, 1, LIMITS.delegationCostMicros)
+      ) {
+        return null;
+      }
       if (m.relecture !== undefined && m.relecture !== true) return null;
       if (m.delegationRootTaskId !== undefined && !isId(m.delegationRootTaskId)) return null;
       // Prolonger exige une branche de la ruche à cloner : un hub qui
@@ -1441,7 +1754,11 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
       // (`--upload-pack=…`), perd tout le message.
       if (m.prolonger !== undefined && m.prolonger !== true) return null;
       if (m.prolonger === true && !estBrancheDeLivraison(m.task.branch)) return null;
+      // Un niveau inconnu n'est pas « ouvert » : tout le message tombe.
+      if (m.reseau !== undefined && !estNiveauReseau(m.reseau)) return null;
+      if (m.autonomie !== undefined && !estNiveauAutonomie(m.autonomie)) return null;
       const msg: AssignTaskMsg = { type: 'assign_task', task: m.task };
+      if (m.reseau !== undefined) msg.reseau = m.reseau;
       if (m.relecture === true) msg.relecture = true;
       if (m.prolonger === true) msg.prolonger = true;
       if (m.repoUrl !== undefined) msg.repoUrl = (m.repoUrl as string | null) ?? null;
@@ -1457,21 +1774,34 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         };
       }
       if (m.delegationRootTaskId !== undefined) msg.delegationRootTaskId = m.delegationRootTaskId;
+      if (m.autonomie !== undefined) msg.autonomie = m.autonomie as NiveauAutonomie;
+      if (m.plafondCoutMicros !== undefined) msg.plafondCoutMicros = m.plafondCoutMicros;
       return msg;
     }
     case 'cancel_task':
       return isId(m.taskId) && isStrAllowEmpty(m.reason, LIMITS.name)
         ? { type: 'cancel_task', taskId: m.taskId, reason: m.reason }
         : null;
+    case 'pause_task':
+    case 'resume_task':
+      return isId(m.taskId) ? { type: m.type, taskId: m.taskId } : null;
+    case 'demande_diff_direct':
+      return isId(m.taskId) && isId(m.requestId)
+        ? { type: 'demande_diff_direct', taskId: m.taskId, requestId: m.requestId }
+        : null;
     case 'requisition_ack':
       return isId(m.id) &&
         isStr(m.genre, LIMITS.requisitionGenre) &&
-        isStr(m.libelle, LIMITS.requisitionLibelle)
+        isStr(m.libelle, LIMITS.requisitionLibelle) &&
+        (m.requestId === undefined || isId(m.requestId)) &&
+        (m.expiresAt === undefined || isInt(m.expiresAt, 1, Number.MAX_SAFE_INTEGER))
         ? {
             type: 'requisition_ack',
             id: m.id,
             genre: m.genre,
             libelle: m.libelle,
+            ...(m.requestId !== undefined ? { requestId: m.requestId } : {}),
+            ...(m.expiresAt !== undefined ? { expiresAt: m.expiresAt } : {}),
           }
         : null;
     case 'delegation_accepted':
@@ -1508,8 +1838,7 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         !isStrAllowEmpty(m.diff, LIMITS.diff) ||
         !isStrAllowEmpty(m.logs, LIMITS.log) ||
         !isInt(m.durationMs, 0, Number.MAX_SAFE_INTEGER) ||
-        (m.resultId !== undefined && !isInt(m.resultId, 1, Number.MAX_SAFE_INTEGER)) ||
-        (m.usage !== undefined && !isExecutionUsage(m.usage))
+        (m.resultId !== undefined && !isInt(m.resultId, 1, Number.MAX_SAFE_INTEGER))
       ) {
         return null;
       }
@@ -1523,17 +1852,37 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
         durationMs: m.durationMs,
       };
       if (m.resultId !== undefined) msg.resultId = m.resultId;
-      if (m.usage !== undefined) msg.usage = m.usage as ExecutionUsage;
+      // Comme pour `task_result` : la mesure tombe seule — un parent qui
+      // perdrait le résultat de son enfant attendrait jusqu'à son échéance.
+      const ressources = ressourcesLues(m.ressources, m.usage);
+      if (ressources) msg.ressources = ressources;
       return msg;
     }
     case 'task_output':
       // Du texte d'agent pour un écran : validé comme ce qu'un nœud a le droit
       // d'envoyer, pour qu'un hub bavard ne fasse pas gonfler la console.
-      return isId(m.taskId) && isId(m.nodeId) && isStr(m.sortie, LIMITS.sortie)
-        ? { type: 'task_output', taskId: m.taskId, nodeId: m.nodeId, sortie: m.sortie }
+      if (!isId(m.taskId) || !isId(m.nodeId) || !isStr(m.sortie, LIMITS.sortie)) return null;
+      if (m.niveaux !== undefined && !niveauxValides(m.niveaux, m.sortie)) return null;
+      return {
+        type: 'task_output',
+        taskId: m.taskId,
+        nodeId: m.nodeId,
+        sortie: m.sortie,
+        ...(m.niveaux !== undefined ? { niveaux: m.niveaux } : {}),
+      };
+    case 'task_direct': {
+      if (!isId(m.taskId)) return null;
+      if (m.direct === null) return { type: 'task_direct', taskId: m.taskId, direct: null };
+      const direct = directTacheDepuis(m.direct);
+      // L'état doit être celui de la tâche nommée : un hub qui mélangerait les
+      // deux ferait afficher à une ligne l'état d'une autre.
+      return direct && direct.taskId === m.taskId
+        ? { type: 'task_direct', taskId: m.taskId, direct }
         : null;
+    }
     case 'requisition_result':
-      return isId(m.id) && (m.statut === 'accordee' || m.statut === 'refusee')
+      return isId(m.id) &&
+        (m.statut === 'accordee' || m.statut === 'refusee' || m.statut === 'expiree')
         ? { type: 'requisition_result', id: m.id, statut: m.statut }
         : null;
     case 'assign_merge': {
@@ -1606,10 +1955,140 @@ export function parseServerMessage(raw: unknown): ServerMessage | null {
 }
 
 /**
- * Valide un repoUrl : uniquement des schémas de transport sûrs. Bloque le
- * transport `ext::` de git (exécution de commande arbitraire = RCE) et les URL
- * commençant par « - » (injection d'argument dans git clone).
+ * La cause d'une assignation illisible quand ce n'est pas son dépôt : un champ
+ * hors protocole, que le parseur ne nomme pas. Deux origines, deux gestes —
+ * des versions différentes (un niveau qu'un nœud plus ancien ne connaît pas),
+ * ou une borne qu'un producteur n'a pas tenue (un titre de plus de
+ * `LIMITS.title`, une consigne, un plafond), qu'aucune mise à jour ne lève.
+ * Les deux sont dits, dans la borne d'une raison de refus (`LIMITS.name`).
  */
+const ASSIGNATION_HORS_PROTOCOLE =
+  'assignation illisible pour ce nœud — versions Reine/nœud différentes, ou champ hors bornes (titre, consigne, plafond)';
+
+/** Une assignation que `parseServerMessage` a refusée, et ce que le nœud en répond. */
+export interface AssignationIllisible {
+  type: 'assign_task' | 'assign_merge' | 'assign_chantier' | 'poser_outil';
+  /** La cause, bornée par `LIMITS.name` — elle ne recopie rien du message. */
+  motif: string;
+  /** Le refus que la Reine attend pour CE travail ; `null` sans identifiant sûr. */
+  reponse: TaskRejectMsg | MergeResultMsg | ChantierResultMsg | null;
+}
+
+/**
+ * Ce qu'un nœud répond à un message du hub que `parseServerMessage` a refusé —
+ * `null` si ce n'était pas une assignation.
+ *
+ * ─── LE SILENCE QUE CECI FERME ───────────────────────────────────────────────
+ *
+ * Le nœud laissait tomber tout message illisible, sans un mot. Pour une
+ * assignation, c'était un travail perdu : la tâche restait `assigned` —
+ * re-servie toutes les 15 s par le filet de la Reine, jetée à chaque fois —,
+ * le merge et le chantier attendaient le délai de la Reine, sans cause. Il a
+ * suffi que `isValidRepoUrl` refuse les caractères de contrôle (#551) pour
+ * qu'un projet ancien y tombe.
+ *
+ * ─── LA RÉPONSE EST UN REFUS QUE LA REINE SAIT DÉJÀ LIRE ─────────────────────
+ *
+ *   · une tâche : `task_reject` d'infrastructure AVANT l'agent — la Reine la
+ *     confie ailleurs sans brûler de tentative ni écarter de modèle (un nœud à
+ *     jour la lira peut-être), puis l'échoue au bout de sa borne, ce motif au
+ *     cockpit. Marqué `illisible` : ce n'est pas une panne de ce nœud ;
+ *   · un merge, un chantier : leur résultat REFUSÉ, un échec explicite.
+ *
+ * Le motif ne recopie RIEN du message : le dépôt peut porter le jeton du
+ * projet. Un identifiant qui ne passe pas `isId` ne se renvoie pas non plus :
+ * la Reine ne saurait à quel travail le rattacher, et le nœud le dit alors dans
+ * son seul journal. Une pose d'outil n'est illisible que par ses identifiants :
+ * elle n'a jamais de réponse sûre.
+ */
+export function assignationIllisible(raw: unknown): AssignationIllisible | null {
+  if (typeof raw !== 'string' || raw.length > LIMITS.message) return null;
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return null;
+  const m = data as Record<string, unknown>;
+  // Le dépôt d'abord : refusé, il suffit à faire tomber le message, et c'est la
+  // seule cause que ce nœud sait nommer.
+  const motif = (repoUrl: unknown): string =>
+    motifDepotIllisible(repoUrl) ?? ASSIGNATION_HORS_PROTOCOLE;
+  switch (m.type) {
+    case 'assign_task': {
+      // Une tâche sans dépôt (`null`) travaille dans un atelier vierge : rien à reprocher.
+      const sansDepot = m.repoUrl === undefined || m.repoUrl === null;
+      const raison = sansDepot ? ASSIGNATION_HORS_PROTOCOLE : motif(m.repoUrl);
+      const taskId =
+        typeof m.task === 'object' && m.task !== null
+          ? (m.task as Record<string, unknown>).id
+          : undefined;
+      return {
+        type: 'assign_task',
+        motif: raison,
+        reponse: isId(taskId)
+          ? {
+              type: 'task_reject',
+              taskId,
+              reason: raison,
+              infra: true,
+              avantAgent: true,
+              illisible: true,
+            }
+          : null,
+      };
+    }
+    case 'assign_merge': {
+      const raison = motif(m.repoUrl);
+      return {
+        type: 'assign_merge',
+        motif: raison,
+        reponse: isId(m.mergeId)
+          ? {
+              type: 'merge_result',
+              mergeId: m.mergeId,
+              applied: [],
+              conflicts: [],
+              mergedDiff: '',
+              testsRun: false,
+              testsPassed: null,
+              logs: `[nœud] ${raison}`,
+              refused: raison,
+            }
+          : null,
+      };
+    }
+    case 'assign_chantier': {
+      const raison = motif(m.repoUrl);
+      return {
+        type: 'assign_chantier',
+        motif: raison,
+        reponse:
+          isId(m.chantierId) && nomDeChantierValide(m.nom)
+            ? {
+                type: 'chantier_result',
+                chantierId: m.chantierId,
+                nom: m.nom,
+                code: null,
+                sortie: `[nœud] ${raison}`,
+                ok: false,
+                refused: raison,
+              }
+            : null,
+      };
+    }
+    case 'poser_outil':
+      return {
+        type: 'poser_outil',
+        motif: 'identifiant de pose ou d’outil mal formé',
+        reponse: null,
+      };
+    default:
+      return null;
+  }
+}
+
 /**
  * Taille en octets d'une trame WebSocket, sans la convertir en chaîne.
  *
@@ -1638,10 +2117,11 @@ const estCheminLocalAbsolu = (v: string): boolean => /^[A-Za-z]:[\\/]/.test(v) |
  * cette fonction décide seulement si la forme peut franchir la frontière HTTP.
  */
 export function isValidLocalRepoPath(v: unknown): v is string {
-  if (typeof v !== 'string' || v.length === 0 || v.length > 500 || v.startsWith('-')) {
-    return false;
-  }
-  if (!estCheminLocalAbsolu(v)) return false;
+  // Les règles du protocole d'abord, caractères de contrôle compris : un chemin
+  // qu'elles refusent ferait refuser par chaque nœud toutes les assignations du
+  // projet. La route d'administration les laissait passer, alors que
+  // `isValidRepoUrl` les refuse depuis #551.
+  if (!isValidRepoUrl(v) || !estCheminLocalAbsolu(v)) return false;
   return !v
     .replaceAll('\\', '/')
     .split('/')
@@ -1664,17 +2144,53 @@ export function estBrancheDeLivraison(v: unknown): v is string {
   return !v.includes('..') && !v.endsWith('.lock') && !v.endsWith('.');
 }
 
-export function isValidRepoUrl(v: unknown): v is string {
-  if (typeof v !== 'string' || v.length === 0 || v.length > 500) return false;
-  if (v.startsWith('-')) return false;
+/**
+ * Ce que le protocole reproche à une adresse de dépôt — `null` si elle passe.
+ *
+ * Uniquement des schémas de transport sûrs : bloque le transport `ext::` de git
+ * (exécution de commande arbitraire = RCE) et les URL commençant par « - »
+ * (injection d'argument dans git clone).
+ */
+function defautDeDepot(v: unknown): string | null {
+  if (typeof v !== 'string' || v.length === 0) return 'absente';
+  if (v.length > 500) return 'plus de 500 caractères';
+  if (v.startsWith('-')) return 'tiret initial';
+  // Aucun caractère de contrôle : un saut de ligne faisait échouer git sur
+  // une clé de configuration qu'il citait ENTIÈRE — jeton compris, et hors
+  // de portée du lavage, qui s'arrête à l'espace (`laverIdentifiantsDuTexte`).
+  // eslint-disable-next-line no-control-regex -- c'est précisément ce qu'on refuse
+  if (/[\u0000-\u001f\u007f]/.test(v)) return 'caractère de contrôle';
   // http(s), git, ssh, ou chemin local absolu (démo/tests) — jamais ext::, file::, etc.
-  return (
+  const transportSur =
     /^https?:\/\//.test(v) ||
     /^git:\/\//.test(v) ||
     /^ssh:\/\//.test(v) ||
     /^git@[\w.-]+:/.test(v) ||
-    estCheminLocalAbsolu(v)
-  );
+    estCheminLocalAbsolu(v);
+  return transportSur ? null : 'transport non permis';
+}
+
+export function isValidRepoUrl(v: unknown): v is string {
+  return defautDeDepot(v) === null;
+}
+
+/**
+ * Pourquoi les nœuds refuseraient ce dépôt, dit à qui doit agir — `null` s'il
+ * passe.
+ *
+ * La MÊME règle que `isValidRepoUrl`, pour les deux bouts qui doivent dire
+ * pourquoi : la Reine qui refuse d'envoyer un travail sur ce dépôt, le nœud
+ * qui refuse d'en lire l'assignation (`assignationIllisible`). Deux copies
+ * diraient deux causes. Le geste est le seul possible : l'URL d'un projet ne
+ * se change pas encore (`URL_DU_PROJET_FIGEE`, git-protege.ts). Jamais
+ * l'adresse elle-même — elle peut porter le jeton du projet —, et bornée par
+ * `LIMITS.name` : c'est la raison d'un `task_reject`.
+ */
+export function motifDepotIllisible(v: unknown): string | null {
+  const defaut = defautDeDepot(v);
+  return defaut === null
+    ? null
+    : `URL de dépôt du projet illisible (${defaut}) — recréez le projet avec une URL valide`;
 }
 
 /**

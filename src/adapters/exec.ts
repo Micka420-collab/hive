@@ -1,9 +1,12 @@
 // Aides communes aux adaptateurs qui lancent de vrais processus.
 // Règle absolue (§5.1) : spawn(bin, argv, { shell: false }) — jamais shell:true.
 
+import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { argvAgent } from '../shared/agent-windows.js';
-import { envDuLanceur, envelopper, optionsEnveloppe } from '../node-client/isolement.js';
+import { envDuLanceur, envelopper, envMoteur, optionsEnveloppe } from '../node-client/isolement.js';
+import type { ConteneurPilote } from '../node-client/pilote-execution.js';
+import type { GraviteAgent } from '../shared/niveaux-sortie.js';
 import { lancerArbre } from '../shared/arbre-processus.js';
 import type { IssueArbre } from '../shared/arbre-processus.js';
 import { LIMITS } from '../shared/protocol.js';
@@ -63,6 +66,24 @@ const INFRA_FAILURE_RE =
   /unauthor|authentication|not logged in|forbidden|\b401\b|\b403\b|\b429\b|quota|rate.?limit|usage limit|insufficient|out of credit|credit balance|billing|api[_ -]?key|invalid.{0,12}key|login|sign in|subscription/i;
 
 /**
+ * La ligne qui a fait lire un échec comme une panne d'infrastructure : la
+ * dernière qui porte un motif d'`INFRA_FAILURE_RE`, sinon la dernière tout
+ * court (un lancement impossible se dit en fin de journal). C'est elle que le
+ * refus du nœud cite — « agent indisponible (auth/quota) » seul ne disait ni
+ * quel quota, ni quelle clé, et les logs de l'agent ne partent pas avec un
+ * refus : l'opérateur n'avait rien à lire.
+ */
+export function ligneDInfra(texte: string): string {
+  const lignes = texte
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l !== '');
+  // Pas `findLast` (ES2023) : le tableau de bord type ce module en ES2022 —
+  // son graphe l'atteint par server.ts → doctor-releve → porte-securite → …
+  return [...lignes].reverse().find((l) => INFRA_FAILURE_RE.test(l)) ?? lignes.at(-1) ?? '';
+}
+
+/**
  * Le bac reçoit le même nom logique que son preflight, jamais un chemin hôte :
  * c'est l'enveloppe qui le résout — dans l'image pour un conteneur, sur l'hôte
  * monté en lecture seule pour bubblewrap (`installationHote`).
@@ -76,12 +97,27 @@ function preparerCommande(
   args: string[],
   ctx: AdapterContext,
   pont?: string,
-): { bin: string; args: string[]; env: NodeJS.ProcessEnv } {
+): { bin: string; args: string[]; env: NodeJS.ProcessEnv; conteneur?: ConteneurPilote } {
   if (ctx.bac) {
-    const options = { ...optionsEnveloppe(ctx.bac, ctx.cwd), ...(pont ? { pont } : {}) };
+    const { fournisseur } = ctx.bac;
+    // Un conteneur piloté porte un NOM connu (Sandbox Live : `pause`, `stats`).
+    // Aléatoire au bout : un conteneur laissé par un nœud tué garde le sien
+    // jusqu'au ramassage, et une relance de la tâche ne doit pas s'y heurter.
+    const nom =
+      ctx.pilote && fournisseur.bin !== 'bwrap'
+        ? `hive-${ctx.bac.tache ?? 'tache'}-${randomBytes(4).toString('hex')}`
+        : undefined;
+    const options = {
+      ...optionsEnveloppe(ctx.bac, ctx.cwd),
+      ...(pont ? { pont } : {}),
+      ...(nom ? { nom } : {}),
+    };
     return {
       ...envelopper(bin, args, options),
-      env: envDuLanceur(ctx.bac.fournisseur, ctx.env),
+      env: envDuLanceur(fournisseur, ctx.env),
+      // Le moteur est joint sans l'environnement de l'agent : `pause` et
+      // `stats` n'ont que faire de sa clé d'API.
+      ...(nom ? { conteneur: { bin: fournisseur.bin, nom, env: envMoteur(fournisseur) } } : {}),
     };
   }
   const [binReel = bin, ...avant] = argvAgent(bin, process.env, process.platform, existsSync);
@@ -122,8 +158,13 @@ export interface LecteurFlux {
    * gardent — sa forme lisible, sur une ou plusieurs lignes —, ou `undefined`
    * pour la taire. Ne lève jamais : une ligne illisible se dit, elle ne casse
    * pas la lecture des suivantes.
+   *
+   * `gravite` : ce que l'ÉVÉNEMENT déclare de lui-même (une erreur signalée,
+   * un avertissement) — le niveau de la ligne dans la console en direct. Le
+   * lecteur, qui a déjà analysé l'événement, est le seul à le savoir sans le
+   * redeviner dans le texte rendu.
    */
-  lire(ligne: string): string | undefined;
+  lire(ligne: string): { texte: string; gravite?: GraviteAgent } | undefined;
   /** La réponse finale déclarée par le flux, déjà bornée (`borneTexteFinal`). */
   texte(): string | undefined;
   /**
@@ -176,6 +217,13 @@ export function runCommand(
 }
 
 /**
+ * Le parseur d'une ligne de stdout (stream-json). Il peut rendre la GRAVITÉ
+ * que l'événement déclare de lui-même (`graviteStreamJson`) : c'est le niveau
+ * de la ligne dans la console en direct. Rien rendu : son flux, stdout.
+ */
+export type LecteurLigne = (line: string) => GraviteAgent | undefined | void;
+
+/**
  * Comme runCommand, mais invoque `onLine` pour CHAQUE ligne de stdout au fil de
  * l'eau (flux stream-json d'un agent). Sert au suivi des sous-agents en direct.
  * Le parseur `onLine` doit être tolérant ; toute exception y est absorbée.
@@ -184,7 +232,7 @@ export function runCommandStreaming(
   bin: string,
   args: string[],
   ctx: AdapterContext,
-  onLine: (line: string) => void,
+  onLine: LecteurLigne,
   timeoutMs = DEFAULT_TIMEOUT_MS,
   texteFinal?: SourceTexteFinal,
   pont?: string,
@@ -220,6 +268,24 @@ export function runCommandFlux(
 export const LIGNE_ANNULATION = '[hive] tâche annulée — processus arrêté avec sa descendance';
 
 /**
+ * Un arrêt qui DIT sa cause : la raison d'`abort` que le nœud donne quand ce
+ * n'est pas un humain qui annule (la vigie, G13). Le même geste, le même arbre
+ * abattu ; les logs finissent sur sa ligne plutôt que sur `LIGNE_ANNULATION`,
+ * qui ferait lire « annulée » une tâche que personne n'a annulée.
+ */
+export class ArretMotive extends Error {
+  /**
+   * Vrai quand l'arbre de l'agent a été abattu sur CET arrêt — posé par
+   * `executer`, seul à le savoir. Faux quand l'agent était déjà sorti de
+   * lui-même : sa vigie a pu conclure sur sa dernière ligne, lue à la sortie.
+   */
+  abattu = false;
+  constructor(readonly ligne: string) {
+    super(ligne);
+  }
+}
+
+/**
  * Le seul `spawn` des adaptateurs. `runCommand` et `runCommandStreaming` en
  * étaient deux copies ; la seconde avait appris à lire ligne à ligne, pas la
  * première — et c'est la première que Cursor et Cline employaient pour un flux
@@ -245,7 +311,7 @@ function executer(
   ctx: AdapterContext,
   opts: {
     timeoutMs: number;
-    onLine?: (line: string) => void;
+    onLine?: LecteurLigne;
     texteFinal?: SourceTexteFinal;
     pont?: string;
     flux?: LecteurFlux;
@@ -270,7 +336,7 @@ function executer(
     // TÂCHE (`cadenceDe`), pas de ce processus. Le caviardage, lui, est
     // l'affaire du nœud.
     const direct = createSortieDirecte(
-      (sortie) => {
+      (_texte, sortie) => {
         try {
           ctx.onProgress({ sortie });
         } catch {
@@ -314,12 +380,17 @@ function executer(
     const parLigne =
       opts.onLine || suivi || flux
         ? (line: string): void => {
+            let gravite: GraviteAgent | undefined;
             try {
-              opts.onLine?.(line);
+              gravite = opts.onLine?.(line) ?? undefined;
             } catch {
               /* parseur tolérant : on ignore */
             }
             suivi?.feed(line);
+            // Un stdout lu ligne à ligne (stream-json) part à l'écran ligne à
+            // ligne, avec la gravité que le parseur de l'agent y a lue : le
+            // fragment brut ne sait pas où finit un événement.
+            if (!flux) direct.ecrire(`${line}\n`, 'stdout', gravite);
             // Un flux lu en entier entre dans les logs RENDU, jamais brut —
             // et TOUJOURS en début de ligne : un morceau de stderr sans fin de
             // ligne collait la narration derrière lui ; sa marque n'ouvrait
@@ -329,17 +400,24 @@ function executer(
             // versée au plafond. Et c'est cette forme-là que l'écran suit.
             const rendue = flux?.lire(line);
             if (rendue !== undefined) {
-              consigner(output === '' || output.endsWith('\n') ? `${rendue}\n` : `\n${rendue}\n`);
-              direct.ecrire(`${rendue}\n`);
+              const texte = rendue.texte;
+              consigner(output === '' || output.endsWith('\n') ? `${texte}\n` : `\n${texte}\n`);
+              direct.ecrire(`${texte}\n`, 'stdout', rendue.gravite);
             }
           }
         : undefined;
 
     const finir = (issue: IssueArbre): void => {
-      // Avant le `resolve` : un morceau parti après le résultat serait ignoré
-      // par le hub, et ressusciterait une console déjà vidée à l'écran.
-      direct.terminer();
+      // Plus de mesure ni de pause sur un processus qui a fini — et ce qu'une
+      // pause en vol aurait arrêté est relancé (`pilote-execution.ts`).
+      detacher?.();
       viderLignes();
+      // La dernière ligne sans \n final — un lancement impossible n'a rien écrit.
+      if (issue.issue !== 'lancement' && parLigne && tampon.trim()) parLigne(tampon);
+      // Avant le `resolve` : un morceau parti après le résultat serait ignoré
+      // par le hub, et ressusciterait une console déjà vidée à l'écran. APRÈS
+      // la dernière ligne : terminée avant, la sortie la taisait à l'écran.
+      direct.terminer();
       if (issue.issue === 'lancement') {
         // Le binaire n'a pas pu être lancé (absent, non exécutable) : échec d'infra.
         resolve({
@@ -351,7 +429,6 @@ function executer(
         });
         return;
       }
-      if (parLigne && tampon.trim()) parLigne(tampon); // dernière ligne sans \n final
       const arrete = issue.issue === 'arret';
       const code = issue.issue === 'sortie' ? issue.code : null;
       // Un processus ARRÊTÉ n'a pas conclu : ce qu'il avait écrit n'est pas sa
@@ -362,11 +439,14 @@ function executer(
           ? borneTexteFinal(sortieStandard)
           : (flux ?? suivi)?.texte();
       const bilan = flux?.bilan(code, arrete);
+      const annulee = issue.issue === 'arret' && issue.motif === 'annule';
+      const motive = annulee && ctx.signal.reason instanceof ArretMotive ? ctx.signal.reason : null;
+      if (motive) motive.abattu = true;
       const logs = journalAvecFin(output, [
         ...(issue.issue === 'arret' && issue.motif === 'delai'
           ? [`[hive] timeout après ${opts.timeoutMs} ms — processus tué`]
           : []),
-        ...(issue.issue === 'arret' && issue.motif === 'annule' ? [LIGNE_ANNULATION] : []),
+        ...(annulee ? [motive ? motive.ligne : LIGNE_ANNULATION] : []),
         ...(issue.issue === 'sortie' && issue.tenue
           ? [
               "[hive] la sortie est restée ouverte après la fin de l'agent : " +
@@ -379,7 +459,6 @@ function executer(
       // Échec dont le TEXTE évoque un problème d'auth/quota → infra
       // (réaffectation). Pas les logs bruts : voir `INFRA_FAILURE_RE`. Jamais
       // une annulation : voir l'en-tête.
-      const annulee = issue.issue === 'arret' && issue.motif === 'annule';
       const infra = !success && !annulee && INFRA_FAILURE_RE.test(texteDEchec(logs, finalText));
       resolve({
         success,
@@ -391,15 +470,43 @@ function executer(
       });
     };
 
+    // Le délai dur, armé par le pilote quand il y en a un : une pause de
+    // l'agent (Sandbox Live) le SUSPEND — l'agent repris retrouve le temps
+    // qu'il n'a pas consommé, au lieu d'être tué pendant qu'il dormait.
+    const pilote = ctx.pilote;
+    const armerDelai = pilote
+      ? (delaiMs: number, declencher: () => void) =>
+          pilote.minuteur(delaiMs, () => {
+            // Détaché AVANT le signal : plus de pause possible sur un agent
+            // qu'on arrête, et ce qu'une pause en vol aurait arrêté est relancé
+            // — arrêté, il ne traiterait pas ce SIGTERM (`pilote-execution.ts`).
+            detacher?.();
+            declencher();
+          })
+      : undefined;
     const child = lancerArbre(
       lance.bin,
       lance.args,
       // Voir `ENTREE_FERMEE` : un tube d'entrée que personne n'écrit bloquait
       // chaque tâche Codex jusqu'au délai dur.
       { cwd: ctx.cwd, env: lance.env, stdio: ENTREE_FERMEE },
-      { delaiMs: opts.timeoutMs, ...(ctx.signal ? { signal: ctx.signal } : {}) },
+      {
+        delaiMs: opts.timeoutMs,
+        ...(ctx.signal ? { signal: ctx.signal } : {}),
+        ...(armerDelai ? { armerDelai } : {}),
+      },
       finir,
     );
+    // La commande LOGIQUE (l'agent et ses arguments), pas l'enveloppe du bac :
+    // c'est elle que l'écran doit lire. Le nœud la caviarde avant l'envoi.
+    const detacher: (() => void) | undefined =
+      child.pid !== undefined
+        ? pilote?.attacher({
+            pid: child.pid,
+            commande: [bin, ...args].join(' ').slice(0, 4096),
+            ...(lance.conteneur ? { conteneur: lance.conteneur } : {}),
+          })
+        : undefined;
 
     // Décodage UTF-8 AU FIL DES MORCEAUX : un caractère accentué coupé entre
     // deux lectures devenait deux « � », jusque dans la ligne `result`.
@@ -410,7 +517,8 @@ function executer(
       // sa forme lisible y entre ligne à ligne (`parLigne`).
       if (!flux) {
         verser('stdout', s);
-        direct.ecrire(s);
+        // Lu ligne à ligne (`parLigne`) : il part de là, avec sa gravité.
+        if (!parLigne) direct.ecrire(s);
       }
       if (texteFinal === 'sortie-standard') {
         sortieStandard = (sortieStandard + s).slice(-2 * LIMITS.finalText);

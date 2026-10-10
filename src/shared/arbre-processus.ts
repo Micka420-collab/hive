@@ -92,6 +92,13 @@ export interface GardeArbre {
   readonly delaiMs: number;
   /** Son `abort` arrête l'arbre (`arret`, motif `annule`). */
   readonly signal?: AbortSignal;
+  /**
+   * Arme le délai à la place d'un `setTimeout` : une horloge que la PAUSE de
+   * l'exécution suspend (Sandbox Live, `pilote-execution.ts`). Le délai ne
+   * compte alors que le temps où l'arbre tourne — la borne de l'en-tête vaut
+   * hors pause —, et un agent repris n'est pas tué pour un temps qu'il a dormi.
+   */
+  readonly armerDelai?: (delaiMs: number, declencher: () => void) => { annuler(): void };
 }
 
 /** Les chefs d'arbre vivants de CE processus. */
@@ -219,6 +226,8 @@ export function lancerArbre(
   let sorti = false;
   let arret: 'delai' | 'annule' | undefined;
   const minuteurs: NodeJS.Timeout[] = [];
+  /** Le délai armé par `garde.armerDelai`, quand il y en a un. */
+  let delaiArme: { annuler(): void } | undefined;
   const plus = (ms: number, geste: () => void): void => {
     const m = setTimeout(geste, ms);
     m.unref?.();
@@ -228,6 +237,7 @@ export function lancerArbre(
     if (fini) return;
     fini = true;
     for (const m of minuteurs) clearTimeout(m);
+    delaiArme?.annuler();
     garde.signal?.removeEventListener('abort', surAnnulation);
     // Un orphelin peut encore écrire : on ne l'écoute plus, et les tubes ne
     // retiennent plus la boucle d'événements.
@@ -256,7 +266,8 @@ export function lancerArbre(
   };
   const surAnnulation = (): void => arreter('annule');
   garde.signal?.addEventListener('abort', surAnnulation, { once: true });
-  plus(garde.delaiMs, () => arreter('delai'));
+  if (garde.armerDelai) delaiArme = garde.armerDelai(garde.delaiMs, () => arreter('delai'));
+  else plus(garde.delaiMs, () => arreter('delai'));
 
   enfant.on('error', (erreur) => {
     oublier(enfant);

@@ -164,6 +164,151 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['tests/join-porte.test.ts', 'securite'],
     ['tests/retention-journal.test.ts', 'securite'],
     ['tests/livraison-locale.test.ts', 'securite'],
+    // Les gardes de la vague 7 (train 6) : réseau sortant (#545), politique
+    // d'actions (#548), garde de PR (#546), revue en ligne (#547), routines
+    // (#544) — et le budget dans la boucle (#550) : son prédicat d'arrêt, que
+    // lisent les leçons de l'essaim, et les bornes de la délégation qu'il tient.
+    ['src/node-client/proxy-egress.ts', 'securite'],
+    ['src/node-client/politique-reseau.ts', 'securite'],
+    ['src/node-client/reseau-tache.ts', 'securite'],
+    ['src/shared/reseau.ts', 'securite'],
+    ['src/shared/politique-actions.ts', 'permissions'],
+    ['src/orchestrator/garde-pr.ts', 'permissions'],
+    ['src/shared/commentaire-revue.ts', 'permissions'],
+    ['src/orchestrator/routines.ts', 'auto-execution'],
+    ['src/orchestrator/cron.ts', 'auto-execution'],
+    ['src/shared/arret-budgetaire.ts', 'permissions'],
+    ['src/orchestrator/delegation.ts', 'permissions'],
+    ['src/shared/limites-delegation.ts', 'permissions'],
+    ['tests/proxy-egress.test.ts', 'securite'],
+    ['tests/requisition-action.test.ts', 'securite'],
+    ['tests/garde-pr-boucle.test.ts', 'securite'],
+    ['tests/routines-api.test.ts', 'securite'],
+    ['tests/revue-ligne.test.ts', 'securite'],
+    ['tests/reseau-projet.test.ts', 'securite'],
+    ['tests/budget-boucle.test.ts', 'securite'],
+    ['tests/budget-essaim.test.ts', 'securite'],
+    // La suite de G12 : le clone d'une tâche ne porte aucun identifiant de
+    // push — son banc, et la porte git qui l'assure (déjà nommée plus haut).
+    ['tests/clone-sans-identifiants.test.ts', 'securite'],
+    // L'effacement de ce que git a rempli, sorti de workspace.ts pour servir
+    // aussi le miroir de la Reine : il garde la catégorie de l'atelier.
+    ['src/node-client/workspace.ts', 'auto-execution'],
+    ['src/shared/effacement.ts', 'auto-execution'],
+    // La porte de sécurité (G10) et ses bancs : l'affaiblir laisserait partir
+    // une clé, ou compterait verte une porte qu'aucun outil n'a passée.
+    ['src/shared/porte-securite.ts', 'securite'],
+    ['src/node-client/porte-securite.ts', 'securite'],
+    ['src/shared/porte-securite-dependances.ts', 'securite'],
+    ['tests/porte-securite.test.ts', 'securite'],
+    ['tests/porte-securite-noeud.test.ts', 'securite'],
+    ['tests/porte-securite-bout-en-bout.test.ts', 'securite'],
+    ['tests/porte-securite-dependances.test.ts', 'securite'],
+    // Les faux outils et les lockfiles mesurés : un faux complaisant ferait
+    // passer les bancs ci-dessus pour de mauvaises raisons.
+    ['tests/fixtures/faux-outils-porte.ts', 'securite'],
+    ['tests/fixtures/verrous-porte.ts', 'securite'],
+    // La lecture vérifiée de la base (la faille des objets git non vérifiés) et
+    // ses bancs : l'affaiblir rouvrirait la forgerie que la porte ferme.
+    ['src/node-client/base-verifiee.ts', 'securite'],
+    ['tests/base-verifiee.test.ts', 'securite'],
+    ['tests/base-forgee-bout-en-bout.test.ts', 'securite'],
+    // Les verdicts test par test (G11b) : le lecteur qui excuse un échec déjà
+    // rouge à la base, ses bancs et les sorties réelles qu'ils rejouent.
+    ['src/shared/lecture-tests.ts', 'permissions'],
+    ['tests/lecture-tests.test.ts', 'permissions'],
+    ['tests/verdicts-par-test-noeud.test.ts', 'permissions'],
+    ['tests/verdicts-par-test-bout-en-bout.test.ts', 'permissions'],
+    ['tests/fixtures/sorties-de-tests/vitest-defaut.txt', 'permissions'],
+    // Train 7 — l'union des deux lignées, banc par banc : chaque banc qui
+    // verrouille une garde de la vague 7 est NOMMÉ, pas seulement couvert par
+    // un motif (retiré du motif, il passerait sinon). Le réseau sortant (#545),
+    // la politique d'actions (#548), la garde de PR (#546) et les routines
+    // (#544) ; l'effacement borné et le butoir du miroir (#552) ; l'assignation
+    // illisible (#554) ; les faux outils de la porte (G10) ; et le réseau de la
+    // porte, propre à ce train.
+    ['tests/politique-reseau.test.ts', 'securite'],
+    ['tests/reseau-tache.test.ts', 'securite'],
+    ['tests/enveloppe-reseau.test.ts', 'securite'],
+    ['tests/bac-reseau.test.ts', 'securite'],
+    ['tests/reseau-bac.integration.test.ts', 'securite'],
+    ['tests/politique-actions.test.ts', 'securite'],
+    ['tests/pont-approve.test.ts', 'securite'],
+    ['tests/regles-autorisation-depot.test.ts', 'securite'],
+    ['tests/garde-pr.test.ts', 'securite'],
+    ['tests/garde-pr-ecran.test.tsx', 'securite'],
+    ['tests/routines.test.ts', 'securite'],
+    ['tests/routines-cron.test.ts', 'securite'],
+    ['tests/routines-ecran.test.tsx', 'securite'],
+    ['tests/miroir-tenu.test.ts', 'securite'],
+    ['tests/dossier-tache-tenu.test.ts', 'securite'],
+    ['tests/miroir-amont-muet.test.ts', 'securite'],
+    ['tests/assignation-illisible.test.ts', 'securite'],
+    ['tests/porte-securite-faux-outils.test.ts', 'securite'],
+    ['tests/porte-securite-reseau.test.ts', 'securite'],
+    // Train 8 — la série Mission Control. Le pilote de Sandbox Live (#526) et
+    // l'arbre de processus d'un agent : le délai dur et le budget délégué
+    // (des horloges qu'une pause suspend), l'arrêt qui réveille un agent en
+    // pause, les gestes lancés hors du bac sur l'hôte. L'état en direct,
+    // validé et borné comme un message. La fiche Worker (#525), qui caviarde
+    // des journaux d'échec avant de les couper. Qui écrit les réglages de la
+    // ruche et lit le bilan de sa machine (#525). Et les bancs qui tiennent
+    // ces gardes — la sortie en direct caviardée bloc par bloc (#523), la
+    // couverture du bac où se nomme chaque lancement hors bac.
+    ['src/node-client/pilote-execution.ts', 'permissions'],
+    ['src/node-client/mesure-processus.ts', 'permissions'],
+    ['src/shared/minuteur-suspendable.ts', 'permissions'],
+    ['src/shared/arbre-processus.ts', 'permissions'],
+    ['src/shared/bac-direct.ts', 'securite'],
+    ['src/orchestrator/fiche-worker.ts', 'securite'],
+    ['src/shared/configuration-initiale.ts', 'permissions'],
+    ['tests/pilote-execution.test.ts', 'securite'],
+    ['tests/arbre-processus.test.ts', 'securite'],
+    ['tests/bac-direct.test.ts', 'securite'],
+    ['tests/bac-direct-ruche.test.ts', 'securite'],
+    ['tests/fiche-worker.test.ts', 'securite'],
+    ['tests/configuration-initiale.test.ts', 'securite'],
+    ['tests/sortie-directe-ruche.test.ts', 'securite'],
+    ['tests/isolement-couverture.test.ts', 'securite'],
+    // Le banc du bac sur les vrais moteurs (Docker, Podman, bubblewrap) : l'agent
+    // dans le seul espace de travail, sans rien de l'hôte ; et les validations en
+    // conteneur qui installent les devDependencies du projet (#569).
+    ['tests/isolement-runtime.integration.test.ts', 'securite'],
+    // La fenêtre de décision de la Chambre (G12) lue sur ces horloges : une
+    // pause ne fait plus refuser une action pour « budget épuisé ».
+    ['tests/fenetre-decision.test.ts', 'securite'],
+    // G13 — la vigie qui arrête un agent enlisé ou au fournisseur épuisé : le
+    // détecteur, le fait qu'il range, ses bancs NOMMÉS et les flux enregistrés
+    // sur les vrais Claude Code et Codex qu'ils rejouent.
+    ['src/adapters/vigie-enlisement.ts', 'permissions'],
+    ['src/shared/enlisement.ts', 'permissions'],
+    ['tests/vigie-enlisement.test.ts', 'permissions'],
+    ['tests/vigie-reine.test.ts', 'permissions'],
+    ['tests/enlisement-bout-en-bout.test.ts', 'permissions'],
+    // Son horloge : le temps couru du run — une pause n'est pas une attente du réseau.
+    ['tests/vigie-pause.test.ts', 'permissions'],
+    ['tests/fixtures/enlisement/claude-529.stream.jsonl', 'permissions'],
+    // G15 — l'avis du relecteur : la grille et le schéma qui décident de ce
+    // qu'un verdict accepte, l'anonymat de la relecture, leurs bancs et les
+    // sorties de CLI enregistrées qu'ils rejouent.
+    ['src/shared/critique-structuree.ts', 'permissions'],
+    ['tests/critique-structuree.test.ts', 'permissions'],
+    ['tests/contre-expertise.test.ts', 'permissions'],
+    ['tests/avis-structure.test.ts', 'permissions'],
+    ['tests/relecture-anonyme.test.ts', 'permissions'],
+    ['tests/cerveau-wiring.test.ts', 'permissions'],
+    ['tests/fixtures/avis-structure/claude-relecture.stream.jsonl', 'permissions'],
+    ['tests/fixtures/avis-structure/claude-deux-avis.stream.jsonl', 'permissions'],
+    ['tests/fixtures/texte-final/claude-relecture.stream.jsonl', 'permissions'],
+    // G18 — le magasin de dépendances des validations : peuplé depuis la seule
+    // base vérifiée, restauré par copie. Ses deux moitiés et chacun de ses
+    // bancs, NOMMÉS : retirés du motif, ils passeraient sinon.
+    ['src/shared/cache-dependances.ts', 'securite'],
+    ['src/node-client/cache-dependances.ts', 'securite'],
+    ['tests/cache-dependances.test.ts', 'securite'],
+    ['tests/cache-dependances-noeud.test.ts', 'securite'],
+    ['tests/cache-dependances-bac.test.ts', 'securite'],
+    ['tests/cache-dependances-retention.test.ts', 'securite'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');

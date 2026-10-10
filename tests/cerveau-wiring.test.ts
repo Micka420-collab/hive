@@ -765,7 +765,10 @@ describe('la contre-expertise est annoncée à chaque production', () => {
 
     const prompt = a?.task?.prompt ?? '';
     expect(prompt, 'ce n’est pas une consigne de critique').toMatch(/CONTRE-EXPERTISE/);
-    expect(prompt, 'le relecteur doit savoir QUEL modèle il juge').toContain('claude-code');
+    // Le relecteur NE SAIT PAS quel modèle il juge (G15) : il jugerait la
+    // marque, pas le code. L'opérateur, lui, le sait — l'annonce le nomme.
+    expect(prompt, 'le relecteur ne doit pas savoir QUEL modèle il juge').not.toMatch(/claude/i);
+    expect(await attendreEvt(srv, 'contre_expertise')).toMatchObject({ producteur: 'claude-code' });
     expect(prompt, 'le diff jugé doit être là').toContain('auth.ts');
     // Et il y arrive comme une DONNÉE : un diff hostile ne devient pas une
     // consigne du seul fait qu'il traverse la ruche.

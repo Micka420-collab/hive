@@ -12,11 +12,13 @@ import { useEffect, useState } from 'react';
 import { fetchChronologie } from './api';
 import { useLang, useT } from './i18n';
 import { direDuree } from '../../src/shared/horloge-chantier';
+import { direArret, direRemise } from '../../src/shared/enlisement';
 import type {
   ChronologieTache as Chronologie,
   SommeDeclaree,
 } from '../../src/shared/chronologie-tache';
 import { direJetons, direUsd } from './ui';
+import { Skeleton } from './composants';
 
 interface Props {
   taskId: string;
@@ -47,7 +49,27 @@ export function ChronologieTache({ taskId, cle }: Props) {
       ? t('réussie', 'succeeded')
       : i === 'reprise'
         ? t('reprise', 'retried')
-        : t('échec', 'failed');
+        : i === 'arret'
+          ? t('arrêtée sur son plafond de coût', 'stopped at its cost cap')
+          : i === 'epuisement'
+            ? t('réaffectée sans tentative brûlée', 'reassigned, no attempt spent')
+            : t('échec', 'failed');
+  // La cause que la vigie du nœud a rangée (G13), à l'heure de qui regarde.
+  const vigie = (x: Chronologie['tentatives'][number]): string => {
+    const langue = lang === 'en' ? 'en-GB' : 'fr-FR';
+    // Au-delà d'un jour, la DATE avec l'heure (`direRemise`).
+    const heure = (ms: number): string =>
+      direRemise(
+        ms,
+        Date.now(),
+        (d) => d.toLocaleTimeString(langue, { hour: '2-digit', minute: '2-digit' }),
+        (d) => d.toLocaleString(langue, { dateStyle: 'short', timeStyle: 'short' }),
+      );
+    if (x.enlisement) return ` (${direArret({ issue: 'enlisement', ...x.enlisement }, t, heure)})`;
+    return x.epuisement
+      ? ` (${direArret({ issue: 'epuisement_fournisseur', ...x.epuisement }, t, heure)})`
+      : '';
+  };
 
   const declare = (s: SommeDeclaree, rendu: string): string =>
     s.declarees === s.tentatives
@@ -73,7 +95,7 @@ export function ChronologieTache({ taskId, cle }: Props) {
       const detail = c.tentatives
         .map(
           (x) =>
-            `${issue(x.issue)}${x.dureeWorkerMs === null ? '' : ` ${direDuree(x.dureeWorkerMs, lang)}`}`,
+            `${issue(x.issue)}${vigie(x)}${x.dureeWorkerMs === null ? '' : ` ${direDuree(x.dureeWorkerMs, lang)}`}`,
         )
         .join(' · ');
       const total = duree(c.dureeWorkerTotaleMs);
@@ -111,7 +133,7 @@ export function ChronologieTache({ taskId, cle }: Props) {
           {t('Chronologie indisponible :', 'Timeline unavailable:')} {erreur}
         </p>
       )}
-      {!erreur && c === null && <p className="muted">{t('Lecture…', 'Loading…')}</p>}
+      {!erreur && c === null && <Skeleton lignes={4} />}
       {c && (
         <dl className="chronologie">
           {lignes.map(([id, libelle, valeur]) => (

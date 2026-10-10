@@ -37,8 +37,9 @@
 // (en lecture seule, à `MONTAGE_PONT`) : une tâche ne voit jamais le socket
 // d'une autre tâche du même nœud.
 //
-// Sous Windows, le pont écoute sur un pipe nommé — `\\.\pipe\<nœud>-<pont>` —,
-// sans limite de chemin ; le sous-dossier ne porte que la configuration MCP.
+// Sous Windows, le pont écoute sur un pipe nommé (`extremiteEcoute`) — libuv
+// n'ouvre pas d'AF_UNIX sur un chemin de fichier —, sans limite de chemin ;
+// le sous-dossier ne porte que la configuration MCP.
 //
 // ─── CE QUI LE NETTOIE ───────────────────────────────────────────────────────
 //
@@ -116,6 +117,24 @@ export interface EmplacementPont {
 /** Ce qu'un adaptateur reçoit du nœud : réserver un emplacement, rien de plus. */
 export interface ReservationPont {
   reserver(): EmplacementPont;
+}
+
+/**
+ * L'extrémité d'écoute d'un pont ou d'un proxy posé dans `dossier` : son
+ * socket Unix `s` — ou, sous Windows, un pipe nommé, car libuv n'ouvre pas
+ * d'AF_UNIX sur un chemin de fichier (`listen EACCES`). Le nom du pipe reprend
+ * les deux derniers maillons du chemin — pour un pont : `hive-pont-<pid>-
+ * XXXXXX-XXXXXX`, le rendez-vous du nœud puis son sous-dossier, tous deux
+ * suffixés par `mkdtemp` — : unique sur la machine, entre nœuds comme entre
+ * bancs parallèles. Et libuv pose `FILE_FLAG_FIRST_PIPE_INSTANCE` : un pipe
+ * qui traînerait sous ce nom fait échouer l'écoute (EADDRINUSE), jamais
+ * écouter derrière un autre.
+ */
+export function extremiteEcoute(dossier: string): string {
+  if (process.platform !== 'win32') return path.join(dossier, NOM_SOCKET);
+  const d = path.resolve(dossier);
+  const nom = `${path.basename(path.dirname(d))}-${path.basename(d)}`;
+  return `\\\\.\\pipe\\${nom.replace(/[^A-Za-z0-9.-]+/g, '-')}`;
 }
 
 /**
@@ -204,6 +223,19 @@ export function balayerPontsOrphelins(): string[] {
  */
 export class RendezVousPont implements ReservationPont {
   private racine: string | null = null;
+  /**
+   * Fermé par l'arrêt du nœud (`fermer`), rouvert par son démarrage
+   * (`ouvrir`). Une tâche que l'arrêt a annulée peut encore passer ici en
+   * finissant de se dérouler — une étape asynchrone de sa préparation, et elle
+   * arrive au pont après coup : un dossier créé MAINTENANT ne serait effacé par
+   * personne, et sous le TMPDIR du moment, qui n'est peut-être plus le même.
+   */
+  private ferme = false;
+
+  /** Le démarrage du nœud : ses ponts peuvent de nouveau s'ouvrir. */
+  ouvrir(): void {
+    this.ferme = false;
+  }
 
   /**
    * Le motif si AUCUN pont ne pourra s'ouvrir sur ce poste, sinon `null`. Ne
@@ -218,6 +250,12 @@ export class RendezVousPont implements ReservationPont {
    * @throws CheminSocketTropLong avant toute création si le socket ne tiendrait pas.
    */
   reserver(): EmplacementPont {
+    // Après `fermer()` : une tentative qui traîne derrière l'arrêt du nœud
+    // (annulée, mais déjà en route vers son pont) recréait la racine que
+    // l'arrêt venait d'effacer — un dossier orphelin jusqu'au prochain
+    // balayage. Un nœud arrêté n'ouvre plus rien — ni pont de délégation, ni
+    // session réseau de tâche — jusqu'à son redémarrage (`ouvrir`).
+    if (this.ferme) throw new Error('nœud arrêté : aucun pont ne s’ouvre plus');
     const motif = this.alerte();
     if (motif) throw new CheminSocketTropLong(motif);
     // Recréé s'il a disparu (nettoyage de `/tmp` sur un nœud resté inactif des
@@ -226,11 +264,7 @@ export class RendezVousPont implements ReservationPont {
       this.racine = mkdtempSync(this.gabarit().slice(0, -GABARIT_MKDTEMP.length));
     }
     const dossier = mkdtempSync(this.racine + path.sep);
-    const extremite =
-      process.platform === 'win32'
-        ? `\\\\.\\pipe\\${path.basename(this.racine)}-${path.basename(dossier)}`
-        : path.join(dossier, NOM_SOCKET);
-    return { dossier, extremite };
+    return { dossier, extremite: extremiteEcoute(dossier) };
   }
 
   /**
@@ -240,6 +274,7 @@ export class RendezVousPont implements ReservationPont {
    * suivant reprendra ce qui reste.
    */
   fermer(): void {
+    this.ferme = true;
     const racine = this.racine;
     this.racine = null;
     if (!racine || !dossierPrive(racine)) return;

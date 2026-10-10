@@ -8,6 +8,7 @@ import {
   EVENEMENTS_NON_DIFFUSES,
   parseServerMessage,
 } from '../../src/shared/protocol';
+import type { SegmentNiveau } from '../../src/shared/niveaux-sortie';
 import type {
   HiveEvent,
   Project,
@@ -16,8 +17,10 @@ import type {
   TaskResult,
   TaskStatus,
 } from '../../src/shared/types';
+import type { DirectTache } from '../../src/shared/bac-direct';
 import type { Graphe } from '../../src/shared/cerveau-graphe.js';
 import type { Constat } from '../../src/shared/critique-structuree.js';
+import type { CommentaireRevue } from '../../src/shared/commentaire-revue.js';
 import type {
   DecisionConseil,
   Desaccord,
@@ -31,6 +34,18 @@ export type {
   FamilleWarRoom,
 } from '../../src/shared/war-room.js';
 import type { WorkerSnapshot } from '../../src/orchestrator/workers.js';
+import type {
+  DebatDuWorker,
+  LeconApprise,
+  MissionRendue,
+} from '../../src/orchestrator/fiche-worker.js';
+import type {
+  ConfigurationInitiale,
+  ModificationConfiguration,
+  SanteInitiale,
+  VerdictConfiguration,
+} from '../../src/shared/configuration-initiale.js';
+import type { Diagnostic } from '../../src/shared/doctor.js';
 import type { JournalOuvriere } from '../../src/orchestrator/journal-ouvriere.js';
 import type { RapportLivraisonLocale } from '../../src/shared/livraison-locale.js';
 import type { ConsigneRoutage } from '../../src/shared/consigne-routage.js';
@@ -867,6 +882,29 @@ export function cancelTask(taskId: string): Promise<Task> {
   return api<Task>(`/api/tasks/${taskId}/cancel`, { method: 'POST', body: '{}' });
 }
 
+/**
+ * Sandbox Live : suspendre / reprendre l'agent d'une tâche. La Reine ne fait
+ * que TRANSMETTRE (202) : ce qui a vraiment eu lieu revient par l'état en
+ * direct (`task_direct`, `enPause`) — jamais supposé depuis le clic.
+ */
+export function pauseTask(taskId: string, reprendre: boolean): Promise<{ transmis: true }> {
+  const geste = reprendre ? 'resume' : 'pause';
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/${geste}`, { method: 'POST', body: '{}' });
+}
+
+/** Le diff d'une exécution EN COURS, demandé à l'ouvrière (borné, caviardé). */
+export interface DiffDirect {
+  taskId: string;
+  nodeId: string;
+  diff: string;
+  tronque: boolean;
+  erreur?: string;
+}
+
+export function fetchDiffDirect(taskId: string): Promise<DiffDirect> {
+  return api<DiffDirect>(`/api/tasks/${encodeURIComponent(taskId)}/diff-direct`);
+}
+
 /** Drone Wars : course compétitive sur une tâche prête (2-5 nœuds, 1er succès gagne). */
 export function raceTask(
   taskId: string,
@@ -1408,6 +1446,66 @@ export function fetchCockpit(): Promise<Cockpit> {
   return api<Cockpit>('/api/cockpit');
 }
 
+/**
+ * Réponse de `GET /api/workers/:nodeId/fiche` — la fiche d'un Worker. Chaque
+ * liste est prouvée fait par fait (`src/orchestrator/fiche-worker.ts`) ; aucune
+ * moyenne n'y est posée. `memoire: 'non_attribuee'` : la mémoire de la ruche
+ * ne porte pas encore l'ouvrière qui l'a produite, et l'écran le DIT.
+ */
+export interface FicheWorker {
+  worker: WorkerSnapshot;
+  /** Le modèle de chaque tentative en cours ; `null` : le défaut du nœud. */
+  modelesCourants: Array<{ taskId: string; modele: string | null }>;
+  missions: MissionRendue[];
+  lecons: LeconApprise[];
+  debats: DebatDuWorker[];
+  taches: Record<string, { titre: string; projectId: string }>;
+  journalElague: boolean;
+  memoire: 'non_attribuee';
+}
+
+export function fetchFicheWorker(nodeId: string): Promise<FicheWorker> {
+  return api<FicheWorker>(`/api/workers/${encodeURIComponent(nodeId)}/fiche`);
+}
+
+// ─── La configuration initiale (assistant de première arrivée) ──────────────
+
+/** L'état rendu par les routes de configuration : ce qui est rangé, et qui peut l'écrire. */
+export interface EtatConfigurationInitiale {
+  configuration: ConfigurationInitiale | null;
+  ecriture: VerdictConfiguration;
+  coherence: Diagnostic[];
+}
+
+export function fetchConfigurationInitiale(): Promise<EtatConfigurationInitiale> {
+  return api<EtatConfigurationInitiale>('/api/configuration-initiale');
+}
+
+/** Range le brouillon (une étape franchie) — ne termine rien. */
+export function rangerConfigurationInitiale(
+  modif: ModificationConfiguration,
+): Promise<EtatConfigurationInitiale> {
+  return api<EtatConfigurationInitiale>('/api/configuration-initiale', {
+    method: 'PUT',
+    body: JSON.stringify(modif),
+  });
+}
+
+/** Arrête la configuration — 409 si mode, secrets ou Git manquent. */
+export function terminerConfigurationInitiale(
+  modif: ModificationConfiguration,
+): Promise<EtatConfigurationInitiale> {
+  return api<EtatConfigurationInitiale>('/api/configuration-initiale/terminer', {
+    method: 'POST',
+    body: JSON.stringify(modif),
+  });
+}
+
+/** Le bilan de santé relevé sur la machine de la Reine (docteur, agents, bac). */
+export function fetchSanteInitiale(relancer = false): Promise<SanteInitiale> {
+  return api<SanteInitiale>(`/api/configuration-initiale/sante${relancer ? '?relancer=true' : ''}`);
+}
+
 export function fetchEssaimCycles(
   projectId: string,
   limit = 12,
@@ -1478,6 +1576,37 @@ export function reglerGardeFou(
   return api(`/api/projects/${projectId}/garde-fou`, {
     method: 'POST',
     body: JSON.stringify(reglage),
+  });
+}
+
+// ─── Le réseau des agents d'un projet (shared/reseau.ts) ─────────────────────
+
+/** Un niveau de réseau. Miroir de `NiveauReseau` (shared/reseau.ts). */
+export type NiveauReseauUi = 'integrations' | 'dependances' | 'ouvert';
+
+/** Ce que le GET `/reseau` rend. Miroir de la RÉPONSE du server. */
+export interface EtatReseauUi {
+  niveau: NiveauReseauUi;
+  /** Faux : personne ne l'a réglé, le niveau affiché est le défaut. */
+  regle: boolean;
+  definiPar: string | null;
+  updatedAt: number | null;
+  niveaux: NiveauReseauUi[];
+  defaut: NiveauReseauUi;
+}
+
+export function fetchReseauProjet(projectId: string): Promise<EtatReseauUi> {
+  return api<EtatReseauUi>(`/api/projects/${encodeURIComponent(projectId)}/reseau`);
+}
+
+/** Règle le réseau des agents — propriétaire ou administrateur ; prochaine assignation. */
+export function reglerReseauProjet(
+  projectId: string,
+  niveau: NiveauReseauUi,
+): Promise<{ niveau: NiveauReseauUi; regle: true }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/reseau`, {
+    method: 'PUT',
+    body: JSON.stringify({ niveau }),
   });
 }
 
@@ -1835,12 +1964,77 @@ export function postReview(
   });
 }
 
+// ─── Revue ligne par ligne (G06, shared/commentaire-revue.ts) ─────────────
+
+/** Les commentaires ancrés d'une tâche, toutes productions confondues. */
+export function fetchCommentairesRevue(taskId: string): Promise<{
+  taskId: string;
+  resultId: number | null;
+  max: number;
+  commentaires: CommentaireRevue[];
+}> {
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/commentaires-revue`);
+}
+
+/** Pose un commentaire EN ATTENTE sur des lignes de la production `resultId`. */
+export function posterCommentaireRevue(
+  taskId: string,
+  corps: { resultId: number; fichier: string; ligneDebut: number; ligneFin: number; texte: string },
+): Promise<CommentaireRevue> {
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/commentaires-revue`, {
+    method: 'POST',
+    body: JSON.stringify(corps),
+  });
+}
+
+/** Retire un commentaire encore en attente (un commentaire envoyé reste à l'histoire). */
+export function retirerCommentaireRevue(taskId: string, id: string): Promise<{ ok: true }> {
+  return api(
+    `/api/tasks/${encodeURIComponent(taskId)}/commentaires-revue/${encodeURIComponent(id)}`,
+    // Sans corps : un DELETE annoncé JSON mais vide, Fastify le refuse (400).
+    { method: 'DELETE', headers: { 'content-type': 'text/plain' } },
+  );
+}
+
+/**
+ * « Demander des changements » : un rejet qui emporte tous les commentaires en
+ * attente de la production dans UNE correction. Sans commentaire, `resume`
+ * est exigé (400 `changements_sans_contenu`).
+ */
+export function demanderChangements(
+  taskId: string,
+  resultId: number,
+  resume: string,
+  clientId?: string,
+): Promise<{
+  state: 'rejected';
+  changements: { soumission: string; commentaires: number };
+  retry?: { ok: boolean; reason?: string };
+}> {
+  return api(`/api/tasks/${encodeURIComponent(taskId)}/demande-changements`, {
+    method: 'POST',
+    body: JSON.stringify({
+      resultId,
+      ...(resume.trim() ? { resume: resume.trim() } : {}),
+      ...(clientId ? { clientId } : {}),
+    }),
+  });
+}
+
 /** La critique figée d'une correction (voir `blocCritique`, brood.ts). */
 export interface CritiqueReprise {
   source: 'contre_revue' | 'revue_humaine' | 'evaluator';
   objections: string[];
   raisons: string[];
   noteHumaine?: string;
+  /** Les commentaires ancrés d'une demande de changements (G06). */
+  commentaires?: {
+    fichier: string;
+    ligneDebut: number;
+    ligneFin: number;
+    texte: string;
+    extrait?: string;
+  }[];
   /** Les constats non bloquants (mineur, info) de la contre-revue, s'il y en avait. */
   remarques?: Constat[];
 }
@@ -2295,6 +2489,20 @@ export interface LivraisonVue {
   nonReprenable?: string;
   /** Présent quand la pull request n'a pas pu être lue — le dire vaut mieux. */
   illisible?: string;
+  /**
+   * Le garde de PR : ce qu'il a vu et fait de cette PR (dernier geste, sa
+   * phrase), et les reprises depuis la dernière CI verte face au plafond.
+   * `actif: false` : pas de jeton GitHub, ou `HIVE_GARDE_PR=off`.
+   */
+  garde?: {
+    actif: boolean;
+    statut: string;
+    geste: string;
+    dit: string;
+    tentatives: number;
+    plafond: number;
+    verifieA: number | null;
+  };
 }
 
 /** Ce que deviennent les pull requests ouvertes par la ruche. */
@@ -2343,6 +2551,129 @@ export function fetchMissions(
   projectId: string,
 ): Promise<{ missions: MissionVue[]; rejeu: RejeuVue | null }> {
   return api(`/api/projects/${encodeURIComponent(projectId)}/missions`);
+}
+
+// ─── Les Routines (ADR 0014) ────────────────────────────────────────────────
+//
+// Formes miroir de `vueRoutine` (src/orchestrator/routines.ts). La clé d'un
+// webhook n'est JAMAIS dans une lecture : elle n'arrive qu'à la création et à
+// la régénération, une fois.
+
+export type DeclencheurRoutine = 'cron' | 'webhook' | 'ci_rouge';
+export type ConcurrenceRoutine = 'coalesce_if_active' | 'always_enqueue' | 'skip_if_active';
+export type RattrapageRoutine = 'skip_missed' | 'enqueue_missed_with_cap';
+export type StatutRunRoutine =
+  'lancee' | 'fusionnee' | 'sautee' | 'manquee' | 'ignoree' | 'refusee';
+
+export interface RunRoutineVue {
+  id: string;
+  source: 'cron' | 'rattrapage' | 'webhook' | 'ci_rouge' | 'manuel';
+  statut: StatutRunRoutine;
+  motif: string;
+  taches: string[];
+  fusionneDans: string | null;
+  creeA: number;
+}
+
+export interface RoutineVue {
+  id: string;
+  nom: string;
+  consigne: string;
+  declencheur: DeclencheurRoutine;
+  expression: string | null;
+  fuseau: string;
+  branche: string | null;
+  plage: { jours: number[]; debut: string; fin: string } | null;
+  concurrence: ConcurrenceRoutine;
+  rattrapage: RattrapageRoutine;
+  actif: boolean;
+  autorite: 'jeton' | 'compte';
+  auteur: string | null;
+  prochaineA: number | null;
+  derniereErreur: string | null;
+  webhook: string | null;
+  creeA: number;
+  runs: RunRoutineVue[];
+}
+
+export interface NouvelleRoutine {
+  nom: string;
+  consigne: string;
+  declencheur: DeclencheurRoutine;
+  expression?: string;
+  fuseau?: string;
+  branche?: string;
+  plage?: { jours: number[]; debut: string; fin: string } | null;
+  concurrence?: ConcurrenceRoutine;
+  rattrapage?: RattrapageRoutine;
+}
+
+export function fetchRoutines(
+  projectId: string,
+): Promise<{ routines: RoutineVue[]; ciDisponible: boolean }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/routines`);
+}
+
+/** Crée une routine. `secret` : la clé du webhook, remise cette fois-ci seulement. */
+export function creerRoutine(
+  projectId: string,
+  routine: NouvelleRoutine,
+): Promise<{ routine: RoutineVue; secret?: string }> {
+  return api(`/api/projects/${encodeURIComponent(projectId)}/routines`, {
+    method: 'POST',
+    body: JSON.stringify(routine),
+  });
+}
+
+export function reglerRoutine(
+  projectId: string,
+  routineId: string,
+  actif: boolean,
+): Promise<{ routine: RoutineVue }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/routines/${encodeURIComponent(routineId)}`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ actif }),
+    },
+  );
+}
+
+export function supprimerRoutine(
+  projectId: string,
+  routineId: string,
+): Promise<{ supprimee: boolean }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/routines/${encodeURIComponent(routineId)}`,
+    {
+      method: 'DELETE',
+    },
+  );
+}
+
+export function declencherRoutine(
+  projectId: string,
+  routineId: string,
+): Promise<{ statut: StatutRunRoutine | 'doublon'; motif?: string; taches?: string[] }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/routines/${encodeURIComponent(routineId)}/declencher`,
+    {
+      method: 'POST',
+    },
+  );
+}
+
+/** Régénère la clé du webhook — l'ancienne est révoquée dans le même geste. */
+export function regenererCleRoutine(
+  projectId: string,
+  routineId: string,
+): Promise<{ secret: string }> {
+  return api(
+    `/api/projects/${encodeURIComponent(projectId)}/routines/${encodeURIComponent(routineId)}/secret`,
+    {
+      method: 'POST',
+    },
+  );
 }
 
 /** Rejoue une mission dans un projet neuf ; ses actions irréversibles sont simulées. */
@@ -2784,7 +3115,12 @@ export interface FeedHandlers {
   onState: (snapshot: StateSnapshot) => void;
   onEvent: (event: HiveEvent) => void;
   /** Un morceau de sortie en direct d'un agent (éphémère, jamais rejoué). */
-  onSortie?: (taskId: string, nodeId: string, sortie: string) => void;
+  onSortie?: (taskId: string, nodeId: string, sortie: string, niveaux?: SegmentNiveau[]) => void;
+  /**
+   * L'état en direct d'une exécution (Sandbox Live) ; `null` : elle est finie.
+   * Rendu par la Reine à chaque (re)connexion — jamais rejoué du journal.
+   */
+  onDirect?: (taskId: string, direct: DirectTache | null) => void;
   /**
    * `connected` : le socket est ouvert **et** le hub a accepté le jeton.
    * `meta.authError` : fermeture 4401 « token invalide » — le champ Jeton ne
@@ -2809,6 +3145,14 @@ export interface FeedHandlers {
 
 export interface HiveFeed {
   close(): void;
+  /**
+   * Rappelle la ruche TOUT DE SUITE, au lieu d'attendre la fin du recul (qui
+   * monte à quinze secondes). Sans effet si une connexion est ouverte ou en
+   * cours : on ne double pas une socket, et on ne coupe pas celle qui sert.
+   * Le recul, lui, n'est pas remis à zéro — un clic ne rouvre pas la boucle
+   * à 1 Hz que `onclose` évite.
+   */
+  reconnecter(): void;
 }
 
 /**
@@ -2928,6 +3272,9 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
 
   const open = (): void => {
     if (closed) return;
+    // Plus de recul en attente : c'est ce qui dit à `reconnecter` qu'une
+    // socket existe déjà (ouverte ou en train de s'ouvrir).
+    timer = undefined;
     authentifie = false;
     sain = false;
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -2967,7 +3314,11 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
       } else if (msg.type === 'task_output') {
         // Le direct n'est ni rangé ni rejoué (`task_output`) : il passe tout
         // de suite, rattrapage ou pas.
-        handlers.onSortie?.(msg.taskId, msg.nodeId, msg.sortie);
+        // Niveaux déjà validés contre les lignes (`parseServerMessage`).
+        handlers.onSortie?.(msg.taskId, msg.nodeId, msg.sortie, msg.niveaux);
+      } else if (msg.type === 'task_direct') {
+        // Comme la sortie : un état, pas une histoire — il passe tout de suite.
+        handlers.onDirect?.(msg.taskId, msg.direct);
       }
     };
 
@@ -3002,6 +3353,11 @@ export function connectFeed(handlers: FeedHandlers): HiveFeed {
       closed = true;
       if (timer !== undefined) window.clearTimeout(timer);
       ws?.close();
+    },
+    reconnecter(): void {
+      if (closed || timer === undefined) return;
+      window.clearTimeout(timer);
+      open();
     },
   };
 }
@@ -3274,9 +3630,11 @@ export interface RequisitionPoste {
   genre: string;
   libelle: string;
   detail: string | null;
-  statut: 'ouverte' | 'accordee' | 'refusee';
+  statut: 'ouverte' | 'accordee' | 'refusee' | 'expiree';
   creeA: number;
   closA: number | null;
+  /** Échéance (ms epoch) d'une réquisition d'ACTION (G12) ; absente sinon. */
+  expiresAt?: number | null;
   bapteme?: string | null;
 }
 

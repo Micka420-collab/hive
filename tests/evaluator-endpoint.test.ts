@@ -34,7 +34,7 @@ describe('GET /api/tasks/:id/evaluation', () => {
       tickMs: 60_000,
     });
     base = `http://127.0.0.1:${server.port}`;
-    const project = server.store.createProject({ name: 'Evaluator', repoUrl: 'file:///repo' });
+    const project = server.store.createProject({ name: 'Evaluator', repoUrl: '/repo' });
     const task = server.store.createTask({
       projectId: project.id,
       title: 'Corriger src/a.ts',
@@ -273,7 +273,7 @@ describe('GET /api/tasks/:id/evaluation', () => {
   });
 
   it('réenfile automatiquement un rejet humain via le verdict Evaluator borné', async () => {
-    const project = server.store.createProject({ name: 'Retry humain', repoUrl: 'file:///repo' });
+    const project = server.store.createProject({ name: 'Retry humain', repoUrl: '/repo' });
     const task = server.store.createTask({
       projectId: project.id,
       title: 'Rejet humain',
@@ -347,7 +347,7 @@ describe('GET /api/tasks/:id/evaluation', () => {
   it("exige l'identifiant du résultat courant pour une demande de retry explicite", async () => {
     const project = server.store.createProject({
       name: 'Retry explicite',
-      repoUrl: 'file:///repo',
+      repoUrl: '/repo',
     });
     const task = server.store.createTask({
       projectId: project.id,
@@ -414,7 +414,7 @@ describe('GET /api/tasks/:id/evaluation', () => {
    * lice : le Parlement n'a qu'un bulletin, donc `no_quorum`.
    */
   function productionRelueParUneAutreFamille(titre: string): { taskId: string; resultId: number } {
-    const project = server.store.createProject({ name: titre, repoUrl: 'file:///repo' });
+    const project = server.store.createProject({ name: titre, repoUrl: '/repo' });
     const task = server.store.createTask({ projectId: project.id, title: titre, prompt: titre });
     server.store.patchTask(task.id, { status: 'done' });
     const resultId = server.store.insertResult({
@@ -534,7 +534,7 @@ describe('GET /api/tasks/:id/evaluation', () => {
     // repartir en correction, pas se perdre dans « revue humaine requise ».
     const project = server.store.createProject({
       name: 'Sans Gardiennes',
-      repoUrl: 'file:///repo',
+      repoUrl: '/repo',
     });
     const task = server.store.createTask({
       projectId: project.id,
@@ -574,7 +574,7 @@ describe('GET /api/tasks/:id/evaluation', () => {
   });
 
   it('un rejet humain resté sans correction le dit au journal', async () => {
-    const project = server.store.createProject({ name: 'Essais épuisés', repoUrl: 'file:///repo' });
+    const project = server.store.createProject({ name: 'Essais épuisés', repoUrl: '/repo' });
     const task = server.store.createTask({
       projectId: project.id,
       title: 'Rejet sans essai restant',

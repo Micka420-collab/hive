@@ -8,6 +8,50 @@ import './onboarding.css';
 
 const PERIODE_MS = 4_000;
 
+// ─── « MASQUER » TIENT, ET « RÉAFFICHER » EXISTE ────────────────────────────
+//
+// Le bouton « Masquer » ne vivait que dans l'état du composant : le guide
+// revenait à chaque retour sur Projets, et « Masquer » voulait donc dire
+// « jusqu'au prochain clic ». Le choix est gardé par projet dans ce
+// navigateur — une commodité d'affichage, pas un état de la ruche : le
+// perdre (navigation privée, stockage vidé) ne fait que remontrer le guide.
+//
+// Sa contrepartie : l'écran Paramètres « Réafficher le guide du premier
+// cycle » (`reafficherGuides`). Un guide qu'on ne peut plus rappeler une
+// fois masqué serait une porte refermée sans poignée.
+//
+// Borné : au-delà de `MASQUES_MAX` projets, les plus anciens masquages
+// tombent (le guide de ces projets-là reparaît, rien de pire).
+const CLE_GUIDES_MASQUES = 'hive.guide.masques';
+const MASQUES_MAX = 200;
+
+function lireMasques(): string[] {
+  try {
+    const brut: unknown = JSON.parse(localStorage.getItem(CLE_GUIDES_MASQUES) ?? '[]');
+    return Array.isArray(brut) ? brut.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function masquerGuide(projectId: string): void {
+  const suivants = [...lireMasques().filter((id) => id !== projectId), projectId];
+  try {
+    localStorage.setItem(CLE_GUIDES_MASQUES, JSON.stringify(suivants.slice(-MASQUES_MAX)));
+  } catch {
+    /* stockage refusé : le guide reste masqué pour cette visite seulement */
+  }
+}
+
+/** Les guides masqués reparaissent sur chaque projet qui n'a pas fini sa checklist. */
+export function reafficherGuides(): void {
+  try {
+    localStorage.removeItem(CLE_GUIDES_MASQUES);
+  } catch {
+    /* stockage refusé : rien n'était gardé */
+  }
+}
+
 function pretComplet(p: PretEssaimUi): boolean {
   return (
     p.runner &&
@@ -79,7 +123,7 @@ export function OnboardingEssaim({ projectId }: { projectId: string }) {
   const t = useT();
   const [etat, setEtat] = useState<EtatEssaimUi | null>(null);
   const [cycles, setCycles] = useState<CycleEssaimUi[]>([]);
-  const [ferme, setFerme] = useState(false);
+  const [ferme, setFerme] = useState(() => lireMasques().includes(projectId));
 
   const charger = useCallback(async () => {
     try {
@@ -115,7 +159,14 @@ export function OnboardingEssaim({ projectId }: { projectId: string }) {
     >
       <header className="onboarding-entete">
         <h3>{t('Chemin vers le premier cycle', 'Path to the first cycle')}</h3>
-        <button type="button" className="btn ghost btn-sm" onClick={() => setFerme(true)}>
+        <button
+          type="button"
+          className="btn ghost btn-sm"
+          onClick={() => {
+            masquerGuide(projectId);
+            setFerme(true);
+          }}
+        >
           {t('Masquer', 'Hide')}
         </button>
       </header>

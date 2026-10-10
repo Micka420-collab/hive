@@ -1,0 +1,295 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   L'assistant de première arrivée (PremiereArrivee.tsx).
+
+   Une `.modal` élargie : le cadre, le voile et le verre sont ceux de toutes les
+   modales. Jetons seulement — aucune couleur ni taille de texte écrite ici.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.modal.pa-assistant {
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.pa-surtitre {
+  margin: 0;
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.pa-etapes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-2xs);
+  color: var(--faint);
+}
+
+.pa-etapes li {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+
+.pa-etapes .pa-faite {
+  color: var(--muted);
+}
+
+.pa-etapes .pa-courante {
+  color: var(--text);
+  background: var(--miel-fond);
+  border-color: var(--miel-fond-fort);
+  font-weight: 600;
+}
+
+.pa-titre {
+  margin: 4px 0 0;
+  font-family: var(--titre);
+  font-size: var(--fs-2xl);
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--text);
+}
+
+.pa-titre:focus {
+  outline: none;
+}
+
+.pa-titre:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.pa-sous-titre {
+  margin: 10px 0 4px;
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+
+.pa-corps {
+  min-height: 160px;
+}
+
+.pa-texte {
+  margin: 0 0 10px;
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.pa-muet {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.pa-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.pa-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--panel-2);
+  cursor: pointer;
+}
+
+.pa-option input {
+  margin-top: 3px;
+  accent-color: var(--miel);
+}
+
+.pa-option:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.pa-option--choisie {
+  border-color: var(--miel-fond-fort);
+  background: var(--miel-fond);
+}
+
+.pa-option-texte {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pa-option-titre {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.pa-option-aide {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.pa-agents,
+.pa-diags {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.pa-agent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+}
+
+.pa-agent-nom {
+  font-weight: 600;
+}
+
+.pa-agent-etat {
+  color: var(--muted);
+}
+
+.pa-agent[data-session='connectee'] .pa-agent-etat {
+  color: var(--green);
+}
+
+.pa-agent[data-session='non_connectee'] .pa-agent-etat {
+  color: var(--amber);
+}
+
+.pa-diag {
+  display: flex;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+
+.pa-diag-puce {
+  flex: none;
+  width: 1.2em;
+  text-align: center;
+}
+
+.pa-diag--ok .pa-diag-puce {
+  color: var(--green);
+}
+
+.pa-diag--risque .pa-diag-puce,
+.pa-diag--inconnu .pa-diag-puce {
+  color: var(--amber);
+}
+
+.pa-diag--bloquant .pa-diag-puce {
+  color: var(--red);
+}
+
+.pa-diag-corps {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pa-diag-mot {
+  font-weight: 600;
+}
+
+.pa-diag-rep {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pa-dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 0 0 10px;
+  font-size: var(--fs-sm);
+}
+
+.pa-dl dt {
+  color: var(--muted);
+}
+
+.pa-dl dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.pa-erreur {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--red);
+}
+
+.pa-pied {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.pa-pied-droite {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+@media (max-width: 560px) {
+  .pa-dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pa-dl dd {
+    margin-bottom: 6px;
+  }
+}
+
+/* ─── L'encart de la Santé et de l'Intendance (EncartConfiguration.tsx) ───── */
+.encart-configuration-corps {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 16px 16px;
+  font-size: var(--fs-sm);
+}
+
+.encart-configuration-corps p {
+  margin: 0;
+}
+
+.encart-configuration-ecarts {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text);
+}
+
+.encart-configuration-ecarts code {
+  font-family: var(--mono);
+  font-size: var(--fs-xs);
+}

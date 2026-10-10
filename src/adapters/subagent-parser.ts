@@ -4,6 +4,13 @@
 // (Task/agent/subagent) en objets SubAgent remontés au hub → butineuses visibles
 // sur le Swarm View.
 //
+// L'ARBRE : un sous-agent peut à son tour déléguer. Claude Code marque chaque
+// message émis DANS un sous-agent du `tool_use` qui l'a lancé
+// (`parent_tool_use_id`, au premier niveau de la ligne) ; une délégation lue
+// dans un tel message a donc pour parent ce sous-agent-là (`SubAgent.parentId`).
+// Un parent inconnu (hors de la borne, ou d'une ligne perdue) laisse le
+// sous-agent à la racine : jamais un lien inventé.
+//
 // Tolérant par construction : toute ligne non-JSON ou de forme inattendue est
 // ignorée (aucune sous-agent → dégradation propre, jamais d'erreur).
 
@@ -51,7 +58,7 @@ export function createSubAgentTracker(): SubAgentTracker {
     feed(line: string): SubAgent[] | null {
       const trimmed = line.trim();
       if (!trimmed.startsWith('{')) return null;
-      let ev: { message?: { content?: unknown } };
+      let ev: { message?: { content?: unknown }; parent_tool_use_id?: unknown };
       try {
         ev = JSON.parse(trimmed) as { message?: { content?: unknown } };
       } catch {
@@ -59,6 +66,8 @@ export function createSubAgentTracker(): SubAgentTracker {
       }
       const content = ev?.message?.content;
       if (!Array.isArray(content)) return null;
+      const parent =
+        typeof ev.parent_tool_use_id === 'string' ? byToolId.get(ev.parent_tool_use_id) : undefined;
 
       let changed = false;
       for (const raw of content) {
@@ -80,6 +89,7 @@ export function createSubAgentTracker(): SubAgentTracker {
               id: `sa-${counter}`,
               name: clampName(label),
               status: 'running',
+              ...(parent ? { parentId: parent.id } : {}),
             });
             order.push(toolId);
             changed = true;

@@ -10,7 +10,7 @@
 [![CI](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml/badge.svg)](https://github.com/Micka420-collab/hive/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-%E2%89%A5%2024.18-F6C445?labelColor=17130C)
 ![TypeScript strict](https://img.shields.io/badge/TypeScript-strict-F6C445?labelColor=17130C)
-![Tests](https://img.shields.io/badge/tests-8336%20passing-F6C445?labelColor=17130C)
+![Tests](https://img.shields.io/badge/tests-9602%20passing-F6C445?labelColor=17130C)
 ![Licence](https://img.shields.io/badge/licence-MIT-F6C445?labelColor=17130C)
 
 🇫🇷 Français · [🇬🇧 English](README.en.md) · [🌐 Site](https://micka420-collab.github.io/hive/) · [📚 Documentation](#-documentation)
@@ -120,8 +120,17 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   clés d'API accordées depuis la Chambre sont rangées dans le volume de
   données ([#446](https://github.com/Micka420-collab/hive/pull/446)).
 - **Orchestration.** Graphe de délégation borné et persistant, Workers
-  (identité, historique, ressources observées, limites d'autonomie), Evaluator
-  et contre-revue exacte, visibles dans Mission Control.
+  (identité, historique, limites d'autonomie), Evaluator et contre-revue
+  exacte, visibles dans Mission Control. Les ressources d'une exécution sont
+  celles de l'**agent**, mesurées sur l'arbre de ses processus (et sa session)
+  ou sur son conteneur — jamais sur le nœud : CPU au dernier relevé (un
+  plancher), et un pic de mémoire qui dit lequel il est — le Pss de l'arbre
+  sous Linux (pages partagées réparties), sinon la somme de ses RSS (une page
+  partagée comptée par processus : Claude Code et ses serveurs MCP y pèsent
+  trois fois leur vrai poids), ou le pic du conteneur tenu par le noyau ;
+  « trop bref » sous deux relevés ; « non mesurées », avec la raison, là où
+  rien ne se mesure (Windows hors conteneur, nœud plus ancien). Les
+  validations du bac et les fusions n'en portent aucune.
 - **Validations sans GitHub.** Après une production réussie, le nœud lance
   dans son bac les scripts `test`, `typecheck`, `build` et `lint` que le dépôt
   déclarait **avant** la production (rien, si la production a touché aux
@@ -131,6 +140,21 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
   déclare pas est « non applicable », jamais vert. **Il faut un bac** (podman,
   docker ou bubblewrap) : sans lui, le code de l'agent ne tourne pas sur l'hôte
   nu, et l'écran le dit. `accepted` demande en plus la relecture croisée.
+- **Tests comparés à la base, test par test.** Quand les tests échouent et que
+  leur sortie par défaut se lit **complète et cohérente** (vitest, jest,
+  `node --test`, TAP — sans ajouter d'argument au script), chaque échec est
+  comparé à la **base**, rejouée à part dans le bac : un test déjà rouge à la
+  base, **du même échec**, ne bloque plus `accepted`, qui le **dit** ; une
+  régression demande une correction qui la **nomme** ; un test vu rouge puis
+  vert est « instable » — ni régression, ni vert. Cette sortie est en partie
+  écrite par le code de l'agent : une ligne collée, un résumé qui ne compte pas
+  tout, un nom en double, et Hive ne la lit pas — **au moindre doute, le
+  verdict du script reste**. **Surcoût, annoncé dans la ligne de
+  progression :** seulement quand les tests échouent — la base rejouée à part
+  (extraction, installation, build, tests : jusqu'à 25 min), puis, si une
+  régression reste possible, la production rejouée de même depuis son arbre
+  livré et une seconde exécution de la base, au pire 55 min ; une base déjà
+  rejouée par le nœud ne se rejoue pas.
 - **Mission Control explique ce qu'il a fait**, depuis le journal, sans rien
   recalculer ni estimer :
   - pourquoi ce Worker et ce modèle : le classement de l'Aiguillage figé à
@@ -149,7 +173,9 @@ avec une CI verte sur les trois OS ; les liens mènent aux PR les plus récentes
     relectrices, revue humaine, durée — sans note ni classement
     ([#454](https://github.com/Micka420-collab/hive/pull/454)) ;
   - le coût et le temps modèle **déclarés par le CLI de l'agent** (Claude
-    Code), avec leur couverture — « inconnu » quand rien n'est déclaré
+    Code), avec leur couverture — « inconnu » quand rien n'est déclaré ; ce
+    coût est l'**estimation du CLI**, calculée sur sa table de prix embarquée,
+    pas une facture
     ([#455](https://github.com/Micka420-collab/hive/pull/455),
     [#456](https://github.com/Micka420-collab/hive/pull/456)) ; Codex, lancé
     en `codex exec --json`, déclare ses **jetons** d'entrée et de sortie, et
@@ -431,9 +457,24 @@ le preflight échoue.
 
 Avec **podman**, **docker** ou **bubblewrap**, l'agent ne voit que le répertoire
 de sa tâche lorsque le fournisseur et l’image ont passé le preflight. **Le
-réseau reste ouvert** : un agent de codage doit joindre l'API de son modèle.
-Sans moteur de conteneurs, posez `HIVE_ISOLEMENT=exige` — le nœud refusera de
-travailler à découvert. Ce que la CI prouve, système par système et bac par bac
+réseau sortant est filtré** hors du bac par un proxy du nœud : l'API du modèle
+de l'agent, puis, selon le réglage du projet dans Mission Control
+(`intégrations`, `dépendances` par défaut, `ouvert`), les registres que le
+dépôt déclare et son hôte git — jamais le réseau local ni les métadonnées de
+nuage. Les clés de Claude Code et de Codex restent au nœud : le bac n'en voit
+que des leurres, que le proxy remplace vers l'API. Le clone de la tâche ne
+porte pas non plus d'identifiants de dépôt : le compte que porte l'URL d'un
+dépôt privé (`https://user:jeton@…`) n'atteint git que par l'environnement des
+commandes du nœud — clone, livraison — ; ni `.git/config`, ni une ligne de
+commande, ni l'assistant d'identifiants du membre ne le voient, et un
+`git push` lancé depuis la tâche ne trouve rien de ce que la ruche a reçu.
+Jusqu'à la 0.5.0 comprise, ce jeton était lisible par chaque agent et confié à
+l'assistant du membre : **faites-le tourner** chez l'hébergeur (`hive doctor`
+cherche ceux qui traînent sur la machine). Chaque refus apparaît au
+journal de la tâche. Sans bac, ou avec un moteur dans une machine virtuelle,
+le réseau n'est pas filtré, et chaque tâche le dit. Posez
+`HIVE_ISOLEMENT=exige` — le nœud refusera de travailler sans bac ni réseau
+filtré. Ce que la CI prouve, système par système et bac par bac
 (Linux, macOS, Windows × sans bac, bubblewrap, Podman, Docker) :
 [docs/INSTALLATION.md](docs/INSTALLATION.md), « Systèmes et bacs à sable ».
 
@@ -443,6 +484,67 @@ jamais. Le nœud retient le premier moteur dont le preflight passe (image
 présente, agent exécutable) et dit pourquoi les autres sont écartés. Chaque
 conteneur porte l'étiquette de son nœud : relancé après un arrêt brutal, le
 nœud supprime ceux qu'il avait laissés.
+
+**La porte de sécurité.** Sur tout résultat porteur d'un diff — réussi ou en
+échec —, le nœud passe ce que la production **ajoute** à deux outils épinglés,
+invoqués et jamais liés.
+
+- **Secrets** : Betterleaks (MIT), sur les seules lignes ajoutées du diff, avec
+  ses règles de confiance **haute** (`--confidence high` : les règles
+  génériques lisaient du code sain comme des mots de passe) et sans son
+  préfiltre (un lockfile, un `.svg`, un `go.sum` sont lus). Il n'exécute rien
+  de la production. La valeur, caviardée par l'outil (`--redact`), est relue
+  par le nœud et remplacée par `[secret]` dans le diff, les logs et le texte
+  final — sous une forme de jeton seulement (16 caractères ou plus, sans
+  blanc) : la porte ne réécrit jamais une ligne sur la seule foi d'un constat.
+- **Dépendances** : osv-scanner (Apache-2.0), pour une production réussie qui
+  touche un fichier de dépendances qu'il lit (lockfiles npm, PyPI, Cargo, Go,
+  NuGet, Maven et Gradle, RubyGems, Composer, Pub, Hex, CRAN, Conan…). Chaque
+  fichier est lu hors ligne, un par un ; seules les vulnérabilités
+  **introduites** par rapport à la base comptent ; un lockfile que la
+  production laisse illisible est un constat.
+- **Ce qui part à `api.osv.dev`** — la seule connexion de la porte : l'écosystème,
+  le nom et la version des paquets que la production **introduit** et dont le
+  lockfile nomme une source publique connue (registry.npmjs.org, PyPI,
+  crates.io, rubygems.org, packagist.org, pub.dev, hex.pm, CRAN), et les
+  versions de la base de ces mêmes paquets. Jamais un commit, un chemin, un
+  paquet d'un registre privé que le lockfile nomme, ni un paquet inchangé.
+  `pnpm-lock.yaml`, `bun.lock` et `yarn.lock` (berry) ne nomment pas leur
+  registre : rien n'en part. **Limite** : `go.mod`, NuGet, Maven et Conan ne
+  nomment pas le leur — un paquet privé y est indiscernable d'un public, et
+  son nom part. Les paquets introduits qui ne partent pas ne sont jamais
+  comptés verts : le verdict dit combien. Derrière un proxy sortant,
+  `HTTPS_PROXY` et `NO_PROXY` sont transmis à cette seule interrogation ;
+  `hive doctor` éprouve la joignabilité d'api.osv.dev, sans rien envoyer.
+- **Son réseau, pas celui de la tâche** : sur un nœud dont le bac filtre le
+  réseau, Betterleaks et la lecture hors ligne tournent réseau **coupé**, et
+  l'interrogation passe par une session du proxy du nœud ouverte pour elle, qui
+  ne joint qu'`api.osv.dev:443` (en direct, comme le proxy des tâches). Ses
+  refus restent dans la console du nœud : jamais au bilan réseau de la tâche,
+  qui les imputerait au producteur.
+- **Le verdict** : un constat, et l'Evaluator demande une correction — un
+  verdict qui bloque la livraison —, en citant la règle et la ligne, ou l'avis
+  et son CVE, jamais la valeur. Non vérifiée (outil absent, osv.dev
+  injoignable…), la porte n'est **jamais comptée verte** et sa raison est
+  dite. En polyéthisme `strict`, elle fait passer la production de `accepted`
+  à `human_review_required`, et c'est tout : la livraison exigeait déjà une
+  approbation humaine, que ce verdict ne bloque pas. Ce qui change : l'Evaluator
+  n'accepte plus seul (aucun souvenir retenu au Hive Mind sans un humain,
+  aucune production « jugée » dans la qualité des ouvrières), et l'humain qui
+  approuve lit pourquoi.
+- **Limite, dite** : la sortie EN DIRECT de l'agent part vers les tableaux de
+  bord pendant qu'il travaille, avant la porte. Avec Claude Code, le contenu
+  d'un fichier que l'agent écrit (outils Write ou Edit) passe dans ce flux :
+  une clé que Hive ne reconnaît pas à son format (`ghp_…`, `sk-…`…) ni à sa
+  valeur (un identifiant transmis à l'agent) y est relayée telle quelle. La
+  porte protège ce qui est rangé — diff, logs, texte final —, pas ce flux
+  éphémère. Suite nommée : caviarder le flux en direct par les règles de
+  Betterleaks.
+
+L'image du bac épingle betterleaks 1.9.0 et osv-scanner 2.6.0 par version et
+SHA-256 ; sous bubblewrap ou sans bac, ce sont ceux de l'hôte, résolus par leur
+chemin absolu (une entrée relative du PATH n'est jamais lue), et `hive doctor`
+dit ce que la porte trouvera.
 
 Dans le bac, l'agent a un HOME éphémère : la session de `claude login` ou de
 `codex login` n'y entre pas. Hive y transmet **par leur nom** les identifiants
@@ -489,7 +591,7 @@ de la tâche le dit ; si l'écartement échoue, la tâche est refusée avant l'a
 | `npm run demo`                                  | Démo complète (orchestrateur + 2 nœuds + projet)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `npm run dev`                                   | Orchestrateur seul                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `npm run node`                                  | Un nœud membre                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `npm run cli -- doctor`                         | **Le docteur** — 14 causes de panne, et la commande qui répare                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `npm run cli -- doctor`                         | **Le docteur** — 17 causes de panne, et la commande qui répare                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `npm run preuve:v2-alpha -- --racine . --oui`   | **La preuve V2 Alpha** — une vraie mission confiée à un vrai agent, jugée critère par critère une fois réglée ; `--workers 3` pour l'essaim, `--exige-bac` pour exiger le bac                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `npm run boucle:v3 -- --racine . --mission "…"` | **La boucle Hive → Hive (V3)** — Hive se confie une mission sur son propre dépôt : architecture, implémentation relue par une autre famille, porte des changements sensibles, QA de cette production exacte, puis une PR (jamais main) qui porte son rapport de risques ; une production qui touche sécurité, permissions, secrets, déploiement, facturation, auto-exécution ou la porte elle-même — ou que personne d'une autre famille n'a relue — s'arrête AVANT la QA (code 75) jusqu'à ce qu'un humain l'approuve dans la Miellerie avec un compte propriétaire ou administrateur (le jeton de ruche ne valide pas), puis `--reprendre <projet>` ; ne fusionne jamais, rien n'est créé sans `--oui` |
 | `npm run cli -- livrer-local <projet>`          | **Livrer sans GitHub** — la mission commitée sur `hive/mission-<projet>-<n>` (`--pousser`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
@@ -515,6 +617,7 @@ de la tâche le dit ; si l'écartement échoue, la tâche est refusée avant l'a
 | **[docs/FONCTIONNALITES.md](docs/FONCTIONNALITES.md)**       | Chaque partie en détail, avec ses arbitrages             |
 | **[docs/FEATURES.en.md](docs/FEATURES.en.md)**               | The same, in English                                     |
 | **[docs/BANC-OMBRE.md](docs/BANC-OMBRE.md)**                 | Comparer deux modèles sur une même tâche, sans livrer    |
+| **[docs/ROUTINES.md](docs/ROUTINES.md)**                     | Missions planifiées, sur webhook signé ou CI rouge       |
 | **[docs/ERREURS.md](docs/ERREURS.md)**                       | Le journal des erreurs — par leçon, avec les règles      |
 | **[docs/ETAPES.md](docs/ETAPES.md)**                         | L'état réel du projet face à ses propres promesses       |
 | **[docs/MODELE-ECONOMIQUE.md](docs/MODELE-ECONOMIQUE.md)**   | Quotas, abonnements, ce qui est facturé                  |

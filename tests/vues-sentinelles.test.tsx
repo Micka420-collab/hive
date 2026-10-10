@@ -679,6 +679,22 @@ describe('les sentinelles du balayage du soir', () => {
     );
   });
 
+  it('PLEIN ESSAIM ILLISIBLE AVANT TOUTE LECTURE : dit, avec « Réessayer » qui relit tout de suite', async () => {
+    // Le panneau affichait l'erreur brute dans un paragraphe gris, sans geste :
+    // la relecture suivante était à cinq secondes, et rien ne le disait.
+    vi.mocked(fetchEssaim).mockRejectedValue(new Error('la Reine ne répond pas'));
+    const dom = await monter(<PleinEssaim projectId="p1" />);
+    const alerte = dom.querySelector('[role="alert"]');
+    expect(alerte?.textContent, 'la panne ne se dit pas').toContain('la Reine ne répond pas');
+    const avant = vi.mocked(fetchEssaim).mock.calls.length;
+    const reessayer = [...(alerte?.querySelectorAll('button') ?? [])].find((b) =>
+      (b.textContent ?? '').includes('Réessayer'),
+    );
+    expect(reessayer, '« Réessayer » manque').toBeTruthy();
+    await act(async () => reessayer?.click());
+    expect(vi.mocked(fetchEssaim).mock.calls.length, '« Réessayer » ne relit pas').toBe(avant + 1);
+  });
+
   it('PLEIN ESSAIM : le niveau COURANT est marqué (aria-pressed + classe), pas l’inverse', async () => {
     // Survivantes loupe (§ 9 vicies, même famille que le Garde-Fous) :
     // `aria-pressed={etat.niveau === n}` et `className={etat.niveau === n ? 'actif' …}`.

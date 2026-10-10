@@ -252,6 +252,41 @@ export function empreinte(ctx: Contexte): Emplacement[] {
           quoi: 'cloudflared, s’il a été téléchargé par `hive cloudflare --install`',
         },
         {
+          // La porte de sécurité (`node-client/porte-securite.ts`) écrit son
+          // miroir DANS la tâche — le seul dossier que le bac monte — et
+          // l'efface dès qu'elle a jugé ; un nœud tué au mauvais moment le
+          // laisse, et il part avec la tâche. Rien dans `os.tmpdir()`.
+          chemin: p.join(ctx.workdir, '<nœud>', 'tasks', '<tâche>', '.hive-porte-*'),
+          quoi: 'le miroir de la porte de sécurité — effacé dès qu’elle a jugé, sinon avec la tâche',
+        },
+        {
+          // Les validations du bac (`node-client/validations-bac.ts`, G11b)
+          // rejouent à part la base d'une tâche et l'arbre qu'elle livre, À
+          // CÔTÉ d'elle — hors du montage du bac —, `node_modules` compris, et
+          // les effacent dès la comparaison faite ; la base s'y installe aussi
+          // pour le magasin de dépendances (`<tâche>.deps`, G18), effacé dès
+          // l'installation remise. Un nœud tué au mauvais moment les laisse,
+          // et le prochain passage de la tâche les reprend.
+          chemin: p.join(
+            ctx.workdir,
+            '<nœud>',
+            'tasks',
+            '<tâche>.base, <tâche>.tete, <tâche>.deps',
+          ),
+          quoi: 'les rejeux à part des tests en échec (la base, l’arbre livré) et l’installation de la base pour le magasin de dépendances — effacés dès leur usage fini',
+        },
+        {
+          // Le magasin de dépendances (`node-client/cache-dependances.ts`, G18) :
+          // un `node_modules` par projet et par lockfile de base, copié de
+          // l'installation faite dans `<tâche>.deps`, restauré par copie. Il se
+          // refait au prochain besoin — au prix d'un `npm ci`. Borné (G18 D) :
+          // ses entrées partent après 7 jours sans servir, au-delà de 3 par
+          // projet ou de 4 Gio en tout, et le magasin entier quand le niveau
+          // d'isolement du nœud change.
+          chemin: p.join(ctx.workdir, '<nœud>', 'dependances', '<projet>', '<clé>'),
+          quoi: 'le magasin de dépendances des validations — un `node_modules` par lockfile de base, borné (7 jours, 3 par projet, 4 Gio), réinstallé au prochain besoin',
+        },
+        {
           // Le seul contenu d'ici qui ne se REFAIT pas : une mission livrée
           // sans GitHub et sans poussée vit dans ce dépôt nu, et nulle part
           // ailleurs (`node-client/livraison-locale.ts`).
@@ -321,12 +356,13 @@ export function empreinte(ctx: Contexte): Emplacement[] {
       prefixe: PREFIXE_PONT,
       quoi:
         'les rendez-vous privés (700) des ponts de délégation d’un nœud : le socket et ' +
-        'la configuration MCP qui relient un CLI à la délégation Hive',
+        'la configuration MCP qui relient un CLI à la délégation Hive — et le socket du ' +
+        'proxy réseau de chaque tâche filtrée, avec son relais',
       genre: 'transitoire',
       retirable: true,
       consequence:
         'rien, sauf pour un nœud EN COURS : sa tâche Claude Code ou Codex perdrait son ' +
-        'pont. Le dossier est effacé à l’arrêt du nœud (Ctrl-C ou SIGTERM) ; celui d’un nœud ' +
+        'pont, une tâche au réseau filtré son proxy. Le dossier est effacé à l’arrêt du nœud (Ctrl-C ou SIGTERM) ; celui d’un nœud ' +
         'tué (`kill -9`, SIGTERM sous Windows) est balayé par le démarrage suivant.',
     },
   ];

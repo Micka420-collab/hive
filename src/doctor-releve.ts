@@ -32,10 +32,16 @@
 // un docteur qui posait la sienne concluait « aucun bac à sable » sur un
 // bubblewrap qui isolait très bien (`bwrap info` lance un programme `info`).
 // Une prose qui survit au code qu'elle décrit est un mensonge à retardement.
+// Il en lance deux à lui, en lecture seule : `git --version`, par la porte
+// git de la ruche (`gitHote`), et sous Windows `cmdkey /list`, par son chemin
+// absolu — qui ne montre aucune valeur d'identifiant.
 
-import { accessSync, constants, existsSync, statfsSync, statSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { accessSync, constants, existsSync, promises as fs, statfsSync, statSync } from 'node:fs';
 import { createServer as creerServeurTcp } from 'node:net';
 import path from 'node:path';
+import { estUnJeton } from './shared/caviardage.js';
+import { gitHote, versionDeGit } from './shared/git-protege.js';
 import { DEFAULT_TOKEN } from './shared/types.js';
 import type { Releve } from './shared/doctor.js';
 import { RUCHE_COMPLETE } from './shared/doctor.js';
@@ -43,9 +49,10 @@ import { adresseLocale, hoteDeConnexion, portDepuisEnv } from './shared/port.js'
 import { gardiennesDepuisEnv } from './shared/reglages.js';
 import { boucleLocale } from './shared/joignable.js';
 import { modeRunnerDepuisEnv } from './orchestrator/essaim-runner.js';
-import { inventaireAgents, type InventaireAgents } from './node-client/agent-detect.js';
+import { envSonde, inventaireAgents, type InventaireAgents } from './node-client/agent-detect.js';
 import {
   commandeImage,
+  etiquetteImage,
   IMAGE_DEFAUT,
   imageDepuisEnv,
   inspecterImage,
@@ -55,6 +62,8 @@ import {
   type Fournisseur,
 } from './node-client/isolement.js';
 import { SECRET_JWT_INTERDIT, secretJwtDepuisEnv } from './orchestrator/auth.js';
+import { joindreOsv, versionPourLaPorte } from './node-client/porte-securite.js';
+import { ETIQUETTE_PORTE, VALEUR_ETIQUETTE_PORTE } from './shared/porte-securite.js';
 
 /** Où la ruche range ses affaires, vu depuis la racine du dépôt. */
 export interface Emplacements {
@@ -221,7 +230,10 @@ export async function wsRepond(
  * natif n'a pas été compilé — c'est même un cas de panne fréquent, et il ne
  * doit pas faire tomber le docteur entier.
  */
-export async function baseIntegre(chemin: string): Promise<boolean | null> {
+export async function baseIntegre(
+  chemin: string,
+  controle: 'integrity_check' | 'quick_check' = 'integrity_check',
+): Promise<boolean | null> {
   try {
     const { default: Database } = (await import('better-sqlite3')) as unknown as {
       default: new (
@@ -234,8 +246,8 @@ export async function baseIntegre(chemin: string): Promise<boolean | null> {
     };
     const db = new Database(chemin, { readonly: true });
     try {
-      const r = db.pragma('integrity_check') as { integrity_check?: string }[];
-      return r[0]?.integrity_check === 'ok';
+      const r = db.pragma(controle) as Record<string, string | undefined>[];
+      return r[0]?.[controle] === 'ok';
     } finally {
       db.close();
     }
@@ -327,6 +339,113 @@ export async function imageDuBac(
 }
 
 /**
+ * La version du git que la ruche lancerait — par sa porte (`gitHote`), donc
+ * le même PATH et le même environnement. `null` s'il ne répond pas.
+ */
+export async function versionGitLocale(ou: string): Promise<string | null> {
+  return gitHote(['--version'], ou, { delaiMs: 30_000 }).then(versionDeGit, () => null);
+}
+
+/**
+ * Les hôtes des entrées d'un fichier de `git credential-store` dont le compte
+ * ou le mot de passe EST un jeton (`estUnJeton`). Une ligne par URL
+ * (`https://nom:secret@hôte`), encodée : on décode avant de juger. Rien
+ * d'autre que l'hôte ne sort de cette fonction.
+ */
+export function hotesAJeton(contenu: string): string[] {
+  const hotes = new Set<string>();
+  for (const ligne of contenu.split(/\r?\n/)) {
+    let url: URL;
+    try {
+      url = new URL(ligne.trim());
+    } catch {
+      continue;
+    }
+    const decoder = (v: string): string => {
+      try {
+        return decodeURIComponent(v);
+      } catch {
+        return v;
+      }
+    };
+    if ([url.username, url.password].map(decoder).some(estUnJeton)) hotes.add(url.host);
+  }
+  return [...hotes].sort();
+}
+
+/**
+ * `cmdkey /list` — les identifiants du gestionnaire de Windows, sans leur
+ * valeur (Windows ne la montre pas). Par son chemin ABSOLU : sous Windows,
+ * `execFile` chercherait d'abord dans le répertoire courant. `null` s'il ne
+ * répond pas.
+ */
+function listerGestionnaireWindows(env: NodeJS.ProcessEnv): Promise<string | null> {
+  const cmdkey = path.win32.join(env.SYSTEMROOT ?? 'C:\\Windows', 'System32', 'cmdkey.exe');
+  return new Promise((resolve) => {
+    execFile(
+      cmdkey,
+      ['/list'],
+      { env: envSonde(env), shell: false, windowsHide: true, timeout: 10_000 },
+      (err, stdout) => resolve(err ? null : String(stdout)),
+    );
+  });
+}
+
+/**
+ * Les identifiants git déposés sur la machine (`Releve.identifiantsGit`), EN
+ * LECTURE SEULE : rien n'est effacé, et aucune valeur ne sort d'ici.
+ *
+ *   · les deux fichiers que `git credential-store` lit sans `--file` :
+ *     `~/.git-credentials` et `$XDG_CONFIG_HOME/git/credentials` ;
+ *   · sous Windows, les cibles `git:…` du gestionnaire d'identifiants — que
+ *     Git Credential Manager remplit, et où Hive déposait le jeton d'un projet
+ *     à la place de l'entrée du membre. Le libellé des lignes de `cmdkey` suit
+ *     la langue du système (« Target », « Cible ») : on y cherche `git:`.
+ */
+export async function identifiantsDeposes(
+  env: NodeJS.ProcessEnv,
+  plateforme: string,
+  lister: () => Promise<string | null> = () => listerGestionnaireWindows(env),
+): Promise<Releve['identifiantsGit']> {
+  const maison = env.HOME ?? env.USERPROFILE;
+  const configuration =
+    env.XDG_CONFIG_HOME ?? (maison === undefined ? undefined : path.join(maison, '.config'));
+  const fichiers = [
+    ...(maison === undefined ? [] : [path.join(maison, '.git-credentials')]),
+    ...(configuration === undefined ? [] : [path.join(configuration, 'git', 'credentials')]),
+  ];
+  const enClair: { fichier: string; hotes: string[] }[] = [];
+  const illisibles: string[] = [];
+  for (const fichier of fichiers) {
+    if (!existsSync(fichier)) continue;
+    const contenu = await fs.readFile(fichier, 'utf8').catch(() => null);
+    if (contenu === null) {
+      illisibles.push(fichier);
+      continue;
+    }
+    const hotes = hotesAJeton(contenu);
+    if (hotes.length > 0) enClair.push({ fichier, hotes });
+  }
+  if (plateforme !== 'win32') return { enClair, illisibles, gestionnaireWindows: [] };
+  const liste = await lister();
+  const gestionnaireWindows =
+    liste === null
+      ? null
+      : [
+          ...new Set(
+            [...liste.matchAll(/\bgit:(https?:\/\/[^\s/]+)/gi)].flatMap((m) => {
+              try {
+                return [new URL(m[1] ?? '').host];
+              } catch {
+                return [];
+              }
+            }),
+          ),
+        ].sort();
+  return { enClair, illisibles, gestionnaireWindows };
+}
+
+/**
  * Le relevé complet.
  *
  * Rien n'est jugé ici — c'est `diagnostiquer()` qui le fait, sur ces faits.
@@ -340,6 +459,14 @@ export async function relever(
   // « `shell` vaut aucun agent » ne serait vérifiable que sur une machine où
   // rien n'est installé — c'est-à-dire nulle part en pratique.
   inventorier: (e: NodeJS.ProcessEnv) => Promise<InventaireAgents> = inventaireAgents,
+  // LA REINE QUI SE RELÈVE ELLE-MÊME (bilan de l'assistant de première
+  // arrivée). Elle SAIT qu'elle écoute : la requête qu'elle sert le prouve.
+  // Sonder son propre port serait pire qu'inutile — sur BSD/macOS, un `listen`
+  // sur 127.0.0.1 réussit à côté d'une écoute 0.0.0.0 (SO_REUSEADDR), capte
+  // un instant les connexions qui lui étaient destinées et conclut « libre ».
+  // Et l'intégrité se contrôle en `quick_check` : le relevé tourne dans SA
+  // boucle d'événements, synchrone, sur la base vivante.
+  enProcessus = false,
 ): Promise<Releve> {
   const lieux = emplacements(racine, env);
   // MÊME règle que la ruche (`shared/port.ts`) : un docteur qui sonderait un
@@ -349,13 +476,14 @@ export async function relever(
   const sondage = hoteDeConnexion(hote);
 
   const envPresent = existsSync(lieux.env);
-  const libre = await portLibre(port, sondage);
+  const libre = enProcessus ? false : await portLibre(port, sondage);
   // On ne sonde la ruche QUE si le port est pris : interroger un port libre
   // ferait attendre le délai complet pour apprendre ce qu'on sait déjà.
-  const parNous = libre ? null : await portTenuParNous(port, sondage);
+  const parNous = enProcessus ? true : libre ? null : await portTenuParNous(port, sondage);
   // Et le WebSocket seulement si c'est bien notre ruche : sur un port tenu par
-  // autre chose, un refus d'`Upgrade` ne dirait rien de la ruche.
-  const ws = parNous === true ? await wsRepond(port, sondage) : null;
+  // autre chose, un refus d'`Upgrade` ne dirait rien de la ruche. En
+  // processus, `/ws` est monté sur l'écoute même qui sert cette requête.
+  const ws = enProcessus ? true : parNous === true ? await wsRepond(port, sondage) : null;
 
   const basePresente = existsSync(lieux.base);
   const jeton = env.HIVE_TOKEN ?? '';
@@ -369,6 +497,29 @@ export async function relever(
   }));
   // Sondés UNE fois : le nom du premier et l'image du bac en découlent.
   const joignables = await moteursJoignables().catch((): Fournisseur[] => []);
+  // Les outils de la porte de sécurité sur l'hôte, par la sonde même de la
+  // porte (`versionPourLaPorte` : sa résolution, son lanceur) — un outil muet,
+  // ou que la porte ne lancerait pas, est `null`, jamais une version supposée.
+  const [betterleaks, osvScanner] = await Promise.all([
+    versionPourLaPorte('betterleaks'),
+    versionPourLaPorte('osv-scanner'),
+  ]);
+  // Une inspection qui plante n'est ni « présente » ni « absente » : inconnue.
+  const imageBac = await imageDuBac(env, joignables).catch(() =>
+    joignables.length === 0
+      ? null
+      : { image: imageDepuisEnv(env), dans: null, absenteDe: null, construire: null },
+  );
+  // Et dans l'image, son étiquette — lue par le moteur qui l'A, sans rien y lancer.
+  const moteurImage = joignables.find((f) => f.nom === imageBac?.dans && f.bin !== 'bwrap');
+  const etiquetteLue =
+    moteurImage && imageBac
+      ? await etiquetteImage(moteurImage, imageBac.image, ETIQUETTE_PORTE, 5_000)
+      : null;
+  // api.osv.dev, par le chemin qu'osv-scanner prendrait — seulement s'il y a
+  // un osv-scanner pour le prendre : une connexion bornée, rien d'envoyé.
+  const osvLa = etiquetteLue === VALEUR_ETIQUETTE_PORTE || osvScanner !== null;
+  const osv = osvLa ? await joindreOsv(env) : { joignable: null, proxy: null };
 
   return {
     versionNode: process.versions.node,
@@ -417,7 +568,9 @@ export async function relever(
     moteur,
     base: {
       presente: basePresente,
-      integre: basePresente ? await baseIntegre(lieux.base) : null,
+      integre: basePresente
+        ? await baseIntegre(lieux.base, enProcessus ? 'quick_check' : 'integrity_check')
+        : null,
       inscriptible: basePresente
         ? inscriptible(lieux.base)
         : inscriptible(path.dirname(lieux.base)),
@@ -434,13 +587,16 @@ export async function relever(
     // Installé n'est pas connecté : ces agents n'auront pas d'ouvrière, et le
     // docteur le dit avec le remède plutôt que de les taire.
     agentsNonConnectes: agents.nonConnectes,
+    versionGit: await versionGitLocale(racine),
+    // Lus dans le HOME de `env`, le paramètre : un test compose le sien.
+    identifiantsGit: await identifiantsDeposes(env, plateforme),
     isolement: joignables[0]?.nom ?? null,
-    // Une inspection qui plante n'est ni « présente » ni « absente » : inconnue.
-    imageBac: await imageDuBac(env, joignables).catch(() =>
-      joignables.length === 0
-        ? null
-        : { image: imageDepuisEnv(env), dans: null, absenteDe: null, construire: null },
-    ),
+    imageBac,
+    porteSecurite: {
+      hote: { betterleaks, 'osv-scanner': osvScanner },
+      image: etiquetteLue,
+      osv,
+    },
     wsJoignable: ws,
     reglages: {
       // MÊMES règles que la ruche : un docteur qui annonce autre chose que ce

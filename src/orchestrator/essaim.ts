@@ -68,6 +68,8 @@
 // est le seul à toucher au monde.
 
 import { champSurUneLigne } from '../shared/donnees-non-fiables.js';
+import { rangNiveau } from '../shared/politique-actions.js';
+import type { NiveauAutonomie } from '../shared/politique-actions.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { lignesDeLogs } from './brood.js';
 import { SOLITUDE_JOURS } from './derive.js';
@@ -80,28 +82,13 @@ import type { Antecedents, Caste } from './polyethisme.js';
 /** Version de l'algorithme de gouvernance. Motif VERSION_BALANCE. */
 export const VERSION_ESSAIM = 1;
 
-/**
- * Les quatre positions de l'interrupteur, de l'inerte au plein.
- *
- * - `off`      : la ruche attend qu'on lui dise quoi faire. Défaut.
- * - `propose`  : elle décide seule quoi faire et crée les tâches. Elle ne
- *                livre rien.
- * - `gouverne` : elle décide, produit, se critique et OUVRE les pull requests.
- *                Rien n'est fusionné.
- * - `plein`    : tout ce qui précède, et elle fusionne — uniquement sur les
- *                dépôts inscrits, et seulement quand la contre-visite conclut
- *                « appliquer ».
- *
- * Le saut qui compte est `gouverne` → `plein`, et il est le seul qui demande
- * une inscription explicite par dépôt.
- */
-export const NIVEAUX = ['off', 'propose', 'gouverne', 'plein'] as const;
-export type NiveauAutonomie = (typeof NIVEAUX)[number];
-
-/** Rang d'un niveau, pour comparer sans dépendre de l'ordre du tableau. */
-export function rangNiveau(n: NiveauAutonomie): number {
-  return NIVEAUX.indexOf(n);
-}
+// Les quatre positions de l'interrupteur (off / propose / gouverne / plein)
+// vivent dans `shared/politique-actions.ts` : le protocole, le nœud et la
+// politique d'actions compilée (G12) les lisent aussi, et le vocabulaire des
+// niveaux appartient à la ruche entière — pas à son seul gouvernail. Elles
+// restent ré-exportées ici, là où leurs lecteurs historiques les trouvent.
+export { NIVEAUX, rangNiveau } from '../shared/politique-actions.js';
+export type { NiveauAutonomie } from '../shared/politique-actions.js';
 
 // ─── Qui gouverne ────────────────────────────────────────────────────────────
 

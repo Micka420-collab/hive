@@ -24,8 +24,16 @@
 // tronquée et marquée (`MARQUE_LIGNE_TRONQUEE`). C'est ce qui permet au nœud de
 // caviarder une clé exactement (`shared/caviardage.ts`) : coupée en deux
 // morceaux, aucune des deux moitiés ne serait égale à la valeur.
+//
+// ─── LE NIVEAU DE CHAQUE LIGNE ──────────────────────────────────────────────
+//
+// Un morceau part en BLOCS de lignes d'un même niveau (`BlocSortie`) : le flux
+// qui l'a écrite, ou la gravité que le flux structuré de l'agent déclare
+// (`shared/niveaux-sortie.ts`). C'est ici, et nulle part après, qu'on SAIT si
+// une ligne vient de stderr : le texte seul ne le dit plus.
 
 import { MARQUE_LIGNE_TRONQUEE } from '../shared/caviardage.js';
+import type { BlocSortie, GraviteAgent, NiveauSortie } from '../shared/niveaux-sortie.js';
 
 /** Poids maximal d'un morceau de sortie en direct, en octets UTF-8. */
 export const SORTIE_MORCEAU_MAX_OCTETS = 4 * 1024;
@@ -57,8 +65,12 @@ export interface SortieDirecte {
    * Un fragment, tel que le processus l'a écrit sur `flux`. Les deux flux
    * partagent le morceau et la cadence, pas la ligne en cours : un fragment de
    * stderr arrivé au milieu d'une ligne de stdout ne s'y colle pas.
+   *
+   * `gravite` : ce que le flux structuré de l'agent déclare des lignes que ce
+   * fragment TERMINE (Codex `--json`, stream-json) — qui les écrit alors
+   * ligne à ligne. Sans elle, le niveau d'une ligne est son flux.
    */
-  ecrire(fragment: string, flux?: FluxSortie): void;
+  ecrire(fragment: string, flux?: FluxSortie, gravite?: GraviteAgent): void;
   /**
    * Fin du processus : vide ce qui attend, si la cadence le permet encore.
    * Sinon ce reste est abandonné — il est dans le log du résultat, qui part
@@ -115,7 +127,8 @@ interface EtatFlux {
 }
 
 export function createSortieDirecte(
-  emettre: (morceau: string) => void,
+  /** `morceau` : le texte entier ; `blocs` : le même, découpé par niveau. */
+  emettre: (morceau: string, blocs: BlocSortie[]) => void,
   horloge: HorlogeSortie = horlogeReelle,
   cadence: CadenceSortie = { dernierDepart: -Infinity },
 ): SortieDirecte {
@@ -126,7 +139,8 @@ export function createSortieDirecte(
     stdout: { ligneEnCours: '', debordement: false },
     stderr: { ligneEnCours: '', debordement: false },
   };
-  let attente = '';
+  // Les lignes en attente, par blocs d'un même niveau — dans l'ordre d'écriture.
+  let attente: BlocSortie[] = [];
   // Le poids de `attente`, tenu au fil de l'eau : le recalculer à chaque ligne
   // (4 Kio mesurés par ligne, même une fois le morceau plein) coûtait ~1,7 s
   // de boucle d'événements pour 50 Mio de lignes courtes — la boucle qui porte
@@ -136,7 +150,7 @@ export function createSortieDirecte(
   let annuler: (() => void) | null = null;
   let fini = false;
 
-  const empiler = (ligne: string): void => {
+  const empiler = (ligne: string, niveau: NiveauSortie): void => {
     // `- 1` : le retour à la ligne compte aussi — sans lui, une ligne tronquée
     // pile au budget ne tenait jamais, même seule, et partait « omise ».
     const poids = octets(ligne) + 1;
@@ -150,7 +164,9 @@ export function createSortieDirecte(
     const bornee = ligneBornee(ligne, budgetLignes - 1) + '\n';
     const poidsBorne = octets(bornee);
     if (octetsEnAttente + poidsBorne <= budgetLignes) {
-      attente += bornee;
+      const dernier = attente[attente.length - 1];
+      if (dernier && dernier.niveau === niveau) dernier.texte += bornee;
+      else attente.push({ niveau, texte: bornee });
       octetsEnAttente += poidsBorne;
     } else omis += poids;
   };
@@ -160,19 +176,20 @@ export function createSortieDirecte(
 
   const partir = (): void => {
     annuler = null;
-    if (attente === '' && omis === 0) return;
+    if (attente.length === 0 && omis === 0) return;
     // Un autre processus de la même tâche a pu partir entre-temps.
     if (delai() > 0) {
       programmer();
       return;
     }
-    const annonce = omis > 0 ? `[… ${omis} octets omis]\n` : '';
-    const morceau = annonce + attente;
-    attente = '';
+    // L'annonce est une ligne de HIVE, pas de l'agent : son niveau le dit.
+    const blocs: BlocSortie[] =
+      omis > 0 ? [{ niveau: 'hive', texte: `[… ${omis} octets omis]\n` }, ...attente] : attente;
+    attente = [];
     octetsEnAttente = 0;
     omis = 0;
     cadence.dernierDepart = horloge.maintenant();
-    emettre(morceau);
+    emettre(blocs.map((b) => b.texte).join(''), blocs);
   };
 
   function programmer(): void {
@@ -181,9 +198,10 @@ export function createSortieDirecte(
   }
 
   return {
-    ecrire(fragment, nom = 'stdout') {
+    ecrire(fragment, nom = 'stdout', gravite) {
       if (fini) return;
       const etat = flux[nom];
+      const niveau: NiveauSortie = gravite ?? nom;
       let texte = fragment;
       if (etat.debordement) {
         const fin = texte.indexOf('\n');
@@ -201,12 +219,15 @@ export function createSortieDirecte(
         etat.ligneEnCours = '';
         etat.debordement = true;
       }
-      for (const ligne of lignes) empiler(ligne);
+      for (const ligne of lignes) empiler(ligne, niveau);
       // Pendant un débordement, le compte d'omission ATTEND la fin de la
       // ligne (ou le prochain vrai morceau) : programmer un départ pour lui
       // seul enverrait « [… N octets omis] » quatre fois par seconde tant que
       // la barre de progression tourne.
-      if (attente !== '' || (omis > 0 && !flux.stdout.debordement && !flux.stderr.debordement)) {
+      if (
+        attente.length > 0 ||
+        (omis > 0 && !flux.stdout.debordement && !flux.stderr.debordement)
+      ) {
         programmer();
       }
     },
@@ -215,9 +236,9 @@ export function createSortieDirecte(
       fini = true;
       annuler?.();
       annuler = null;
-      for (const etat of Object.values(flux)) {
-        if (etat.ligneEnCours !== '') empiler(etat.ligneEnCours);
-        etat.ligneEnCours = '';
+      for (const nom of ['stdout', 'stderr'] as const) {
+        if (flux[nom].ligneEnCours !== '') empiler(flux[nom].ligneEnCours, nom);
+        flux[nom].ligneEnCours = '';
       }
       if (delai() === 0) partir();
     },

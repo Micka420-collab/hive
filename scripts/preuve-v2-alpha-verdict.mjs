@@ -49,6 +49,22 @@ const ms = (v) => (v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${Math.round(v)} 
 const couverture = (s) =>
   s.declarees === s.tentatives ? '' : ` (${s.declarees}/${s.tentatives} tentatives déclarées)`;
 
+/** Quelle mémoire le pic décrit (`MemoireMesuree`) — dit, jamais deviné. */
+const PIC_MEMOIRE = {
+  pss: 'échantillonné (Pss, pages partagées réparties)',
+  somme_rss: 'échantillonné (somme des RSS de l’arbre, pages partagées comptées par processus)',
+  noyau: '(noyau)',
+  moteur: 'échantillonné (selon le moteur)',
+};
+
+/** Pourquoi les ressources de l'agent ne sont pas mesurées (`RaisonSansMesure`). */
+const SANS_MESURE = {
+  plateforme: 'Windows hors conteneur, sans table des processus lisible',
+  aucun_processus: 'aucun processus d’agent lancé',
+  aucun_releve: 'aucun relevé de l’agent n’a abouti',
+  noeud_ancien: 'nœud d’une version antérieure, qui ne mesurait que lui-même',
+};
+
 /**
  * `executants` : chaque nœud qui a exécuté la mission (producteur,
  * sous-tâches déléguées et relecteurs, relus au journal) ; à défaut, le seul
@@ -150,18 +166,37 @@ export function jugerV2Alpha(faits) {
     dire('C', 'Latence ventilée', 'inconnu', 'phases non mesurées');
   }
 
-  // ─── D. Ressources, sans confusion avec le coût ────────────────────────────
-  const usage = faits.tache?.result?.usage;
-  if (usage && typeof usage.maxRssBytes === 'number') {
-    const cpu = (usage.userCpuMicros + usage.systemCpuMicros) / 1000;
+  // ─── D. Ressources de l'AGENT, sans confusion avec le coût ────────────────
+  //
+  // Le bilan des relevés du nœud : l'arbre de processus de l'agent, ou son
+  // conteneur. Ce qu'un nœud plus ancien envoyait décrivait SON processus — la
+  // Reine le relit `noeud_ancien` : inconnu, jamais prouvé.
+  const r = faits.tache?.result?.ressources;
+  if ((r?.portee === 'arbre' || r?.portee === 'conteneur') && r.releves >= 2) {
+    const sujet = r.portee === 'arbre' ? 'arbre de processus de l’agent' : 'conteneur de l’agent';
+    const cpu = typeof r.cpuMs === 'number' ? `au moins ${ms(r.cpuMs)} CPU` : 'CPU non mesuré';
+    const pic =
+      typeof r.picOctets === 'number' && r.memoire in PIC_MEMOIRE
+        ? `pic ${(r.picOctets / 1048576).toFixed(1)} MiB ${PIC_MEMOIRE[r.memoire]}`
+        : 'mémoire non mesurée';
     dire(
       'D',
-      'Ressources du Worker',
+      'Ressources de l’agent',
       'prouve',
-      `${ms(cpu)} CPU · ${(usage.maxRssBytes / 1048576).toFixed(1)} MiB RSS (processus Worker)`,
+      `${sujet} : ${cpu} · ${pic} · ${r.releves} relevés`,
     );
   } else {
-    dire('D', 'Ressources du Worker', 'inconnu', 'le Worker n’a pas mesuré ses ressources');
+    dire(
+      'D',
+      'Ressources de l’agent',
+      'inconnu',
+      r?.portee === 'aucune'
+        ? `non mesurées : ${SANS_MESURE[r.raison] ?? r.raison}`
+        : r?.portee === 'arbre' || r?.portee === 'conteneur'
+          ? // Un seul relevé, au départ : pas de fenêtre — rien n'est prouvé.
+            'trop bref pour être mesuré (un seul relevé)'
+          : 'le nœud n’a rendu aucune mesure de l’agent',
+    );
   }
 
   // ─── G. Routage expliqué (avant E : le Genome se lit sous le modèle élu) ──

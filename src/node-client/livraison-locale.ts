@@ -24,7 +24,12 @@
 //   2. `garderMission`, APRÈS, et seulement si la préparation et les tests
 //      n'ont rien contredit : la branche naît dans le dépôt durable depuis le
 //      transit, et la poussée part du dépôt durable vers le `repoUrl` que le
-//      hub a envoyé. Deux dépôts dont seul le nœud écrit la configuration.
+//      hub a envoyé. Deux dépôts dont seul le nœud écrit la configuration —
+//      sous bac à sable, où le code du dépôt ne voit que le clone. Au niveau
+//      `processus`, il tourne sous le compte du nœud et atteint le disque
+//      entier, ces deux dépôts compris (`constat`, isolement.ts) : la frontière
+//      ci-dessus tient contre un `.git` que le code a réécrit, pas contre un
+//      code qui viserait le nœud lui-même.
 //
 // ─── CE QUI EST COMMITÉ, EXACTEMENT ──────────────────────────────────────────
 //
@@ -55,8 +60,12 @@
 //   · une poussée sans le consentement de l'opérateur du nœud : le hub peut
 //     le prétendre, le nœud relit le sien ;
 //   · un identifiant dans un message : tout ce qui remonte au hub est lavé
-//     (`laverIdentifiantsDuTexte`), et le dépôt durable ne garde que l'URL
-//     lavée du dépôt du projet.
+//     (`laverIdentifiantsDuTexte`) ;
+//   · un identifiant sur le disque ou dans l'argv : le dépôt durable ne garde
+//     que l'adresse nue du dépôt du projet, et le compte du projet ne passe
+//     que par l'environnement du git qui parle au dépôt — ni par son argv, ni
+//     par celui de son assistant de transport, ni par l'assistant
+//     d'identifiants du membre (`depotDistant`).
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -72,9 +81,9 @@ import type {
   RapportDuNoeud,
   TestsLivres,
 } from '../shared/livraison-locale.js';
-import { laverIdentifiants, laverIdentifiantsDuTexte } from '../shared/projet-public.js';
+import { laverIdentifiantsDuTexte } from '../shared/projet-public.js';
 import { LIMITS } from '../shared/protocol.js';
-import { EchecGitHote, commandeSshDuMembre, gitHote } from '../shared/git-protege.js';
+import { EchecGitHote, commandeSshDuMembre, depotDistant, gitHote } from '../shared/git-protege.js';
 import type { DepotEpingle, IdentiteCommit } from '../shared/git-protege.js';
 
 /**
@@ -143,23 +152,43 @@ export function motifLave(texte: string): string {
 const messageDe = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
 /**
- * Une commande git qui parle au dépôt distant, plafonnée à `DELAI_RESEAU_MS`.
+ * `git <commande> <dépôt du projet> <suite>` — une commande qui parle au dépôt
+ * distant, plafonnée à `DELAI_RESEAU_MS`.
  *
  * Lancée dans `baseDir` — le transit ou le dépôt durable, jamais le clone —
  * pour que git n'y lise que la configuration écrite par le nœud. Par
  * `gitHote`, comme le clone : mêmes identifiants, même `ssh` du membre en mode
  * lot — une poussée SSH qui attendrait une phrase de passe figerait le merge.
- * Le plafond atteint devient une phrase qui dit quoi faire, pas un signal.
+ * L'adresse part NUE, le compte du projet dans l'environnement de ce git
+ * (`depotDistant`) : ni l'argv — celui de git, celui de son assistant de
+ * transport —, ni l'assistant d'identifiants du membre ne voient le jeton. Un
+ * jeton refusé se dit par `gitHote` (« le dépôt refuse le jeton de l'URL du
+ * projet ») ; le plafond atteint devient une phrase qui dit quoi faire, pas
+ * un signal.
  */
-async function auDepotDistant(baseDir: string, args: string[]): Promise<string> {
+async function auDepotDistant(
+  baseDir: string,
+  depotProjet: string,
+  commande: readonly string[],
+  ...suite: string[]
+): Promise<string> {
+  const { nue, acces } = depotDistant(depotProjet);
   const ssh = await commandeSshDuMembre(baseDir);
   try {
-    return await gitHote(args, baseDir, { ssh, delaiMs: DELAI_RESEAU_MS });
+    return await gitHote([...commande, nue, ...suite], baseDir, {
+      ssh,
+      delaiMs: DELAI_RESEAU_MS,
+      acces,
+    });
   } catch (err) {
     if (!(err instanceof EchecGitHote && err.delaiDepasse)) throw err;
+    // Pas « des identifiants attendus ? » : git n'attend plus d'invite
+    // (`envGitHote`), et le compte d'une URL de projet ne passe plus par
+    // l'assistant du membre. Un dépôt qui se tait est injoignable, ou muet.
     throw new Error(
-      `le dépôt du projet n’a pas répondu en ${DELAI_RESEAU_MS / 1000} s (git ${args[0]}) — ` +
-        'des identifiants attendus sur ce nœud ? Enregistrez-les dans son assistant git, puis relancez',
+      `le dépôt du projet n’a pas répondu en ${DELAI_RESEAU_MS / 1000} s (git ${commande[0]}) — ` +
+        `injoignable ou muet depuis ce nœud : vérifiez qu’il y répond (\`git ls-remote ${nue}\`), ` +
+        'puis relancez',
       { cause: err },
     );
   }
@@ -301,7 +330,7 @@ async function numeroLibre(livraison: LivraisonDuNoeud, transit: string): Promis
   const locales = existsSync(path.join(depotLocal, 'HEAD'))
     ? await gitHote(['for-each-ref', '--format=%(refname)', 'refs/heads/hive/'], depotLocal)
     : '';
-  const distantes = (await auDepotDistant(transit, ['ls-remote', '--heads', depotProjet]))
+  const distantes = (await auDepotDistant(transit, depotProjet, ['ls-remote', '--heads']))
     .split('\n')
     .map((l) => l.split('\t')[1] ?? '');
   return Math.max(
@@ -357,7 +386,7 @@ async function teteAProlonger(
   // `ls-remote` depuis le TRANSIT, vers le `repoUrl` du hub : jamais l'`origin`
   // du clone (cf. l'en-tête). Une branche jamais poussée n'y est pas : rien à
   // protéger là-bas.
-  const distante = (await auDepotDistant(transit, ['ls-remote', '--heads', depotProjet, ref]))
+  const distante = (await auDepotDistant(transit, depotProjet, ['ls-remote', '--heads'], ref))
     .split('\n')
     .map((l) => l.split('\t'))
     .find(([, nom]) => nom === ref)?.[0];
@@ -397,16 +426,16 @@ export async function garderMission(
     // ─── LE DÉPÔT DURABLE ──────────────────────────────────────────────────
     // Nu : aucune copie de travail à salir, et l'opérateur s'en sert comme
     // d'un distant (`git fetch <chemin> hive/mission-…`, ou `git -C <chemin>
-    // push origin hive/mission-…`). Son `origin` est le `repoUrl` du hub,
-    // LAVÉ : les identifiants restent à l'assistant de l'opérateur, pas dans
-    // un fichier — et une adresse que le code testé aurait écrite dans le
-    // clone n'y entre jamais, pas même pour une poussée faite à la main.
+    // push origin hive/mission-…`). Son `origin` est l'adresse NUE du dépôt
+    // du projet (`depotDistant` — le compte d'une adresse SSH y reste) : les
+    // identifiants restent à l'assistant de l'opérateur, pas dans un fichier
+    // — et une adresse que le code testé aurait écrite dans le clone n'y
+    // entre jamais, pas même pour une poussée faite à la main.
     mkdirSync(path.dirname(depotLocal), { recursive: true });
     if (!existsSync(path.join(depotLocal, 'HEAD'))) {
       await gitHote(['init', '--bare', '--quiet', depotLocal], path.dirname(depotLocal));
     }
-    const origine = laverIdentifiants(depotProjet);
-    if (origine) await gitHote(['config', 'remote.origin.url', origine], depotLocal);
+    await gitHote(['config', 'remote.origin.url', depotDistant(depotProjet).nue], depotLocal);
 
     // ─── LE RANGEMENT : la branche doit survivre au clone ──────────────────
     // Même `--update-shallow`, même relecture qu'à l'abri. Le `+` ne vise que
@@ -448,12 +477,12 @@ export async function garderMission(
     return { etat: 'commitee', branche, commit, poussee: 'refusee', motif: CONSENTEMENT_POUSSEE };
   }
   try {
-    await auDepotDistant(depotLocal, [
-      'push',
-      '--no-verify',
+    await auDepotDistant(
+      depotLocal,
       depotProjet,
+      ['push', '--no-verify'],
       `refs/heads/${branche}:refs/heads/${branche}`,
-    ]);
+    );
     return { etat: 'commitee', branche, commit, poussee: 'poussee' };
   } catch (err) {
     // La branche reste rangée sur le nœud : la livraison n'est pas perdue, sa

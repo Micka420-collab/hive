@@ -40,6 +40,14 @@
 // module allait lire le disque lui-même.
 
 import { LONGUEUR_MIN_SECRET_JWT } from '../orchestrator/auth.js';
+import { GIT_ACCES_MINIMUM, URL_DU_PROJET_FIGEE, gitPorteLAcces } from './git-protege.js';
+import {
+  ETIQUETTE_PORTE,
+  PUBLICATION_OUTIL,
+  VALEUR_ETIQUETTE_PORTE,
+  VERSION_EPINGLEE,
+  type OutilPorte,
+} from './porte-securite.js';
 import { MIN_TOKEN_LENGTH } from './types.js';
 
 /**
@@ -171,6 +179,35 @@ export interface Releve {
    * (`inventaireAgents`) : aucune ouvrière ne les fera travailler.
    */
   agentsNonConnectes: readonly { readonly agent: string; readonly detail: string }[];
+  /**
+   * La version du git de cette machine (`git --version`, « 2.53.0 ») ; `null`
+   * s'il n'a pas répondu. Sous `GIT_ACCES_MINIMUM`, un projet dont l'URL
+   * porte un jeton est refusé (`gitHote`) : ce git ignorerait l'accès que la
+   * ruche lui passe, et parlerait au dépôt sous l'identité du membre.
+   */
+  versionGit: string | null;
+  /**
+   * Les identifiants git DÉPOSÉS sur cette machine — relevés en LECTURE SEULE,
+   * jamais leur valeur : leur hôte seulement.
+   *
+   * Jusqu'à la correction du clone sans identifiants, chaque clone ou poussée
+   * de Hive confiait le jeton de l'URL d'un projet privé à chaque assistant
+   * d'identifiants du membre (`depotDistant`, git-protege.ts) : en clair dans
+   * le fichier de `git credential-store`, ou à la place de l'entrée du membre
+   * dans le gestionnaire de Windows. Il y est encore.
+   */
+  identifiantsGit: {
+    /** Les fichiers de `git credential-store` qui gardent des jetons, avec leurs hôtes. */
+    enClair: readonly { readonly fichier: string; readonly hotes: readonly string[] }[];
+    /** Ceux qu'on n'a pas pu lire : on ne sait pas ce qu'ils gardent. */
+    illisibles: readonly string[];
+    /**
+     * Les hôtes des identifiants git du gestionnaire de Windows (`cmdkey
+     * /list`, cibles `git:…`) — `[]` hors Windows, `null` si `cmdkey` n'a pas
+     * répondu.
+     */
+    gestionnaireWindows: readonly string[] | null;
+  };
   /** Le moteur d'isolement préféré qui répond (`podman`, `docker`, `bubblewrap`), ou `null`. */
   isolement: string | null;
   /**
@@ -187,6 +224,27 @@ export interface Releve {
     /** L'image par défaut, absente partout : la commande qui la construit. */
     construire: string | null;
   } | null;
+  /** Les outils de la porte de sécurité, là où le nœud les lancera. */
+  porteSecurite: {
+    /**
+     * Sur l'HÔTE : la version que `<outil> --version` dit, ou `null` s'il ne
+     * répond pas. Bubblewrap monte le PATH de l'hôte ; sans bac, c'est lui.
+     */
+    hote: Readonly<Record<OutilPorte, string | null>>;
+    /**
+     * Dans l'IMAGE du bac, quand un moteur de conteneurs l'a : son étiquette
+     * `hive.porte-securite` (`''` si elle ne la porte pas), ou `null` si
+     * aucun moteur n'a pu la lire — ou s'il n'y a pas d'image à lire.
+     */
+    image: string | null;
+    /**
+     * api.osv.dev, éprouvé comme osv-scanner le joindrait — par le proxy
+     * standard que le nœud lui transmet (`proxy`, sans identifiants), sinon en
+     * direct — par une connexion bornée, sans rien envoyer. `joignable: null` :
+     * pas éprouvé (aucun osv-scanner là où la porte tourne).
+     */
+    osv: { joignable: boolean | null; proxy: string | null };
+  };
   /** Le WebSocket répond-il ? `null` si la ruche n'écoute pas — on ne peut pas conclure. */
   wsJoignable: boolean | null;
   reglages: {
@@ -288,7 +346,7 @@ export const ESPACE_MINIMUM_OCTETS = 500 * 1024 * 1024;
 const go = (octets: number): string => `${(octets / (1024 * 1024 * 1024)).toFixed(1)} Go`;
 
 /**
- * Les quatorze diagnostics, dans l'ordre où ils se réparent.
+ * Les dix-sept diagnostics, dans l'ordre où ils se réparent.
  *
  * L'ORDRE EST UNE INFORMATION, pas une présentation : Node d'abord, parce que
  * réparer un port quand on tourne sur Node 18 ne sert à rien. Qui lit de haut
@@ -311,9 +369,16 @@ export function diagnostiquer(r: Releve): Diagnostic[] {
     base(r),
     dashboard(r),
     agent(r),
+    // Juste après l'agent : sans git, une ouvrière ne clone rien à lui donner.
+    git(r),
     isolement(r),
+    // Juste après le bac : c'est LUI qui dit où tournent les outils de la
+    // porte — dans son image, ou sur l'hôte (bubblewrap, ou sans bac).
+    porteSecurite(r),
     websocket(r),
     reglages(r),
+    // Avec les réglages risqués : rien ne s'arrête, mais un jeton traîne.
+    identifiantsGit(r),
     espace(r),
     // En DERNIER : la découverte n'est jamais ce qui empêche une ruche de
     // tourner. Elle ne se signale que quand elle est demandée ET vouée à
@@ -344,7 +409,7 @@ export function codeDeSortie(diags: Diagnostic[]): number {
   return 0;
 }
 
-// ─── Les quatorze ───────────────────────────────────────────────────────────
+// ─── Les dix-sept ───────────────────────────────────────────────────────────
 
 function nodeVersion(r: Releve): Diagnostic {
   if (nodeSuffisant(r.versionNode)) {
@@ -715,6 +780,34 @@ function agent(r: Releve): Diagnostic {
   };
 }
 
+/** Où se télécharge git — la même page sur les trois systèmes. */
+const INSTALLER_GIT = 'https://git-scm.com/downloads';
+
+function git(r: Releve): Diagnostic {
+  if (r.versionGit === null) {
+    return {
+      cle: 'git',
+      gravite: 'risque',
+      constat:
+        'git ne répond pas (`git --version`) — aucun dépôt ne pourra être cloné : ni tâche, ni Rayon',
+      reparation: `installez git ≥ ${GIT_ACCES_MINIMUM} : ${INSTALLER_GIT}`,
+    };
+  }
+  if (!gitPorteLAcces(r.versionGit)) {
+    // Un refus qui se DIT (`gitHote`), au lieu d'un clone sous l'identité du
+    // membre : ce git ignorerait l'accès passé par l'environnement.
+    return {
+      cle: 'git',
+      gravite: 'risque',
+      constat:
+        `git ${r.versionGit} ignore l’accès que la ruche lui passe par l’environnement : ` +
+        'les projets dont l’URL porte un jeton seront refusés',
+      reparation: `mettez git à jour (≥ ${GIT_ACCES_MINIMUM}) : ${INSTALLER_GIT}`,
+    };
+  }
+  return { cle: 'git', gravite: 'ok', constat: `git ${r.versionGit}`, reparation: null };
+}
+
 function isolement(r: Releve): Diagnostic {
   if (r.isolement === null) {
     return {
@@ -783,6 +876,137 @@ function isolement(r: Releve): Diagnostic {
   };
 }
 
+/**
+ * La porte de sécurité du nœud (`node-client/porte-securite.ts`) : ses outils
+ * répondront-ils là où ils tourneront ?
+ *
+ * La MÊME règle que le nœud pour le lieu : un moteur de conteneurs qui a
+ * l'image (ou la télécharge au démarrage, image nommée) lance les outils de
+ * l'IMAGE ; bubblewrap monte ceux du PATH de l'hôte ; sans bac prêt, le nœud
+ * les lance sur l'hôte.
+ *
+ * Dans l'image, le docteur ne lance rien : il lit l'étiquette que le
+ * Dockerfile pose après avoir installé et vérifié les outils
+ * (`ETIQUETTE_PORTE`). Absente, l'image a été construite avant eux.
+ *
+ * Un outil absent est un `risque` : chaque production serait « non
+ * vérifiée » — jamais verte, et retenue en polyéthisme `strict`. Une autre
+ * version que celle qu'épingle l'image en est un aussi, plus petit : la porte
+ * la LANCE, mais ses drapeaux (`--confidence`, l'extraction hors ligne) et ses
+ * rapports n'ont été éprouvés que sur la version épinglée — un rapport qui ne
+ * se relit plus la rend « non vérifiée ». Outils prêts, api.osv.dev
+ * injoignable (ni en direct, ni par le proxy que le nœud transmettrait) : le
+ * volet dépendances sera « non vérifié » à chaque lockfile touché. Ce que
+ * personne n'a pu lire est `inconnu`.
+ */
+function porteSecurite(r: Releve): Diagnostic {
+  const img = r.imageBac;
+  const moteurImage =
+    img && img.dans !== 'bubblewrap' ? (img.dans ?? (img.construire ? null : img.absenteDe)) : null;
+  const outils = Object.keys(VERSION_EPINGLEE) as OutilPorte[];
+  const epinglees = outils.map((o) => `${o} ${VERSION_EPINGLEE[o]}`).join(', ');
+  if (img && moteurImage) {
+    const lue = r.porteSecurite.image;
+    const lire =
+      `${moteurImage} image inspect --format '{{index .Config.Labels "${ETIQUETTE_PORTE}"}}' ` +
+      img.image;
+    if (lue === null) {
+      return {
+        cle: 'porte_securite',
+        gravite: 'inconnu',
+        constat:
+          `outils de la porte de sécurité lancés dans l'image du bac (${img.image}) : ` +
+          `${moteurImage} n'a rien dit de son étiquette ${ETIQUETTE_PORTE}`,
+        reparation: `${lire}  — la réponse dit ce qu'elle porte`,
+      };
+    }
+    if (lue === VALEUR_ETIQUETTE_PORTE) {
+      return (
+        osvInjoignable(r) ?? {
+          cle: 'porte_securite',
+          gravite: 'ok',
+          constat: `porte de sécurité vérifiable (image ${img.image}, ${moteurImage}) : ${epinglees}`,
+          reparation: null,
+        }
+      );
+    }
+    return {
+      cle: 'porte_securite',
+      gravite: 'risque',
+      constat:
+        `l'image du bac (${img.image}) ` +
+        (lue === ''
+          ? `ne dit pas porter les outils de la porte (aucune étiquette ${ETIQUETTE_PORTE} : construite avant eux, ou image tierce)`
+          : `porte d'autres versions des outils de la porte (${lue} ; épinglées : ${epinglees}) — ` +
+            'la porte les lance, mais leurs rapports n’ont été éprouvés que sur les versions épinglées') +
+        ' — une production qu’elle ne sait pas juger y sera « non vérifiée », jamais verte',
+      reparation:
+        'npm run bac:image (reconstruit l’image par défaut) — une image tierce : installez-y ' +
+        `${epinglees}, et posez LABEL ${ETIQUETTE_PORTE}="${VALEUR_ETIQUETTE_PORTE}"`,
+    };
+  }
+  const lieu = img?.dans === 'bubblewrap' ? 'bubblewrap, PATH de l’hôte' : 'sur l’hôte, sans bac';
+  const ecarts = outils.filter((o) => r.porteSecurite.hote[o] !== VERSION_EPINGLEE[o]);
+  if (ecarts.length === 0) {
+    return (
+      osvInjoignable(r) ?? {
+        cle: 'porte_securite',
+        gravite: 'ok',
+        constat: `porte de sécurité vérifiable (${lieu}) : ${epinglees}`,
+        reparation: null,
+      }
+    );
+  }
+  const dits = ecarts.map((o) => {
+    const vue = r.porteSecurite.hote[o];
+    return vue === null ? `${o} absent` : `${o} ${vue} (épinglé : ${VERSION_EPINGLEE[o]})`;
+  });
+  const absents = ecarts.some((o) => r.porteSecurite.hote[o] === null);
+  return {
+    cle: 'porte_securite',
+    gravite: 'risque',
+    constat:
+      `porte de sécurité non vérifiable telle quelle (${lieu}) : ${dits.join(' · ')} — ` +
+      (absents
+        ? 'chaque production sera « non vérifiée », jamais verte'
+        : 'la porte les lance, mais leurs rapports n’ont été éprouvés que sur les versions épinglées'),
+    reparation: ecarts
+      .map((o) => {
+        const { depot, empreintes } = PUBLICATION_OUTIL[o];
+        return (
+          `${o} ${VERSION_EPINGLEE[o]} : https://github.com/${depot}/releases/tag/` +
+          `v${VERSION_EPINGLEE[o]} (vérifiez le SHA-256 dans ${empreintes})`
+        );
+      })
+      .join(' · ')
+      .concat(', dans un dossier du PATH'),
+  };
+}
+
+/**
+ * Les outils sont prêts, mais api.osv.dev ne répond pas d'ici : le volet
+ * dépendances sera « non vérifié » — `null` s'il répond, ou s'il n'a pas été
+ * éprouvé.
+ */
+function osvInjoignable(r: Releve): Diagnostic | null {
+  const { joignable, proxy } = r.porteSecurite.osv;
+  if (joignable !== false) return null;
+  return {
+    cle: 'porte_securite',
+    gravite: 'risque',
+    constat:
+      `outils de la porte prêts, mais api.osv.dev injoignable depuis ce poste` +
+      (proxy ? ` par le proxy ${proxy}` : ' (aucun proxy déclaré : en direct)') +
+      ' — le volet dépendances sera « non vérifié » à chaque lockfile touché',
+    reparation:
+      'ouvrez la sortie HTTPS vers api.osv.dev:443' +
+      (proxy
+        ? ` à travers ${proxy}`
+        : ', ou posez HTTPS_PROXY dans l’environnement du nœud (.env)') +
+      ' — dans un bac à conteneurs, un proxy en 127.0.0.1 n’est pas joignable du conteneur',
+  };
+}
+
 function websocket(r: Releve): Diagnostic {
   if (r.wsJoignable === true) {
     return { cle: 'websocket', gravite: 'ok', constat: 'WebSocket joignable', reparation: null };
@@ -827,6 +1051,66 @@ function reglages(r: Releve): Diagnostic {
     gravite: 'risque',
     constat: `réglages à surveiller : ${allumes.join(' · ')}`,
     reparation: 'relisez ces lignes de .env — chacune est un choix, assurez-vous de l’avoir fait',
+  };
+}
+
+/**
+ * Le jeton d'un projet privé que Hive a déposé chez le membre — et qui y est
+ * encore. Jusqu'à la correction du clone sans identifiants, il était aussi
+ * dans le `.git/config` de chaque clone de tâche : TOUT agent a pu le lire, et
+ * le seul remède est de le faire tourner chez l'hébergeur. Le docteur ne
+ * l'efface pas : un `erase` par hôte ôterait aussi l'entrée du membre.
+ *
+ * La valeur ne sort jamais du relevé : on nomme le fichier et l'hôte.
+ */
+function identifiantsGit(r: Releve): Diagnostic {
+  const { enClair, illisibles, gestionnaireWindows } = r.identifiantsGit;
+  const tourner =
+    'si c’est le jeton d’un projet de la ruche : révoquez-le chez l’hébergeur et créez-en un ' +
+    `autre (${URL_DU_PROJET_FIGEE})`;
+  if (enClair.length > 0) {
+    const lieux = enClair.map((f) => `${f.fichier} (${f.hotes.join(', ')})`).join(' · ');
+    return {
+      cle: 'identifiants_git',
+      gravite: 'risque',
+      constat:
+        `jetons git en clair : ${lieux} — Hive y déposait le jeton de l’URL des projets ` +
+        'privés, et un agent au niveau processus lit ce fichier',
+      reparation: `${tourner}, puis retirez sa ligne du fichier`,
+    };
+  }
+  if (gestionnaireWindows !== null && gestionnaireWindows.length > 0) {
+    return {
+      cle: 'identifiants_git',
+      gravite: 'inconnu',
+      constat:
+        `le gestionnaire d’identifiants de Windows garde des identifiants git ` +
+        `(${gestionnaireWindows.join(', ')}) — Windows n’en montre pas la valeur : impossible ` +
+        'd’y distinguer du vôtre le jeton d’un projet, que Hive y déposait à sa place',
+      reparation: `${tourner}, puis \`cmdkey /delete:git:https://<hôte>\` et reconnectez-vous`,
+    };
+  }
+  const nonRelus = [
+    ...illisibles,
+    ...(gestionnaireWindows === null ? ['le gestionnaire de Windows (`cmdkey /list`)'] : []),
+  ];
+  if (nonRelus.length > 0) {
+    return {
+      cle: 'identifiants_git',
+      gravite: 'inconnu',
+      constat: `identifiants git non relus : ${nonRelus.join(', ')}`,
+      reparation:
+        'relisez-les vous-même (`cmdkey /list:git:*`, ou le fichier) : un jeton de projet ' +
+        'qu’ils garderaient est à faire tourner',
+    };
+  }
+  return {
+    cle: 'identifiants_git',
+    gravite: 'ok',
+    // Ce qui a été relu, pas « aucun jeton nulle part » : le trousseau de
+    // macOS ou le Secret Service ne se lisent pas d'ici.
+    constat: 'aucun jeton git en clair dans les fichiers de `git credential-store`',
+    reparation: null,
   };
 }
 

@@ -129,7 +129,7 @@ describe('la livraison appartient au nœud assigné', () => {
 
     const projet = srv.store.createProject({
       name: 'Intégration',
-      repoUrl: 'file:///tmp/depot-fantome',
+      repoUrl: '/tmp/depot-fantome',
     });
     srv.store.createTask({ id: 'w1', projectId: projet.id, title: 'w1', prompt: 'p' });
     srv.store.patchTask('w1', { status: 'done' });
@@ -197,7 +197,7 @@ describe('la livraison appartient au nœud assigné', () => {
     );
     const projet = srv.store.createProject({
       name: 'Intégration',
-      repoUrl: 'file:///tmp/depot-fantome',
+      repoUrl: '/tmp/depot-fantome',
     });
     srv.store.createTask({ id: 'w1', projectId: projet.id, title: 'w1', prompt: 'p' });
     srv.store.patchTask('w1', { status: 'done' });
