@@ -483,7 +483,9 @@ describe('la livraison d’une mission (git réel, clone superficiel)', () => {
       await simpleGit().raw(['init', '--bare', '--quiet', depotLocal]);
       const branche = 'hive/mission-explicite-1';
       vi.stubEnv('HOME', home);
-      onTestFinished(() => vi.unstubAllEnvs());
+      onTestFinished(() => {
+        vi.unstubAllEnvs();
+      });
       const premiere = await livrer({
         projectId: 'explicite',
         diffs: [{ taskId: 'ta', diff: patchA }],
