@@ -270,6 +270,14 @@ describe('la porte des changements sensibles — ce qu’elle arrête', () => {
     ['tests/configuration-initiale.test.ts', 'securite'],
     ['tests/sortie-directe-ruche.test.ts', 'securite'],
     ['tests/isolement-couverture.test.ts', 'securite'],
+    // G18 — le magasin de dépendances des validations : peuplé depuis la seule
+    // base vérifiée, restauré par copie. Ses deux moitiés et chacun de ses
+    // bancs, NOMMÉS : retirés du motif, ils passeraient sinon.
+    ['src/shared/cache-dependances.ts', 'securite'],
+    ['src/node-client/cache-dependances.ts', 'securite'],
+    ['tests/cache-dependances.test.ts', 'securite'],
+    ['tests/cache-dependances-noeud.test.ts', 'securite'],
+    ['tests/cache-dependances-bac.test.ts', 'securite'],
   ])('%s → %s', (chemin, categorie) => {
     const verdict = jugerDiff(modification(chemin));
     expect(verdict.etat).toBe('sensible');
