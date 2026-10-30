@@ -273,6 +273,7 @@ describe('LE BAC NE S’ANNONCE PAS QUAND L’AGENT N’Y SERAIT PAS AUTHENTIFI�
       },
       existe,
       plateforme: 'linux',
+      sonderReseau: async () => ({ filtre: true, motif: 'réseau filtré' }),
     };
     return { outils, sondes };
   }
@@ -411,6 +412,7 @@ describe('LE CONSTAT DU POSTE JUGE CHAQUE AGENT AVEC SA RÈGLE, PAS CELLE DE L�
       sonderAgent: async (_f, bin) => ({ executable: true, motif: `« ${bin} » exécutable` }),
       existe: sessionClaude,
       plateforme: 'linux',
+      sonderReseau: async () => ({ filtre: true, motif: 'réseau filtré' }),
     };
     const bac = await preparerBac(env, 'shell', outils);
     const etats = await diagnostiquerAgents({

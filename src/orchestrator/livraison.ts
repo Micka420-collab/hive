@@ -201,6 +201,7 @@ export async function lireFaitsPr(
   const head = champ(pr, 'head');
   const tete = chaine(head, 'sha');
   const branche = chaine(head, 'ref');
+  const base = chaine(champ(pr, 'base'), 'ref');
   const fusionnableBrut = champ(pr, 'mergeable');
 
   const controles: Controle[] = [];
@@ -212,11 +213,13 @@ export async function lireFaitsPr(
     const liste = champ(runs, 'check_runs');
     if (Array.isArray(liste)) {
       for (const r of liste) {
+        const jobId = jobActions(r);
         controles.push({
           nom: chaine(r, 'name'),
           conclusion: chaine(r, 'conclusion'),
           statut: chaine(r, 'status'),
           url: chaine(r, 'html_url'),
+          ...(jobId !== null ? { jobId } : {}),
         });
       }
     }
@@ -244,9 +247,103 @@ export async function lireFaitsPr(
     fusionnable: typeof fusionnableBrut === 'boolean' ? fusionnableBrut : null,
     ...(tete ? { commitSha: tete } : {}),
     ...(branche ? { branche } : {}),
+    ...(base ? { base } : {}),
     controles,
     revues,
   };
+}
+
+/**
+ * L'identifiant du JOB GitHub Actions derrière un check-run, ou `null`.
+ *
+ * Seul un job Actions se relance par l'API (`relancerJob`) ; un contrôle posé
+ * par une autre application (un service externe de CI, un bot) n'a pas de job,
+ * et le garde de PR ne doit jamais croire pouvoir le relancer. L'identifiant
+ * est lu dans l'adresse du job (`…/actions/runs/<run>/job/<job>`), et
+ * seulement quand l'application est `github-actions` : une adresse de même
+ * forme posée par une autre application ne désigne pas un job de ce dépôt.
+ */
+function jobActions(r: unknown): number | null {
+  if (chaine(champ(r, 'app'), 'slug') !== 'github-actions') return null;
+  for (const cle of ['details_url', 'html_url']) {
+    const m = /\/actions\/runs\/\d+\/job\/(\d{1,20})(?:[/?#]|$)/.exec(chaine(r, cle));
+    const id = m ? Number(m[1]) : Number.NaN;
+    if (Number.isSafeInteger(id) && id > 0) return id;
+  }
+  return null;
+}
+
+/**
+ * Les conclusions RÉCENTES de contrôles nommés sur la branche de base : pour
+ * chaque nom, la conclusion du dernier check-run TERMINÉ de ce nom sur chacun
+ * des `commits` derniers commits de la base, du plus récent au plus ancien.
+ * Un commit où le contrôle n'a pas tourné (ou tourne encore) ne compte pas.
+ *
+ * C'est la preuve qu'exige le garde de PR avant de relancer un job comme
+ * « instable » (`garde-pr.ts`, `jugerInstables`) : un job qui échoue sur la
+ * PR mais passe sur la base est suspect d'instabilité ; un job qui échoue
+ * AUSSI sur la base est une panne de la base, et le relancer ne ferait que
+ * brûler des minutes de CI.
+ *
+ * `commits + 1` appels au plus, SÉQUENTIELS (limites secondaires de GitHub),
+ * et les check-runs d'un commit sont lus une fois pour tous les noms.
+ */
+export async function historiqueBase(
+  opts: OptionsLivraison,
+  depot: string,
+  base: string,
+  noms: readonly string[],
+  commits: number,
+): Promise<Map<string, Array<{ commit: string; conclusion: string }>>> {
+  const ctx = contexte(opts, depot);
+  if (!refValide(base)) throw new ErreurGithub('branche de base invalide', 400, 'Nom de branche.');
+  const parNom = new Map<string, Array<{ commit: string; conclusion: string }>>(
+    noms.map((n) => [n, []]),
+  );
+  const n = Math.max(1, Math.min(10, Math.trunc(commits)));
+  const liste = await lireOuNull(
+    ctx,
+    `/repos/${ctx.depot}/commits?sha=${encodeURIComponent(base)}&per_page=${n}`,
+  );
+  if (!Array.isArray(liste)) return parNom;
+  for (const c of liste.slice(0, n)) {
+    const sha = chaine(c, 'sha');
+    if (!/^[0-9a-f]{7,64}$/i.test(sha)) continue;
+    const runs = champ(
+      await lireOuNull(ctx, `/repos/${ctx.depot}/commits/${sha}/check-runs?per_page=100`),
+      'check_runs',
+    );
+    if (!Array.isArray(runs)) continue;
+    for (const [nom, vus] of parNom) {
+      const r = runs.find((x) => chaine(x, 'name') === nom && chaine(x, 'status') === 'completed');
+      if (r) vus.push({ commit: sha, conclusion: chaine(r, 'conclusion') });
+    }
+  }
+  return parNom;
+}
+
+/**
+ * Relance UN job GitHub Actions (`POST /actions/jobs/{id}/rerun`).
+ *
+ * Un entier vérifié, jamais un nom : le segment part dans une URL signée du
+ * jeton de l'hôte. La relance ne réécrit rien sur le dépôt — elle rejoue le
+ * job au MÊME commit — et la portée `repo` suffit (pas `workflow`, qui sert à
+ * modifier les fichiers de workflow et que la ruche ne demande pas).
+ */
+export async function relancerJob(
+  opts: OptionsLivraison,
+  depot: string,
+  jobId: number,
+): Promise<void> {
+  const ctx = contexte(opts, depot);
+  if (!Number.isSafeInteger(jobId) || jobId <= 0) {
+    throw new ErreurGithub('identifiant de job invalide', 400, 'Un job est un entier > 0.');
+  }
+  const rep = await ctx.f(`${ctx.base}/repos/${ctx.depot}/actions/jobs/${jobId}/rerun`, {
+    method: 'POST',
+    headers: entetes(ctx.jeton),
+  });
+  if (!rep.ok) throw expliquerStatut(rep.status, rep.headers.get('x-ratelimit-remaining'));
 }
 
 /** Au-delà, un commentaire de revue n'est plus une demande, c'est un document. */

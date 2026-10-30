@@ -32,6 +32,7 @@
 import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { CLONE_MS, DELAI_RESEAU_MS } from '../shared/butoirs-noeud.js';
+import { effacerDossier } from '../shared/effacement.js';
 import {
   DestinationRefusee,
   POLITIQUE_LIBRE,
@@ -41,13 +42,16 @@ import {
   type PolitiqueDestinations,
   type Resolveur,
 } from '../shared/destination-clone.js';
+import { estCheminLocalAbsolu } from '../shared/protocol.js';
 import {
   EchecGitHote,
   commandeSshDuMembre,
+  depotDistant,
   gitHote,
+  porteDesIdentifiants,
+  type DepotDistant,
   type DepotEpingle,
 } from '../shared/git-protege.js';
-import { estCheminLocalAbsolu } from '../shared/protocol.js';
 import {
   TAILLE_MAX_FICHIER,
   cheminDemande,
@@ -172,21 +176,23 @@ export class Miroir {
 
   private readonly politique: PolitiqueDestinations;
   private readonly resoudre: Resolveur | undefined;
+  private readonly journal: (projectId: string, message: string) => void;
 
   /**
-   * `politique` : vers où git a le droit d'aller (`shared/destination-clone.ts`).
-   * Défaut LIBRE — le comportement d'avant ; la Reine passe celle de son
-   * édition. `resoudre` : le DNS, remplaçable par un banc.
+   * Compatible avec l'ancienne signature (racine, journal) et avec les
+   * bancs de sécurité (racine, { politique, resoudre }).
    */
   constructor(
     private readonly racine: string,
-    {
-      politique = POLITIQUE_LIBRE,
-      resoudre,
-    }: { politique?: PolitiqueDestinations; resoudre?: Resolveur } = {},
+    journalOuOptions:
+      | ((projectId: string, message: string) => void)
+      | { politique?: PolitiqueDestinations; resoudre?: Resolveur } = () => undefined,
+    options: { politique?: PolitiqueDestinations; resoudre?: Resolveur } = {},
   ) {
-    this.politique = politique;
-    this.resoudre = resoudre;
+    const choix = typeof journalOuOptions === 'function' ? options : journalOuOptions;
+    this.journal = typeof journalOuOptions === 'function' ? journalOuOptions : () => undefined;
+    this.politique = choix.politique ?? POLITIQUE_LIBRE;
+    this.resoudre = choix.resoudre;
   }
 
   /** Le répertoire du miroir de ce projet — sans garantir qu'il existe. */
@@ -215,20 +221,31 @@ export class Miroir {
    * du Rayon vérifient le projet puis appellent `rafraichir` sans rien
    * attendre entre les deux, et le projet n'existe déjà plus en base.
    *
-   * `maxRetries` : sous Windows, un antivirus ou un `git` qui se termine tient
-   * parfois un fichier du pack une fraction de seconde (motif `workspace.ts`).
+   * Par `effacerDossier`, comme tout effacement du miroir : sous Windows, un
+   * antivirus ou un `git` qui se termine tient parfois un fichier du pack une
+   * fraction de seconde, et ses reprises l'absorbent — 5,5 s au plus, puis
+   * l'échec remonte. Les `maxRetries` de `fs.rm` posés ici se multipliaient par
+   * la profondeur : un fichier tenu sous `.git/objects/pack/` faisait attendre
+   * la route de suppression près de 25 heures, sans un mot.
    */
   async effacer(projectId: string): Promise<'efface' | 'absent'> {
     await this.enVol.get(projectId)?.catch(() => undefined);
     this.dernier.delete(projectId);
     const dir = this.dossier(projectId);
-    // Le reclone voisin (`recloner`) d'une Reine arrêtée en plein clone : seul
-    // le rafraîchissement suivant le retirait, et un projet supprimé n'en a
-    // plus — il restait pour toujours.
-    await fs.rm(voisinDeReclone(dir), { recursive: true, force: true, maxRetries: 10 });
-    if (!existsSync(dir)) return 'absent';
-    await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
-    return 'efface';
+    const existait = existsSync(dir);
+    // Le miroir ET son reclone voisin (`recloner`, laissé par une Reine arrêtée
+    // en plein clone) partent ENSEMBLE. Effacer le voisin d'ABORD, puis le
+    // miroir, laissait un voisin tenu faire échouer `effacer` à son butoir
+    // (5,5 s) sans même essayer le miroir : le miroir restait, pourtant
+    // effaçable, et le voisin fuyait pour toujours — un projet supprimé n'a
+    // plus de rafraîchissement qui le retire. On relance la PREMIÈRE erreur
+    // (le voisin, puis le miroir) : la route la dit, comme avant.
+    const issues = await Promise.allSettled([
+      effacerDossier(voisinDeReclone(dir)),
+      existait ? effacerDossier(dir) : Promise.resolve(),
+    ]);
+    for (const i of issues) if (i.status === 'rejected') throw i.reason;
+    return existait ? 'efface' : 'absent';
   }
 
   /**
@@ -301,24 +318,38 @@ export class Miroir {
    * `fetch` puis `reset --hard` : le miroir n'a pas de travail local à
    * préserver, et un `pull` qui tomberait sur un rebase amont resterait
    * bloqué sur un conflit que personne n'est là pour résoudre.
+   *
+   * L'`origin` du miroir est l'adresse NUE du dépôt ; ses identifiants
+   * arrivent à chaque appel, depuis le `repoUrl` du projet, dans
+   * l'environnement du seul git qui parle à l'amont (`depotDistant`). Un
+   * jeton renouvelé sert donc dès le rafraîchissement suivant.
    */
   private async faireRafraichir(projectId: string, repoUrl: string): Promise<void> {
     const dir = this.dossier(projectId);
     const depot = { gitDir: path.join(dir, '.git'), workTree: dir };
-    const epinglage = await this.juger(dir, repoUrl);
+    const distant = depotDistant(repoUrl);
+    // Juger avant TOUT accès réseau. La destination nue est celle donnée à git
+    // (les identifiants du projet passent uniquement par l'environnement).
+    const epinglage = await this.juger(dir, distant.nue);
     const reseau = { configReseau: epinglage.configGit, delaiMs: DELAI_RESEAU_MS };
+    // Un voisin de reclone laissé par une Reine arrêtée en plein clone : les
+    // rafraîchissements d'un projet ne se chevauchent pas (`enVol`), il est
+    // donc à nous. Retiré à CHAQUE rafraîchissement, pas seulement avant un
+    // reclone : celui d'une version d'avant garde le jeton dans sa config.
+    await effacerDossier(voisinDeReclone(dir));
+    if (this.existe(projectId)) await this.oterLesIdentifiants(projectId, depot, distant.nue);
     // La racine d'abord : `commandeSshDuMembre` y lance git, et un cwd absent
     // la ferait retomber sur `ssh` au premier clone.
     await fs.mkdir(this.racine, { recursive: true });
     const sshMembre = await commandeSshDuMembre(this.racine);
-    const ssh = epinglage.optionsSsh === '' ? sshMembre : `${sshMembre} ${epinglage.optionsSsh}`;
+    const ssh =
+      epinglage.optionsSsh === '' ? sshMembre : `${sshMembre} ${epinglage.optionsSsh}`;
     if (this.existe(projectId) && (await this.reprenable(depot))) {
-      // L'URL JUGÉE, jamais `origin` : la configuration du miroir n'est pas
-      // ce que le filtre a regardé, et l'épinglage porte sur cet hôte-ci.
       const amont = lireTeteAmont(
-        await gitHote(['ls-remote', '--symref', '--', repoUrl, 'HEAD', 'refs/heads/*'], depot, {
+        await gitHote(['ls-remote', '--symref', '--', distant.nue, 'HEAD', 'refs/heads/*'], depot, {
           ssh,
           ...reseau,
+          acces: distant.acces,
         }),
       );
       if (amont.etat === 'sans_tete') {
@@ -338,36 +369,23 @@ export class Miroir {
             '--depth',
             '1',
             '--',
-            repoUrl,
+            distant.nue,
             `+refs/heads/${tete}:refs/remotes/origin/${tete}`,
           ],
           depot,
-          { ssh, ...reseau },
+          { ssh, ...reseau, acces: distant.acces },
         );
         await gitHote(['reset', '--hard', `origin/${tete}`], depot);
         return;
       }
     }
-    await this.recloner(dir, repoUrl, ssh, epinglage);
+    await this.recloner(dir, distant, ssh, epinglage);
   }
 
   /**
-   * Juge la destination AVANT tout git réseau (`shared/destination-clone.ts`).
-   * Un chemin local (réservé à un administrateur à la création) ne quitte pas
-   * la machine : rien à juger.
-   *
-   * Refusée, la copie existante est EFFACÉE : elle vient d'une destination que
-   * la ruche ne sert plus — un miroir cloné depuis une adresse interne avant
-   * le filtre ne doit pas continuer d'en montrer le contenu comme « la copie
-   * d'hier ».
-   *
-   * SAUF `introuvable` : un nom qui ne se résout pas À CET INSTANT n'est pas
-   * une destination interdite. Un hoquet du DNS (`EAI_AGAIN`, délai) sur
-   * github.com effaçait la copie qu'un amont muet, lui, laisse servir — tout
-   * ce fichier existe pour garder « la copie d'hier + avertissement » quand
-   * l'amont est injoignable (revue indépendante de #521). Le rafraîchissement
-   * échoue, la copie reste ; un nom interne qui se résout de nouveau tombe
-   * sur `interne` au passage suivant.
+   * Un nom qui ne se résout pas peut être transitoire : garder alors la copie
+   * précédente. Toute destination effectivement refusée purge le cache pour
+   * qu'aucun dépôt interne ancien ne soit encore servi par le Rayon.
    */
   private async juger(dir: string, repoUrl: string): Promise<Epinglage> {
     if (estCheminLocalAbsolu(repoUrl)) return SANS_EPINGLAGE;
@@ -377,11 +395,47 @@ export class Miroir {
       });
     } catch (e) {
       if (e instanceof DestinationRefusee && e.motif !== 'introuvable') {
-        await fs.rm(voisinDeReclone(dir), { recursive: true, force: true, maxRetries: 10 });
-        await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+        await Promise.all([
+          effacerDossier(voisinDeReclone(dir)),
+          effacerDossier(dir),
+        ]);
       }
       throw e;
     }
+  }
+
+  /**
+   * Un miroir cloné par une version d'avant garde l'URL AUTHENTIFIÉE du
+   * projet en `remote.origin.url` — et nulle part ailleurs (mesuré, git 2.53 :
+   * `FETCH_HEAD` et le journal des références la citent anonymisée). Elle est
+   * réécrite SUR PLACE, en adresse nue, AVANT tout appel à l'amont : le jeton
+   * quitte le disque même si l'amont ne répond plus — un reclone, lui,
+   * l'aurait laissé là à chaque échec. Une configuration qui en porterait
+   * encore ailleurs fait effacer le miroir : c'est un cache, il se refait.
+   */
+  private async oterLesIdentifiants(
+    projectId: string,
+    depot: DepotEpingle,
+    nue: string,
+  ): Promise<void> {
+    const config = path.join(depot.gitDir, 'config');
+    const lire = (): Promise<string | null> => fs.readFile(config, 'utf8').catch(() => null);
+    const avant = await lire();
+    if (avant === null || !porteDesIdentifiants(avant)) return;
+    const apres = await gitHote(['config', 'remote.origin.url', nue], depot).then(lire, () => null);
+    if (apres !== null && !porteDesIdentifiants(apres)) {
+      this.journal(
+        projectId,
+        'identifiants retirés de la configuration du miroir (remote.origin.url : ' +
+          'l’adresse nue) — une version précédente les y avait écrits',
+      );
+      return;
+    }
+    await effacerDossier(depot.workTree);
+    this.journal(
+      projectId,
+      'miroir effacé : sa configuration gardait des identifiants qu’on n’a pas pu retirer',
+    );
   }
 
   /**
@@ -421,15 +475,12 @@ export class Miroir {
    */
   private async recloner(
     dir: string,
-    repoUrl: string,
+    distant: DepotDistant,
     ssh: string,
     epinglage: Epinglage,
   ): Promise<void> {
     const neuf = voisinDeReclone(dir);
     const depotNeuf = { gitDir: path.join(neuf, '.git'), workTree: neuf };
-    // Un voisin d'une Reine arrêtée en plein clone : les rafraîchissements
-    // d'un projet ne se chevauchent pas (`enVol`), celui-ci est donc à nous.
-    await fs.rm(neuf, { recursive: true, force: true });
     try {
       await gitHote(
         [
@@ -442,11 +493,16 @@ export class Miroir {
           '--config',
           'core.autocrlf=false',
           '--',
-          repoUrl,
+          distant.nue,
           neuf,
         ],
         this.racine,
-        { ssh, delaiMs: CLONE_MS, configReseau: epinglage.configGit },
+        {
+          ssh,
+          delaiMs: CLONE_MS,
+          acces: distant.acces,
+          configReseau: epinglage.configGit,
+        },
       );
       const attributs = path.join(depotNeuf.gitDir, 'info', 'attributes');
       await fs.mkdir(path.dirname(attributs), { recursive: true });
@@ -456,10 +512,10 @@ export class Miroir {
         await gitHote(['reset', '--hard', `origin/${tete}`], depotNeuf);
       }
     } catch (e) {
-      await fs.rm(neuf, { recursive: true, force: true }).catch(() => undefined);
+      await effacerDossier(neuf).catch(() => undefined);
       throw e;
     }
-    await fs.rm(dir, { recursive: true, force: true });
+    await effacerDossier(dir);
     await fs.rename(neuf, dir);
   }
 

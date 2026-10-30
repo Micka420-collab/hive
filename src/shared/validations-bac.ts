@@ -45,7 +45,9 @@
 //
 // ─── QUATRE ÉTATS, ET CE QUE CHACUN DIT À L'EVALUATOR ────────────────────────
 //
-//   · `passed`         — la commande déclarée a tourné et rendu 0 ;
+//   · `passed`         — la commande déclarée a tourné et rendu 0 — ou, pour
+//                        les tests, ses seuls échecs étaient déjà rouges à la
+//                        base (raison `comparee`, G11b), et ils sont DITS ;
 //   · `failed`         — elle a tourné et rendu autre chose : c'est un verdict
 //                        sur la production, qui demande une correction ;
 //   · `missing`        — la preuve DEVRAIT exister et n'existe pas : délai
@@ -64,6 +66,14 @@
 // et valide ce qui traverse le réseau et le journal.
 
 import { nomDeChantierValide } from './chantier.js';
+import {
+  CARACTERES_DOUTEUX,
+  FORMATS_DE_TEST,
+  OBSERVATIONS,
+  echecDeTestLu,
+  sansSuitesRedites,
+} from './lecture-tests.js';
+import type { ComparaisonDeTests, FormatDeTest } from './lecture-tests.js';
 
 export const VALIDATION_KEYS = ['tests', 'typecheck', 'build', 'lint'] as const;
 export type ValidationKey = (typeof VALIDATION_KEYS)[number];
@@ -81,6 +91,20 @@ export type ValidationState = 'passed' | 'failed' | 'missing' | 'not_applicable'
 export const ETATS_PAR_RAISON = {
   /** La commande a tourné jusqu'au bout ; `code` porte le verdict. */
   termine: ['passed', 'failed'],
+  /**
+   * Les tests ont échoué, et la sortie s'est lue test par test, complète et
+   * cohérente : chaque échec a été comparé à la BASE, rejouée à côté
+   * (`comparaison`, G11b). `failed` : une régression au moins ; `passed` : tous
+   * étaient déjà rouges à la base, du même échec. Les TESTS seulement
+   * (`validationsBacDepuis`).
+   */
+  comparee: ['passed', 'failed'],
+  /**
+   * Comparés à la base, des tests ont été vus rouges à une exécution et VERTS à
+   * une autre — de la production, ou de la base : ni régression ni vert, le
+   * verdict reste inconnu. Les TESTS seulement.
+   */
+  instable: ['missing'],
   /** Pas de dépôt, ou pas de `package.json` lisible au commit de base. */
   sans_manifeste: ['not_applicable'],
   /** Le projet ne déclare pas ce script. */
@@ -89,6 +113,13 @@ export const ETATS_PAR_RAISON = {
   test_par_defaut: ['not_applicable'],
   /** La production a modifié le bloc `scripts` de `package.json`. */
   declaration_reecrite: ['missing'],
+  /**
+   * La base relue dans l'espace de travail ne correspond pas à son empreinte :
+   * l'agent a forgé un objet git du dépôt de la tâche (`base-verifiee.ts`). Le
+   * plan se lirait sur un `package.json` falsifié — aucune validation n'est
+   * fiable, et aucune ne passe.
+   */
+  base_falsifiee: ['missing'],
   /** La production a modifié `.npmrc`, qui règle comment npm lance un script. */
   npmrc_reecrit: ['missing'],
   /** Le nœud n'a pas de bac à sable : du code d'agent ne tourne pas sur l'hôte nu. */
@@ -205,11 +236,47 @@ export const DIRE_PANNE: Record<
   },
 };
 
+/** Au plus tant de noms par liste de tests : le reste se COMPTE (`total`). */
+export const NOMS_DE_TESTS_MAX = 10;
+/** Un nom de test au plus long — une donnée du dépôt, bornée comme l'extrait. */
+export const NOM_DE_TEST_MAX = 300;
+
+/** Des tests nommés : les premiers noms, bornés, et combien il y en a. */
+export interface TestsNommes {
+  total: number;
+  noms: readonly string[];
+}
+
+/**
+ * Ce que la comparaison à la base a vu (G11b, `shared/lecture-tests.ts`) —
+ * présente avec les raisons `comparee` et `instable`, et seulement elles.
+ */
+export interface ComparaisonBase {
+  /** Le format de sortie reconnu. */
+  format: FormatDeTest;
+  /** Exécutions du script de test sur lesquelles le verdict repose. */
+  executions: { tete: number; base: number };
+  /** La base était déjà dans la mémoire du nœud : elle n'a pas été rejouée. */
+  memoire: boolean;
+  /** Le temps passé à comparer, au-delà de la première exécution des tests. */
+  surcoutMs: number;
+  /** Rouges à chaque exécution de la tête, jamais à la base : chacun bloque. */
+  regressions: TestsNommes;
+  /** Rouges à la tête ET à la base : dits, jamais bloquants. */
+  dejaRouges: TestsNommes;
+  /** Rouges à une exécution de la tête et pas à l'autre : ni régression, ni vert. */
+  instables: TestsNommes;
+  /** Rouges à la base, vus verts à la tête. */
+  ciblesPassees: TestsNommes;
+}
+
 /** Ce que le bac a constaté pour une validation, au-delà de son état. */
 export interface DetailControle {
   raison: RaisonControle;
   /** La panne reconnue — présente avec la raison `environnement`, et seulement elle. */
   panne?: PanneEnvironnement;
+  /** La comparaison à la base — avec `comparee` et `instable`, et seulement elles. */
+  comparaison?: ComparaisonBase;
   /** Le script lancé — ou qui l'aurait été. Absent quand le projet n'en déclare pas. */
   script?: string;
   /** Code de sortie, quand un processus s'est terminé de lui-même. */
@@ -297,6 +364,45 @@ export function planDeValidation(
       : { genre: 'lancer', script };
   }
   return plan;
+}
+
+/**
+ * Les règles `permissions.allow` COMPILÉES depuis les déclarations du dépôt —
+ * la moitié « autorisation » de la politique d'actions (G12).
+ *
+ * La liste DÉCOULE LITTÉRALEMENT du dépôt : les scripts de validation que le
+ * `package.json` du commit de BASE déclare (jamais l'arbre de travail — l'agent
+ * ne s'auto-autorise pas en réécrivant le juge, même frontière que
+ * `declaration_reecrite`), plus l'installation que son lockfile fixe. Hive
+ * n'invente aucune commande : un dépôt sans script `test` n'autorise pas
+ * `npm run test`, et un dépôt sans lockfile n'autorise aucune installation.
+ *
+ * La syntaxe est celle des règles de permission de Claude Code
+ * (code.claude.com/docs/en/permissions) : `Bash(npm run test)` exact, plus la
+ * forme préfixe `Bash(npm run test:*)` pour la même commande suivie
+ * d'arguments (`npm run test -- --filter`). Les autres familles d'adaptateurs
+ * dérivent leurs globs de la même liste.
+ */
+export function reglesAutorisationDepot(
+  manifesteBase: unknown,
+  lockfilePresent: (fichier: string) => boolean = () => false,
+): string[] {
+  const base = scriptsDe(manifesteBase);
+  const plan = planDeValidation(base, base);
+  const regles: string[] = [];
+  for (const cle of VALIDATION_KEYS) {
+    const etape = plan[cle];
+    // `planDeValidation(base, base)` applique déjà les gardes du bac :
+    // `non_declare`, `sans_manifeste` et le `test` par défaut de `npm init`
+    // (qui échoue exprès) ne produisent aucune règle.
+    if (etape.genre !== 'lancer') continue;
+    regles.push(`Bash(npm run ${etape.script})`, `Bash(npm run ${etape.script}:*)`);
+  }
+  if (declareDesDependances(manifesteBase)) {
+    const preparation = preparationDepuisLockfile(lockfilePresent);
+    if (preparation) regles.push(`Bash(${preparation.join(' ')})`);
+  }
+  return regles;
 }
 
 /**
@@ -389,7 +495,8 @@ export function extraitDe(sortie: string): { extrait?: string } {
 //
 // Adaptée de `INFRA_FAILURE_SIGNATURES` (swebench/harness/infra_failure.py,
 // v5.0.0) — MIT, Copyright (c) 2023 Carlos E Jimenez, John Yang, Alexander
-// Wettig, Shunyu Yao, Kexin Pei, Ofir Press, Karthik R Narasimhan. Seul le
+// Wettig, Shunyu Yao, Kexin Pei, Ofir Press, Karthik R Narasimhan ; la notice
+// complète, permission comprise, est au bas de `lecture-tests.ts`. Seul le
 // niveau « environment » est repris : le niveau « ambiguous » (module
 // introuvable, aucun test collecté) peut venir de la production, il reste un
 // verdict. Écarts voulus :
@@ -429,34 +536,29 @@ const SIGNATURES_ENVIRONNEMENT: readonly {
 ];
 
 /**
- * Ce qu'un runner imprime quand un TEST (ou un contrôle) a échoué : TAP et
- * `node --test` (`not ok`, `# fail N`), les comptes de vitest, jest, mocha,
- * playwright, ava (« 1 failed », « 2 failing », « 1 test failed »), le compte
- * et les lignes `(fail)` de bun, les lignes FAIL/✗/×/✖/✘ de jest, vitest,
- * `node --test`, ESLint et ava, une assertion, une erreur de `tsc`. La liste
- * est volontairement large : un faux positif garde l'ancien `failed`, un faux
- * négatif prêterait une panne à ce qui est un échec.
- */
-const ECHECS_LUS: readonly RegExp[] = [
-  /^\s*not ok \d/m,
-  /^# fail [1-9]/m,
-  /\b[1-9]\d* (?:tests? )?(?:failed|failing)\b/,
-  /^\s*(?:FAIL|✗|×|✖|✘)\s/m,
-  /^\(fail\)\s/m,
-  /^\s*[1-9]\d* fail$/m,
-  /AssertionError/,
-  /\berror TS\d+:/,
-];
-
-/**
  * La panne du bac qu'une commande terminée sur `code` révèle, ou `null`.
  *
  * `null` dès qu'un échec de test se lit dans la sortie, même à côté d'une
- * signature : un échec lu est un verdict. La première signature trouvée
- * l'emporte, dans l'ordre de la table.
+ * signature : un échec lu est un verdict. Lu par LE lecteur des sorties de
+ * test (`echecDeTestLu`, `shared/lecture-tests.ts`) — celui qui nomme aussi les
+ * tests que la comparaison à la base juge : deux lecteurs finiraient par ne
+ * pas voir le même échec. La première signature trouvée l'emporte, dans
+ * l'ordre de la table.
  */
 export function panneEnvironnement(code: number, sortie: string): PanneEnvironnement | null {
-  if (code === 0 || ECHECS_LUS.some((motif) => motif.test(sortie))) return null;
+  if (code === 0 || echecDeTestLu(sortie)) return null;
+  return signatureEnvironnement(code, sortie);
+}
+
+/**
+ * La première signature de panne du bac que `sortie` porte — sans regarder si
+ * un échec de test s'y lit. C'est la règle de la BASE rejouée (G11b) : ses
+ * tests rouges EXCUSENT ceux de la production, et un rouge qu'une mémoire ou
+ * un disque épuisés auraient causé excuserait une régression. Une exécution
+ * qui porte une signature ne compte donc pas — ni à la base, ni à la tête,
+ * dont elle ne peut que fausser la comparaison.
+ */
+export function signatureEnvironnement(code: number, sortie: string): PanneEnvironnement | null {
   const trouvee = SIGNATURES_ENVIRONNEMENT.find(
     (s) => (s.code === undefined || s.code === code) && s.motif.test(sortie),
   );
@@ -520,6 +622,68 @@ export function controleApresLancement(p: {
   return { etat: 'failed', raison: 'termine', ...commun, code: p.code, ...extraitDe(p.sortie) };
 }
 
+/** Un nom de test sur une ligne, dans la borne du protocole. */
+const nomBorne = (nom: string): string =>
+  nom.length > NOM_DE_TEST_MAX ? `${nom.slice(0, NOM_DE_TEST_MAX - 1)}…` : nom;
+
+/** Une liste de la comparaison, telle qu'elle se dit : sans suites redites, bornée. */
+function nommes(noms: readonly string[]): TestsNommes {
+  const dits = sansSuitesRedites(noms);
+  return { total: dits.length, noms: dits.slice(0, NOMS_DE_TESTS_MAX).map(nomBorne) };
+}
+
+/**
+ * Le constat des tests comparés test par test à la base (G11b) — la première
+ * exécution à la tête a échoué, sa sortie s'est lue complète et cohérente, et
+ * la base a été rejouée (`node-client/validations-bac.ts`).
+ *
+ * Une régression, et c'est un verdict sur la production : `failed`, chaque
+ * régression NOMMÉE. Sinon, des tests instables, et le verdict reste inconnu :
+ * `missing` — ni correction, ni vert. Sinon, tous les échecs étaient déjà
+ * rouges à la base, du même échec : `passed`, et la liste part avec le
+ * constat, pour que l'Evaluator et l'écran la DISENT — un vert qui tairait des
+ * tests rouges en serait un faux.
+ */
+export function controleCompare(p: {
+  script: string;
+  /** Le code de la PREMIÈRE exécution à la tête — celle qui a ouvert la comparaison. */
+  code: number;
+  dureeMs: number;
+  sortie: string;
+  format: FormatDeTest;
+  comparaison: ComparaisonDeTests;
+  executions: { tete: number; base: number };
+  memoire: boolean;
+  surcoutMs: number;
+}): ControleBac {
+  const { regressions, dejaRouges, instables, ciblesPassees } = p.comparaison;
+  const comparaison: ComparaisonBase = {
+    format: p.format,
+    executions: p.executions,
+    memoire: p.memoire,
+    surcoutMs: p.surcoutMs,
+    regressions: nommes(regressions),
+    dejaRouges: nommes(dejaRouges),
+    instables: nommes(instables),
+    ciblesPassees: nommes(ciblesPassees),
+  };
+  const [etat, raison]: [ValidationState, RaisonControle] =
+    regressions.length > 0
+      ? ['failed', 'comparee']
+      : instables.length > 0
+        ? ['missing', 'instable']
+        : ['passed', 'comparee'];
+  return {
+    etat,
+    raison,
+    script: p.script,
+    code: p.code,
+    dureeMs: p.dureeMs,
+    ...extraitDe(p.sortie),
+    comparaison,
+  };
+}
+
 // ─── Ce qui traverse le réseau et le journal ─────────────────────────────────
 
 const SHA = /^[0-9a-f]{7,64}$/;
@@ -536,13 +700,75 @@ function estRaison(v: unknown): v is RaisonControle {
 }
 
 /**
+ * Une liste nommée reconstruite — des noms bornés, pas plus que le total, et
+ * qui s'affichent comme ils se lisent : ni saut de ligne, ni caractère de
+ * contrôle, ni contrôle bidirectionnel (`CARACTERES_DOUTEUX`). Le lecteur du
+ * nœud n'en rend pas ; un nœud qui en enverrait ment ou bogue.
+ */
+function testsNommesDepuis(v: unknown): TestsNommes | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const { total, noms } = v as Record<string, unknown>;
+  if (!entier(total, 0) || !Array.isArray(noms)) return null;
+  if (noms.length > Math.min(total, NOMS_DE_TESTS_MAX)) return null;
+  const lus: string[] = [];
+  for (const nom of noms) {
+    if (typeof nom !== 'string' || nom.length === 0 || nom.length > NOM_DE_TEST_MAX) return null;
+    if (CARACTERES_DOUTEUX.test(nom)) return null;
+    lus.push(nom);
+  }
+  return { total, noms: lus };
+}
+
+/** Une exécution comptée : au moins une, au plus `OBSERVATIONS`. */
+const executionsComptees = (v: unknown): v is number => entier(v, 1) && v <= OBSERVATIONS;
+
+/** La comparaison à la base reconstruite champ par champ, ou `null`. */
+function comparaisonDepuis(v: unknown): ComparaisonBase | null {
+  if (typeof v !== 'object' || v === null) return null;
+  const c = v as Record<string, unknown>;
+  const format = FORMATS_DE_TEST.find((f) => f === c.format);
+  const executions = c.executions as Record<string, unknown> | null | undefined;
+  if (!format || typeof executions !== 'object' || executions === null) return null;
+  if (!executionsComptees(executions.tete) || !executionsComptees(executions.base)) return null;
+  if (typeof c.memoire !== 'boolean' || !entier(c.surcoutMs, 0)) return null;
+  const regressions = testsNommesDepuis(c.regressions);
+  const dejaRouges = testsNommesDepuis(c.dejaRouges);
+  const instables = testsNommesDepuis(c.instables);
+  const ciblesPassees = testsNommesDepuis(c.ciblesPassees);
+  if (!regressions || !dejaRouges || !instables || !ciblesPassees) return null;
+  return {
+    format,
+    executions: { tete: executions.tete, base: executions.base },
+    memoire: c.memoire,
+    surcoutMs: c.surcoutMs,
+    regressions,
+    dejaRouges,
+    instables,
+    ciblesPassees,
+  };
+}
+
+/**
+ * L'état que la comparaison FONDE, ou `null` si elle ne fonde rien — la règle
+ * même de `controleCompare`, relue à l'arrivée : un nœud ne fait pas dire
+ * `passed` à une comparaison qui porte une régression.
+ */
+function etatFondePar(c: ComparaisonBase): ValidationState | null {
+  if (c.regressions.total > 0) return 'failed';
+  if (c.instables.total > 0) return 'missing';
+  return c.dejaRouges.total > 0 ? 'passed' : null;
+}
+
+/**
  * Reconstruit un constat champ par champ, ou `null` s'il est mal formé.
  *
  * Même discipline que le reste du protocole : rien n'est recopié tel quel, et
  * un champ qu'on n'attend pas n'atteint ni le journal ni l'écran. Le couple
  * état/raison doit figurer dans `ETATS_PAR_RAISON`, et un verdict doit porter
  * le code qui le fonde — 0 pour `passed`, autre chose pour `failed`. Une
- * panne n'accompagne que la raison `environnement`, qui en exige une.
+ * panne n'accompagne que la raison `environnement`, qui en exige une. Une
+ * comparaison à la base n'accompagne que `comparee` et `instable`, qui en
+ * exigent une — avec le code ≠ 0 qui l'a ouverte, et l'état qu'elle fonde.
  */
 export function controleDepuis(v: unknown): ControleBac | null {
   if (typeof v !== 'object' || v === null) return null;
@@ -563,10 +789,17 @@ export function controleDepuis(v: unknown): ControleBac | null {
   ) {
     return null;
   }
+  const comparee = raison === 'comparee' || raison === 'instable';
+  const comparaison = c.comparaison === undefined ? null : comparaisonDepuis(c.comparaison);
+  if (c.comparaison !== undefined && comparaison === null) return null;
+  if (comparee !== (comparaison !== null)) return null;
+  if (comparaison && (c.code === 0 || etatFondePar(comparaison) !== etat)) return null;
+  if (comparee && typeof c.code !== 'number') return null;
   return {
     etat,
     raison,
     ...(panne ? { panne } : {}),
+    ...(comparaison ? { comparaison } : {}),
     ...(typeof c.script === 'string' ? { script: c.script } : {}),
     ...(typeof c.code === 'number' ? { code: c.code } : {}),
     ...(typeof c.dureeMs === 'number' ? { dureeMs: c.dureeMs } : {}),
@@ -593,6 +826,11 @@ export function validationsBacDepuis(v: unknown): ValidationsBac | null {
   for (const cle of VALIDATION_KEYS) {
     const controle = controleDepuis(brut[cle]);
     if (!controle) return null;
+    // Seuls les TESTS se comparent à la base : un lint, un typecheck ou un
+    // build « comparés » seraient un vert que rien n'a fondé.
+    if (cle !== 'tests' && (controle.raison === 'comparee' || controle.raison === 'instable')) {
+      return null;
+    }
     controles[cle] = controle;
   }
   return { ...(typeof m.baseSha === 'string' ? { baseSha: m.baseSha } : {}), controles };

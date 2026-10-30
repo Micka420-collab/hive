@@ -12,24 +12,26 @@
 ## 🎛️ Mission Control — the cockpit
 
 The dashboard (served on `:7777`) is a full hive-management application,
-keyboard-navigable (keys **1-9**, `0`, `h`, `w`, `i`, `c`) through a honeycomb sidebar:
+keyboard-navigable (keys **1-9**, `0`, `h`, `w`, `i`, `c`, `p`, `l`) through a honeycomb sidebar:
 
-| View               | What you do there                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 🐝 **Hive**        | Overview: 2D/3D Swarm View, KPIs including the **declared spend of the last 24 h** (always with its coverage, “3/5 attempts declared” — never a bill, never extrapolated), a **What is stopping the hive** block (no worker online, a review waiting for an absent family, infrastructure refusals, an impossible review no human has settled, a project stopped by its cap — each line leads to the gesture that clears it), the **recent decisions** (commanded model, cross-review, Evaluator retries, human reviews, Balance), **Full Swarm pulse** (level / pause / drift → Projects), clickable honeycomb, queue, journal.                                                                                                                 |
-| 👑 **Queen**       | Talk to the hive in **your language**: progress, health, leaderboard, brief-scoping help. **SSE streaming** (progressive text), read-only multi-agent / Full Swarm context, Anthropic token counts, Chat / Plan / Autonomy / Backups modes, **Restore…** chip when failures sit next to a checkpoint.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| 🍯 **Honey House** | **Review what the AIs produced**: per-file diffs, logs, Parliament verdict **and surface — did two agents go to the same place, or not**, keyboard approve (a) / reject (x), then Honeycomb merge.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| ⬡ **Projects**     | Progress reports, **mission report** (per task: Evaluator decision, cross-review, retries by source, time and declared spend with its coverage; the mission's Genome facts — never through a share link), brief→DAG workshop (Queen Bee), merge planning and launch, Sting conflicts.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| 🐝 **The Comb**    | **The project's code, readable**: file tree, highlighted editor, preview of the site produced, edit → task (with an `avant_retouche` safety net), and a **checkpoint timeline** (view the patch; restore opens a task).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| 🕺 **Swarm**       | Member node cards — with their **economics** (declared cost and model time with their coverage, median duration of a success, per Worker and per model) — + Waggle Board (nectar podium). A worker's sheet (Chambre) adds its **record**: the share of its productions **accepted by the Evaluator** and its correction rate, two separate measures, “unknown” below three judged productions.                                                                                                                                                                                                                                                                                                                                                   |
-| 💓 **Health**      | Hive pulse (throughput, p50/p95 latency, success rate) + Ghost anomalies.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| 📜 **Chronicle**   | Filterable journal + Time-Lapse Replay (sepia "you are watching the past" mode).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| 🧠 **Memory**      | Search the hive's knowledge (Hive Mind) + OpenAlex scientific library.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| 🏗 **Works**        | **The works the repository DECLARES**, one click away: its scripts on a hive node, its workflows on GitHub. The hive picks from that list and never invents a command — and whatever leaves the machine carries its reason for needing a human.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| ⚔ **War Room**     | **Where the AIs contradict each other, and where you settle**: Council, counter-review (impossible reviews included), Evaluator retries, human reviews and overrides read back from the journal, per project and per task, filterable by voice (Council, counter-review, Evaluator, human decisions). On top, what is **waiting on someone** — a Council without consensus nobody has settled, a contest whose correction retry could not happen, a production nobody could review. Protocol: [PROTOCOLE-DEBAT.en.md](PROTOCOLE-DEBAT.en.md). Convening a Council and **settling** it (a path or none, a required reason, the author recorded) works here as on the project card; it is the view's only write. Direct access from the Hive home. |
-| 🪪 **My space**    | One person's dashboard: their projects, quota, subscriptions, machines — and whatever needs their attention, ranked by urgency.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 🖥 **Stewardship**  | _Administrators only._ The machines started for subscribers, and the hive's accounts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| 🧠 **Brain**       | _Administrators only._ The hive's knowledge as a **living graph**, Obsidian-style: notes repel each other, links pull them together, and a halo breathes on whatever was used recently. A **hollow** dot has never been used — knowledge stored without use. Dead links are listed but **never drawn**: tracing them into the void would invent a note that does not exist. Read-only. **Explorable**: accent-insensitive search, filters by kind, a “dormant” filter, zoom, pan, and a **list** view — a real table, keyboard-navigable, because a screen existing only in pixels would be the one place where `NO_COLOR` and `TERM=dumb` stop.                                                                                                 |
+| View                | What you do there                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 🐝 **Hive**         | Overview: 2D/3D Swarm View, KPIs including the **declared spend of the last 24 h** (always with its coverage, “3/5 attempts declared” — never a bill, never extrapolated), a **What is stopping the hive** block (no worker online, a review waiting for an absent family, infrastructure refusals, an impossible review no human has settled, a project stopped by its cap — each line leads to the gesture that clears it), the **recent decisions** (commanded model, cross-review, Evaluator retries, human reviews, Balance), **Full Swarm pulse** (level / pause / drift → Projects), clickable honeycomb, queue, journal.                                                                                                                 |
+| 👑 **Queen**        | Talk to the hive in **your language**: progress, health, leaderboard, brief-scoping help. **SSE streaming** (progressive text), read-only multi-agent / Full Swarm context, Anthropic token counts, Chat / Plan / Autonomy / Backups modes, **Restore…** chip when failures sit next to a checkpoint.                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 🍯 **Honey House**  | **Review what the AIs produced**: per-file diffs, logs, Parliament verdict **and surface — did two agents go to the same place, or not**, keyboard approve (a) / reject (x), then Honeycomb merge.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ⬡ **Projects**      | Progress reports, **mission report** (per task: Evaluator decision, cross-review, retries by source, time and declared spend with its coverage; the mission's Genome facts — never through a share link), brief→DAG workshop (Queen Bee), merge planning and launch, Sting conflicts.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 🐝 **The Comb**     | **The project's code, readable**: file tree, highlighted editor, preview of the site produced, edit → task (with an `avant_retouche` safety net), and a **checkpoint timeline** (view the patch; restore opens a task).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 🕺 **Swarm**        | Member node cards — with their **economics** (declared cost and model time with their coverage, median duration of a success, per Worker and per model) — + Waggle Board (nectar podium). A worker's sheet (Chambre) adds its **record**: the share of its productions **accepted by the Evaluator** and its correction rate, two separate measures, “unknown” below three judged productions.                                                                                                                                                                                                                                                                                                                                                   |
+| 💓 **Health**       | Hive pulse (throughput, p50/p95 latency, success rate) + Ghost anomalies.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| 📜 **Chronicle**    | Filterable journal + Time-Lapse Replay (sepia "you are watching the past" mode).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| 🧠 **Memory**       | Search the hive's knowledge (Hive Mind) + OpenAlex scientific library.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ⚙ **Settings**      | Your own settings, distinct from Stewardship: account (identity, role, session dates, sign out), theme and language, the masked **hive token**, the first-cycle guide to show again, access to the GitHub connector. At the foot of the rail, for everyone. On phones the rail becomes a **drawer** opened with ☰.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| 🏗 **Works**         | **The works the repository DECLARES**, one click away: its scripts on a hive node, its workflows on GitHub. The hive picks from that list and never invents a command — and whatever leaves the machine carries its reason for needing a human.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ⚔ **War Room**      | **Where the AIs contradict each other, and where you settle**: Council, counter-review (impossible reviews included), Evaluator retries, human reviews and overrides read back from the journal, per project and per task, filterable by voice (Council, counter-review, Evaluator, human decisions). On top, what is **waiting on someone** — a Council without consensus nobody has settled, a contest whose correction retry could not happen, a production nobody could review. Protocol: [PROTOCOLE-DEBAT.en.md](PROTOCOLE-DEBAT.en.md). Convening a Council and **settling** it (a path or none, a required reason, the author recorded) works here as on the project card; it is the view's only write. Direct access from the Hive home. |
+| 🧪 **Sandbox Live** | **Runs in progress, live**: phase (preparing → agent → validations), worker, agent, model, declared sandbox, redacted command, CPU / memory / process count of the agent's process tree (or of the container, from its engine — "unknown" when nothing can be measured), sub-agents **as a tree**, sandbox validations as they complete, observed open files. **Pause / Resume** (SIGSTOP/SIGCONT of the tree, engine `pause`/`unpause`; hidden where the worker cannot, Windows without a container) also suspends the task's timeout and budget. The **diff so far** is fetched on demand (bounded, redacted); **Explain** reads back the recorded state with no model call. Key `l`. Its totals (CPU, memory peak) stay in the task drawer.   |
+| 🪪 **My space**     | One person's dashboard: their projects, quota, subscriptions, machines — and whatever needs their attention, ranked by urgency.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 🖥 **Stewardship**   | _Administrators only._ The machines started for subscribers, and the hive's accounts.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 🧠 **Brain**        | _Administrators only._ The hive's knowledge as a **living graph**, Obsidian-style: notes repel each other, links pull them together, and a halo breathes on whatever was used recently. A **hollow** dot has never been used — knowledge stored without use. Dead links are listed but **never drawn**: tracing them into the void would invent a note that does not exist. Read-only. **Explorable**: accent-insensitive search, filters by kind, a “dormant” filter, zoom, pan, and a **list** view — a real table, keyboard-navigable, because a screen existing only in pixels would be the one place where `NO_COLOR` and `TERM=dumb` stop.                                                                                                 |
 
 **My space** answers a single question: _what will cost me something if I do
 nothing today?_ Alerts therefore come before cards, and their order is a stance
@@ -85,9 +87,10 @@ an engine without being allowed to lift the hood. The Comb lifts the hood.
 **The hub keeps its own mirror**: a read-only shallow clone per project
 (`data/rayons/<id>`), refreshed at most once a minute. Going through the GitHub
 API would have required the **host's token** — showing the code to a bee would
-spend a right that is not hers. **`.git` is never served**: it holds `config`,
-hence the remote URL, hence the private repository's credentials; neither are
-`.env`, `.npmrc`, `id_rsa` or key extensions.
+spend a right that is not hers. **`.git` is never served** (configuration, raw
+objects, refs) — a private repository's credentials are not even written there:
+the mirror clones the bare address, and access only lives for each call to the
+upstream; neither are `.env`, `.npmrc`, `id_rsa` or key extensions.
 The mirror shows **the bytes the repository stores**: no filter or
 `.gitattributes` conversion (line endings, `$Id$`, encoding) is applied, and
 **a Git LFS file appears as its pointer** (a few `version … oid sha256:… size …`
@@ -226,9 +229,11 @@ npm run cli -- livrer-local <projectId> --prolonger=1         # fix: advance hiv
   `origin` is the project repository, credentials stripped): `git fetch` from
   that path, or `git -C … push origin hive/mission-…` on the worker.
 - **With `--pousser`**, the worker pushes to the project address the hive sent
-  it, with **its own** git credentials — the ones used to clone —, never
-  forced, never another branch. A repository that does not answer within two
-  minutes (credentials awaited?) fails the push, and the report says so. It only does so if its operator started it with
+  it, with the credentials used to clone — the account the project URL
+  carries, otherwise the worker's own —, never forced, never another branch. A
+  repository that does not answer within two minutes (unreachable or mute)
+  fails the push, and the report says so; so does a refused token, with what to
+  change. It only does so if its operator started it with
   `HIVE_LIVRAISON_POUSSER=1`: the repository and the diff come from the hub, and
   the hive token sits on every member machine. And only the host asks for it
   (hive token or administrator account): the operator consented for the hive,
@@ -338,6 +343,22 @@ the session). Mode chips link Chat → Plan (Projects / Queen Bee) → Autonomy
 a checkpoint, the Queen offers a **Restore…** chip that opens the Comb
 timeline.
 
+## 🧭 First arrival — the hive configured before the first project
+
+On the first visit, an assistant (distinct from a project’s “path to the first
+cycle” guide) asks for the **mode** (local — everything on this machine, Queen
+on loopback; hybrid — other computers join with a ticket; cloud — Queen behind
+Caddy with accounts, see [`CLOUD.md`](CLOUD.md)), shows the **agents detected**
+on the Queen’s machine with the sign-in their own CLI reports, **storage**,
+**Git** (local repository or GitHub pull requests), **secrets** policy,
+optional **connectors** (GitHub, OpenAlex), the **first project**, then a
+**health check** (the `hive doctor` diagnostics, sandbox included) and a
+summary that compares the choices with the running Queen. Nothing changes live.
+Choices are saved **at the Queen**, step by step (`/api/configuration-initiale`),
+so an interrupted assistant resumes where it stopped. Only an administrator
+writes them — or the hive token while no account exists. **Run the assistant
+again** lives in Health and Stewardship.
+
 ## 🪑 Chambre — worker station (ADR 0010)
 
 From a **node sheet** (Hive view) → **Open workstation** (`#/chambre/<nodeId>`):
@@ -355,6 +376,14 @@ a click opens the **Chambre** too.
 **Requisitions** (API key, MCP, binary,
 studio, software) are granted or denied from the Chambre — secrets stay on the
 Queen. A share link **never** sees these identities.
+
+At the top of the Chambre, the **Worker sheet**: an abstract avatar derived
+from the node id (the same on Swarm cards), identity, role, provider and the
+**model of the running attempt**, reputation **per task category** (never
+judged stays “never judged”, not 0%), **learned errors** (the failures this
+Worker returned and the Brood’s lesson, redacted), the **War Room debates** it
+took part in, **missions** one by one (duration, measured resources) and
+**resources & limits**. No cost or quality average is computed there.
 
 **Forge** proposes a tool (npm script, bridge, MCP) as a task → review → merge;
 Chantiers may run it only **after** merge and declaration in `package.json`.
@@ -504,10 +533,29 @@ admitted, no correction restarts, and the ones in flight are cancelled — each
 with its reason, which a waiting parent receives at once — as does a parent
 whose child failed without returning anything. An attempt with no declared
 cost, or interrupted before returning (lost worker, cancellation), never counts
-as zero: the task drawer says "at least". A parent waiting on its children
-**releases its slot to its own tree** on its worker: a tree no longer deadlocks
-on a full worker, and another root does not slip into that slot —
-`maxConcurrency` still bounds new work.
+as zero: the task drawer says "at least".
+
+A child's reservation is also **its own cap, held inside its agent's loop**:
+it is at least 1 µUSD (a single response already costs around 13,000 to
+25,000 µUSD on the smallest model), and each attempt receives what is left of
+it — the reservation minus the declared cost of its previous attempts, never
+what is left of the root. Claude Code (≥ 2.1.217) stops on it
+(`--max-budget-usd`, at most one response over, as documented). The task then
+ends **stopped by its budget**: neither an agent failure nor an outage — no
+retry, and no reader counts it as a failure (Genome register, Thermo, Waggle,
+Ghost, Pulse, pheromones, swarm lessons, experience graph, screens). The parent
+reads at the head of the logs the spend, the partial diff if there is one, and
+that it must re-delegate under a **new** child id: the same one replays the
+stopped child. A reservation already spent by previous attempts is not sent
+again: the Queen closes the child and tells the parent. Only workers that
+declare they hold a cap receive it; for the others (Codex, Cursor, Cline,
+shell, an older worker) the task journal says at dispatch that it will not be
+held — and a Claude Code older than 2.1.217 says so too, with `claude update`.
+That declared cost is the CLI's estimate, not a bill.
+
+A parent waiting on its children **releases its slot to its own tree** on its
+worker: a tree no longer deadlocks on a full worker, and another root does not
+slip into that slot — `maxConcurrency` still bounds new work.
 
 `preferredAgent` / `preferredModel` only **break ties** — the router keeps the
 last word, and the recorded reason says whether the preference mattered. The
@@ -543,6 +591,32 @@ curl -X POST http://localhost:7777/api/projects/<project>/banc-ombre \
 
 Admission rules, budget, confidence and limits (FR):
 **[BANC-OMBRE.md](BANC-OMBRE.md)**.
+
+## ⟳ Routines — scheduled or triggered work
+
+A **routine** starts a project mission without a click: at a time (5-field
+cron, read in a **time zone** — `0 9 * * 1-5` in `Europe/Paris` runs at 9 am
+in Paris, summer and winter), on a **signed webhook** (HMAC, a key of its own,
+replayed deliveries deduplicated), or when a **branch's CI** turns red (one red
+commit, one mission). Business hours can bound it.
+
+Creating a routine **authorizes the spending in advance** (ADR 0014): it is a
+setting for the owner or an administrator. The routine runs with its
+account's authority, re-checked on every trigger. Each trigger starts an
+ordinary task (cap, Evaluator, cross-review, never a merge) or says why it
+started nothing. A trigger while the work is still running **joins** it, and a
+Queen switched off for two days catches up **one** slot.
+
+```bash
+# or the “Routines” subsection of a project in ⬡ Projects
+curl -X POST http://localhost:7777/api/projects/<project>/routines \
+  -H "x-hive-token: $HIVE_TOKEN" -H 'content-type: application/json' \
+  -d '{"nom": "Nightly debt", "consigne": "…", "declencheur": "cron",
+       "expression": "0 9 * * 1-5", "fuseau": "Europe/Paris"}'
+```
+
+Triggers, policies, the webhook and the `hive-dispatch` Action (FR):
+**[ROUTINES.md](ROUTINES.md)**.
 
 ## 🕸️ Experience graph — linking what the hive went through
 
@@ -596,6 +670,52 @@ it, from any project), and are only readable under "The whole hive".
 # GET /api/projects/:id/experience[?genre=task][&noeud=task:<id>]
 # GET /api/admin/experience            (administrator account)
 ```
+
+## 🛑 The lookout — an agent going in circles, an exhausted provider
+
+Only fixed timeouts used to stop an agent (15 min, 30 min for Cline and
+Hermes): an agent stuck in a loop burned its Worker and its budget until then,
+then failed on "timeout". The node now has a **lookout** that reads the tool
+stream Claude Code (`stream-json`) and Codex (`--json`) declare — never the
+narration — and returns one of two **distinct** outcomes:
+
+- **stuck** — the same tool call with the same result four times in a row, the
+  same call **rejected by the CLI** four times (a call it could not make:
+  invalid parameters, unknown tool, refused command — never the output of a
+  command that fails), or two calls alternating with no progress
+  (A→B→A→B→A→B). Thresholds and rules ported from OpenHands' StuckDetector
+  (MIT, notice in `THIRD_PARTY_NOTICES.md`); each sub-agent has its own thread.
+  An agent making progress — a file written differently, tests whose output
+  changes, the same command failing differently each time — is never stopped;
+  nor is an agent waiting on background work (a command or a sub-agent in the
+  background) by re-reading what has not changed yet. The attempt is a **model
+  failure**, counted as such, that finally says why: "stuck: same tool call
+  repeated 4 times, same result (Read)".
+- **provider exhausted** — rate or subscription limit, overload (529, 500,
+  503), no answer at all (network down, a gateway's 502 or 504 — Hive's own
+  gateway then says which API it could not reach, and why). Nothing is held
+  against the model: the attempt is **reassigned without spending one**,
+  through the infrastructure-failure path (another worker, another family if
+  needed): a refusal in the Genome registry, never a failure nor a retry, and
+  nothing in what the Router learns. What it cost — its duration, the cost the
+  CLI declared — stays recorded (the delegated child's spend, the drawer's
+  timeline); what it wrote is not kept, and the journal says so. When the CLI
+  declared its reset time (within eight days), the task does not come back to
+  that node before it; a review whose reviewer is exhausted beyond five
+  minutes hands over like an absent reviewer.
+
+The lookout **never** pre-empts the CLI: the retries it bounds itself (Claude
+Code: ten by default, or the bound it declares — three hundred under its
+watchdog; Codex: "n/5") run to the end, and exhaustion is read from its **final
+outcome** — or, when it is killed while retrying, from the ongoing series. Only
+Codex's unbounded wait for the network is bounded by Hive, in time: **10
+minutes** without an answer. A stuck agent, on the other hand, is stopped as
+soon as it is seen, through the cancellation gesture — the agent's whole
+process tree, never the validations that follow — and its cause is said in the
+task's journal, in its live console (Sandbox Live) and in its drawer. No
+setting. Cursor, Cline, Grok, Hermes and a custom agent expose no tool stream
+Hive reads: for them, only the fixed timeout and the after-the-fact reading of
+the failure remain; Codex does not declare its background work.
 
 ## 🛡️ Sting Detector — conflict prevention
 

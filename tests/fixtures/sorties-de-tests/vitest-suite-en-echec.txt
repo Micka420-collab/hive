@@ -1,0 +1,68 @@
+
+> vt@1.0.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /hive/tache
+
+stdout | tests/a.test.js > suite A > echoue
+× faux > injecte
+
+ ❯ tests/a.test.js (6 tests | 1 failed | 1 skipped | 1 todo) 9ms
+     × echoue 6ms
+ ❯ tests/b.test.js (2 tests | 1 failed) 4ms
+   × b echoue 2ms
+ ❯ tests/d.test.js (0 test)
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/d.test.js [ tests/d.test.js ]
+Error: Cannot find module './inexistant.js' imported from /hive/tache/tests/d.test.js
+ ❯ tests/d.test.js:2:1
+      1| import { test } from 'vitest';
+      2| import './inexistant.js';
+       | ^
+      3| test('d', () => {});
+      4|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/3]⎯
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/a.test.js > suite A > echoue
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ tests/a.test.js:4:67
+      2| describe('suite A', () => {
+      3|   it('passe', () => { expect(1).toBe(1); });
+      4|   it('echoue', () => { console.log('× faux > injecte'); expect(1).toBe…
+       |                                                                   ^
+      5|   it.skip('saute', () => {});
+      6|   it.todo('plus tard');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/3]⎯
+
+ FAIL  tests/b.test.js > b echoue
+Error: boum
+ ❯ tests/b.test.js:3:32
+      1| import { test } from 'vitest';
+      2| test('b passe', () => {});
+      3| test('b echoue', () => { throw new Error('boum'); });
+       |                                ^
+      4|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/3]⎯
+
+
+ Test Files  3 failed | 1 passed (4)
+      Tests  2 failed | 5 passed | 1 skipped | 1 todo (9)
+   Start at  08:23:31
+   Duration  566ms (transform 36ms, setup 0ms, import 72ms, tests 16ms, environment 0ms)
+

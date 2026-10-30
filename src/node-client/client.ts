@@ -5,13 +5,19 @@
 // Consentement (§5.3) : rien ne s'exécute tant que le membre n'a pas lancé
 // ce client lui-même.
 
-import { mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import WebSocket from 'ws';
 import { getAdapter } from '../adapters/index.js';
 import type { Effort } from '../shared/effort.js';
-import type { AdapterProgress, AdapterResult, AgentAdapter } from '../adapters/index.js';
+import type {
+  AdapterContext,
+  AdapterProgress,
+  AdapterResult,
+  AgentAdapter,
+} from '../adapters/index.js';
+import { ArretMotive, ligneDInfra } from '../adapters/exec.js';
 import { borneTexteFinal } from '../adapters/texte-final.js';
 import {
   agentBinairePresent,
@@ -32,10 +38,21 @@ import type { NightShiftPolicy } from '../shared/night-shift.js';
 import { estOrdreArret } from '../shared/demarrage.js';
 import { plateformeDepuis } from '../shared/machine.js';
 import { laverIdentifiantsDuTexte } from '../shared/projet-public.js';
-import { ID_PATTERN, LIMITS, parseServerMessage } from '../shared/protocol.js';
+import { ligneArretBudgetaire, usdDeMicros } from '../shared/arret-budgetaire.js';
+import { direArret, direRemise } from '../shared/enlisement.js';
+import type { ArretVigie } from '../shared/enlisement.js';
+import {
+  assignationIllisible,
+  ID_PATTERN,
+  LIMITS,
+  parseServerMessage,
+} from '../shared/protocol.js';
+import { compterLignes, pousserSegment } from '../shared/niveaux-sortie.js';
+import type { BlocSortie, NiveauSortie, SegmentNiveau } from '../shared/niveaux-sortie.js';
 import type {
   AssignChantierMsg,
   AssignMergeMsg,
+  AssignTaskMsg,
   ClientMessage,
   DelegationBudget,
   DelegationAcceptedMsg,
@@ -43,6 +60,7 @@ import type {
   DelegationResultMsg,
   OutilConstate,
   PoserOutilMsg,
+  TaskRejectMsg,
   TaskResultMsg,
 } from '../shared/protocol.js';
 import {
@@ -51,10 +69,17 @@ import {
   MIN_TOKEN_LENGTH,
   NODE_TIMEOUT_MS,
 } from '../shared/types.js';
-import type { ExecutionUsage, IsolementDeclare, SubAgent, Task } from '../shared/types.js';
+import type { IsolementDeclare, RessourcesExecution, SubAgent, Task } from '../shared/types.js';
 import { runMerge, runProc } from './merge-runner.js';
 import { lancerVraiment, poserOutil } from './pose-runner.js';
-import { buildSandboxEnv, cloneRepo, prepareWorkspace } from './workspace.js';
+import {
+  DossierDeTacheIneffacable,
+  buildSandboxEnv,
+  cloneRepo,
+  ligneEspacePret,
+  prepareWorkspace,
+} from './workspace.js';
+import { effacerDossier } from '../shared/effacement.js';
 import { racineDeTravailParDefaut } from './identite-noeud.js';
 import { segmentSur } from '../shared/noms-windows.js';
 import { ConfigurationNonNeutralisable, noteConfigurationEcartee } from './configuration-inerte.js';
@@ -64,9 +89,21 @@ import {
   requisitionDepuisEchecInfra,
   type RequisitionDepuisInfra,
 } from '../shared/requisition-infra.js';
+import {
+  classerActionProposee,
+  decisionActionParNiveau,
+  type ActionProposee,
+  type DecisionAction,
+  type NiveauAutonomie,
+} from '../shared/politique-actions.js';
 import { texteDEchec } from '../shared/texte-d-echec.js';
 import { motifRefusPresence, refuseParPresence } from '../shared/presence-noeud.js';
-import type { BacExecution } from './isolement.js';
+import type { BacExecution, ReseauBac } from './isolement.js';
+import { HOTE_OSV, bilanRefus, ouvrirReseauTache, refusExige } from './reseau-tache.js';
+import type { CapaciteReseau, ReseauTache } from './reseau-tache.js';
+import type { EchecAmont } from './proxy-egress.js';
+import { NIVEAU_RESEAU_DEFAUT } from '../shared/reseau.js';
+import type { NiveauReseau } from '../shared/reseau.js';
 import { balayerPontsOrphelins, RendezVousPont } from './rendez-vous-pont.js';
 import type { Workspace } from './workspace.js';
 import type {
@@ -74,12 +111,38 @@ import type {
   WorkerDelegationOutcome,
   WorkerDelegationResult,
 } from '../adapters/index.js';
-import { capturerExecutionUsage, executionUsageDepuis } from './execution-usage.js';
 import { VALIDATION_KEYS } from '../shared/validations-bac.js';
 import type { ValidationsBac } from '../shared/validations-bac.js';
-import { validerProduction } from './validations-bac.js';
+import type { PorteSecurite } from '../shared/porte-securite.js';
+import { passerLaPorte } from './porte-securite.js';
+import { memoireDesBases, reglesAutorisationDeBase, validerProduction } from './validations-bac.js';
+import { direRamassage, dossierDuMagasin, ramasserMagasin } from './cache-dependances.js';
+import { COMMANDE_DIRECT_MAX, DIFF_DIRECT_MAX } from '../shared/bac-direct.js';
+import type { EtatDirect } from '../shared/bac-direct.js';
+import type { MinuteurSuspendable } from '../shared/minuteur-suspendable.js';
+import { PiloteExecution } from './pilote-execution.js';
 
 const MAX_PENDING_DELEGATIONS = 32;
+/**
+ * L'attente MAXIMALE d'une décision d'action (G12) quand l'ack du hub n'a PAS
+ * porté d'échéance (hub plus ancien) : le plafond de la Chambre (dix minutes)
+ * plus une marge de transport. Un hub muet — tombé, déconnecté — ne doit pas
+ * suspendre l'outil de décision du CLI pour toujours : passé ce filet, le
+ * nœud répond deny et le dit. Avec un `expiresAt` dans l'ack, le filet se
+ * cale dessus (`GRACE_RELAIS_ECHEANCE_MS`) au lieu de ce délai figé.
+ */
+const ACTION_DECISION_MAX_MS = 12 * 60_000;
+/** L'accusé d'ouverture d'une réquisition d'action : le même filet que la délégation. */
+const ACTION_ACK_TIMEOUT_MS = 15_000;
+/**
+ * Marge (G12, revue) entre la décision et la MORT du CLI : le délai dur des
+ * adaptateurs tue le processus entier, et une décision qui arriverait après
+ * ne servirait personne. Le budget transmis au hub ET le filet local la
+ * retranchent de ce qui reste au run — sous cette marge, on ne demande rien.
+ */
+export const MARGE_DECISION_ACTION_MS = 30_000;
+/** Le délai laissé au hub pour RELAYER sa propre expiration avant le filet local. */
+const GRACE_RELAIS_ECHEANCE_MS = 15_000;
 const MAX_ACCEPTED_DELEGATIONS = 128;
 const DELEGATION_RESPONSE_TIMEOUT_MS = 15_000;
 /**
@@ -90,17 +153,58 @@ const DELEGATION_RESPONSE_TIMEOUT_MS = 15_000;
 const DELEGATION_RESULT_GRACE_MS = 5 * 60_000;
 
 /**
- * Un morceau de sortie en direct, après caviardage, sous `LIMITS.sortie`. Le
- * caviardage peut ALLONGER (`sk-x` devient `[secret]`) : couper à l'aveugle
- * ferait disparaître la fin sans le dire. On coupe à la dernière ligne entière
- * qui tient, et on l'annonce — comme `sortie-directe.ts` annonce ses omissions.
+ * Un morceau de sortie en direct, caviardé, sous `LIMITS.sortie`, et le niveau
+ * de chacune de ses lignes (`shared/niveaux-sortie.ts`).
+ *
+ * Caviardé BLOC PAR BLOC : un caviardage peut changer le nombre de lignes
+ * d'un texte (une clé sur plusieurs lignes devient `[secret]`), et c'est le
+ * texte CAVIARDÉ qu'on recompte — sans quoi les niveaux se décaleraient sur
+ * tout le reste du morceau. Un bloc réunit des lignes CONTIGUËS d'un même
+ * flux (`sortie-directe.ts`) : un secret à cheval sur stdout et stderr n'en
+ * est pas un.
+ *
+ * Et le caviardage peut ALLONGER (`sk-x` devient `[secret]`) : couper à
+ * l'aveugle ferait disparaître la fin sans le dire. Si le tout ne tient plus,
+ * on garde les lignes entières qui tiennent AVEC l'annonce — comme
+ * `sortie-directe.ts` annonce ses omissions, par une ligne de Hive. La place
+ * de l'annonce est réservée AVANT de retenir un bloc : les blocs retenus
+ * pouvaient sinon déjà laisser moins que l'annonce, qui passait quand même,
+ * et un morceau au-delà de `LIMITS.sortie` fait refuser le `task_update`
+ * ENTIER — le hub ferme la socket du nœud au milieu de la tâche.
  */
-function morceauCaviarde(sortie: string): string {
-  if (sortie.length <= LIMITS.sortie) return sortie;
+function morceauVersHub(
+  blocs: readonly BlocSortie[],
+  caviarder: (s: string) => string,
+): { sortie: string; niveaux: SegmentNiveau[] } | null {
+  const caviardes: BlocSortie[] = [];
+  let total = 0;
+  for (const bloc of blocs) {
+    let texte = caviarder(bloc.texte);
+    if (texte === '') continue;
+    if (!texte.endsWith('\n')) texte += '\n';
+    caviardes.push({ niveau: bloc.niveau, texte });
+    total += texte.length;
+  }
+  if (caviardes.length === 0) return null;
   const annonce = '[… fin du morceau omise après caviardage]\n';
-  const tete = sortie.slice(0, LIMITS.sortie - annonce.length);
-  const coupe = tete.lastIndexOf('\n');
-  return (coupe >= 0 ? tete.slice(0, coupe + 1) : '') + annonce;
+  const budget = total <= LIMITS.sortie ? LIMITS.sortie : LIMITS.sortie - annonce.length;
+  let sortie = '';
+  const niveaux: [NiveauSortie, number][] = [];
+  for (const { niveau, texte } of caviardes) {
+    // Chaque bloc retenu finit par `\n` : `sortie` est toujours coupée à une
+    // fin de ligne, et `place` ne descend jamais sous zéro.
+    const place = budget - sortie.length;
+    const coupe = place > 0 ? texte.lastIndexOf('\n', place - 1) : -1;
+    const tete = texte.length <= place ? texte : texte.slice(0, coupe + 1);
+    sortie += tete;
+    pousserSegment(niveaux, niveau, compterLignes(tete));
+    if (tete.length < texte.length) break;
+  }
+  if (budget < LIMITS.sortie) {
+    sortie += annonce;
+    pousserSegment(niveaux, 'hive', 1);
+  }
+  return { sortie, niveaux };
 }
 
 /**
@@ -134,7 +238,7 @@ function borneApresCaviardage(s: string, max: number): string {
 function declarationsDuResultat(
   result: AdapterResult,
   caviardeur: Caviardeur,
-): Pick<TaskResultMsg, 'fournisseur' | 'finalText'> {
+): Pick<TaskResultMsg, 'fournisseur' | 'finalText' | 'arretBudgetaire' | 'enlisement'> {
   // Caviardé AVANT d'être borné : la borne garde la fin, et une clé coupée
   // par elle ne serait plus reconnue. `reponse`, pas `texte` : le hub RELIT ce
   // texte (proposition d'éclaireuse, avis de conseil — voir `Caviardeur`).
@@ -145,7 +249,156 @@ function declarationsDuResultat(
   return {
     ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
     ...(finalText ? { finalText } : {}),
+    ...(result.arretBudgetaire ? { arretBudgetaire: result.arretBudgetaire } : {}),
+    ...(result.enlisement ? { enlisement: result.enlisement } : {}),
   };
+}
+
+/**
+ * Une remise à zéro dite par le nœud : en UTC — il ne sait pas qui la lira —,
+ * avec sa date au-delà d'un jour, et jamais une exception (`direRemise`).
+ */
+const remiseUtc = (ms: number): string =>
+  direRemise(
+    ms,
+    Date.now(),
+    (d) => `${d.toISOString().slice(11, 16)} UTC`,
+    (d) => `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC`,
+  );
+
+/**
+ * La phrase d'une issue de la vigie (G13), au journal du nœud. `enVol` : la
+ * vigie a arrêté l'agent ; sinon le CLI a conclu de lui-même, et la phrase ne
+ * dit que l'issue.
+ */
+function ligneVigie(arret: ArretVigie, enVol: boolean): string {
+  const fin = enVol ? ' — agent arrêté avant son délai' : '';
+  return `[hive] ${direArret(arret, (fr) => fr, remiseUtc)}${fin}`;
+}
+
+/** L'issue que la vigie a rangée sur ce résultat, ou rien. */
+function issueVigie(result: AdapterResult): ArretVigie | undefined {
+  if (result.enlisement) return { issue: 'enlisement', ...result.enlisement };
+  return result.epuisement ? { issue: 'epuisement_fournisseur', ...result.epuisement } : undefined;
+}
+
+/**
+ * Le signal de L'AGENT d'une tentative : celui de la tâche (annulation, budget
+ * de durée, arrêt du nœud) le traverse, et l'arrêt de la vigie (G13) ne
+ * touche que lui. Le CLI qui conclut peut croiser l'arrêt sur sa dernière
+ * ligne : son résultat RÉUSSI garde alors des validations sous un signal
+ * intact — `ctrl`, l'arrêt de la tâche, les aurait annulées.
+ */
+function signalDeLAgent(ctrl: AbortController): AbortController {
+  const agent = new AbortController();
+  const relayer = (): void => agent.abort(ctrl.signal.reason);
+  if (ctrl.signal.aborted) relayer();
+  else ctrl.signal.addEventListener('abort', relayer, { once: true });
+  return agent;
+}
+
+/**
+ * Le progrès d'un adaptateur, avec l'arrêt EN VOL que sa vigie décide (G13) :
+ * le geste de l'annulation (`annulerTache`) — le pilote réveille d'abord un
+ * agent en pause, puis l'arbre est abattu en entier —, sur le seul signal de
+ * l'agent (`signalDeLAgent`). Les logs finissent sur sa cause
+ * (`ArretMotive`) ; le journal ne la dit qu'une fois le résultat rendu
+ * (`direIssueVigie`) : un arrêt que le CLI a devancé en sortant n'a pas eu lieu.
+ */
+function progresSousVigie(
+  agent: AbortController,
+  pilote: PiloteExecution,
+  progres: (p: AdapterProgress) => void,
+): (p: AdapterProgress) => void {
+  return (p) => {
+    if (!p.arret) {
+      progres(p);
+      return;
+    }
+    if (agent.signal.aborted) return;
+    const motif = new ArretMotive(ligneVigie(p.arret, true));
+    const arreter = (): void => agent.abort(motif);
+    void pilote.arreter().then(arreter, arreter);
+  };
+}
+
+/**
+ * L'issue de la vigie, DITE une fois le résultat rendu : au journal de la
+ * tâche et dans sa console en direct (Sandbox Live). Un épuisement dit aussi
+ * que la tentative repart sans être comptée — et que ce qu'elle a écrit dans
+ * l'espace de la tâche, effacé, n'est pas repris.
+ */
+function direIssueVigie(
+  result: AdapterResult,
+  agent: AbortController,
+  progres: (p: AdapterProgress) => void,
+): void {
+  const issue = issueVigie(result);
+  if (!issue) return;
+  // « Arrêté » seulement si l'arbre est tombé sur l'arrêt (`ArretMotive.abattu`) :
+  // sorti de lui-même, l'agent n'a été arrêté par personne.
+  const motif: unknown = agent.signal.reason;
+  const enVol = motif instanceof ArretMotive && motif.abattu;
+  const suite =
+    issue.issue === 'epuisement_fournisseur'
+      ? ' ; tentative réaffectée sans être comptée — ce qu’elle a écrit n’est pas repris'
+      : '';
+  const ligne = `${ligneVigie(issue, enVol)}${suite}`;
+  progres({ log: ligne, sortie: [{ niveau: 'hive', texte: `${ligne}\n` }] });
+}
+
+/**
+ * Le refus d'une tentative dont le fournisseur était épuisé (G13) : le fait ;
+ * ce que la tentative a coûté — sa durée, et ce que son CLI a déclaré : elle a
+ * tourné, elle a pu dépenser — ; et, quand le CLI a déclaré sa remise à zéro,
+ * l'attente avant laquelle ce nœud ne revoit pas la tâche : `retryAfterMs`, le
+ * chemin du Night Shift, borné à 24 h par le protocole et par la Reine.
+ */
+function refusEpuise(
+  result: AdapterResult,
+  durationMs: number,
+  now = Date.now(),
+): Pick<TaskRejectMsg, 'epuisement' | 'retryAfterMs' | 'durationMs' | 'fournisseur'> {
+  const epuisement = result.epuisement;
+  if (!epuisement) return {};
+  const attente = Math.min((epuisement.remiseA ?? now) - now, 24 * 60 * 60 * 1000);
+  return {
+    epuisement,
+    durationMs: Math.min(Math.max(0, Math.round(durationMs)), 86_400_000),
+    ...(result.fournisseur ? { fournisseur: result.fournisseur } : {}),
+    ...(attente > 0 ? { retryAfterMs: Math.round(attente) } : {}),
+  };
+}
+
+/** Le dernier échec amont de la passerelle de la tâche, s'il y en a une (G13). */
+const echecAmontDe = (reseau: ReseauTache): EchecAmont | null =>
+  reseau.etat === 'filtre' ? reseau.echecAmont() : null;
+
+/**
+ * Les logs que `task_result` transporte, caviardés puis bornés à leur TÊTE
+ * (`LIMITS.log`) — mêmes deux chemins d'envoi que `declarationsDuResultat`.
+ *
+ * Une tentative ARRÊTÉE SUR SON PLAFOND les ouvre sur la ligne qui le dit
+ * (`ligneArretBudgetaire`) : le hub et le pont MCP n'en gardent aussi que la
+ * tête, et c'est là que le parent qui attend cet enfant la lit — la dépense,
+ * le diff partiel s'il y en a un, et quoi faire. Écrite ICI, une fois le diff
+ * connu : l'adaptateur, lui, ne voit pas le dépôt.
+ */
+function logsDuResultat(
+  result: AdapterResult,
+  diff: string,
+  plafondMicros: number | undefined,
+  caviardeur: Caviardeur,
+): string {
+  const tete =
+    result.arretBudgetaire && plafondMicros !== undefined
+      ? `${ligneArretBudgetaire({
+          plafondMicros,
+          coutUsd: result.fournisseur?.coutUsd,
+          diffJoint: diff.trim() !== '',
+        })}\n`
+      : '';
+  return caviardeur.texte(`${tete}${result.logs}`).slice(0, LIMITS.log);
 }
 
 export interface NodeClientOptions {
@@ -193,6 +446,13 @@ export interface NodeClientOptions {
    * suite. C'est le même motif que `adapter`.
    */
   bac?: BacExecution;
+  /**
+   * Ce que le bac sait faire du réseau, MESURÉ au démarrage (`optionReseau`,
+   * `sonderReseauFiltre`). Absent avec un bac : le réseau n'a pas été éprouvé,
+   * et chaque tâche le dit au lieu de le filtrer. Injecté pour la même raison
+   * que `bac`.
+   */
+  reseau?: CapaciteReseau;
   /**
    * Le bac à sable DÉCLARÉ au hub à l'inscription (`isolementDeclareDe`).
    * Affichage seulement ; absent, le hub dit « non déclaré ».
@@ -340,6 +600,18 @@ export class HiveNodeClient {
   }
 
   private readonly active = new Map<string, AbortController>();
+  /** Le pilote Sandbox Live de chaque exécution en cours (`pilote-execution.ts`). */
+  private readonly pilotes = new Map<string, PiloteExecution>();
+  /** Le répertoire de chaque exécution en cours : le diff en direct s'y calcule. */
+  private readonly espaces = new Map<string, Workspace>();
+  /**
+   * Les dossiers de tâche en cours d'effacement, par tâche. L'effacement est
+   * asynchrone (`effacerDossier`) et part APRÈS le résultat : la tâche quitte
+   * `active` tout de suite — une réassignation au même nœud n'est pas prise
+   * pour un doublon —, et sa tentative suivante attend ici que l'ancien
+   * `cleanup` ait fini, au lieu d'effacer ou de cloner sous ses pieds.
+   */
+  private readonly effacements = new Map<string, Promise<void>>();
   /**
    * La racine de délégation de chaque enfant actif (`delegationRootTaskId`) ;
    * une tâche absente d'ici est sa propre racine. Oubliée avec ses délégations
@@ -393,7 +665,9 @@ export class HiveNodeClient {
     modele?: string;
     effort?: Effort;
     delegationBudget?: DelegationBudget;
+    plafondCoutMicros?: number;
     relecture: boolean;
+    reseau: NiveauReseau;
     workspace: Workspace;
     started: number;
     ctrl: AbortController;
@@ -401,7 +675,28 @@ export class HiveNodeClient {
     genre: string;
     libelle: string;
     detail?: string;
+    /** Le niveau d'autonomie reçu à l'assignation (G12) — repris tel quel. */
+    autonomie: NiveauAutonomie;
+    /** Les règles compilées depuis la base (G12) — recalculables, mais figées. */
+    permissionsAllow: readonly string[];
   } | null = null;
+  /**
+   * Réquisitions d'ACTION en vol (G12) : la tâche TOURNE pendant que la Chambre
+   * décide — rien à voir avec `attenteRequisition`, où la tâche est terminée en
+   * échec infra. Deux cartes : l'accusé (requestId → id du store + échéance),
+   * puis la décision (id → accordee/refusee/expiree).
+   *
+   * PERTE ASSUMÉE À LA RECONNEXION : le hub n'émet `requisition_result` qu'à
+   * l'instant de la décision, sur le socket du moment — un nœud déconnecté à
+   * cet instant ne la reçoit jamais (aucun rejeu). Le filet local tranche
+   * alors `indisponible` → deny dit au CLI. Re-corréler la décision après
+   * reconnexion est un chantier nommé, pas un comportement implicite.
+   */
+  private readonly pendingActionAcks = new Map<string, (id: string, expiresAt?: number) => void>();
+  private readonly pendingActionDecisions = new Map<
+    string,
+    (statut: 'accordee' | 'refusee' | 'expiree') => void
+  >();
   private reconnectTimer: NodeJS.Timeout | null = null;
   private reconnectDelay = 1_000;
   private closed = false;
@@ -420,19 +715,28 @@ export class HiveNodeClient {
    * dossier d'où l'on a lancé le nœud (voir `rendez-vous-pont.ts`).
    */
   private readonly rendezVous = new RendezVousPont();
+  /**
+   * Les tests rouges des bases que CE nœud a rejouées pour comparer ses
+   * productions (G11b) : par nœud, parce qu'ils dépendent de son bac — voir
+   * `node-client/validations-bac.ts`.
+   */
+  private readonly memoireDesBases = memoireDesBases();
 
   /**
-   * Arme la seule limite d'exécution que le Worker peut tenir pendant la
-   * tentative : la durée. Le coût, lui, n'est connu qu'à la fin — le CLI le
-   * DÉCLARE avec son résultat —, et c'est la Reine qui tient l'enveloppe coût
-   * de l'arbre (`tenirBudgetCoutRacine`). `resourceUnits` est un compte
-   * abstrait, sans mesure derrière : transporté, jamais appliqué ici.
+   * Arme la limite que le NŒUD tient pendant la tentative : la durée. Le coût,
+   * le nœud ne le voit qu'à la fin — le CLI le DÉCLARE avec son résultat : c'est
+   * l'AGENT qui le tient dans sa boucle, sur le plafond que la Reine passe à la
+   * tentative (`plafondCoutMicros`, Claude Code : `--max-budget-usd`), et la
+   * Reine qui tient l'enveloppe de l'arbre (`tenirBudgetCoutRacine`).
+   * `resourceUnits` est un compte abstrait, sans mesure derrière : transporté,
+   * jamais appliqué — il ne borne ni des tours, ni rien d'autre.
    */
   private startDelegationBudget(
     budget: DelegationBudget | undefined,
     ctrl: AbortController,
     onExceeded: () => void,
-  ): NodeJS.Timeout | null {
+    pilote: PiloteExecution,
+  ): MinuteurSuspendable | null {
     if (!budget) return null;
     const expire = (): void => {
       onExceeded();
@@ -442,9 +746,115 @@ export class HiveNodeClient {
       expire();
       return null;
     }
-    const timer = setTimeout(expire, budget.durationMs);
-    timer.unref?.();
-    return timer;
+    // Armé par le pilote : une pause de l'agent (Sandbox Live) suspend le
+    // budget avec lui — un enfant en pause ne consomme pas sa durée.
+    return pilote.minuteur(budget.durationMs, expire);
+  }
+
+  /**
+   * Le pilote Sandbox Live d'une exécution (`pilote-execution.ts`). Ce qu'il
+   * envoie part comme le progrès de l'adaptateur : seulement pour l'exécution
+   * EN COURS (même garde que `progresVersHub`), et la commande caviardée ICI,
+   * sur la machine qui porte les secrets — elle cite parfois le prompt.
+   */
+  private creerPilote(taskId: string, ctrl: AbortController): PiloteExecution {
+    this.pilotes.get(taskId)?.fermer();
+    const pilote = new PiloteExecution((direct: EtatDirect) => {
+      if (this.active.get(taskId) !== ctrl) return;
+      const etat: EtatDirect =
+        direct.commande === undefined
+          ? direct
+          : {
+              ...direct,
+              commande: borneApresCaviardage(
+                this.caviardeurDuNoeud().texte(direct.commande),
+                COMMANDE_DIRECT_MAX,
+              ),
+            };
+      this.send({ type: 'task_update', taskId, status: 'running', direct: etat });
+    });
+    // TOUTE annulation passe par le pilote — `annulerTache`, `stop()`, mais
+    // aussi le budget délégué épuisé et le drone qui perd sa course : un agent
+    // en pause (ou en train d'y entrer) est relancé, sinon il ne traiterait
+    // jamais le SIGTERM qui suit et resterait gelé (`pilote-execution.ts`).
+    ctrl.signal.addEventListener('abort', () => void pilote.arreter(), { once: true });
+    this.pilotes.set(taskId, pilote);
+    return pilote;
+  }
+
+  private oublierPilote(taskId: string, pilote: PiloteExecution): void {
+    pilote.fermer();
+    if (this.pilotes.get(taskId) === pilote) this.pilotes.delete(taskId);
+  }
+
+  /**
+   * Annule une tâche. L'agent est d'abord RÉVEILLÉ, qu'il dorme ou qu'une
+   * pause soit en vol (`arreter` attend le geste, qui se défait) : arrêté, il
+   * ne traiterait pas le SIGTERM de l'annulation, et un conteneur en pause ne
+   * recevrait pas le signal que `docker run` lui relaie. Attendre ne coûte
+   * qu'un geste borné (`pilote-execution.ts`).
+   */
+  private async annulerTache(taskId: string): Promise<void> {
+    await this.pilotes.get(taskId)?.arreter();
+    this.active.get(taskId)?.abort();
+  }
+
+  /**
+   * Suspendre ou reprendre, à la demande d'un écran. Sans pilote — la tâche
+   * attend une réquisition, aucun agent ne tourne —, le nœud le DIT
+   * (`pausable: false`) : sans réponse, l'écran afficherait « pause envoyée »
+   * pour un geste que personne n'a fait.
+   */
+  private async gestePause(taskId: string, geste: 'pause_task' | 'resume_task'): Promise<void> {
+    const pilote = this.pilotes.get(taskId);
+    if (pilote) {
+      await (geste === 'pause_task' ? pilote.suspendre() : pilote.reprendre());
+      return;
+    }
+    if (!this.active.has(taskId)) return;
+    this.send({
+      type: 'task_update',
+      taskId,
+      status: 'running',
+      direct: { pausable: false, enPause: false },
+    });
+  }
+
+  /**
+   * Le diff d'une exécution EN COURS, demandé par un écran (Sandbox Live). Par
+   * le registre de la ruche (`workspace.diffEnCours`, jamais le `.git` de
+   * l'agent), caviardé ici comme le diff d'un résultat, et borné : un écran
+   * qui le demande ne reçoit jamais plus de `DIFF_DIRECT_MAX`. Un diff qu'on
+   * n'a pas pu calculer le DIT (`erreur`) — un diff vide passerait pour
+   * « rien n'a changé ».
+   */
+  private async repondreDiffDirect(taskId: string, requestId: string): Promise<void> {
+    const espace = this.espaces.get(taskId);
+    const repondre = (diff: string, tronque: boolean, erreur?: string): void =>
+      this.send({
+        type: 'diff_direct',
+        taskId,
+        requestId,
+        diff,
+        tronque,
+        ...(erreur ? { erreur } : {}),
+      });
+    if (!espace || !this.active.has(taskId)) {
+      repondre('', false, 'aucune exécution en cours de cette tâche sur ce nœud');
+      return;
+    }
+    if (!espace.depot) {
+      repondre('', false, 'tâche sans dépôt git : pas de diff à calculer');
+      return;
+    }
+    try {
+      const diff = this.caviardeurDuNoeud().diff(await espace.diffEnCours());
+      repondre(diff.slice(0, DIFF_DIRECT_MAX), diff.length > DIFF_DIRECT_MAX);
+    } catch (err) {
+      const brut = err instanceof Error ? err.message : String(err);
+      const cause = motifLave(brut.trim().split('\n').at(-1) ?? brut);
+      repondre('', false, `diff impossible : ${cause}`.slice(0, LIMITS.arg));
+    }
   }
 
   private resultAfterDelegationBudget(
@@ -470,6 +880,7 @@ export class HiveNodeClient {
     this.closed = false;
     this.warnIfInsecureTransport();
     this.preparerRendezVous();
+    this.ramasserLeMagasin();
     // Les efforts se SONDENT avant la première inscription (`claude --help`,
     // quelques centaines de ms, borné par `STATUT_MAX_MS`) : s'inscrire avant
     // les annoncerait à la reconnexion suivante seulement. Une sonde qui échoue
@@ -498,11 +909,41 @@ export class HiveNodeClient {
    * TMPDIR profond ne coûte rien, et l'en avertir serait un faux signal.
    */
   private preparerRendezVous(): void {
+    // Un nœud redémarré rouvre ses ponts : son arrêt les avait fermés.
+    this.rendezVous.ouvrir();
     for (const reste of balayerPontsOrphelins()) this.log(`pont orphelin effacé : ${reste}`);
     const agent = this.opts.agentType;
     if (!estAgentType(agent) || binaireMcpDansBac(agent) === null) return;
     const alerte = this.rendezVous.alerte();
     if (alerte) this.log(`⚠ ${alerte}`);
+  }
+
+  /**
+   * Le niveau d'isolement sous lequel ce nœud fait tourner ses validations :
+   * `conteneur` avec un bac — sans lui, aucune ne tourne (`sans_bac`).
+   */
+  private niveauDIsolement(): string {
+    return this.opts.bac ? 'conteneur' : (this.opts.isolement?.niveau ?? 'processus');
+  }
+
+  /**
+   * Le magasin de dépendances, au démarrage (G18 D) : ce qu'un nœud tué a
+   * laissé, les entrées périmées ou en trop — et le magasin ENTIER quand le
+   * niveau d'isolement a changé depuis son peuplement. Sans attendre : le
+   * ramassage n'écrit que dans le magasin, et une validation qui le croiserait
+   * retombe sur l'installation (`cache-dependances.ts`).
+   */
+  private ramasserLeMagasin(): void {
+    void ramasserMagasin(dossierDuMagasin(this.workRoot), { niveau: this.niveauDIsolement() }).then(
+      (bilan) => {
+        const ligne = direRamassage(bilan);
+        if (ligne) this.log(ligne);
+      },
+      (err: unknown) =>
+        this.log(
+          `magasin de dépendances non ramassé : ${err instanceof Error ? err.message : String(err)}`,
+        ),
+    );
   }
 
   /**
@@ -531,6 +972,10 @@ export class HiveNodeClient {
   stop(): void {
     this.closed = true;
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    // Réveillés AVANT l'annulation : un agent arrêté ne traite pas SIGTERM.
+    // `arreter` relance sur-le-champ (SIGCONT synchrone) ; une pause en vol
+    // se défait d'elle-même en concluant.
+    for (const pilote of this.pilotes.values()) void pilote.arreter();
     for (const ctrl of this.active.values()) ctrl.abort();
     for (const ctrl of this.activeMerges.values()) ctrl.abort();
     for (const ctrl of this.activeChantiers.values()) ctrl.abort();
@@ -567,6 +1012,171 @@ export class HiveNodeClient {
       libelle,
       ...(detail ? { detail } : {}),
       ...(taskId ? { taskId } : {}),
+    });
+  }
+
+  /**
+   * Décide une action proposée par le CLI (G12, `--permission-prompt-tool`
+   * relayé par le pont MCP). PUR dans sa décision — `politique-actions.ts`
+   * classe, le niveau d'autonomie du projet tranche le défaut — et VISIBLE
+   * dans ses effets : chaque issue (autorisée, refusée, réquisition, échéance)
+   * laisse une ligne au journal de la tâche — sauf l'allow de la classe
+   * `toujours` (lectures), dont le volume noierait le journal. Jamais d'allow
+   * implicite. `pilote` : les horloges du run — l'attente d'une décision se
+   * borne à ce qu'elles lui laissent.
+   */
+  private async deciderActionProposee(
+    taskId: string,
+    action: ActionProposee,
+    cwd: string,
+    niveau: NiveauAutonomie,
+    signal: AbortSignal,
+    pilote: PiloteExecution,
+  ): Promise<DecisionAction> {
+    const caviardeur = this.caviardeurDuNoeud();
+    const classement = classerActionProposee(action, cwd);
+    const suite = decisionActionParNiveau(classement.classe, niveau);
+    const libelle = caviardeur.texte(classement.libelle).slice(0, LIMITS.requisitionLibelle);
+    const progres = (log: string): void => {
+      this.send({ type: 'task_update', taskId, status: 'running', log });
+    };
+    if (suite === 'autoriser') {
+      // Fait enregistré là où il se produit : l'auto-allow d'une commande
+      // hors liste est une décision, elle se lit dans le journal de la tâche.
+      if (classement.classe !== 'toujours') {
+        progres(
+          `▶ action autorisée (classe ${classement.classe}, autonomie ${niveau}) : ${libelle}`,
+        );
+      }
+      return { behavior: 'allow', updatedInput: action.input };
+    }
+    if (suite === 'refuser') {
+      const message =
+        `action refusée par la politique Hive (classe ${classement.classe}, ` +
+        `autonomie ${niveau}) : ${libelle} — hors de la liste d'autorisation du dépôt ; ` +
+        `une décision humaine se demande via la Chambre (niveau gouverne ou plein)`;
+      progres(`⛔ ${message}`);
+      return { behavior: 'deny', message };
+    }
+    // Réquisition dans la Chambre : le CLI reste suspendu sur SA décision —
+    // l'échéance effective (min du TTL de la Reine et du budget restant du
+    // run) garantit une réponse avant la mort du CLI, et le filet local
+    // couvre un hub devenu muet.
+    progres(`⏸ Décision demandée à la Chambre : ${libelle}`);
+    const detail = caviardeur
+      .texte(`${action.toolName} ${JSON.stringify(action.input)}`)
+      .slice(0, LIMITS.requisitionDetail);
+    const statut = await this.attendreDecisionAction(taskId, libelle, detail, signal, pilote);
+    if (statut === 'accordee') {
+      progres(`▶ Action accordée depuis la Chambre : ${libelle}`);
+      return { behavior: 'allow', updatedInput: action.input };
+    }
+    // Chaque issue porte SON motif : une expiration décidée par la Reine
+    // n'est pas un hub injoignable, et un run à bout de budget n'est ni l'un
+    // ni l'autre — le journal doit dire lequel des trois est arrivé.
+    const motif =
+      statut === 'refusee'
+        ? 'réquisition refusée depuis la Chambre'
+        : statut === 'expiree'
+          ? 'réquisition expirée par la Reine — aucune décision humaine à l’échéance'
+          : statut === 'hors_delai'
+            ? 'décision impossible — budget du run CLI épuisé avant toute échéance de la Chambre'
+            : 'décision indisponible — hub injoignable (ou tâche annulée), aucune expiration décidée';
+    progres(`⛔ ${motif} : ${libelle}`);
+    return { behavior: 'deny', message: `${motif} : ${libelle}` };
+  }
+
+  /**
+   * Ouvre la réquisition d'ACTION et attend sa décision, tâche EN VOL. La
+   * corrélation passe par `requestId` (rendu tel quel dans l'ack) puis par
+   * l'identifiant du store (`requisition_result`). Ne lève jamais : toute
+   * panne de transport devient `indisponible`, que l'appelant lit en deny.
+   *
+   * Ce que les horloges du run lui laissent (`pilote.restant`) borne tout : le
+   * budget transmis au hub (qui raccourcit son TTL) comme le filet local — une
+   * décision rendue après la mort du CLI ne sert personne. Lu à l'instant où
+   * l'action est proposée, jamais sur une échéance en temps mur : une pause
+   * n'en a rien consommé. Lu UNE fois : la fenêtre court ensuite en temps mur,
+   * comme le TTL de la Chambre et son compte à rebours — une pause pendant
+   * l'attente ne la suspend pas, elle ne fait que reculer la mort du CLI, que
+   * l'échéance précède donc toujours.
+   */
+  private attendreDecisionAction(
+    taskId: string,
+    libelle: string,
+    detail: string,
+    signal: AbortSignal,
+    pilote: PiloteExecution,
+  ): Promise<'accordee' | 'refusee' | 'expiree' | 'indisponible' | 'hors_delai'> {
+    // Déjà annulée : l'écouteur `abort` ne tirerait plus — on n'ouvre rien.
+    if (signal.aborted || !this.nodeId || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return Promise.resolve('indisponible');
+    }
+    const restant = pilote.restant();
+    const budgetMs = restant === null ? null : Math.floor(restant - MARGE_DECISION_ACTION_MS);
+    if (budgetMs !== null && budgetMs <= 0) {
+      // Action proposée trop tard dans le run : le CLI mourra avant toute
+      // décision — ouvrir une réquisition qu'aucune réponse ne peut plus
+      // atteindre fabriquerait une case morte dans la Chambre.
+      return Promise.resolve('hors_delai');
+    }
+    const requestId = randomUUID();
+    return new Promise((resolve) => {
+      let reqId: string | null = null;
+      let ackTimer: NodeJS.Timeout | null = null;
+      let decideTimer: NodeJS.Timeout | null = null;
+      let fini = false;
+      const finir = (
+        statut: 'accordee' | 'refusee' | 'expiree' | 'indisponible' | 'hors_delai',
+      ): void => {
+        if (fini) return;
+        fini = true;
+        this.pendingActionAcks.delete(requestId);
+        if (reqId) this.pendingActionDecisions.delete(reqId);
+        if (ackTimer) clearTimeout(ackTimer);
+        if (decideTimer) clearTimeout(decideTimer);
+        signal.removeEventListener('abort', onAbort);
+        resolve(statut);
+      };
+      // Tâche annulée pendant l'attente : la décision n'a plus de destinataire.
+      const onAbort = (): void => finir('indisponible');
+      signal.addEventListener('abort', onAbort, { once: true });
+      // L'accusé d'abord : sans lui, pas d'identifiant à attendre.
+      ackTimer = setTimeout(() => {
+        if (!reqId) finir('indisponible');
+      }, ACTION_ACK_TIMEOUT_MS);
+      ackTimer.unref?.();
+      this.pendingActionAcks.set(requestId, (id, expiresAt) => {
+        reqId = id;
+        if (ackTimer) clearTimeout(ackTimer);
+        this.pendingActionDecisions.set(id, finir);
+        // Filet local : l'échéance appartient à la Reine — l'ack la transmet
+        // et le filet s'y cale (plus la grâce de relais) ; sans elle (hub
+        // plus ancien), le plafond figé. Dans tous les cas, jamais au-delà du
+        // budget du run. Un filet qui tire, c'est un hub qui n'a PAS relayé
+        // son expiration : `indisponible`, pas `expiree`.
+        const filet =
+          expiresAt !== undefined
+            ? Math.max(0, expiresAt - Date.now()) + GRACE_RELAIS_ECHEANCE_MS
+            : ACTION_DECISION_MAX_MS;
+        // La borne budget garde la grâce de relais : la marge de trente
+        // secondes retranchée du budget la couvre — le filet reste donc
+        // toujours AVANT la mort du CLI, et toujours APRÈS l'échéance du hub.
+        decideTimer = setTimeout(
+          () => finir('indisponible'),
+          budgetMs === null ? filet : Math.min(filet, budgetMs + GRACE_RELAIS_ECHEANCE_MS),
+        );
+        decideTimer.unref?.();
+      });
+      this.send({
+        type: 'requisition_open',
+        genre: 'action',
+        libelle,
+        ...(detail ? { detail } : {}),
+        taskId,
+        requestId,
+        ...(budgetMs !== null ? { budgetMs } : {}),
+      });
     });
   }
 
@@ -894,6 +1504,10 @@ export class HiveNodeClient {
         // configurés à la main) : redits à chaque inscription, absents quand
         // l'agent n'en a aucun.
         ...(this.efforts.length > 0 ? { efforts: [...this.efforts] } : {}),
+        // Un plafond de coût tenu dans la boucle de l'agent : la capacité de
+        // l'ADAPTATEUR. La version du CLI, elle, se vérifie à chaque tentative
+        // plafonnée (`plafondTenu`) — un CLI se met à jour sous un nœud en marche.
+        ...(this.adapter.plafondCout ? { plafondCout: true } : {}),
         // Ce que ce poste porte réellement — des CONSTATS, pas un verdict. Le
         // hub en tire sa conclusion avec son catalogue ; ici on ne fait que
         // rapporter ce qu'on a vu. Absent tant que le diagnostic n'a pas
@@ -987,13 +1601,21 @@ export class HiveNodeClient {
 
   private onMessage(raw: string): void {
     const msg = parseServerMessage(raw);
-    if (!msg) return;
+    if (!msg) {
+      this.direIllisible(raw);
+      return;
+    }
     switch (msg.type) {
       case 'registered':
         this.nodeId = msg.nodeId;
         this.startHeartbeat();
         this.log(`enregistré dans la ruche (nodeId=${msg.nodeId.slice(0, 8)}…)`);
         this.proposerRequisitionCredentialsSiBesoin();
+        // Sandbox Live : la Reine a oublié l'état des exécutions que la
+        // coupure lui a fait remettre en file (ou tout, si ELLE a redémarré),
+        // puis les ré-adopte. Chaque pilote redit son état ENTIER — sans quoi
+        // un agent en pause perdait son bouton Reprendre (`pilote-execution.ts`).
+        for (const pilote of this.pilotes.values()) pilote.instantane();
         try {
           this.opts.surInscription?.({ ruche: msg.ruche ?? null });
         } catch (err) {
@@ -1001,17 +1623,7 @@ export class HiveNodeClient {
         }
         break;
       case 'assign_task':
-        void this.runTask(
-          msg.task,
-          msg.repoUrl ?? null,
-          msg.hiveContext,
-          msg.modele,
-          msg.delegationBudget,
-          msg.relecture === true,
-          msg.delegationRootTaskId,
-          msg.effort,
-          msg.prolonger === true,
-        );
+        void this.runTask(msg);
         break;
       case 'assign_merge':
         void this.runMergeJob(msg);
@@ -1023,7 +1635,14 @@ export class HiveNodeClient {
         void this.runPoseOutil(msg);
         break;
       case 'cancel_task':
-        this.active.get(msg.taskId)?.abort();
+        void this.annulerTache(msg.taskId);
+        break;
+      case 'pause_task':
+      case 'resume_task':
+        void this.gestePause(msg.taskId, msg.type);
+        break;
+      case 'demande_diff_direct':
+        void this.repondreDiffDirect(msg.taskId, msg.requestId);
         break;
       case 'error':
         this.log(`erreur du hub : ${msg.message}`);
@@ -1074,19 +1693,72 @@ export class HiveNodeClient {
         this.resolveDelegationResult({ ok: true, ...result });
         break;
       }
-      case 'requisition_ack':
+      case 'requisition_ack': {
         this.log(`réquisition ouverte (${msg.id.slice(0, 8)}…) — ${msg.genre} : ${msg.libelle}`);
+        if (msg.requestId) {
+          const attendue = this.pendingActionAcks.get(msg.requestId);
+          if (attendue) {
+            this.pendingActionAcks.delete(msg.requestId);
+            attendue(msg.id, msg.expiresAt);
+          }
+        }
         break;
-      case 'requisition_result':
+      }
+      case 'requisition_result': {
         this.log(`réquisition ${msg.id.slice(0, 8)}… : ${msg.statut}`);
+        // Une décision d'ACTION en vol (G12) se résout ici, tâche toujours en
+        // cours — jamais confondue avec la pause infra d'`attenteRequisition`.
+        const decision = this.pendingActionDecisions.get(msg.id);
+        if (decision) {
+          this.pendingActionDecisions.delete(msg.id);
+          decision(msg.statut);
+          break;
+        }
         if (this.attenteRequisition) {
           if (msg.statut === 'accordee') void this.reprendreApresRequisition();
           else void this.abandonnerApresRequisition(msg.statut);
         }
         break;
+      }
       default:
         break; // state/event : réservés au dashboard
     }
+  }
+
+  /**
+   * Un message du hub que ce nœud ne sait pas lire ne tombe plus sans un mot.
+   * Une assignation reçoit le refus que la Reine attend pour CE travail
+   * (`assignationIllisible`), sauf s'il tourne déjà ici ; sans identifiant sûr
+   * à lui renvoyer, ce journal est sa seule trace. Jamais le message lui-même :
+   * il peut porter le jeton d'un projet.
+   */
+  private direIllisible(raw: string): void {
+    const illisible = assignationIllisible(raw);
+    if (!illisible) {
+      this.log('message du hub illisible : ignoré');
+      return;
+    }
+    const { reponse } = illisible;
+    const ligne = `✘ assignation illisible (${illisible.type}) : ${illisible.motif} →`;
+    if (!reponse) {
+      this.log(`${ligne} aucun identifiant sûr, rien à lui répondre`);
+      return;
+    }
+    // Le garde-doublon de runTask, runMergeJob et runChantierJob : ce travail
+    // tourne ICI, et la Reine prendrait le refus (`rejectTask` accepte une
+    // tâche `running`) — remise en file, et double exécution.
+    const enCours =
+      reponse.type === 'task_reject'
+        ? this.active.has(reponse.taskId)
+        : reponse.type === 'merge_result'
+          ? this.activeMerges.has(reponse.mergeId)
+          : this.activeChantiers.has(reponse.chantierId);
+    if (enCours) {
+      this.log(`${ligne} ce travail tourne déjà ici, aucun refus envoyé`);
+      return;
+    }
+    this.send(reponse);
+    this.log(`${ligne} refusée auprès de la Reine`);
   }
 
   private startHeartbeat(): void {
@@ -1160,11 +1832,55 @@ export class HiveNodeClient {
    * celle qu'un hub aurait attribuée : un nœud tué doit retrouver ses
    * conteneurs sous le nom qu'il connaîtra au prochain lancement.
    */
-  private optionBacTache(tache?: string): { bac?: BacExecution } {
+  private optionBacTache(tache?: string, reseau?: ReseauBac): { bac?: BacExecution } {
     const bac = this.opts.bac;
     if (!bac) return {};
     const noeud = this.opts.nodeId ?? this.nodeId;
-    return { bac: { ...bac, ...(noeud ? { noeud } : {}), ...(tache ? { tache } : {}) } };
+    return {
+      bac: {
+        ...bac,
+        ...(noeud ? { noeud } : {}),
+        ...(tache ? { tache } : {}),
+        ...(reseau ? { reseau } : {}),
+      },
+    };
+  }
+
+  /**
+   * Le réseau de CETTE exécution (`reseau-tache.ts`), ouvert sur l'arbre
+   * fraîchement cloné — les registres du dépôt se lisent à la base, avant que
+   * l'agent y écrive. Chaque refus part au journal de la tâche à l'instant où
+   * le proxy le prononce.
+   */
+  private reseauTache(
+    niveau: NiveauReseau,
+    repoUrl: string | null,
+    workspace: Workspace,
+    progres: (p: AdapterProgress) => void,
+  ): Promise<ReseauTache> {
+    // Un bac sans mesure du réseau (un banc, un appelant d'avant la sonde) ne
+    // filtre pas — et le dit ; sans bac, la sandbox de processus non plus.
+    const capacite =
+      this.opts.reseau ??
+      (this.opts.bac
+        ? { filtre: false, exige: false, motif: 'réseau du bac non éprouvé au démarrage' }
+        : undefined);
+    return ouvrirReseauTache({
+      niveau,
+      ...(capacite ? { capacite } : {}),
+      agent: this.opts.agentType,
+      repoUrl,
+      cwd: workspace.cwd,
+      env: workspace.env,
+      reservation: this.rendezVous,
+      surRefus: (r) => progres({ log: `[hive] réseau refusé — ${r.motif}` }),
+    });
+  }
+
+  /** Les logs d'un résultat, précédés du bilan des refus du proxy s'il y en a eu. */
+  private static logsAvecReseau(logs: string, reseau: ReseauTache | null): string {
+    const bilan = reseau?.etat === 'filtre' ? bilanRefus(reseau.refus()) : null;
+    return bilan ? `${bilan}\n${logs}` : logs;
   }
 
   /**
@@ -1228,7 +1944,7 @@ export class HiveNodeClient {
    * `buildSandboxEnv` retire de `keepEnv` restent caviardés ici — en trop,
    * jamais en moins.
    */
-  private caviardeurDuNoeud(): Caviardeur {
+  private caviardeurDuNoeud(trouvees: readonly string[] = []): Caviardeur {
     const env = Object.fromEntries(
       (this.opts.keepEnv ?? []).map((nom): [string, string | undefined] => [nom, process.env[nom]]),
     );
@@ -1237,7 +1953,12 @@ export class HiveNodeClient {
     // les sources de Hive : le caviarder réécrirait leurs diffs et leurs logs.
     const jeton = this.opts.token;
     const jetonReel = jeton !== DEFAULT_TOKEN && jeton.length >= MIN_TOKEN_LENGTH;
-    return creerCaviardeur([...valeursSecretes(env), ...(jetonReel ? [jeton] : [])]);
+    // `trouvees` : les secrets que la porte a trouvés dans la production, relus
+    // dans son diff (`passerLaPorte`) — une clé AWS n'a aucun motif connu de
+    // Hive, sa valeur exacte, si. Déjà sous leurs seules formes CAVIARDABLES
+    // (une clé PEM par ses lignes de base64, jamais par son en-tête) : rien
+    // n'y réécrit une ligne légitime.
+    return creerCaviardeur([...valeursSecretes(env), ...(jetonReel ? [jeton] : []), ...trouvees]);
   }
 
   /**
@@ -1275,6 +1996,35 @@ export class HiveNodeClient {
   }
 
   /**
+   * La raison d'un refus pour agent en panne, AVEC la ligne où l'agent l'a dit
+   * (`ligneDInfra`) : un refus n'emporte que sa raison, jamais les logs. Caviardée
+   * et lavée ici — elle part à tout l'écran —, bornée comme toute raison.
+   */
+  private static raisonAgentIndisponible(
+    prefixe: string,
+    result: AdapterResult,
+    caviardeur: Caviardeur,
+    echecAmont: EchecAmont | null = null,
+  ): string {
+    // Un fournisseur épuisé (G13) : son FAIT voyage à part (`epuisement`) ; la
+    // raison dit ce qui le PROUVE — la phrase de la passerelle de Hive quand
+    // c'est elle qui n'a pas joint l'API (`EchecAmont`), sinon la ligne du CLI,
+    // jamais la ligne `[hive]` qui ferme les logs d'un arrêt en vol.
+    const epuisement = result.epuisement;
+    const passerelle = epuisement?.cause === 'injoignable' ? echecAmont?.motif : undefined;
+    const dit = passerelle ?? ligneDInfra(texteDEchec(result.logs, result.finalText));
+    const propre = epuisement && dit.startsWith('[hive]') ? '' : dit;
+    const cause = propre ? laverIdentifiantsDuTexte(caviardeur.texte(propre)).trim() : '';
+    if (!epuisement) return (cause ? `${prefixe} : ${cause}` : prefixe).slice(0, LIMITS.name);
+    const fait = direArret(
+      { issue: 'epuisement_fournisseur', ...epuisement },
+      (fr) => fr,
+      remiseUtc,
+    );
+    return (cause || fait).slice(0, LIMITS.name);
+  }
+
+  /**
    * Le progrès d'un adaptateur, tel qu'il part au hub : texte caviardé ici, sur
    * la machine qui porte les secrets — le hub, lui, relaie la sortie en direct
    * à chaque écran de la ruche.
@@ -1289,7 +2039,7 @@ export class HiveNodeClient {
       // par un adaptateur fini écrirait sinon dans la console de la tentative
       // suivante (même tâche, même nœud — le hub ne peut pas les distinguer).
       if (this.active.get(taskId) !== ctrl) return;
-      const sortie = p.sortie ? morceauCaviarde(caviardeur.texte(p.sortie)) : '';
+      const sortie = p.sortie ? morceauVersHub(p.sortie, (s) => caviardeur.texte(s)) : null;
       this.send({
         type: 'task_update',
         taskId,
@@ -1299,23 +2049,50 @@ export class HiveNodeClient {
           : {}),
         ...(p.presences ? { presences: p.presences } : {}),
         ...(p.log ? { log: caviardeur.texte(p.log).slice(0, LIMITS.log) } : {}),
-        ...(sortie ? { sortie } : {}),
+        ...(sortie ? { sortie: sortie.sortie, niveaux: sortie.niveaux } : {}),
       });
     };
   }
 
+  /**
+   * Le plafond de coût que CETTE tentative passera à son agent : celui de la
+   * Reine, si le CLI qui tournera le tient (`AgentAdapter.plafondCout`) —
+   * sinon aucun, et le journal de la tâche dit pourquoi et quoi faire.
+   * Interrogé AVANT le minuteur de durée de l'enfant : la sonde (un bac qui
+   * démarre peut la faire attendre) ne se paie pas sur son budget.
+   */
+  private async plafondTenu(
+    plafond: number | undefined,
+    sonde: AdapterContext,
+  ): Promise<number | undefined> {
+    if (plafond === undefined) return undefined;
+    const verdict = (await this.adapter.plafondCout?.(sonde)) ?? {
+      tenu: false as const,
+      motif: `l’adaptateur ${this.adapter.name} ne tient aucun plafond de coût`,
+    };
+    if (verdict.tenu) return plafond;
+    sonde.onProgress({
+      log:
+        `plafond de ${usdDeMicros(plafond)} USD NON passé à l’agent : ${verdict.motif} — seule ` +
+        'l’enveloppe de la racine le borne, après chaque tentative rendue',
+    });
+    return undefined;
+  }
+
   // ─── Exécution d'une tâche ───────────────────────────────────────────────
-  private async runTask(
-    task: Task,
-    repoUrl: string | null,
-    hiveContext?: string,
-    modele?: string,
-    delegationBudget?: DelegationBudget,
-    relecture = false,
-    delegationRootTaskId?: string,
-    effort?: Effort,
-    prolonger = false,
-  ): Promise<void> {
+  /** Le message entier : ses champs, nommés, plutôt que dix positions à tenir. */
+  private async runTask(msg: AssignTaskMsg): Promise<void> {
+    // Nœud arrêté : une assignation encore en vol ne démarre rien — elle
+    // réserverait des ponts et lancerait un agent qu'aucun stop() n'abortera.
+    if (this.closed) return;
+    const { task, hiveContext, modele, delegationBudget, delegationRootTaskId, effort } = msg;
+    const repoUrl = msg.repoUrl ?? null;
+    const relecture = msg.relecture === true;
+    const prolonger = msg.prolonger === true;
+    // Absent (une Reine d'avant ce réglage) : le défaut, jamais `ouvert`.
+    const reseau = msg.reseau ?? NIVEAU_RESEAU_DEFAUT;
+    // Absent (hub plus ancien) : la lecture FERMÉE — comme `off`.
+    const autonomie = msg.autonomie ?? 'off';
     // Défense en profondeur : l'id sert à construire des chemins locaux — on ne
     // fait pas confiance au hub (anti path-traversal si le hub était compromis).
     if (!ID_PATTERN.test(task.id)) {
@@ -1364,6 +2141,16 @@ export class HiveNodeClient {
       this.log(`⏾ ${task.title} : ${offShift.reason} → refus`);
       return;
     }
+    // `HIVE_ISOLEMENT=exige` : le membre a exigé un réseau filtré, un projet
+    // `ouvert` ne tourne pas ici. Refus POLI (aucune tentative brûlée) et
+    // durable : un autre nœud peut le prendre, celui-ci ne changera pas d'avis
+    // avant qu'un humain change un des deux réglages.
+    const exige = refusExige(reseau, this.opts.reseau);
+    if (exige) {
+      this.send({ type: 'task_reject', taskId: task.id, reason: exige, retryAfterMs: 10 * 60_000 });
+      this.log(`🛡 ${task.title} : ${exige} → refus`);
+      return;
+    }
 
     const ctrl = new AbortController();
     this.active.set(task.id, ctrl);
@@ -1371,16 +2158,26 @@ export class HiveNodeClient {
     const started = Date.now();
     const caviardeur = this.caviardeurDuNoeud();
     let budgetExceeded = false;
-    let budgetTimer: NodeJS.Timeout | null = null;
-    let usage: ExecutionUsage | undefined;
-    let usageBefore: ReturnType<typeof capturerExecutionUsage> | null = null;
+    let budgetTimer: MinuteurSuspendable | null = null;
+    // Les ressources de l'AGENT, relevées par son pilote — jamais celles du
+    // processus du nœud (`pilote-execution.ts`). Absentes tant qu'il n'est pas lancé.
+    let ressources: RessourcesExecution | undefined;
+    let agentLance = false;
     this.send({ type: 'task_update', taskId: task.id, status: 'running' });
+    const pilote = this.creerPilote(task.id, ctrl);
+    pilote.phase('preparation');
     this.log(`butinage : ${task.title} (tentative ${task.attempts + 1})`);
 
     let workspace: Workspace | null = null;
     let conserverWorkspace = false;
+    let reseauOuvert: Exclude<ReseauTache, { etat: 'impossible' }> | null = null;
     try {
       try {
+        await this.effacements.get(task.id);
+        // L'attente ci-dessus rend la main : un arrêt ou une annulation qui a
+        // tiré pendant elle ne doit pas voir la tentative repartir (effacer,
+        // cloner, rouvrir un pont) derrière le nœud.
+        if (ctrl.signal.aborted) return;
         workspace = await prepareWorkspace(
           this.workRoot,
           task,
@@ -1392,6 +2189,7 @@ export class HiveNodeClient {
           prolonger,
           this.adapter.configurationExecutee,
         );
+        this.espaces.set(task.id, workspace);
       } catch (err) {
         // Le dépôt ne s'est pas cloné ICI (identifiants de ce nœud, réseau,
         // dépôt muet) : l'agent n'a pas tourné. Un `task_result` en échec
@@ -1404,11 +2202,14 @@ export class HiveNodeClient {
         //
         // Même refus quand la configuration d'agent du dépôt n'a pas pu être
         // écartée (`configuration-inerte.ts`) : l'agent ne tourne pas avec des
-        // hooks à moitié neutralisés, et la raison dit lesquels.
+        // hooks à moitié neutralisés, et la raison dit lesquels. Et quand le
+        // dossier de la tentative précédente résiste à l'effacement : la
+        // raison nomme le fichier tenu, pas un clone qui n'a pas eu lieu.
         const brut = err instanceof Error ? err.message : String(err);
         const cause = motifLave(brut.trim().split('\n').at(-1) ?? brut);
-        const raison =
-          err instanceof ConfigurationNonNeutralisable ? cause : `clone impossible : ${cause}`;
+        const ditSaCause =
+          err instanceof ConfigurationNonNeutralisable || err instanceof DossierDeTacheIneffacable;
+        const raison = ditSaCause ? cause : `clone impossible : ${cause}`;
         this.send({
           type: 'task_reject',
           taskId: task.id,
@@ -1419,61 +2220,140 @@ export class HiveNodeClient {
         this.log(`⇄ ${task.title} : ${raison} → réaffectation`);
         return;
       }
+      // Annulée (cancel_task) ou nœud arrêté PENDANT la préparation : les
+      // effacements asynchrones ci-dessus ont laissé la boucle traiter l'abort
+      // avant que l'agent n'existe. On ne lance rien ; le finally nettoie.
+      if (ctrl.signal.aborted) return;
+      const progres = this.progresVersHub(task.id, ctrl, caviardeur);
+      // Mesurée, phase par phase (G18) : ce qu'une tâche paie avant son agent.
+      progres({ log: ligneEspacePret(workspace.durees) });
       if (workspace.configurationEcartee.length > 0) {
-        this.progresVersHub(
-          task.id,
-          ctrl,
-          caviardeur,
-        )({ log: noteConfigurationEcartee(workspace.configurationEcartee) });
+        progres({ log: noteConfigurationEcartee(workspace.configurationEcartee) });
       }
+      // Le réseau AVANT l'agent : un proxy qui ne s'ouvre pas refuse la tâche
+      // (un autre nœud peut réussir), jamais il ne la lance sans filtre.
+      const reseauTache = await this.reseauTache(reseau, repoUrl, workspace, progres);
+      if (reseauTache.etat === 'impossible') {
+        this.send({
+          type: 'task_reject',
+          taskId: task.id,
+          reason: motifLave(reseauTache.motif).slice(0, LIMITS.name),
+          infra: true,
+          avantAgent: true,
+        });
+        this.log(`⇄ ${task.title} : ${reseauTache.motif} → réaffectation`);
+        return;
+      }
+      reseauOuvert = reseauTache;
+      if (reseauTache.note) progres({ log: reseauTache.note });
+      const reseauBac = reseauTache.etat === 'filtre' ? reseauTache.reseau : undefined;
       // Hive Mind : le contexte reçu du hub est préfixé au prompt pour l'agent.
       // On n'altère que la copie transmise à l'adaptateur (chemins/branche du
       // workspace restent construits sur la tâche d'origine).
       const taskForAgent = hiveContext
         ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }
         : task;
-      budgetTimer = this.startDelegationBudget(delegationBudget, ctrl, () => {
-        budgetExceeded = true;
-      });
-      usageBefore = capturerExecutionUsage();
-      const rawResult = await this.adapter.run(taskForAgent, {
+      // La politique d'actions (G12) : les règles d'autorisation compilées
+      // depuis le commit de BASE — AVANT l'agent, qui ne peut donc pas les
+      // réécrire — et la capacité de décision reliée au niveau d'autonomie.
+      const permissionsAllow = await reglesAutorisationDeBase(
+        workspace.depot && workspace.baseSha
+          ? { depot: workspace.depot, baseSha: workspace.baseSha }
+          : null,
+        // Lues par la porte VÉRIFIÉE de la base (#556) : une base qu'elle refuse
+        // ne pré-autorise rien (fermé), et la raison part au journal de la tâche.
+        (motif) => {
+          const ligne = `politique d'actions : aucune règle compilée — ${motif}`;
+          progres({ log: ligne });
+          this.log(`🛡 ${task.title} : ${ligne}`);
+        },
+      );
+      if (permissionsAllow.length > 0) {
+        this.send({
+          type: 'task_update',
+          taskId: task.id,
+          status: 'running',
+          log: `politique d'actions : ${permissionsAllow.length} règles compilées depuis la base (${autonomie})`,
+        });
+      }
+      // Le plafond de coût de CETTE tentative, si la Reine en a passé un et que
+      // le CLI le tient — sondé avant que le minuteur de durée ne parte. La
+      // sonde lance un processus DANS le bac : même environnement à leurres et
+      // même réseau de tâche que l'agent, jamais les vraies clés ni le réseau
+      // de l'hôte qu'un bac sans `reseau` rendrait (`--share-net`).
+      const plafond = await this.plafondTenu(msg.plafondCoutMicros, {
         cwd: workspace.cwd,
-        env: workspace.env,
+        env: reseauTache.env,
         attempt: task.attempts + 1,
         signal: ctrl.signal,
+        onProgress: progres,
+        ...this.optionBacTache(task.id, reseauBac),
+      });
+      budgetTimer = this.startDelegationBudget(
+        delegationBudget,
+        ctrl,
+        () => {
+          budgetExceeded = true;
+        },
+        pilote,
+      );
+      agentLance = true;
+      const cwdTache = workspace.cwd;
+      pilote.phase('agent');
+      // L'arrêt de la vigie (G13) ne touche que l'agent : voir `signalDeLAgent`.
+      const agent = signalDeLAgent(ctrl);
+      const rawResult = await this.adapter.run(taskForAgent, {
+        cwd: cwdTache,
+        // Filtré : les identifiants de la passerelle y sont des leurres.
+        env: reseauTache.env,
+        attempt: task.attempts + 1,
+        signal: agent.signal,
         // Le modèle choisi par l'Aiguillage, s'il en a envoyé un : l'adaptateur
         // le passera à son CLI (`--model`). Absent ⇒ modèle par défaut de l'agent.
         ...(modele ? { modele } : {}),
         // L'effort, seulement si l'Aiguillage en a commandé un.
         ...(effort ? { effort } : {}),
-        ...this.optionBacTache(task.id),
+        ...(plafond !== undefined ? { plafondCoutMicros: plafond } : {}),
+        ...this.optionBacTache(task.id, reseauBac),
         ...(relecture ? { role: 'relecture' as const } : {}),
         delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
         rendezVous: this.rendezVous,
-        onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
+        ...(permissionsAllow.length > 0 ? { permissionsAllow } : {}),
+        decideAction: (action) =>
+          this.deciderActionProposee(task.id, action, cwdTache, autonomie, ctrl.signal, pilote),
+        pilote,
+        onProgress: progresSousVigie(agent, pilote, progres),
       });
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
       // validations du bac comptent dans la durée d'un enfant délégué — son
       // parent ne l'attend que `durationMs` plus une grâce, et des
-      // validations hors budget (jusqu'à une demi-heure) lui feraient lire
-      // « résultat absent » pour un enfant qui a réussi. À l'échéance, le
-      // signal arrête les validations en cours (`annule`) et le résultat part.
+      // validations hors budget lui feraient lire « résultat absent » pour un
+      // enfant qui a réussi. Leur pire cas, aux délais par défaut : 31 min
+      // quand les tests passent (sonde, installation, quatre commandes — plus
+      // les git locaux qui les préparent, cinq minutes chacun au plus), et
+      // jusqu'à `surcoutMaxMs()` de plus (`validations-bac.ts`, 55 min) quand
+      // des tests en échec se comparent à la base (G11b) : la base puis la
+      // production rejouées à part, chacune extraite (fetch + checkout),
+      // installée, construite et testée, puis une seconde exécution de la
+      // base. À l'échéance, le signal arrête les validations en cours
+      // (`annule`) et le résultat part.
       const result =
         budgetExceeded && delegationBudget
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
           : rawResult;
-      usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
+      ressources = pilote.ressources();
+      direIssueVigie(result, agent, progres);
       // Échec d'INFRASTRUCTURE : réquisition mid-task si credentials, sinon failover.
       // Le genre se lit sur ce que l'échec DIT, pas sur les logs bruts : la
       // ligne `init` du stream-json porte `apiKeySource`, et un simple 429 y
       // ouvrait une réquisition d'identifiants (shared/texte-d-echec.ts).
       if (!result.success && result.infra) {
-        const req = this.requisitionApresEchecInfra(
-          texteDEchec(result.logs, result.finalText),
-          task.title,
-        );
+        // Un fournisseur épuisé n'attend pas d'identifiants : aucune réquisition.
+        const req = result.epuisement
+          ? null
+          : this.requisitionApresEchecInfra(texteDEchec(result.logs, result.finalText), task.title);
         if (req && workspace && !this.attenteRequisition) {
           conserverWorkspace = true;
           this.attenteRequisition = {
@@ -1483,13 +2363,18 @@ export class HiveNodeClient {
             modele,
             effort,
             delegationBudget,
+            // Le plafond DÉJÀ jugé tenu : la reprise ne le resonde pas.
+            ...(plafond !== undefined ? { plafondCoutMicros: plafond } : {}),
             relecture,
+            reseau,
             workspace,
             started,
             ctrl,
             genre: req.genre,
             libelle: req.libelle,
             detail: req.detail,
+            autonomie,
+            permissionsAllow,
           };
           this.ouvrirRequisition(req.genre, req.libelle, req.detail, task.id);
           this.send({
@@ -1501,16 +2386,20 @@ export class HiveNodeClient {
           this.log(`⏸ ${task.title} : réquisition ${req.genre} — pause`);
           return;
         }
+        const raison = HiveNodeClient.raisonAgentIndisponible(
+          req?.genre === 'binaire' ? 'agent indisponible (binaire absent)' : 'agent indisponible',
+          result,
+          caviardeur,
+          echecAmontDe(reseauTache),
+        );
         this.send({
           type: 'task_reject',
           taskId: task.id,
-          reason:
-            req?.genre === 'binaire'
-              ? 'agent indisponible (binaire absent)'
-              : 'agent indisponible (auth/quota)',
+          reason: raison,
           infra: true,
+          ...refusEpuise(result, Date.now() - started),
         });
-        this.log(`⇄ ${task.title} : agent indisponible → réaffectation`);
+        this.log(`⇄ ${task.title} : ${raison} → réaffectation`);
         return;
       }
       // L'adaptateur peut fournir son diff ; sinon le workspace git le calcule.
@@ -1519,7 +2408,19 @@ export class HiveNodeClient {
       // nourrit la Balance et la chronologie, qui comparent des agents — pas
       // la vitesse des tests du projet.
       const durationMs = Date.now() - started;
-      const validations = await this.validerSiProduction(task.id, result, diff, workspace, ctrl);
+      const verifie = await this.validerSiProduction(
+        task,
+        result,
+        diff,
+        workspace,
+        ctrl,
+        pilote,
+        reseau,
+        reseauBac,
+      );
+      // Ce que la porte a trouvé se caviarde dans tout ce qui part — diff,
+      // logs, texte final —, pas seulement dans son propre rapport.
+      const sortant = verifie.caviardeur ?? caviardeur;
       // Tronquer aux limites du protocole : un diff/log surdimensionné ferait
       // rejeter le message par le hub (fermeture de connexion) et la tâche
       // bouclerait indéfiniment sans jamais aboutir.
@@ -1528,23 +2429,32 @@ export class HiveNodeClient {
         taskId: task.id,
         success: result.success,
         // Caviardés AVANT d'être tronqués (voir `declarationsDuResultat`).
-        diff: caviardeur.diff(diff).slice(0, LIMITS.diff),
-        logs: caviardeur.texte(result.logs).slice(0, LIMITS.log),
+        diff: sortant.diff(diff).slice(0, LIMITS.diff),
+        // Deux têtes, dans cet ordre : la ligne d'un arrêt budgétaire (celle
+        // que le parent qui attend lit d'abord), puis le bilan des refus du
+        // proxy, puis les logs de l'agent.
+        logs: logsDuResultat(
+          { ...result, logs: HiveNodeClient.logsAvecReseau(result.logs, reseauTache) },
+          diff,
+          plafond,
+          sortant,
+        ),
         durationMs,
         subAgents: HiveNodeClient.sousAgentsCaviardes(
           result.subAgents.slice(0, LIMITS.subAgents),
-          caviardeur,
+          sortant,
         ),
-        ...(usage ? { usage } : {}),
-        ...declarationsDuResultat(result, caviardeur),
-        ...(validations ? { validations } : {}),
+        ...(ressources ? { ressources } : {}),
+        ...declarationsDuResultat(result, sortant),
+        ...(verifie.validations ? { validations: verifie.validations } : {}),
+        ...(verifie.porteSecurite ? { porteSecurite: verifie.porteSecurite } : {}),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title}`);
     } catch (err) {
       // Lavé : une exception de git ou d'un adaptateur peut citer une URL à
       // identifiants, et ces logs partent au hub, donc à tout l'écran.
       const message = laverIdentifiantsDuTexte(err instanceof Error ? err.message : String(err));
-      usage = usageBefore ? executionUsageDepuis(usageBefore, capturerExecutionUsage()) : undefined;
+      ressources = agentLance ? pilote.ressources() : undefined;
       this.send({
         type: 'task_result',
         taskId: task.id,
@@ -1556,53 +2466,136 @@ export class HiveNodeClient {
             : caviardeur.texte(`[nœud] exception : ${message}`),
         durationMs: Date.now() - started,
         subAgents: [],
-        ...(usage ? { usage } : {}),
+        ...(ressources ? { ressources } : {}),
       });
       this.log(`✘ ${task.title} : ${message}`);
     } finally {
-      if (budgetTimer) clearTimeout(budgetTimer);
+      budgetTimer?.annuler();
+      // En attente de réquisition, la tâche vit encore — mais plus aucun agent
+      // ne tourne : rien à mesurer ni à suspendre. La reprise ouvre un pilote neuf.
+      this.oublierPilote(task.id, pilote);
+      // Le proxy de la tâche se ferme avec elle, pause de réquisition
+      // comprise : la reprise en rouvre un neuf (`reprendreApresRequisition`).
+      await reseauOuvert?.fermer();
       if (!conserverWorkspace) {
         this.active.delete(task.id);
+        this.espaces.delete(task.id);
         this.clearDelegationsForParent(task.id);
-        workspace?.cleanup();
+        if (workspace) this.effacerEspace(task.id, workspace);
       }
     }
   }
 
   /**
-   * Les validations du bac pour CETTE production, ou rien.
+   * La porte de sécurité puis les validations du bac pour CE résultat — et le
+   * caviardeur qui doit l'accompagner au hub.
    *
-   * Seulement quand le diff remis est celui du RÉPERTOIRE — l'adaptateur n'en a
-   * pas fourni un à lui. L'adaptateur `shell` simulé rend un diff factice sans
-   * rien écrire : valider son répertoire rendrait des verts à propos de la base,
-   * attribués à une production qui n'existe pas. Rien non plus sans succès ni
-   * diff : un échec est déjà un verdict, et une relecture n'écrit rien.
+   * LA PORTE, SUR TOUT RÉSULTAT : son volet secrets lit le diff qui part au hub
+   * et n'exécute rien de la production. Il passait seulement après un succès :
+   * le diff d'un échec — un délai, un code non nul, un budget dépassé — partait
+   * avec la clé AWS en clair, et la Reine le rangeait dans `results.diff`. Son
+   * volet dépendances, lui, lit l'arbre de la tâche : seulement pour une
+   * production réussie dont le diff est celui du RÉPERTOIRE.
+   *
+   * LES VALIDATIONS, seulement pour cette production-là : l'adaptateur `shell`
+   * simulé rend un diff factice sans rien écrire — valider son répertoire
+   * rendrait des verts à propos de la base, attribués à une production qui
+   * n'existe pas ; un échec est déjà un verdict ; sans diff, rien à valider.
+   *
+   * La porte passe AVANT : les validations exécutent les tests du dépôt, que
+   * l'agent a pu écrire — après elles, elle ne jugerait plus l'arbre que le
+   * diff livre (`node-client/porte-securite.ts`). Et ce qu'elle trouve rejoint
+   * le caviardeur de la suite : l'extrait d'un test qui imprimerait la clé
+   * AWS que l'agent a écrite ne part pas plus au hub que le diff qui la porte.
    */
   private async validerSiProduction(
-    taskId: string,
+    task: Pick<Task, 'id' | 'projectId'>,
     result: AdapterResult,
     diff: string,
     workspace: Workspace,
     ctrl: AbortController,
-  ): Promise<ValidationsBac | undefined> {
-    if (!result.success || result.diff !== '' || diff.trim() === '') return undefined;
+    pilote: PiloteExecution,
+    /** Le niveau réseau du projet : il sépare les espaces du magasin de dépendances. */
+    niveau: NiveauReseau,
+    /** Le réseau filtré de la tâche : ses validations tournent derrière le même proxy. */
+    reseau?: ReseauBac,
+  ): Promise<{
+    validations?: ValidationsBac;
+    porteSecurite?: PorteSecurite;
+    caviardeur?: Caviardeur;
+  }> {
+    const taskId = task.id;
+    // Sandbox Live : l'agent a rendu la main ; la porte de sécurité puis les
+    // validations jugent sa production — plus « Agent » à l'écran.
+    pilote.phase('validations');
+    const duRepertoire = result.success && result.diff === '';
+    const depot =
+      workspace.depot && workspace.baseSha
+        ? { depot: workspace.depot, baseSha: workspace.baseSha }
+        : null;
+    const surEtape = (log: string): void =>
+      this.send({ type: 'task_update', taskId, status: 'running', log });
+    const examenDependances = duRepertoire
+      ? 'examiner'
+      : result.success
+        ? 'diff_hors_arbre'
+        : 'production_en_echec';
+    // La porte a SON réseau quand le bac filtre (`ouvrirReseauPorte`) — jamais
+    // celui de la tâche : ni sa liste blanche, où osv.dev n'est pas, ni son
+    // bilan de refus, qui les imputerait au producteur. Ses refus : ici seulement.
+    const reseauPorte = this.opts.reseau?.filtre
+      ? {
+          reservation: this.rendezVous,
+          surRefus: (r: { hote: string; port: number }) =>
+            this.log(
+              `porte de sécurité : ${r.hote}:${r.port} refusé — son réseau ne joint que ${HOTE_OSV}:443`,
+            ),
+        }
+      : null;
+    const porte = await passerLaPorte({
+      cwd: workspace.cwd,
+      diff,
+      depot,
+      ...this.optionBacTache(taskId),
+      ...(reseauPorte ? { reseau: reseauPorte } : {}),
+      signal: ctrl.signal,
+      surEtape,
+      caviardeur: this.caviardeurDuNoeud(),
+      dependances: examenDependances,
+    });
+    const caviardeur = this.caviardeurDuNoeud(porte.valeurs);
+    const { secrets, dependances } = porte.rapport;
+    this.log(
+      `porte de sécurité : secrets ${secrets.etat} (${secrets.raison}) · ` +
+        `dépendances ${dependances.etat} (${dependances.raison})`,
+    );
+    if (!duRepertoire || diff.trim() === '') return { porteSecurite: porte.rapport, caviardeur };
     const validations = await validerProduction({
       cwd: workspace.cwd,
-      depot:
-        workspace.depot && workspace.baseSha
-          ? { depot: workspace.depot, baseSha: workspace.baseSha }
-          : null,
+      depot,
       // Étiquetés comme la tâche : un nœud tué pendant ses validations laisse
       // des conteneurs que son redémarrage doit ramasser (`ramasserConteneurs`).
-      ...this.optionBacTache(taskId),
+      // Le code que l'agent a écrit y tourne : derrière le même réseau que lui.
+      ...this.optionBacTache(taskId, reseau),
       // Leurs extraits partent au hub comme les logs : caviardés au nœud (#489).
-      caviarder: (texte) => this.caviardeurDuNoeud().texte(texte),
+      caviarder: (texte) => caviardeur.texte(texte),
       signal: ctrl.signal,
-      surEtape: (log) => this.send({ type: 'task_update', taskId, status: 'running', log }),
+      surEtape,
+      memoire: this.memoireDesBases,
+      // Le magasin de dépendances du nœud (G18) : un espace par projet et par
+      // réseau de validation — filtré ou non, un `npm ci` n'y joint pas pareil.
+      magasin: {
+        racine: dossierDuMagasin(this.workRoot),
+        projet: task.projectId,
+        reseau: `${niveau}:${reseau ? 'filtre' : 'libre'}`,
+        niveau: this.niveauDIsolement(),
+      },
+      // Chaque validation à l'écran dès qu'elle part, puis dès qu'elle conclut.
+      surControle: (cle, etat) => pilote.controle(cle, etat),
     });
     const etats = VALIDATION_KEYS.map((cle) => `${cle} ${validations.controles[cle].etat}`);
     this.log(`validations du bac : ${etats.join(' · ')}`);
-    return validations;
+    return { validations, porteSecurite: porte.rapport, caviardeur };
   }
 
   /** Reprend une tâche après réquisition accordée — credentials / binaire prêts. */
@@ -1615,13 +2608,17 @@ export class HiveNodeClient {
       modele,
       effort,
       delegationBudget,
+      plafondCoutMicros,
       relecture,
+      reseau,
       workspace,
       started,
       ctrl,
       genre,
       libelle,
       detail,
+      autonomie,
+      permissionsAllow,
     } = attente;
 
     if (genre === 'binaire') {
@@ -1647,9 +2644,11 @@ export class HiveNodeClient {
     this.log(`↻ reprise de ${task.title} après réquisition accordée`);
     let caviardeur = this.caviardeurDuNoeud();
     let budgetExceeded = false;
-    let budgetTimer: NodeJS.Timeout | null = null;
-    let usage: ExecutionUsage | undefined;
-    let usageBefore: ReturnType<typeof capturerExecutionUsage> | null = null;
+    let budgetTimer: MinuteurSuspendable | null = null;
+    const pilote = this.creerPilote(task.id, ctrl);
+    let ressources: RessourcesExecution | undefined;
+    let agentLance = false;
+    let reseauOuvert: Exclude<ReseauTache, { etat: 'impossible' }> | null = null;
     try {
       try {
         process.loadEnvFile('.env');
@@ -1660,44 +2659,72 @@ export class HiveNodeClient {
       // Relu APRÈS le `.env` : la réquisition accordée vient peut-être d'y
       // poser la clé — c'est elle, désormais, qu'il faut taire.
       caviardeur = this.caviardeurDuNoeud();
+      // Un proxy NEUF, qui connaît la clé que la réquisition vient de poser.
+      const progres = this.progresVersHub(task.id, ctrl, caviardeur);
+      const reseauTache = await this.reseauTache(reseau, attente.repoUrl, workspace, progres);
+      if (reseauTache.etat === 'impossible') throw new Error(reseauTache.motif);
+      reseauOuvert = reseauTache;
+      if (reseauTache.note) progres({ log: reseauTache.note });
+      const reseauBac = reseauTache.etat === 'filtre' ? reseauTache.reseau : undefined;
       const taskForAgent = hiveContext
         ? { ...task, prompt: composeAgentPrompt(hiveContext, task.prompt) }
         : task;
-      budgetTimer = this.startDelegationBudget(delegationBudget, ctrl, () => {
-        budgetExceeded = true;
-      });
-      usageBefore = capturerExecutionUsage();
+      budgetTimer = this.startDelegationBudget(
+        delegationBudget,
+        ctrl,
+        () => {
+          budgetExceeded = true;
+        },
+        pilote,
+      );
+      agentLance = true;
+      const cwdTache = workspace.cwd;
+      pilote.phase('agent');
+      const agent = signalDeLAgent(ctrl);
       const rawResult = await this.adapter.run(taskForAgent, {
-        cwd: workspace.cwd,
-        env: workspace.env,
+        cwd: cwdTache,
+        env: reseauTache.env,
         attempt: task.attempts + 1,
-        signal: ctrl.signal,
+        signal: agent.signal,
         ...(modele ? { modele } : {}),
         ...(effort ? { effort } : {}),
-        ...this.optionBacTache(task.id),
+        ...(plafondCoutMicros !== undefined ? { plafondCoutMicros } : {}),
+        ...this.optionBacTache(task.id, reseauBac),
         ...(relecture ? { role: 'relecture' as const } : {}),
         delegate: (input) => this.delegationCaviardee(task.id, input, caviardeur),
         waitForDelegationResult: (childTaskId) =>
           this.waitForDelegationResult(task.id, childTaskId, ctrl.signal),
         rendezVous: this.rendezVous,
-        onProgress: this.progresVersHub(task.id, ctrl, caviardeur),
+        // La politique d'actions (G12) reprend telle qu'à l'assignation.
+        ...(permissionsAllow.length > 0 ? { permissionsAllow } : {}),
+        decideAction: (action) =>
+          this.deciderActionProposee(task.id, action, cwdTache, autonomie, ctrl.signal, pilote),
+        pilote,
+        onProgress: progresSousVigie(agent, pilote, progres),
       });
       // LE BUDGET COURT ENCORE : le minuteur n'est levé qu'au `finally`. Les
       // validations du bac comptent dans la durée d'un enfant délégué — son
       // parent ne l'attend que `durationMs` plus une grâce, et des
-      // validations hors budget (jusqu'à une demi-heure) lui feraient lire
-      // « résultat absent » pour un enfant qui a réussi. À l'échéance, le
-      // signal arrête les validations en cours (`annule`) et le résultat part.
+      // validations hors budget lui feraient lire « résultat absent » pour un
+      // enfant qui a réussi. Leur pire cas, aux délais par défaut : 31 min
+      // quand les tests passent (sonde, installation, quatre commandes — plus
+      // les git locaux qui les préparent, cinq minutes chacun au plus), et
+      // jusqu'à `surcoutMaxMs()` de plus (`validations-bac.ts`, 55 min) quand
+      // des tests en échec se comparent à la base (G11b) : la base puis la
+      // production rejouées à part, chacune extraite (fetch + checkout),
+      // installée, construite et testée, puis une seconde exécution de la
+      // base. À l'échéance, le signal arrête les validations en cours
+      // (`annule`) et le résultat part.
       const result =
         budgetExceeded && delegationBudget
           ? this.resultAfterDelegationBudget(rawResult, delegationBudget)
           : rawResult;
-      usage = executionUsageDepuis(usageBefore, capturerExecutionUsage());
+      ressources = pilote.ressources();
+      direIssueVigie(result, agent, progres);
       if (!result.success && result.infra) {
-        const encore = this.requisitionApresEchecInfra(
-          texteDEchec(result.logs, result.finalText),
-          task.title,
-        );
+        const encore = result.epuisement
+          ? null
+          : this.requisitionApresEchecInfra(texteDEchec(result.logs, result.finalText), task.title);
         if (encore?.genre === 'binaire') {
           this.attenteRequisition = {
             ...attente,
@@ -1715,39 +2742,63 @@ export class HiveNodeClient {
           this.log(`⏸ ${task.title} : ENOENT à la reprise — pause conservée`);
           return;
         }
+        const raison = HiveNodeClient.raisonAgentIndisponible(
+          'agent indisponible après réquisition',
+          result,
+          caviardeur,
+          echecAmontDe(reseauTache),
+        );
         this.send({
           type: 'task_reject',
           taskId: task.id,
-          reason: 'agent indisponible après réquisition',
+          reason: raison,
           infra: true,
+          ...refusEpuise(result, Date.now() - started),
         });
+        this.log(`⇄ ${task.title} : ${raison} → réaffectation`);
         return;
       }
       const diff = result.diff !== '' ? result.diff : await workspace.collectDiff();
       const durationMs = Date.now() - started;
-      const validations = await this.validerSiProduction(task.id, result, diff, workspace, ctrl);
+      const verifie = await this.validerSiProduction(
+        task,
+        result,
+        diff,
+        workspace,
+        ctrl,
+        pilote,
+        reseau,
+        reseauBac,
+      );
+      const sortant = verifie.caviardeur ?? caviardeur;
       this.send({
         type: 'task_result',
         taskId: task.id,
         success: result.success,
         // Caviardés AVANT d'être tronqués (voir `declarationsDuResultat`).
-        diff: caviardeur.diff(diff).slice(0, LIMITS.diff),
-        logs: caviardeur.texte(result.logs).slice(0, LIMITS.log),
+        diff: sortant.diff(diff).slice(0, LIMITS.diff),
+        logs: logsDuResultat(
+          { ...result, logs: HiveNodeClient.logsAvecReseau(result.logs, reseauTache) },
+          diff,
+          plafondCoutMicros,
+          sortant,
+        ),
         durationMs,
         subAgents: HiveNodeClient.sousAgentsCaviardes(
           result.subAgents.slice(0, LIMITS.subAgents),
-          caviardeur,
+          sortant,
         ),
-        ...(usage ? { usage } : {}),
-        ...declarationsDuResultat(result, caviardeur),
-        ...(validations ? { validations } : {}),
+        ...(ressources ? { ressources } : {}),
+        ...declarationsDuResultat(result, sortant),
+        ...(verifie.validations ? { validations: verifie.validations } : {}),
+        ...(verifie.porteSecurite ? { porteSecurite: verifie.porteSecurite } : {}),
       });
       this.log(`${result.success ? '✔' : '✘'} ${task.title} (reprise)`);
     } catch (err) {
       // Lavé : une exception de git ou d'un adaptateur peut citer une URL à
       // identifiants, et ces logs partent au hub, donc à tout l'écran.
       const message = laverIdentifiantsDuTexte(err instanceof Error ? err.message : String(err));
-      usage = usageBefore ? executionUsageDepuis(usageBefore, capturerExecutionUsage()) : undefined;
+      ressources = agentLance ? pilote.ressources() : undefined;
       this.send({
         type: 'task_result',
         taskId: task.id,
@@ -1759,14 +2810,17 @@ export class HiveNodeClient {
             : caviardeur.texte(`[nœud] reprise après réquisition : ${message}`),
         durationMs: Date.now() - started,
         subAgents: [],
-        ...(usage ? { usage } : {}),
+        ...(ressources ? { ressources } : {}),
       });
     } finally {
-      if (budgetTimer) clearTimeout(budgetTimer);
+      budgetTimer?.annuler();
+      this.oublierPilote(task.id, pilote);
+      await reseauOuvert?.fermer();
       if (!this.attenteRequisition) {
         this.active.delete(task.id);
+        this.espaces.delete(task.id);
         this.clearDelegationsForParent(task.id);
-        workspace.cleanup();
+        this.effacerEspace(task.id, workspace);
       }
     }
   }
@@ -1789,8 +2843,17 @@ export class HiveNodeClient {
     });
     this.log(`✘ ${task.title} : réquisition ${statut}`);
     this.active.delete(task.id);
+    this.espaces.delete(task.id);
     this.clearDelegationsForParent(task.id);
-    workspace.cleanup();
+    this.effacerEspace(task.id, workspace);
+  }
+
+  /** Efface le dossier d'une tâche finie, en le disant à sa tentative suivante (`effacements`). */
+  private effacerEspace(taskId: string, workspace: Workspace): void {
+    const fini = workspace.cleanup().finally(() => {
+      if (this.effacements.get(taskId) === fini) this.effacements.delete(taskId);
+    });
+    this.effacements.set(taskId, fini);
   }
 
   // ─── Merge (Honeycomb Merge, Palier 3) ───────────────────────────────────
@@ -1824,7 +2887,7 @@ export class HiveNodeClient {
    */
   private async runMergeJob(msg: AssignMergeMsg): Promise<void> {
     // Anti-doublon : un hub qui réémet le même mergeId ne doit pas lancer deux
-    // jobs concurrents sur le même répertoire (course rmSync/clone).
+    // jobs concurrents sur le même répertoire (course effacement/clone).
     if (this.activeMerges.has(msg.mergeId)) return;
     // Night Shift : un merge (clone + application des diffs + tests) est du
     // travail au même titre qu'une tâche — refusé hors heures de service.
@@ -1883,7 +2946,6 @@ export class HiveNodeClient {
       'merges',
       segmentSur(this.nodeId ? `${msg.mergeId}-${this.nodeId.slice(0, 8)}` : msg.mergeId),
     );
-    const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
     this.log(
       `merge ${msg.mergeId.slice(0, 8)}… : clone + intégration de ${msg.diffs.length} diff(s)`,
     );
@@ -1892,7 +2954,7 @@ export class HiveNodeClient {
     // du dépôt, qui peut imprimer une clé lue sur cette machine.
     const caviardeur = this.caviardeurDuNoeud();
     try {
-      rmSync(dir, rmOpts);
+      await effacerDossier(dir);
       mkdirSync(path.dirname(dir), { recursive: true });
       await cloneRepo(dir, msg.repoUrl);
       const result = await runMerge({
@@ -1962,7 +3024,7 @@ export class HiveNodeClient {
       this.log(`✘ merge ${msg.mergeId.slice(0, 8)} : ${message}`);
     } finally {
       this.activeMerges.delete(msg.mergeId);
-      rmSync(dir, rmOpts);
+      await this.effacerReste(dir);
     }
   }
 
@@ -1986,7 +3048,7 @@ export class HiveNodeClient {
    */
   private async runChantierJob(msg: AssignChantierMsg): Promise<void> {
     // Anti-doublon : un hub qui réémet le même id ne doit pas lancer deux
-    // travaux concurrents dans le même répertoire (course rmSync/clone).
+    // travaux concurrents dans le même répertoire (course effacement/clone).
     if (this.activeChantiers.has(msg.chantierId)) return;
 
     const refuser = (raison: string, sortie = ''): void => {
@@ -2031,10 +3093,9 @@ export class HiveNodeClient {
       'chantiers',
       segmentSur(this.nodeId ? `${msg.chantierId}-${this.nodeId.slice(0, 8)}` : msg.chantierId),
     );
-    const rmOpts = { recursive: true, force: true, maxRetries: 10, retryDelay: 100 } as const;
     this.log(`chantier « ${msg.nom} » : clone puis lancement`);
     try {
-      rmSync(dir, rmOpts);
+      await effacerDossier(dir);
       mkdirSync(path.dirname(dir), { recursive: true });
       await cloneRepo(dir, msg.repoUrl);
 
@@ -2128,8 +3189,19 @@ export class HiveNodeClient {
       this.log(`✘ chantier « ${msg.nom} » : ${message}`);
     } finally {
       this.activeChantiers.delete(msg.chantierId);
-      rmSync(dir, rmOpts);
+      await this.effacerReste(dir);
     }
+  }
+
+  /**
+   * Efface le clone d'un merge ou d'un chantier FINI. Son résultat est parti :
+   * un dossier qui résiste ne le change pas — mais il est dit au journal du
+   * nœud, au lieu de lever depuis un `finally` en rejet de promesse orphelin.
+   */
+  private async effacerReste(dir: string): Promise<void> {
+    await effacerDossier(dir).catch((e: unknown) => {
+      this.log(`dossier non effacé : ${dir} (${(e as NodeJS.ErrnoException).code ?? String(e)})`);
+    });
   }
 
   private send(msg: ClientMessage): void {

@@ -434,13 +434,16 @@ describe('LES APPELANTS — ce que le composant ne peut pas garantir seul', () =
       .replace(/^\s*(?:\/\/|\*).*$/gm, '');
 
   it('les quatre gestes irréversibles passent TOUS par la garde', async () => {
-    const PROJETS = sansCommentaires('../src/views/Projets.tsx');
+    // La vue Projets est découpée (#704) : l'équipe et les partages vivent dans
+    // `projets/Equipe.tsx`, la suppression dans `projets/Suppression.tsx`.
+    const PROJETS = sansCommentaires('../src/views/projets/Equipe.tsx');
+    const SUPPRESSION = sansCommentaires('../src/views/projets/Suppression.tsx');
     const INTENDANCE = sansCommentaires('../src/views/Intendance.tsx');
 
     for (const [source, appel, ou] of [
       [PROJETS, 'retirerMembre(', 'Projets'],
       [PROJETS, 'revoquer(l.id)', 'Projets'],
-      [PROJETS, 'supprimerProjet(', 'Projets'],
+      [SUPPRESSION, 'supprimerProjet(', 'Projets'],
       [INTENDANCE, 'revoquerNoeud(', 'Intendance'],
     ] as const) {
       const i = source.indexOf(appel);
@@ -464,8 +467,8 @@ describe('LES APPELANTS — ce que le composant ne peut pas garantir seul', () =
   it('supprimer un projet exige de RETAPER son nom — le seul geste qui emporte tout', () => {
     // Les trois autres coupent UNE chose ; celui-ci efface un projet entier.
     // Sans `saisie`, il redeviendrait un geste à deux clics comme les autres.
-    const PROJETS = sansCommentaires('../src/views/Projets.tsx');
-    const geste = [...PROJETS.matchAll(/<GesteIrreversible[\s\S]{0,800}?\/>/g)].find((g) =>
+    const SUPPRESSION = sansCommentaires('../src/views/projets/Suppression.tsx');
+    const geste = [...SUPPRESSION.matchAll(/<GesteIrreversible[\s\S]{0,800}?\/>/g)].find((g) =>
       g[0].includes('supprimerProjet('),
     );
     expect(geste, 'la suppression de projet ne passe par aucun geste gardé').toBeTruthy();
@@ -476,9 +479,11 @@ describe('LES APPELANTS — ce que le composant ne peut pas garantir seul', () =
     // Une question figée (« Êtes-vous sûr ? ») ne rattraperait pas une ligne
     // qui a glissé sous le curseur — c'est précisément ce contre quoi tout ce
     // fichier existe.
-    const gestes = ['../src/views/Projets.tsx', '../src/views/Intendance.tsx'].flatMap((f) => [
-      ...sansCommentaires(f).matchAll(/<GesteIrreversible[\s\S]{0,800}?\/>/g),
-    ]);
+    const gestes = [
+      '../src/views/projets/Equipe.tsx',
+      '../src/views/projets/Suppression.tsx',
+      '../src/views/Intendance.tsx',
+    ].flatMap((f) => [...sansCommentaires(f).matchAll(/<GesteIrreversible[\s\S]{0,800}?\/>/g)]);
     expect(gestes.length, 'quatre gestes gardés attendus').toBe(4);
     for (const g of gestes) {
       expect(g[0], 'chaque geste doit poser une question').toMatch(/question=\{/);

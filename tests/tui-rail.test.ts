@@ -19,10 +19,10 @@
 // qui l'y prend.
 
 import { describe, expect, it } from 'vitest';
+import { dureeCourte } from '../src/shared/duree-courte.js';
 import {
   LARGEUR_MIN_CADRES,
   capacites,
-  dureeCourte,
   largeurVisible,
   ligneAFuite,
   panneau,
@@ -68,6 +68,11 @@ describe('UNE DURÉE SE LIT D’UN COUP D’ŒIL', () => {
     expect(dureeCourte(120_000)).toBe('2 min');
   });
 
+  it('les minutes se découpent dans les secondes arrondies : jamais « 1 min 60 s »', () => {
+    expect(dureeCourte(119_600)).toBe('2 min');
+    expect(dureeCourte(179_501)).toBe('3 min');
+  });
+
   it('LA VIRGULE EST DÉCIMALE — c’est un installeur en français', () => {
     expect(dureeCourte(1_500)).toContain(',');
     expect(dureeCourte(1_500)).not.toContain('.');
@@ -90,19 +95,21 @@ describe('UNE DURÉE SE LIT D’UN COUP D’ŒIL', () => {
     expect(dureeCourte(0), 'zéro milliseconde est une durée, pas une absence').toBe('0,0 s');
   });
 
-  it('LES DEUX CHANGEMENTS D’UNITÉ SE FONT PILE OÙ ILS SONT ÉCRITS', () => {
+  it('LES DEUX CHANGEMENTS D’UNITÉ SE FONT OÙ LA VALEUR AFFICHÉE LES ATTEINT', () => {
     // Le cas du dessus éprouve les paliers par des valeurs qui tombent bien au
     // milieu — 4 240, 12 138, 59 400. Aucune ne touche les DEUX bascules, et
-    // `s < 10` comme `s < 60` mutés en `<=` laissaient la suite verte.
+    // `< 100` comme `< 60` mutés en `<=` laissaient la suite verte.
     //
-    // À dix secondes pile, la décimale ne dit plus rien d'utile et disparaît ; à
-    // soixante, on passe aux minutes. Ces deux chiffres sont la règle même de
-    // cette fonction : les décaler d'une unité, c'est afficher « 10,0 s » là où
-    // la charte demande « 10 s », et « 60 s » là où elle demande « 1 min ».
-    expect(dureeCourte(9_999), 'juste avant, la décimale reste').toBe('10,0 s');
-    expect(dureeCourte(10_000), 'à dix secondes pile, la décimale part').toBe('10 s');
-    expect(dureeCourte(59_999), 'juste avant, on reste en secondes').toBe('60 s');
-    expect(dureeCourte(60_000), 'à soixante secondes pile, on passe aux minutes').toBe('1 min');
+    // La bascule suit ce que l'œil LIT : arrondie au dixième, 9,95 s vaut déjà
+    // dix secondes — elle s'affiche « 10 s », jamais « 10,0 s » ; arrondie à la
+    // seconde, 59,5 s vaut déjà une minute — « 1 min », jamais « 60 s ». Juste
+    // avant chaque bascule, l'unité d'avant reste.
+    expect(dureeCourte(9_949), 'juste avant, la décimale reste').toBe('9,9 s');
+    expect(dureeCourte(9_950), 'arrondie à dix secondes, la décimale part').toBe('10 s');
+    expect(dureeCourte(10_000), 'à dix secondes pile aussi').toBe('10 s');
+    expect(dureeCourte(59_499), 'juste avant, on reste en secondes').toBe('59 s');
+    expect(dureeCourte(59_500), 'arrondie à soixante secondes, on passe aux minutes').toBe('1 min');
+    expect(dureeCourte(60_000), 'à soixante secondes pile aussi').toBe('1 min');
   });
 
   it('une durée impossible ne rend RIEN, plutôt qu’un « NaN s »', () => {

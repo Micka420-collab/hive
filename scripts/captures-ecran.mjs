@@ -3,7 +3,10 @@
 //
 //   npm run captures                                  → captures-ecran/fr/
 //   npm run captures -- --langue en                   → captures-ecran/en/
+//   npm run captures -- --theme sombre                → captures-ecran/fr-sombre/
 //   npm run captures -- --vues ruche,chambre.mobile   → seulement celles-là
+//   npm run captures -- --vues assistant-mode         → une étape de l’assistant
+//                                                       de première arrivée
 //
 // La série publiée (`docs/images/captures/`) se refait avec la commande écrite
 // dans docs/CAPTURES.md, qui nomme ses sept images.
@@ -43,8 +46,8 @@
 //      tâche qui a connu un échec puis une reprise. Pas davantage : la page
 //      de Partage, l'écran de connexion et les modales ne sont pas
 //      photographiés (cf. docs/CAPTURES.md, « Ce qui n'est pas photographié »).
-//   5. EN VOL : un lot est confié, et la Ruche puis la Chambre sont
-//      photographiées PENDANT que les sous-agents travaillent. Un état stable
+//   5. EN VOL : un lot est confié, et la Ruche, la Chambre, la Chronique puis
+//      Sandbox Live sont photographiées PENDANT que les sous-agents travaillent. Un état stable
 //      ne montre jamais un agent au travail.
 //   6. Un manifeste (`captures.json`) : pour chaque image, le débordement
 //      horizontal mesuré et les erreurs de console survenues pendant la vue.
@@ -95,7 +98,7 @@ const PREREQUIS = 2;
 const MAL_APPELE = 64;
 
 const USAGE =
-  'usage : npm run captures -- [--langue fr|en] [--sortie <dossier du dépôt>] [--vues <vue>[.<format>],…]';
+  'usage : npm run captures -- [--langue fr|en] [--theme clair|sombre] [--sortie <dossier du dépôt>] [--vues <vue>[.<format>],…]';
 
 /**
  * Ce qui doit être rendu, quoi qu'il arrive — y compris sur ^C. Rendu dans
@@ -218,7 +221,7 @@ async function principal() {
     console.error(`✘ ${options.erreur}\n${USAGE}`);
     return MAL_APPELE;
   }
-  const { langue, sortie, vues } = options;
+  const { langue, theme, sortie, vues } = options;
   const arbre = provenance();
 
   // Du Node nu jusqu'ici : si les dépendances manquent, l'amorce le dit en
@@ -227,6 +230,7 @@ async function principal() {
   const { register } = await import('tsx/esm/api');
   register();
   const { SCRIPTS } = await import('../src/shared/demarrage.ts');
+  const { ETAPES_ASSISTANT } = await import('../src/shared/configuration-initiale.ts');
   const labo = await import('./captures-ecran-ruche.mjs');
 
   let chromium;
@@ -343,7 +347,9 @@ async function principal() {
       isMobile: format.isMobile,
       hasTouch: format.hasTouch,
       locale: langue === 'fr' ? 'fr-FR' : 'en-US',
-      colorScheme: 'light',
+      // Le thème passe par la préférence du SYSTÈME : aucun choix n'est
+      // mémorisé, la feuille suit `prefers-color-scheme` seule (theme.ts).
+      colorScheme: theme === 'sombre' ? 'dark' : 'light',
       // Les animations figées : deux exécutions photographient la même image,
       // et un sous-agent à mi-battement ne se lit pas comme un défaut.
       reducedMotion: 'reduce',
@@ -388,7 +394,7 @@ async function principal() {
         // le temps d'être demandé. Attendre la disparition du « Chargement de
         // la vue… » avant qu'il soit seulement apparu ne prouvait rien.
         await calme(calmeMs, plafondMs);
-        await page.locator('.mc-view-loading').waitFor({ state: 'detached', timeout: 15_000 });
+        await page.locator('.mc-avant-etat').waitFor({ state: 'detached', timeout: 15_000 });
         await page.evaluate(() => document.fonts.ready);
         // Ni survol ni anneau de focus : la case cliquée en dernier restait
         // éclairée sur la capture suivante, comme si c'était la vue ouverte.
@@ -450,7 +456,15 @@ async function principal() {
     await page.locator('.mc-account-name').waitFor({ timeout: 15_000 });
     await calme();
     const naviguer = (hash) => page.evaluate((h) => (location.hash = h), hash);
-    return { format, page, photographier, naviguer };
+    // Au format téléphone, la barre est un tiroir fermé (styles.css, « LE
+    // TIROIR DE NAVIGATION ») : ses cases sont cachées tant que le ☰ ne l'a
+    // pas ouvert. Tout clic sur une case l'ouvre donc d'abord, comme quelqu'un
+    // le ferait — le clic sur la case le referme.
+    const burger = page.locator('[data-testid="mc-burger"]');
+    const ouvrirLaBarre = async () => {
+      if (await burger.isVisible()) await burger.click();
+    };
+    return { format, page, photographier, naviguer, burger, ouvrirLaBarre };
   };
 
   const chambre = `#/chambre/${encodeURIComponent(ruche.noeudId)}`;
@@ -458,7 +472,7 @@ async function principal() {
   for (const format of FORMATS) postes.push(await ouvrir(format));
 
   // ─── 4. AU REPOS ────────────────────────────────────────────────────────────
-  for (const { page, photographier, naviguer } of postes) {
+  for (const { format, page, photographier, naviguer, burger, ouvrirLaBarre } of postes) {
     // La barre fait foi : chaque case dit sa vue (`data-vue`), et c'est ce nom
     // qui nomme l'image — lu AVANT le clic, pour qu'un clic qui échoue soit
     // consigné sous le nom de sa vue.
@@ -466,7 +480,15 @@ async function principal() {
       .locator('.mc-nav-cell')
       .evaluateAll((liste) => liste.map((c) => c.getAttribute('data-vue') ?? ''));
     for (const vue of cases) {
-      await photographier(vue, () => page.locator(`.mc-nav-cell[data-vue="${vue}"]`).click());
+      await photographier(vue, async () => {
+        await ouvrirLaBarre();
+        await page.locator(`.mc-nav-cell[data-vue="${vue}"]`).click();
+      });
+    }
+    // Le tiroir lui-même, ouvert : il n'existe qu'au format téléphone.
+    if (await burger.isVisible()) {
+      await photographier('navigation', ouvrirLaBarre, { tiroir: true });
+      await page.keyboard.press('Escape');
     }
 
     // La Chambre n'a pas de case (ADR 0010) : on y entre par l'ouvrière.
@@ -477,6 +499,7 @@ async function principal() {
     // l'humain a tranché — Conseil, revues et leurs raisons — s'y noierait.
     // La voix se choisit par sa case (`aria-pressed`), dernière de la rangée.
     await photographier('warroom-decisions', async () => {
+      await ouvrirLaBarre();
       await page.locator('.mc-nav-cell[data-vue="warroom"]').click();
       await page.locator('.wr-familles button').last().click();
       await page.locator('.wr-familles button[aria-pressed="true"]').last().waitFor();
@@ -503,6 +526,52 @@ async function principal() {
       { tiroir: true },
     );
     await page.keyboard.press('Escape');
+
+    // ─── L'ASSISTANT DE PREMIÈRE ARRIVÉE, ÉTAPE PAR ÉTAPE ─────────────────
+    //
+    // La ruche de laboratoire a ARRÊTÉ sa configuration (sans quoi l'assistant
+    // couvrirait chaque vue) : on le RELANCE donc comme un administrateur, par
+    // l'encart de la Santé, on le rembobine jusqu'à l'accueil, puis chaque
+    // étape est photographiée (`assistant-<étape>`) avant « Suivant ». Le
+    // brouillon d'une configuration arrêtée ne range que l'étape : ces clics ne
+    // changent rien à la ruche. L'état se pilote HORS de `photographier`, qui
+    // saute son geste quand `--vues` écarte l'étape.
+    const etapes = [...ETAPES_ASSISTANT];
+    if (!etapes.some((e) => vueRetenue(vues, `assistant-${e}`, format.nom))) continue;
+    try {
+      const assistant = page.locator('[data-testid="premiere-arrivee"]');
+      await naviguer('#/sante');
+      await page.locator('.mc-avant-etat').waitFor({ state: 'detached', timeout: 15_000 });
+      await page
+        .getByRole('button', { name: /assistant de première arrivée|first-arrival assistant/ })
+        .click();
+      await assistant.waitFor({ timeout: 15_000 });
+      const pied = assistant.locator('.pa-pied-droite button');
+      while ((await assistant.getAttribute('data-etape')) !== etapes[0]) {
+        const avant = await assistant.getAttribute('data-etape');
+        await pied.first().click();
+        await page.waitForFunction(
+          (e) => document.querySelector('[data-testid="premiere-arrivee"]')?.dataset.etape !== e,
+          avant,
+        );
+      }
+      for (const [i, etape] of etapes.entries()) {
+        await photographier(`assistant-${etape}`, () =>
+          page.locator(`[data-testid="premiere-arrivee"][data-etape="${etape}"]`).waitFor(),
+        );
+        if (i < etapes.length - 1) {
+          await pied.last().click();
+          await page
+            .locator(`[data-testid="premiere-arrivee"][data-etape="${etapes[i + 1]}"]`)
+            .waitFor({ timeout: 15_000 });
+        }
+      }
+      // « Plus tard » : la configuration arrêtée reste telle quelle.
+      await assistant.getByRole('button', { name: /Plus tard|Later/ }).click();
+    } catch (e) {
+      const raison = (e instanceof Error ? e.message : String(e)).split('\n')[0];
+      echecs.push({ vue: 'assistant', format: format.nom, raison });
+    }
   }
 
   // ─── 5. EN VOL ──────────────────────────────────────────────────────────────
@@ -513,8 +582,8 @@ async function principal() {
   // repos sous le nom « en vol ». Le calme réseau y est court pour la même
   // raison : pendant un vol, le tableau relit sans cesse. Aucun lot n'est
   // confié pour un format dont `--vues` n'a retenu aucune image en vol.
-  for (const { format, page, photographier, naviguer } of postes) {
-    const enVol = ['ruche-en-vol', 'chambre-en-vol', 'chronique-en-vol'];
+  for (const { format, page, photographier, naviguer, ouvrirLaBarre } of postes) {
+    const enVol = ['ruche-en-vol', 'chambre-en-vol', 'chronique-en-vol', 'sandbox-en-vol'];
     if (!enVol.some((vue) => vueRetenue(vues, vue, format.nom))) continue;
     await labo.confierLot(ruche, projets[0]);
     await photographier(
@@ -540,8 +609,20 @@ async function principal() {
     await photographier(
       'chronique-en-vol',
       async () => {
+        await ouvrirLaBarre();
         await page.locator('.mc-nav-cell[data-vue="chronique"]').click();
         await page.locator('.ch-journal .ch-row').nth(5).waitFor({ timeout: 15_000 });
+      },
+      { calmeMs: 150, plafondMs: 1_500 },
+    );
+    // Sandbox Live pendant le vol : une exécution vivante, sa phase et ses
+    // sous-agents. L'agent simulé ne lance aucun processus : ses mesures
+    // restent « inconnu » à l'image, et c'est exact.
+    await photographier(
+      'sandbox-en-vol',
+      async () => {
+        await naviguer('#/sandbox');
+        await page.locator('[data-testid="bd-detail"]').waitFor({ timeout: 15_000 });
       },
       { calmeMs: 150, plafondMs: 1_500 },
     );
@@ -563,6 +644,7 @@ async function principal() {
     genere: new Date().toISOString(),
     ...arbre,
     langue,
+    theme,
     formats: FORMATS.map((f) => ({
       nom: f.nom,
       largeur: f.viewport.width,

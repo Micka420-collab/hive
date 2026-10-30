@@ -14,7 +14,11 @@ coverage/
 *.db-shm
 *.tsbuildinfo
 .hermes/
-.claude/
+# `.claude/` reste local (réglages, hooks, MCP d'une session) — SAUF les
+# skills : une copie générée de `.agents/skills/`, versionnée pour Claude Code
+# (`scripts/skills.mjs`).
+.claude/*
+!.claude/skills/
 
 # Le rapport JSON de vitest, produit par la CI pour le garde-badge.
 rapport-tests.json

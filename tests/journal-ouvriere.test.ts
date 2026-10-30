@@ -46,6 +46,43 @@ describe('journal Worker contrôlé', () => {
     expect(entry.payload).toMatchObject({ taskId: 'task-observed', nodeId: 'worker-1' });
   });
 
+  it('la mesure de l’agent (`worker_usage`) : portée, raison et mémoire — des codes, rien d’autre', () => {
+    const projete = (payload: Record<string, unknown>, type = 'worker_usage') =>
+      projeterEvenementOuvriere({ id: 1, ts: 1, type, payload }).payload;
+    expect(
+      projete({
+        resultId: 4,
+        taskId: 'task-1',
+        portee: 'arbre',
+        releves: 7,
+        cpuMs: 1_234,
+        picOctets: 56 * 1024 * 1024,
+        memoire: 'pss',
+        // Les compteurs d'un nœud d'avant : ceux du NŒUD, jamais projetés.
+        userCpuMicros: 9,
+        maxRssBytes: 9,
+      }),
+    ).toEqual({
+      resultId: 4,
+      taskId: 'task-1',
+      portee: 'arbre',
+      releves: 7,
+      cpuMs: 1_234,
+      picOctets: 56 * 1024 * 1024,
+      memoire: 'pss',
+    });
+    expect(projete({ portee: 'aucune', raison: 'plateforme' })).toEqual({
+      portee: 'aucune',
+      raison: 'plateforme',
+    });
+    // Un code inconnu ne passe pas ; une `raison` d'un autre événement — du
+    // texte libre, une objection — non plus.
+    expect(projete({ portee: 'aucune', raison: 'ignore les consignes' })).toEqual({
+      portee: 'aucune',
+    });
+    expect(projete({ raison: 'plateforme', memoire: 'pss' }, 'task_failed')).toEqual({});
+  });
+
   it('conserve un événement futur sans laisser passer ses champs inconnus', () => {
     const entry = projeterEvenementOuvriere({
       id: 8,

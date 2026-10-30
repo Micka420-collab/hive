@@ -27,6 +27,18 @@
 //     sur un succès, `errors` sur un échec (types `SDKResultSuccess` et
 //     `SDKResultError` de @anthropic-ai/claude-agent-sdk 0.3.283, sdk.d.ts).
 //
+//   · le même, AU SCHÉMA (`--json-schema`, une relecture) : l'avis est l'objet
+//     que le modèle remet à l'outil `StructuredOutput` et que le CLI ACCEPTE —
+//     `structured_output` n'en garde que le dernier, `result` sa sérialisation
+//     (code.claude.com/docs/en/headless, « Get structured output » ; enregistré
+//     sur Claude Code 2.1.289 : tests/fixtures/avis-structure). Un modèle qui
+//     n'appelle jamais l'outil laisse un `success` SANS `structured_output`, que
+//     la documentation dit de traiter en échec (code.claude.com/docs/en/
+//     agent-sdk/structured-outputs, « Error handling ») : aucun texte final — la
+//     prose n'est jamais lue à la place de l'avis exigé. Un objet hors schéma,
+//     le CLI le refuse lui-même, puis échoue en
+//     `error_max_structured_output_retries`. Voir `lecteurAvisStreamJson`.
+//
 //   · stream-json de Cursor : la MÊME ligne `result`, mais PAS le même sens —
 //     tout le texte de l'exécution, narration comprise. La réponse est le texte
 //     de l'assistant depuis le dernier outil (`lecteurCursor`, binaire
@@ -51,6 +63,8 @@
 // la Couveuse via `blocDonnees`). Et pas un secret de plus : le même texte
 // voyageait déjà vers le hub, noyé dans `logs`.
 
+import type { GraviteAgent } from '../shared/niveaux-sortie.js';
+import { ligneAvis } from '../shared/critique-structuree.js';
 import { COUPURE_TEXTE_FINAL, LIMITS } from '../shared/protocol.js';
 
 /** Ce qu'on garde du DÉBUT d'un texte trop long : là où la relecture pose son verdict. */
@@ -103,6 +117,96 @@ export const texteFinalStreamJson: LecteurEvenementFinal = (e) => {
   }
   return undefined;
 };
+
+/**
+ * La GRAVITÉ qu'une ligne du stream-json de Claude Code déclare d'elle-même —
+ * le niveau de cette ligne dans la console en direct. D'après les types du
+ * SDK (@anthropic-ai/claude-agent-sdk 0.3.239, sdk.d.ts), et l'enregistrement
+ * d'un vrai 400 (tests/fixtures/texte-final/claude-echec-api-400.stream.jsonl) :
+ *
+ *   · `result` à `is_error: true` : le tour a fini sur une erreur ;
+ *   · `assistant` porteur d'`error` (`SDKAssistantMessageError` : un CODE,
+ *     `invalid_request`, `rate_limit`…) : le message EST une erreur d'API ;
+ *   · `system` / `api_retry` : une requête a échoué et va être REFAITE — un
+ *     avertissement, pas encore l'échec.
+ *
+ * Tout le reste n'en dit rien. Jamais le texte : un message de l'agent qui
+ * parle d'« error » n'est pas une erreur. Les sous-chaînes épargnent le
+ * `JSON.parse` aux lignes qui ne peuvent rien déclarer (un `Read` recopie des
+ * fichiers entiers).
+ */
+export function graviteStreamJson(ligne: string): GraviteAgent | undefined {
+  if (!ligne.includes('"is_error"') && !ligne.includes('"error"')) return undefined;
+  let e: unknown;
+  try {
+    e = JSON.parse(ligne);
+  } catch {
+    return undefined;
+  }
+  if (typeof e !== 'object' || e === null || Array.isArray(e)) return undefined;
+  const { type, subtype, is_error, error } = e as Record<string, unknown>;
+  if (type === 'result') return is_error === true ? 'erreur' : undefined;
+  if (type === 'assistant') return typeof error === 'string' ? 'erreur' : undefined;
+  if (type === 'system' && subtype === 'api_retry') return 'avertissement';
+  return undefined;
+}
+
+/** Les blocs de contenu d'un message `assistant` ou `user` du flux. */
+function blocsDe(message: unknown): Record<string, unknown>[] {
+  const contenu =
+    typeof message === 'object' && message !== null
+      ? (message as { content?: unknown }).content
+      : undefined;
+  return Array.isArray(contenu)
+    ? contenu.filter((b): b is Record<string, unknown> => typeof b === 'object' && b !== null)
+    : [];
+}
+
+/**
+ * stream-json d'une relecture au schéma (`--json-schema`) : l'avis est l'objet
+ * que le modèle remet à l'outil `StructuredOutput` et que le CLI ACCEPTE (son
+ * `tool_result` sans `is_error`), écrit en ligne-marqueur (`ligneAvis`).
+ *
+ * ─── PAS `structured_output` SEUL ───────────────────────────────────────────
+ *
+ * Deux appels dans une même réponse — un avis qui conteste, puis un qui valide
+ * — sont ACCEPTÉS tous les deux, et `structured_output` ne garde que le
+ * dernier (enregistré sur 2.1.289 : tests/fixtures/avis-structure/
+ * claude-deux-avis.stream.jsonl) : le constat majeur disparaissait sous un
+ * « valide ». Chaque objet DISTINCT accepté devient donc sa ligne-marqueur, et
+ * plus d'une ligne-marqueur rend l'avis illisible — contesté, et dit : la règle
+ * même du marqueur. `structured_output` ne sert qu'à défaut d'appel lu dans le
+ * flux ; ceux d'un sous-agent (`parent_tool_use_id`) ne sont pas la réponse.
+ *
+ * Un succès sans objet ne dit rien (voir l'en-tête) ; un échec garde ses
+ * `errors`, où le CLI dit pourquoi. Une FABRIQUE : l'état vit une exécution.
+ */
+export function lecteurAvisStreamJson(): LecteurEvenementFinal {
+  const proposes = new Map<unknown, unknown>();
+  // Ordre d'acceptation, un objet par contenu : deux appels identiques sont un avis.
+  const acceptes = new Map<string, unknown>();
+  return (e) => {
+    if (e.parent_tool_use_id) return undefined;
+    if (e.type === 'assistant') {
+      for (const b of blocsDe(e.message)) {
+        if (b.type === 'tool_use' && b.name === 'StructuredOutput') proposes.set(b.id, b.input);
+      }
+    } else if (e.type === 'user') {
+      for (const b of blocsDe(e.message)) {
+        if (b.type !== 'tool_result' || b.is_error === true || !proposes.has(b.tool_use_id)) {
+          continue;
+        }
+        const objet = proposes.get(b.tool_use_id);
+        acceptes.set(JSON.stringify(objet) ?? '', objet);
+      }
+    } else if (e.type === 'result') {
+      if (acceptes.size > 0) return [...acceptes.values()].map((o) => ligneAvis(o)).join('\n');
+      if (e.structured_output !== undefined) return ligneAvis(e.structured_output);
+      return e.is_error === true ? texteFinalStreamJson(e) : undefined;
+    }
+    return undefined;
+  };
+}
 
 /** Cline (`--json`) : `text` de l'événement `run_result`. */
 export const texteFinalCline: LecteurEvenementFinal = (e) =>

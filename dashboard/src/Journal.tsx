@@ -1,7 +1,18 @@
-// Journal d'événements : flux temps réel, coloré et à icônes.
+// Journal d'événements : flux temps réel, coloré et à icônes, lu dans le
+// `Terminal` commun (recherche, niveaux, suivi, copie, plein écran).
 
+import { useMemo } from 'react';
+import { arreteeParSonBudget } from '../../src/shared/arret-budgetaire';
+import {
+  direArret,
+  direRemise,
+  enlisementDepuis,
+  epuisementDepuis,
+} from '../../src/shared/enlisement';
 import type { HiveEvent } from '../../src/shared/types';
 import { VALIDATION_KEYS } from '../../src/shared/validations-bac';
+import { Terminal } from './composants';
+import type { LigneTerminal, NiveauTerminal } from './composants';
 import { useT } from './i18n';
 import type { Translate } from './i18n';
 import { bandeText, formatDuree } from './ui';
@@ -17,12 +28,71 @@ interface Meta {
 
 const short = (v: unknown) => (typeof v === 'string' ? v.slice(0, 8) : '?');
 
+/**
+ * L'issue que la vigie du nœud a rangée sur le fait (G13) — l'agent enlisé,
+ * ou son fournisseur épuisé, sa remise à zéro à l'heure de qui regarde —, ou
+ * rien. Relue par le validateur du protocole : un payload d'un autre âge ne
+ * fait rien dire de faux.
+ */
+const direVigie = (p: Record<string, unknown>, t: Translate): string | null => {
+  const langue = t('fr-FR', 'en-GB');
+  // Au-delà d'un jour, la DATE avec l'heure : « 15:45 » seul mentirait.
+  const heure = (ms: number): string =>
+    direRemise(
+      ms,
+      Date.now(),
+      (d) => d.toLocaleTimeString(langue, { hour: '2-digit', minute: '2-digit' }),
+      (d) => d.toLocaleString(langue, { dateStyle: 'short', timeStyle: 'short' }),
+    );
+  const enlisement = enlisementDepuis(p.enlisement);
+  if (enlisement) return direArret({ issue: 'enlisement', ...enlisement }, t, heure);
+  const epuisement = epuisementDepuis(p.epuisement);
+  return epuisement
+    ? direArret({ issue: 'epuisement_fournisseur', ...epuisement }, t, heure)
+    : null;
+};
+
 /** `—` : non applicable (le projet ne le déclare pas) — surtout pas un vert. */
 const SYMBOLE_VALIDATION: Record<string, string> = {
   passed: '✔',
   failed: '✘',
   missing: '?',
   not_applicable: '—',
+};
+
+/**
+ * Les tests comparés à la base (G11b), en quelques mots après leur symbole :
+ * un `✔` qui tairait des tests rouges excusés — déjà rouges à la base — serait
+ * un vert muet. Lu défensivement : le journal est une trace, pas une zone de
+ * confiance.
+ */
+function precisionDesTests(details: unknown, t: Translate): string {
+  const objet = (v: unknown): Record<string, unknown> | null =>
+    typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null;
+  const comparaison = objet(objet(objet(details)?.tests)?.comparaison);
+  if (!comparaison) return '';
+  const total = (liste: string): number => {
+    const n = objet(comparaison[liste])?.total;
+    return typeof n === 'number' && Number.isSafeInteger(n) && n > 0 ? n : 0;
+  };
+  const [regressions, instables, dejaRouges] = ['regressions', 'instables', 'dejaRouges'].map(
+    total,
+  );
+  const dits = [
+    ...(regressions ? [t(`${regressions} régression(s)`, `${regressions} regression(s)`)] : []),
+    ...(instables ? [t(`${instables} instable(s)`, `${instables} flaky`)] : []),
+    ...(dejaRouges
+      ? [t(`${dejaRouges} déjà rouge(s) à la base`, `${dejaRouges} already red at the base`)]
+      : []),
+  ];
+  return dits.length > 0 ? ` (${dits.join(', ')})` : '';
+}
+
+/** La porte de sécurité : `?` non vérifiée — surtout pas un vert. */
+const SYMBOLE_PORTE: Record<string, string> = {
+  rien_trouve: '✔',
+  constat: '✘',
+  non_verifie: '?',
 };
 
 /**
@@ -205,13 +275,17 @@ const EVENTS: Record<string, Meta> = {
             );
       }
       const ms = cout(p.durationMs);
+      const vigie = direVigie(p, t);
       const base = t(
         `échec, essai ${essai} (${short(p.taskId)})`,
         `failed, attempt ${essai} (${short(p.taskId)})`,
       );
+      const cause = vigie ? ` — ${vigie}` : '';
       // Le temps que cette tentative a coûté : imputé en « reprise » par la
       // Balance dès que la tâche aboutit.
-      return ms === null ? base : `${base} — ${t(`${ms} en reprise`, `${ms} of rework`)}`;
+      return ms === null
+        ? `${base}${cause}`
+        : `${base} — ${t(`${ms} en reprise`, `${ms} of rework`)}${cause}`;
     },
   },
   // Le verdict HUMAIN de la Miellerie. `state: null` efface une revue : un
@@ -220,20 +294,27 @@ const EVENTS: Record<string, Meta> = {
     icon: '✍',
     cls: 'info',
     text: (p, t) =>
-      p.state === 'approved'
+      // Une demande de changements (G06) est un rejet qui emporte des
+      // commentaires ancrés : le dire, avec leur nombre.
+      p.state === 'rejected' && typeof p.changements === 'object' && p.changements !== null
         ? t(
-            `revue humaine : approuvée (${short(p.taskId)})`,
-            `human review: approved (${short(p.taskId)})`,
+            `revue humaine : changements demandés, ${String((p.changements as Record<string, unknown>).commentaires ?? 0)} commentaire(s) de lignes (${short(p.taskId)})`,
+            `human review: changes requested, ${String((p.changements as Record<string, unknown>).commentaires ?? 0)} line comment(s) (${short(p.taskId)})`,
           )
-        : p.state === 'rejected'
+        : p.state === 'approved'
           ? t(
-              `revue humaine : rejetée (${short(p.taskId)})`,
-              `human review: rejected (${short(p.taskId)})`,
+              `revue humaine : approuvée (${short(p.taskId)})`,
+              `human review: approved (${short(p.taskId)})`,
             )
-          : t(
-              `revue humaine effacée (${short(p.taskId)})`,
-              `human review cleared (${short(p.taskId)})`,
-            ),
+          : p.state === 'rejected'
+            ? t(
+                `revue humaine : rejetée (${short(p.taskId)})`,
+                `human review: rejected (${short(p.taskId)})`,
+              )
+            : t(
+                `revue humaine effacée (${short(p.taskId)})`,
+                `human review cleared (${short(p.taskId)})`,
+              ),
   },
   // Un humain passe outre l'Evaluator pour livrer ou fusionner. La raison vit
   // dans le payload ; la ligne dit le geste et le verdict contourné.
@@ -271,10 +352,31 @@ const EVENTS: Record<string, Meta> = {
     text: (p, t) => {
       const ms = cout(p.durationMs);
       const base = t(`échouée (${short(p.taskId)})`, `failed (${short(p.taskId)})`);
-      // « coût : X » plutôt qu'un participe accordé : la durée est formatée
+      // Une tâche close par la Reine AVANT tout envoi (`depot_illisible`) n'a
+      // ni production ni logs : son `motif` est sa seule cause. Rangé en
+      // français, comme la raison d'un refus d'infrastructure.
+      const vigie = direVigie(p, t);
+      // Deux clôtures de la Reine que seule leur raison dit (G13) : plus aucun
+      // nœud dont l'agent fonctionne, ou le relecteur dont le fournisseur est
+      // épuisé au-delà du délai d'attente — avec le fait du dernier refus.
+      const raison =
+        p.reason === 'no_working_agent'
+          ? t(
+              `aucun nœud dont l’agent fonctionne (${String(p.infraRejects ?? '?')} refus d’infrastructure)`,
+              `no node with a working agent (${String(p.infraRejects ?? '?')} infrastructure refusals)`,
+            )
+          : p.reason === 'relecteur_epuise'
+            ? t('relecture close, relecteur épuisé', 'review closed, reviewer exhausted')
+            : null;
+      const dits = [typeof p.motif === 'string' ? p.motif : null, raison, vigie].filter(Boolean);
+      const cause = dits.length > 0 ? ` — ${dits.join(' — ')}` : '';
+      // « durée : X » plutôt qu'un participe accordé : la durée est formatée
       // (« 1 h », « 4 h 12 min », « 340 ms ») et aucun accord français ne tient
-      // sur toutes ces formes.
-      return ms === null ? base : `${base} — ${t(`coût : ${ms}`, `cost: ${ms}`)}`;
+      // sur toutes ces formes. Pas « coût » : depuis que la ruche compte des
+      // dollars, le mot se lisait comme une dépense.
+      return ms === null
+        ? `${base}${cause}`
+        : `${base} — ${t(`durée : ${ms}`, `duration: ${ms}`)}${cause}`;
     },
   },
   task_cancelled: {
@@ -295,7 +397,13 @@ const EVENTS: Record<string, Meta> = {
     // agent n'ait tourné — ni production, ni logs à relire.
     text: (p, t) => {
       const base = t(`refusée (${short(p.taskId)})`, `declined (${short(p.taskId)})`);
-      return p.infra === true && typeof p.reason === 'string' ? `${base} — ${p.reason}` : base;
+      // Un fournisseur épuisé (G13) se dit par son fait : aucune tentative brûlée.
+      const vigie = direVigie(p, t);
+      // Le fait d'abord, puis ce qui le prouve (la ligne du CLI, ou celle de
+      // la passerelle de Hive qui n'a pas joint l'API) : la raison reste dite.
+      const raison = p.infra === true && typeof p.reason === 'string' ? p.reason : null;
+      const dits = [vigie, raison === vigie ? null : raison].filter(Boolean);
+      return dits.length > 0 ? `${base} — ${dits.join(' — ')}` : base;
     },
   },
   node_registered: {
@@ -338,11 +446,47 @@ const EVENTS: Record<string, Meta> = {
           ? (p.validation as Record<string, unknown>)
           : {};
       const ligne = VALIDATION_KEYS.map(
-        (cle) => `${cle} ${SYMBOLE_VALIDATION[String(etats[cle])] ?? '?'}`,
+        (cle) =>
+          `${cle} ${SYMBOLE_VALIDATION[String(etats[cle])] ?? '?'}` +
+          (cle === 'tests' ? precisionDesTests(p.details, t) : ''),
       ).join(' · ');
       return t(
         `validations ${short(p.taskId)} (${source}) : ${ligne}`,
         `validations ${short(p.taskId)} (${source}): ${ligne}`,
+      );
+    },
+  },
+  // La porte de sécurité d'une production : chaque volet, son état et le
+  // nombre de constats — jamais une valeur, le rapport n'en porte pas.
+  security_gate_recorded: {
+    icon: '⛨',
+    cls: 'info',
+    text: (p, t) => {
+      const porte = (typeof p.porte === 'object' && p.porte !== null ? p.porte : {}) as Record<
+        string,
+        { etat?: unknown; total?: unknown } | undefined
+      >;
+      const volet = (cle: string): string => {
+        const etat = String(porte[cle]?.etat ?? '?');
+        const total = etat === 'constat' ? ` ×${String(porte[cle]?.total ?? '?')}` : '';
+        return `${SYMBOLE_PORTE[etat] ?? '?'}${total}`;
+      };
+      return t(
+        `porte de sécurité ${short(p.taskId)} : secrets ${volet('secrets')} · dépendances ${volet('dependances')}`,
+        `security gate ${short(p.taskId)}: secrets ${volet('secrets')} · dependencies ${volet('dependances')}`,
+      );
+    },
+  },
+  // Un volet du rapport refusé à la réception (mal formé) : il est devenu
+  // « non vérifié », et la ligne dit lequel — jamais une valeur.
+  security_gate_rejected: {
+    icon: '⛨',
+    cls: 'warn',
+    text: (p, t) => {
+      const volets = Array.isArray(p.volets) ? p.volets.map(String).join(', ') : '?';
+      return t(
+        `porte de sécurité ${short(p.taskId)} : rapport du nœud refusé, mal formé (${volets}) — non vérifié`,
+        `security gate ${short(p.taskId)}: node report refused, malformed (${volets}) — not verified`,
       );
     },
   },
@@ -419,6 +563,20 @@ const EVENTS: Record<string, Meta> = {
         `en attente (${short(p.taskId)}) : aucune ouvrière en ligne ne respecte la consigne de l’opérateur`,
         `waiting (${short(p.taskId)}): no online worker satisfies the operator’s constraint`,
       ),
+  },
+  revue_commentaire: {
+    icon: '✎',
+    cls: 'info',
+    text: (p, t) =>
+      p.action === 'retire'
+        ? t(
+            `commentaire de revue retiré (${short(p.taskId)})`,
+            `review comment removed (${short(p.taskId)})`,
+          )
+        : t(
+            `commentaire de revue posé sur des lignes (${short(p.taskId)})`,
+            `review comment added on lines (${short(p.taskId)})`,
+          ),
   },
   routage_consigne: {
     icon: '⚑',
@@ -580,9 +738,15 @@ const EVENTS: Record<string, Meta> = {
             ? t('la contre-revue', 'the counter-review')
             : t('l’Evaluator', 'the Evaluator');
       const note =
-        p.noteHumaine === true
+        (p.noteHumaine === true
           ? t(', avec la raison de l’humain', ', with the human’s reason')
-          : '';
+          : '') +
+        (typeof p.commentaires === 'number'
+          ? t(
+              `, ${p.commentaires} commentaire(s) de lignes sur ${String(p.commentairesFiges ?? p.commentaires)}`,
+              `, ${p.commentaires} line comment(s) of ${String(p.commentairesFiges ?? p.commentaires)}`,
+            )
+          : '');
       // `objections` = ce que l'ouvrière a LU ; `objectionsFigees` = ce que
       // la correction avait relevé. L'écart, c'est la queue tombée au budget.
       const figees = typeof p.objectionsFigees === 'number' ? p.objectionsFigees : null;
@@ -945,6 +1109,34 @@ const EVENTS: Record<string, Meta> = {
 };
 
 /**
+ * Un ARRÊT BUDGÉTAIRE ferme la tâche sans être un échec de l'agent : sa propre
+ * ligne, plutôt que le ✘ d'un travail raté — la borne qui a tenu, et la suite
+ * à donner. Arrêtée dans sa boucle, ou close par la Reine avant d'être relancée
+ * quand ses tentatives avaient dépensé sa réservation.
+ */
+const ARRET_BUDGETAIRE: Meta = {
+  icon: '¤',
+  cls: 'warn',
+  text: (p, t) => {
+    const id = short(p.taskId);
+    const borne =
+      p.reason === 'reservation_depensee'
+        ? t(
+            `réservation de coût dépensée, non relancée (${id})`,
+            `cost reservation spent, not relaunched (${id})`,
+          )
+        : t(
+            `arrêtée sur son plafond de coût dans la boucle de l’agent (${id})`,
+            `stopped at its cost cap inside the agent loop (${id})`,
+          );
+    return `${borne} — ${t(
+      'ni échec, ni panne : à redéléguer sous un nouvel identifiant, avec une réservation plus large',
+      'neither a failure nor an outage: re-delegate it under a new id, with a larger reservation',
+    )}`;
+  },
+};
+
+/**
  * La ligne d'un événement, telle que le Journal la dit — icône, classe et
  * texte bilingue reconstruit depuis les champs typés du payload. Exportée
  * pour que le fil des décisions de l'accueil parle EXACTEMENT comme le
@@ -954,41 +1146,87 @@ export function ligneDuJournal(
   ev: HiveEvent,
   t: Translate,
 ): { icon: string; cls: string; text: string } {
-  const meta = EVENTS[ev.type];
+  const meta =
+    ev.type === 'task_failed' && arreteeParSonBudget(ev.payload)
+      ? ARRET_BUDGETAIRE
+      : EVENTS[ev.type];
   if (!meta) return { icon: '•', cls: 'muted', text: ev.type };
   return { icon: meta.icon, cls: meta.cls, text: meta.text(ev.payload, t) };
 }
 
+/**
+ * La SÉVÉRITÉ d'un événement, lue dans sa fiche (`EVENTS`) : la teinte que le
+ * journal lui donne depuis toujours — un échec est `fail`, une reprise `warn`
+ * — devient un niveau qu'on filtre. Un type inconnu reste un « détail » : on
+ * ne lui invente pas de gravité.
+ */
+const SEVERITE: Record<string, string> = {
+  fail: 'erreur',
+  warn: 'avertissement',
+  done: 'succes',
+  run: 'info',
+  info: 'info',
+  muted: 'detail',
+};
+
+function niveauxJournal(t: Translate): NiveauTerminal[] {
+  return [
+    { cle: 'erreur', libelle: t('erreurs', 'errors'), repere: '✘' },
+    { cle: 'avertissement', libelle: t('avertissements', 'warnings'), repere: '⚠' },
+    { cle: 'succes', libelle: t('réussites', 'successes'), repere: '●' },
+    { cle: 'info', libelle: t('informations', 'information'), repere: '◈' },
+    { cle: 'detail', libelle: t('détails', 'details'), repere: '·' },
+  ];
+}
+
+// Une ligne par événement, calculée une fois PAR LANGUE : un événement ne
+// change jamais, et le Terminal accroche à ces objets stables ses mesures et
+// son repère « nouvelles lignes ». Faiblement tenues : un événement que
+// l'écran oublie (il en garde 500) emporte sa ligne.
+const lignesParEvenement = new WeakMap<HiveEvent, { langue: string; ligne: LigneTerminal }>();
+
+function ligneDe(ev: HiveEvent, t: Translate, langue: string): LigneTerminal {
+  const connue = lignesParEvenement.get(ev);
+  if (connue && connue.langue === langue) return connue.ligne;
+  const { icon, cls, text } = ligneDuJournal(ev, t);
+  const ligne: LigneTerminal = {
+    texte: text,
+    niveau: SEVERITE[cls] ?? 'detail',
+    horodatage: ev.ts,
+    icone: icon,
+    classe: cls,
+  };
+  lignesParEvenement.set(ev, { langue, ligne });
+  return ligne;
+}
+
+/**
+ * Le Journal de la ruche : TOUS les événements que l'écran garde, du plus
+ * ancien au plus récent, et le bas suivi comme dans un terminal — il n'en
+ * montrait que les 40 derniers, à l'envers, sans rien pour y chercher.
+ */
 export function Journal({ events }: { events: HiveEvent[] }) {
   const t = useT();
+  const langue = t('fr', 'en');
+  const lignes = useMemo(() => events.map((ev) => ligneDe(ev, t, langue)), [events, t, langue]);
+  const niveaux = useMemo(() => niveauxJournal(t), [t]);
   return (
-    <section className="card panel">
-      <header className="panel-head">
-        <h2>
-          <span className="marque" aria-hidden="true" /> {t('Journal', 'Journal')}
-        </h2>
-        <span className="panel-count">{events.length}</span>
-      </header>
-      <ul className="journal">
-        {[...events]
-          .slice(-40)
-          .reverse()
-          .map((ev) => {
-            const ligne = ligneDuJournal(ev, t);
-            return (
-              <li key={ev.id} className={`jrow ${ligne.cls}`}>
-                <span className="jicon" aria-hidden="true">
-                  {ligne.icon}
-                </span>
-                <span className="jtext">{ligne.text}</span>
-                <time className="jtime">{new Date(ev.ts).toLocaleTimeString()}</time>
-              </li>
-            );
-          })}
-        {events.length === 0 && (
-          <li className="empty">{t('Rien pour l’instant.', 'Nothing yet.')}</li>
-        )}
-      </ul>
+    <section className="card panel journal-panneau">
+      <Terminal
+        titre={
+          <>
+            <span className="marque" aria-hidden="true" /> {t('Journal', 'Journal')}{' '}
+            <span className="panel-count">{events.length}</span>
+          </>
+        }
+        lignes={lignes}
+        niveaux={niveaux}
+        vide={<span className="empty">{t('Rien pour l’instant.', 'Nothing yet.')}</span>}
+        heuresAuDepart
+        libelleHeure={t('Heure de l’événement', 'Event time')}
+        classes={{ zone: 'journal', ligne: 'jrow', texte: 'jtext', heure: 'jtime' }}
+        testId="journal"
+      />
     </section>
   );
 }

@@ -75,6 +75,9 @@ function etat(over: Partial<EtatEssaimUi> = {}): EtatEssaimUi {
 
 beforeEach(() => {
   setLang('fr');
+  // « Masquer » est gardé par projet dans ce navigateur (OnboardingEssaim.tsx) :
+  // sans cette remise à zéro, le cas qui masque masquerait aussi les suivants.
+  localStorage.clear();
   vi.mocked(fetchEssaimCycles).mockResolvedValue({ cycles: [] as CycleEssaimUi[] });
 });
 

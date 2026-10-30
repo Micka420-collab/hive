@@ -28,7 +28,12 @@ import { setLang } from '../dashboard/src/i18n';
 
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  connectFeed: vi.fn(() => ({ close: () => {} })),
+  // Le flux livre un instantané (vide) : sans lui, la coquille montre
+  // l'attente du premier état au lieu d'une vue (dashboard/src/Liaison.tsx).
+  connectFeed: vi.fn((h: { onState: (s: unknown) => void }) => {
+    h.onState({ projects: [], nodes: [], tasks: [], tasksTotal: 0 });
+    return { close: () => {}, reconnecter: () => {} };
+  }),
   fetchPulse: vi.fn(() => Promise.resolve(null)),
   fetchReviews: vi.fn(() => Promise.resolve({ reviews: {} })),
   authMe: vi.fn(() => Promise.reject(new Error('pas de compte simulé'))),
@@ -217,7 +222,8 @@ describe('la coquille de l’App — les survivantes du balayage du soir', () =>
     let poignees: FeedHandlers | null = null;
     vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
       poignees = h;
-      return { close: () => {} };
+      h.onState({ projects: [], nodes: [], tasks: [], tasksTotal: 0 });
+      return { close: () => {}, reconnecter: () => {} };
     });
     await monter();
     expect(poignees, 'le flux doit être branché au montage').toBeTruthy();
@@ -241,7 +247,8 @@ describe('la coquille de l’App — les survivantes du balayage du soir', () =>
     let poignees: FeedHandlers | null = null;
     vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
       poignees = h;
-      return { close: () => {} };
+      h.onState({ projects: [], nodes: [], tasks: [], tasksTotal: 0 });
+      return { close: () => {}, reconnecter: () => {} };
     });
     await monter();
     expect(poignees, 'le flux doit être branché au montage').toBeTruthy();
@@ -355,9 +362,12 @@ describe('le compagnon — dans la barre, branché sur le flux', () => {
     // finirait par masquer une ligne), et il lit l'état que la coquille reçoit
     // — le flux coupé au montage, puis une tâche en cours dans un instantané.
     let poignees: FeedHandlers | null = null;
-    vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
+    // `Once` : ce flux-ci ne livre rien de lui-même. Laissé en place, il
+    // passait au test suivant (ordre mélangé, graine 15838), dont la coquille
+    // attendait alors pour toujours son premier instantané.
+    vi.mocked(connectFeed).mockImplementationOnce((h: FeedHandlers) => {
       poignees = h;
-      return { close: () => {} };
+      return { close: () => {}, reconnecter: () => {} };
     });
     const dom = await monter();
     const compagnon = dom.querySelector<HTMLElement>('[data-testid="compagnon"]');
@@ -433,7 +443,8 @@ describe('la sortie en direct — du flux au tiroir, et vidée quand la tâche n
     let poignees: FeedHandlers | null = null;
     vi.mocked(connectFeed).mockImplementation((h: FeedHandlers) => {
       poignees = h;
-      return { close: () => {} };
+      h.onState({ projects: [], nodes: [], tasks: [], tasksTotal: 0 });
+      return { close: () => {}, reconnecter: () => {} };
     });
     const dom = await monter();
     const h = poignees as unknown as FeedHandlers;

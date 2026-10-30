@@ -471,6 +471,39 @@ describe('la carte d’une ouvrière : ce qu’elle porte en vol', () => {
     expect(vive, 'l’heure du dernier contact n’est pas donnée').toContain('vu à');
   });
 
+  it('LA TABLE NOMME ET DATE COMME LA CARTE — baptême de la projection, date d’un signe ancien', async () => {
+    // La table sert à COMPARER les ouvrières : une heure seule y faisait lire
+    // un nœud muet depuis 2023 comme vu aujourd'hui, et un nom résolu hors de
+    // la projection y donnait à un nœud un autre nom que sur sa carte.
+    localStorage.setItem('hive.essaim.vue', 'table');
+    const ancien = 1_700_000_000_000;
+    const worker = {
+      ...noeud({ lastSeen: ancien }),
+      slotsLibres: 3,
+      modeles: [],
+      identite: { bapteme: { nom: 'Capucine', baptiseA: 1 } },
+    } as unknown as WorkerSnapshot;
+    vi.mocked(fetchWorkers).mockResolvedValue({ workers: [worker] });
+    try {
+      const dom = await monter([
+        noeud({ lastSeen: ancien }),
+        noeud({ id: 'n-2', name: 'ruche-vive', lastSeen: Date.now() }),
+      ]);
+      const lignes = [...dom.querySelectorAll('[data-testid="essaim-table"] tbody tr')];
+      expect(lignes).toHaveLength(2);
+      const [vieille, vive] = lignes.map((l) => [...l.children].map((c) => c.textContent ?? ''));
+      expect(vieille![0], 'la table ignore le baptême de la projection').toBe('Capucine');
+      expect(vieille![6], 'un signe d’un autre jour sans sa date').toContain(
+        new Date(ancien).toLocaleDateString(),
+      );
+      expect(vive![6], 'un signe d’aujourd’hui encombré d’une date').not.toContain(
+        new Date().toLocaleDateString(),
+      );
+    } finally {
+      localStorage.removeItem('hive.essaim.vue');
+    }
+  });
+
   it('LE BAC À SABLE EST DIT TEL QUE LE NŒUD L’A DÉCLARÉ — et « non déclaré » quand il se tait', async () => {
     const dom = await monter([
       noeud({

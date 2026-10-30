@@ -292,7 +292,7 @@ describe('le diff de revue d’une tâche (`collectDiff`) n’exécute rien que 
         expect(diff).toContain('+bonjour, ruche');
         verifierDiff?.(diff);
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     },
   );
@@ -303,7 +303,7 @@ describe('le diff de revue d’une tâche (`collectDiff`) n’exécute rien que 
     expect(existsSync(path.join(registre, 'HEAD'))).toBe(true);
     // Aucun crochet : ni ceux d'un modèle, ni ceux d'un `init.templateDir`.
     expect(existsSync(path.join(registre, 'hooks'))).toBe(false);
-    ws.cleanup();
+    await ws.cleanup();
     expect(existsSync(registre)).toBe(false);
   });
 });
@@ -320,7 +320,7 @@ describe('le diff contre le commit de DÉPART', () => {
       expect(diff).toContain('deleted file mode');
       expect(diff).toContain('-éphémère');
     } finally {
-      ws.cleanup();
+      await ws.cleanup();
     }
   });
 
@@ -538,7 +538,7 @@ describe('un pilote que la MACHINE définit ne tourne pas parce que l’arbre de
           expect(declenchees(), 'aucun programme n’a tourné sur l’hôte').toEqual([]);
           expect(diff).toContain('+bonjour, ruche');
         } finally {
-          ws.cleanup();
+          await ws.cleanup();
         }
       });
     },
@@ -589,7 +589,7 @@ describe('le git que lance l’hôte est celui de la machine, jamais un binaire 
         const diff = await ws.collectDiff();
         expect(diff).toContain('+bonjour, ruche');
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     },
   );
@@ -622,7 +622,7 @@ describe('un git local de l’hôte est BORNÉ, et son échec ne recopie pas la 
         // celui d'un clone porte l'URL, jeton compris.
         expect(message).not.toContain('--git-dir');
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     },
     15_000,
@@ -691,7 +691,7 @@ describe('un filtre que le PROJET déclare (Git LFS) reste appliqué', () => {
         expect(diff).not.toContain('gros.bin');
         expect(diff).not.toContain('autre.dat');
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     });
   });
@@ -724,7 +724,7 @@ describe('la configuration GLOBALE du membre reste servie', () => {
         writeFileSync(path.join(ws.cwd, 'app.txt'), 'bonjour, ruche\n');
         expect(await ws.collectDiff()).toContain('+bonjour, ruche');
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     });
   });

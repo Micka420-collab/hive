@@ -65,7 +65,13 @@
 //     registre. L'agent peut les corrompre ou les effacer (le diff ÉCHOUE
 //     alors, visiblement), ou faire de `.git` un lien vers un autre dépôt qui
 //     contient le commit de départ (le diff se calcule alors avec SES objets,
-//     en lecture) ; il ne peut pas les faire exécuter.
+//     en lecture) ; il ne peut pas les faire exécuter. Il peut aussi en
+//     FORGER un — un objet valide rangé sous le nom d'un autre : git ne
+//     vérifie pas l'empreinte de ce qu'il lit (mesuré, git 2.53), et une
+//     lecture de la base par le registre rend alors le contenu forgé, sans un
+//     mot. Ce qui doit être la base À COUP SÛR passe donc par `extraireBase`
+//     (un `fetch`, qui renomme chaque objet par son contenu) ; les lectures
+//     directes de la base (`fichierDeBase`) y restent exposées — suite nommée.
 //   · Les configurations SYSTÈME et GLOBALE : celles de la machine et du
 //     membre, jamais montées dans le bac. On ne les coupe pas
 //     (`shared/git-protege.ts`) : elles portent ce dont le clone a besoin, les
@@ -77,6 +83,7 @@
 
 import { copyFileSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { effacerDossier } from '../shared/effacement.js';
 import { EchecGitHote, gitHote, type DepotEpingle } from '../shared/git-protege.js';
 
 /**
@@ -202,8 +209,17 @@ export async function poserRegistre(
  * (dépôt vide), l'index ne contient que les intentions d'ajout, et le diff
  * index↔arbre est exact.
  */
-export async function diffContreBase(depot: DepotEpingle, base: string | null): Promise<string> {
-  await gitHote(['add', '--all', '--intent-to-add'], depot);
+export async function diffContreBase(
+  depot: DepotEpingle,
+  base: string | null,
+  exclus: readonly string[] = [],
+): Promise<string> {
+  // `exclus` : des chemins (relatifs à la racine) tenus HORS du diff et de
+  // l'index — la configuration d'agent écartée pendant qu'il tourne
+  // (`Workspace.diffEnCours`). Littéraux : un nom de fichier n'est pas un motif.
+  const chemins =
+    exclus.length > 0 ? ['--', '.', ...exclus.map((c) => `:(top,literal,exclude)${c}`)] : [];
+  await gitHote(['add', '--all', '--intent-to-add', ...chemins], depot);
   return gitHote(
     [
       'diff',
@@ -217,9 +233,141 @@ export async function diffContreBase(depot: DepotEpingle, base: string | null): 
       // contenu n'y est pas, et `all` le faisait disparaître sans un mot.
       '--ignore-submodules=dirty',
       ...(base !== null ? [base] : []),
+      ...chemins,
     ],
     depot,
   );
+}
+
+/**
+ * Un commit du registre, extrait dans `dossier` — un dépôt NEUF, détaché —,
+ * pour y rejouer les tests que le projet déclare (G11b) : la BASE
+ * (`extraireBase`), ou l'arbre que la production LIVRE (`extraireLivre`).
+ *
+ * ─── PAR UN `fetch` DEPUIS LE REGISTRE, JAMAIS EN LISANT SES OBJETS ─────────
+ *
+ * Le registre emprunte les objets de la tâche (`alternates`), et l'agent a pu
+ * les réécrire. Or git ne vérifie pas l'empreinte d'un objet qu'il LIT —
+ * mesuré (git 2.53) : un objet libre forgé sous le nom d'un blob de la base
+ * est rendu tel quel par `cat-file` comme par `checkout`. Une base extraite
+ * ainsi pourrait faire échouer à la base un test que la production a cassé :
+ * « déjà rouge à la base », excusé — exactement ce que la comparaison doit
+ * rendre impossible, et sans une ligne dans le diff. Une tête extraite ainsi
+ * pourrait passer là où la première exécution a échoué : « instable ».
+ *
+ * Un `fetch`, lui, RENOMME chaque objet reçu d'après son contenu
+ * (`index-pack`, `unpack-objects`), puis vérifie que le commit reçu est
+ * complet. Un objet forgé n'arrive donc jamais sous le nom qu'il usurpe :
+ * mesuré, quand seule la copie forgée existe, le `fetch` échoue (« remote did
+ * not send all necessary objects ») — et le rejeu avec lui, sans rien excuser.
+ *
+ * Le dépôt reçu a SES objets et son `.git` dans `dossier` : les tests y voient
+ * un dépôt git, comme ceux de la tâche, et le bac ne monte que `dossier`. Rien
+ * de la tâche n'y entre, rien de ce qu'il contient ne gouverne un git de
+ * l'hôte après coup — on n'y relance plus rien, on l'efface.
+ *
+ * BORNÉE EN TOUT : `delaiMs` couvre l'effacement d'un reste, l'`init`, le
+ * `fetch`, la vérification et le `checkout` — c'est ce que la ligne de
+ * progression annonce (`node-client/validations-bac.ts`). L'effacement d'un
+ * reste passe par la porte unique (`effacerDossier`) : ASYNCHRONE — un rejeu
+ * laissé par un nœud tué porte un `node_modules` entier, et `rmSync` gèlerait
+ * la boucle du nœud —, ses reprises au sommet seulement (5,5 s au plus).
+ */
+async function extraireCommit(
+  depot: DepotEpingle,
+  ref: string,
+  attendu: string,
+  dossier: string,
+  delaiMs: number,
+): Promise<void> {
+  const echeance = Date.now() + delaiMs;
+  const reste = (): { delaiMs: number } => {
+    const ms = echeance - Date.now();
+    if (ms <= 0)
+      throw new Error(`extraction abandonnée au-delà de ${Math.round(delaiMs / 1000)} s`);
+    return { delaiMs: ms };
+  };
+  await effacerDossier(dossier);
+  mkdirSync(dossier, { recursive: true });
+  // `--template=` vide : aucun crochet — pas même ceux d'un `init.templateDir`
+  // du membre. Un commit de 64 caractères vient d'un dépôt SHA-256.
+  const format = attendu.length === 64 ? ['--object-format=sha256'] : [];
+  await gitHote(['init', '-q', '--template=', ...format, dossier], path.dirname(dossier), reste());
+  const recu = { gitDir: path.join(dossier, '.git'), workTree: dossier };
+  await gitHote(['fetch', '-q', '--no-tags', '--depth=1', '--', depot.gitDir, ref], recu, reste());
+  const tete = (
+    await gitHote(['rev-parse', '--verify', '-q', 'FETCH_HEAD^{commit}'], recu, reste())
+  ).trim();
+  if (tete !== attendu) throw new Error(`commit reçu ${tete}, attendu ${attendu}`);
+  await gitHote(['checkout', '-q', '--detach', attendu], recu, reste());
+}
+
+/** Le délai d'une extraction à part, en tout (`extraireCommit`). */
+export const DELAI_EXTRACTION_MS = 5 * 60_000;
+
+/** La BASE d'une tâche, extraite à part (`extraireCommit`). */
+export async function extraireBase(
+  depot: DepotEpingle,
+  base: string,
+  dossier: string,
+  delaiMs = DELAI_EXTRACTION_MS,
+): Promise<void> {
+  // HEAD du registre est épinglée sur la base (`poserRegistre`) — hors du bac,
+  // l'agent ne l'a pas déplacée ; le commit reçu est revérifié quand même.
+  await extraireCommit(depot, 'HEAD', base, dossier, delaiMs);
+}
+
+/**
+ * Fige l'arbre que la production LIVRE — tout ce que git n'ignore pas, tel
+ * qu'il est avant que la moindre validation ne tourne — et rend son
+ * empreinte. Les validations exécutent du code que l'agent a écrit, dans ce
+ * même répertoire : ce qu'une exécution y laisse (un marqueur, un cache, un
+ * fichier réécrit) changerait la suivante. C'est cet arbre-ci, et lui seul,
+ * qu'une seconde exécution de la tête rejoue (`extraireLivre`) — comme la
+ * livraison, qui n'applique que lui.
+ *
+ * Par le registre, comme le diff : l'index de la tâche, que l'agent a eu entre
+ * les mains, n'est pas lu. L'index du REGISTRE, lui, en sort rempli : rien ne
+ * le relit après les validations.
+ */
+export async function figerArbreLivre(depot: DepotEpingle): Promise<string> {
+  await gitHote(['add', '--all'], depot);
+  return (await gitHote(['write-tree'], depot)).trim();
+}
+
+/** La référence, dans le registre, du commit qui porte l'arbre livré. */
+const REF_LIVRE = 'refs/hive/livre';
+
+/**
+ * L'auteur de ce commit-là, posé dans l'environnement comme celui d'une
+ * livraison locale (`livraison-locale.ts`) : il ne quitte jamais le nœud.
+ */
+const AUTEUR_ARBRE_LIVRE = {
+  GIT_AUTHOR_NAME: 'Hive',
+  GIT_AUTHOR_EMAIL: 'hive@hive.invalid',
+  GIT_COMMITTER_NAME: 'Hive',
+  GIT_COMMITTER_EMAIL: 'hive@hive.invalid',
+} as const;
+
+/**
+ * L'arbre LIVRÉ (`figerArbreLivre`), extrait à part comme la base : un commit
+ * sans parent qui le porte, une référence du registre, puis le même `fetch`
+ * (`extraireCommit`) — un objet que l'agent aurait forgé sous le nom d'un
+ * fichier livré n'y arrive pas plus que sous celui d'un fichier de la base.
+ */
+export async function extraireLivre(
+  depot: DepotEpingle,
+  arbre: string,
+  dossier: string,
+  delaiMs = DELAI_EXTRACTION_MS,
+): Promise<void> {
+  const debut = Date.now();
+  const bornes = { delaiMs, identite: AUTEUR_ARBRE_LIVRE };
+  const commit = (
+    await gitHote(['commit-tree', '-m', 'arbre livré (validations du bac)', arbre], depot, bornes)
+  ).trim();
+  await gitHote(['update-ref', REF_LIVRE, commit], depot, { delaiMs });
+  await extraireCommit(depot, REF_LIVRE, commit, dossier, delaiMs - (Date.now() - debut));
 }
 
 /**

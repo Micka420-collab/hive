@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"01a00000-0000-7000-8000-000000000001"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `modele-de-test` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"error","message":"exceeded retry limit, last status: 429 Too Many Requests, request id: req_faux_1"}
+{"type":"turn.failed","error":{"message":"exceeded retry limit, last status: 429 Too Many Requests, request id: req_faux_1"}}

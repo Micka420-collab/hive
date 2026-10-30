@@ -24,7 +24,12 @@
 //     plus la dépense déclarée de l'arbre : quand elle atteint ce plafond,
 //     plus aucun enfant n'est admis et ceux en vol sont annulés. Une tentative
 //     sans coût déclaré n'est JAMAIS comptée pour zéro : elle est dite
-//     inconnue, à part.
+//     inconnue, à part. La réservation d'un enfant est aussi SON plafond,
+//     tenu dans la boucle de son agent : chaque tentative reçoit ce qu'il en
+//     reste (`plafondCoutTentative`, orchestrator/delegation.ts), que Claude
+//     Code applique (`--max-budget-usd`) — un arrêt budgétaire, pas un échec.
+//     D'où son minimum d'un micro-USD (`COUT_MIN_MICROS`), et, une fois la
+//     réservation dépensée, un enfant que la Reine clôt au lieu de l'envoyer.
 //   · `maxResourceUnits` est un compte ABSTRAIT : Hive ne mesure aucune
 //     ressource réelle derrière (ni CPU, ni mémoire, ni machines). C'est une
 //     unité que l'agent s'alloue à lui-même pour se borner, rien de plus.
@@ -58,6 +63,21 @@ export const LIMITES_DELEGATION_DEFAUT: Readonly<LimitesDelegation> = Object.fre
   maxTitleChars: 160,
   maxPromptChars: 16_000,
 });
+
+/**
+ * La plus petite réservation de coût : nulle, elle ne serait pas un plafond —
+ * le CLI refuse `--max-budget-usd 0`.
+ */
+export const COUT_MIN_MICROS = 1;
+
+/**
+ * Ce qu'une seule réponse d'agent coûte déjà, en micro-USD : mesuré sur Claude
+ * Code 2.1.289 avec haiku, le plus petit modèle — 13 500 pour une réponse d'un
+ * tour, 24 946 pour celle qui a franchi un plafond. Un ORDRE DE GRANDEUR dit
+ * au modèle qui réserve, pas une borne : une réservation plus basse arrête
+ * l'enfant après sa première réponse.
+ */
+export const COUT_UNE_REPONSE_MICROS = { min: 13_000, max: 25_000 } as const;
 
 /**
  * Le format d'un `childTaskId`, tel que la Reine le valide (`ID_PATTERN`) —

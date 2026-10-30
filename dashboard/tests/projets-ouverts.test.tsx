@@ -24,7 +24,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { ProjetsOuverts } from '../src/views/Projets';
+import { ProjetsOuverts } from '../src/views/projets/Arrivee';
 import { setLang } from '../src/i18n';
 import type { AuthUser, ProjetPublicVue } from '../src/api';
 

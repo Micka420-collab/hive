@@ -241,6 +241,42 @@ describe('connecteurs — bout en bout à travers la Reine', () => {
     expect(decision.titre).toContain('Refondre le menu');
   });
 
+  it('un échec AVANT tout envoi part au connecteur avec sa cause lisible, pas son code', async () => {
+    // Un projet rangé avant #551, son URL au saut de ligne : la Reine échoue
+    // ses tâches avant tout envoi (`depot_illisible`, et son `motif`). Le
+    // canal recevait « Motif : depot_illisible » — un code, pas une cause.
+    await poserSecretsWebhook();
+    const ancien = server.store.createProject({
+      name: 'Ancien',
+      repoUrl: 'https://github.com/o/r.git\nX',
+    }).id;
+    // Le décor, pas le geste : l'accord du webhook pour CE projet.
+    server.store.autoriserConnecteur({
+      connecteurId: 'webhook',
+      projectId: ancien,
+      portees: ['notification'],
+    });
+    onTestFinished(() => {
+      server.store.revoquerConnecteur('webhook', ancien);
+    });
+    recus = [];
+    const tache = server.store.createTask({
+      projectId: ancien,
+      title: 'Sur l’ancien',
+      prompt: 'p',
+    });
+    server.store.patchTask(tache.id, { status: 'ready' });
+    server.scheduler.tick();
+    const blocage = (): { corps?: string } | undefined =>
+      recus
+        .map((r) => JSON.parse(r.body) as { kind: string; taskId?: string; corps?: string })
+        .find((c) => c.kind === 'blocage' && c.taskId === tache.id);
+    await expect.poll(blocage, { timeout: 5_000 }).toBeDefined();
+    expect(blocage()?.corps).toBe(
+      'Motif : URL de dépôt du projet illisible (caractère de contrôle) — recréez le projet avec une URL valide',
+    );
+  });
+
   it('refuse à la pose une URL de webhook qui n’est pas http(s)', async () => {
     await poserSecretsWebhook();
     const r = await fetch(`${base}/api/connecteurs/webhook/secrets`, {

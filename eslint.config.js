@@ -85,8 +85,9 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
   {
-    // Ce qui s'exécute dans une PAGE : le préchargement et l'accueil.
-    files: ['desktop/app/preload.cjs', 'desktop/accueil/**/*.js'],
+    // Ce qui s'exécute dans une PAGE : le préchargement et l'accueil de la
+    // coquille, et les scripts classiques que l'écran sert tels quels.
+    files: ['desktop/app/preload.cjs', 'desktop/accueil/**/*.js', 'dashboard/public/**/*.js'],
     languageOptions: {
       globals: {
         window: 'readonly',

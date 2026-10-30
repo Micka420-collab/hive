@@ -14,7 +14,9 @@ import {
 import type { NiveauGuet, VerdictGardienne } from '../api';
 import type { Ghost, HivePulse, ThermoState } from '../api';
 import { useT } from '../i18n';
+import { EmptyState, Skeleton } from '../composants';
 import { activateProps, BANDE_LABEL, BANDES, formatMs } from '../ui';
+import { EncartConfiguration } from '../EncartConfiguration';
 import { CarteBalance } from './Balance';
 import { EchecSondage, Sparkline, timeShort, useApiPoll } from './shared';
 import type { ViewProps } from './shared';
@@ -202,6 +204,10 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
 
   return (
     <div className="mc-view es-view">
+      {/* La configuration arrêtée à la première arrivée, et le geste qui relance
+          l'assistant — ici parce que la Santé est ouverte à tout porteur du
+          jeton : sur une ruche sans compte, l'Intendance n'existe pas encore. */}
+      <EncartConfiguration refreshTick={refreshTick} />
       <section className="card">
         <header className="panel-head">
           <h2>
@@ -218,10 +224,10 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
           <PulseTiles pulse={pulse.data} />
         ) : (
           !pulse.error && (
-            <p className="empty pad">
-              <span className="marque" aria-hidden="true" />{' '}
-              {t('Auscultation de la ruche…', 'Listening to the hive…')}
-            </p>
+            <Skeleton
+              lignes={3}
+              libelle={t('Auscultation de la ruche…', 'Listening to the hive…')}
+            />
           )
         )}
       </section>
@@ -248,10 +254,7 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
               <EchecSondage sondage={thermo} avant={t('relevé figé :', 'reading frozen:')} />
             </>
           ) : (
-            <p className="empty pad">
-              <span className="marque" aria-hidden="true" />{' '}
-              {t('Prise de température…', 'Taking the temperature…')}
-            </p>
+            <Skeleton lignes={3} libelle={t('Prise de température…', 'Taking the temperature…')} />
           )}
         </section>
       )}
@@ -282,10 +285,10 @@ export default function Sante({ snapshot, refreshTick, onOpenTask }: ViewProps) 
         </header>
         <EchecSondage sondage={ghost} />
         {!report && !ghost.error && (
-          <p className="empty pad">
-            <span className="marque" aria-hidden="true" />{' '}
-            {t('Chasse aux fantômes en cours…', 'Ghost hunt in progress…')}
-          </p>
+          <Skeleton
+            lignes={3}
+            libelle={t('Chasse aux fantômes en cours…', 'Ghost hunt in progress…')}
+          />
         )}
 
         {report && report.ghosts.length === 0 && (
@@ -410,17 +413,15 @@ function Gardiennes({ refreshTick, snapshot }: { refreshTick: number; snapshot: 
         )}
       </header>
       {!v ? (
-        <p className="empty pad">
-          <span className="marque" aria-hidden="true" /> {t('Relevé en cours…', 'Reading…')}
-        </p>
+        <Skeleton lignes={3} libelle={t('Relevé en cours…', 'Reading…')} />
       ) : v.inspections === 0 ? (
-        <p className="empty pad">
-          <span className="marque" aria-hidden="true" />{' '}
-          {t(
-            'Rien d’inspecté pour l’instant — les Gardiennes s’expriment dès les premières productions.',
-            'Nothing inspected yet — the Guards speak up from the first outputs.',
+        <EmptyState
+          titre={t('Rien d’inspecté pour l’instant', 'Nothing inspected yet')}
+          texte={t(
+            'Les Gardiennes s’expriment dès les premières productions.',
+            'The Guards speak up from the first outputs.',
           )}
-        </p>
+        />
       ) : (
         <>
           <div className="ga-tuiles">
@@ -540,9 +541,7 @@ function Guetteuses({ refreshTick }: { refreshTick: number }) {
         </span>
       </header>
       {!v ? (
-        <p className="empty pad">
-          <span className="marque" aria-hidden="true" /> {t('Relevé en cours…', 'Reading…')}
-        </p>
+        <Skeleton lignes={3} libelle={t('Relevé en cours…', 'Reading…')} />
       ) : (
         <>
           <div className={`gu-verdict ton-${n.ton}`}>

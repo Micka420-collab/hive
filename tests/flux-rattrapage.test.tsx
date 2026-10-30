@@ -348,3 +348,29 @@ describe('le flux du tableau de bord, à la reconnexion', () => {
     expect(livres).toEqual([501, 3]);
   });
 });
+
+describe('« Réessayer maintenant » : rappeler la ruche sans attendre le recul', () => {
+  it('rouvre TOUT DE SUITE une liaison tombée — et ne double jamais une socket vivante', async () => {
+    // Le recul monte à quinze secondes : un opérateur qui vient de relancer
+    // la Reine attendait sans rien pouvoir faire. `reconnecter` coupe l'attente.
+    courante().accueillir(0);
+    expect(statuts.at(-1)).toEqual({ up: true });
+
+    // Relié : ne rien ouvrir de plus (deux sockets = deux flux, deux livraisons).
+    feed?.reconnecter();
+    expect(FausseSocket.toutes.length, 'une seconde socket sur une liaison vivante').toBe(1);
+
+    courante().couper();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(FausseSocket.toutes.length, 'reconnecté avant la fin du recul').toBe(1);
+
+    feed?.reconnecter();
+    expect(FausseSocket.toutes.length, 'le rappel immédiat n’a rien ouvert').toBe(2);
+
+    // La socket rouverte est en cours d'ouverture : un second clic n'en ouvre pas une troisième,
+    // et le recul annulé ne rouvre rien derrière elle.
+    feed?.reconnecter();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(FausseSocket.toutes.length, 'le recul annulé a rouvert une socket de plus').toBe(2);
+  });
+});

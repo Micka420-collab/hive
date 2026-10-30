@@ -186,6 +186,13 @@ export type AlerteCockpit =
       depuis: number;
       /** La tâche a été échouée faute d'agent qui fonctionne : elle ne repartira pas seule. */
       definitif: boolean;
+      /**
+       * Ce refus a eu lieu AVANT l'agent (`task_rejected.avantAgent`) : le nœud
+       * n'a pas pu préparer la tâche — clone, configuration, dossier tenu. Aucun
+       * agent n'est en cause, et « réparez l'agent » enverrait l'opérateur au
+       * mauvais endroit.
+       */
+      avantAgent: boolean;
     }
   | {
       genre: 'relecture_impossible';
@@ -362,6 +369,7 @@ export function alertesCockpit(entree: EntreeAlertes): AlertesCockpit {
         raison: (texte(e.payload.reason) ?? '?').slice(0, 200),
         depuis: e.ts,
         definitif: false,
+        avantAgent: e.payload.avantAgent === true,
       });
     } else if (e.type === 'task_failed' && e.payload.reason === 'no_working_agent') {
       // Relancée (de nouveau prête, puis affectée) : ce n'est plus son état.
@@ -375,6 +383,7 @@ export function alertesCockpit(entree: EntreeAlertes): AlertesCockpit {
         raison: ((refus && texte(refus.payload.reason)) ?? '?').slice(0, 200),
         depuis: e.ts,
         definitif: true,
+        avantAgent: refus?.payload.avantAgent === true,
       });
     }
   }
