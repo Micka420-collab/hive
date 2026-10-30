@@ -6,6 +6,7 @@ Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/)
 et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
 ### Sécurité
 
 - **Destinations de clonage filtrées** (#521). En édition Cloud, la Queen ne
@@ -18,7 +19,6 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   effacée. Nouveaux réglages `HIVE_CLONE_DESTINATIONS` (`filtrees` | `libres`)
   et `HIVE_CLONE_HOTES` ; une valeur inconnue arrête la Queen (code 2).
   Community garde son comportement par défaut. `docs/CLOUD.md`, § 6.
-
 
 ### Pour monter
 

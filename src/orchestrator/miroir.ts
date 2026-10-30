@@ -342,8 +342,7 @@ export class Miroir {
     // la ferait retomber sur `ssh` au premier clone.
     await fs.mkdir(this.racine, { recursive: true });
     const sshMembre = await commandeSshDuMembre(this.racine);
-    const ssh =
-      epinglage.optionsSsh === '' ? sshMembre : `${sshMembre} ${epinglage.optionsSsh}`;
+    const ssh = epinglage.optionsSsh === '' ? sshMembre : `${sshMembre} ${epinglage.optionsSsh}`;
     if (this.existe(projectId) && (await this.reprenable(depot))) {
       const amont = lireTeteAmont(
         await gitHote(['ls-remote', '--symref', '--', distant.nue, 'HEAD', 'refs/heads/*'], depot, {
@@ -395,10 +394,7 @@ export class Miroir {
       });
     } catch (e) {
       if (e instanceof DestinationRefusee && e.motif !== 'introuvable') {
-        await Promise.all([
-          effacerDossier(voisinDeReclone(dir)),
-          effacerDossier(dir),
-        ]);
+        await Promise.all([effacerDossier(voisinDeReclone(dir)), effacerDossier(dir)]);
       }
       throw e;
     }
