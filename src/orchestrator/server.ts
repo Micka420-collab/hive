@@ -43,6 +43,13 @@ import {
   type PorteeExperience,
 } from '../shared/reglages.js';
 import { editionDepuisEnv, secretWebhookExige } from '../shared/edition.js';
+import {
+  DestinationRefusee,
+  lireDestinationsClone,
+  verifierDestination,
+  type PolitiqueDestinations,
+  type Resolveur,
+} from '../shared/destination-clone.js';
 import type { Edition } from '../shared/edition.js';
 import {
   atelierDepuisEnv,
@@ -1049,6 +1056,14 @@ export interface ServerConfig {
    * Cloud : Queen sur tes serveurs, horloge d'hébergeur, webhook Stripe exigé.
    */
   edition?: Edition;
+  /**
+   * Vers où la Reine a le droit d'envoyer git — `HIVE_CLONE_DESTINATIONS` et
+   * `HIVE_CLONE_HOTES` (`shared/destination-clone.ts`, #521). Absente : celle
+   * de l'édition — filtrée en Cloud, libre en Community.
+   */
+  destinationsClone?: PolitiqueDestinations;
+  /** Le DNS des destinations de clonage. Point d'injection pour un banc hors réseau. */
+  resoudreNom?: Resolveur;
   /** Fetcher GitHub injectable pour les intégrations et bancs hors réseau. */
   githubFetcher?: Fetcheur;
   /**
@@ -1134,6 +1149,9 @@ export function loadConfigFromEnv(env: NodeJS.ProcessEnv = process.env): ServerC
         ? env.HIVE_POLYETHISME
         : 'consignes',
     edition: editionDepuisEnv(env),
+    // Un refus (valeur inconnue) retombe ici sur le filtre ; `main.ts`, lui,
+    // refuse alors de démarrer et dit quoi écrire.
+    destinationsClone: lireDestinationsClone(env, editionDepuisEnv(env)).valeur,
     porteeExperience: porteeExperienceDepuisEnv(env),
     ...(env.HIVE_PUBLIC_URL ? { publicUrl: env.HIVE_PUBLIC_URL } : {}),
     // Opt-in STRICT : seul « 1 » l'allume. Écouter le réseau local est un
@@ -1289,7 +1307,35 @@ async function monterReine(
    * tout le code de tous les projets. Le miroir se reconstruit d'un `git
    * clone` ; la base, non.
    */
-  const rayons = new Miroir(path.join(path.dirname(config.dbPath), 'rayons'));
+  const destinationsClone =
+    config.destinationsClone ?? lireDestinationsClone({}, config.edition ?? 'community').valeur;
+  const rayons = new Miroir(path.join(path.dirname(config.dbPath), 'rayons'), {
+    politique: destinationsClone,
+    ...(config.resoudreNom ? { resoudre: config.resoudreNom } : {}),
+  });
+  /**
+   * Juge un `repoUrl` DISTANT à la création d'un projet : en mode filtré, une
+   * destination refusée l'est tout de suite, avec sa raison, plutôt qu'au
+   * premier affichage du Rayon. Ce n'est PAS la garde — un nom peut changer de
+   * réponse d'ici le clone : le miroir rejuge et épingle à chaque passage.
+   * Rend la réponse envoyée, ou `null` si la destination passe.
+   */
+  const refuserDestination = async (
+    repoUrl: string | undefined,
+    reply: FastifyReply,
+  ): Promise<FastifyReply | null> => {
+    if (repoUrl === undefined || !isValidRemoteRepoUrl(repoUrl)) return null;
+    try {
+      await verifierDestination(repoUrl, destinationsClone, {
+        ...(config.resoudreNom ? { resoudre: config.resoudreNom } : {}),
+      });
+      return null;
+    } catch (e) {
+      if (!(e instanceof DestinationRefusee)) throw e;
+      app.log.warn({ motif: e.motif, detail: e.detail }, 'destination de clonage refusée');
+      return reply.code(400).send({ error: e.message, motif: e.motif });
+    }
+  };
   // Le dossier du savoir, à côté de la base — le même chemin que
   // `empreinte.ts` annonce sous la clé « cerveau », et que `hive desinstaller`
   // affiche. Résolu UNE fois : le contenu, lui, est relu à chaque tâche.
@@ -10389,6 +10435,8 @@ async function monterReine(
           error: 'repoUrl invalide : une URL Git distante est requise',
         });
       }
+      const refus = await refuserDestination(req.body.repoUrl, reply);
+      if (refus) return refus;
       const project = store.createProject(req.body);
       emitEvent('project_created', { projectId: project.id, name: project.name });
       return reply.code(201).send(project);
@@ -13526,6 +13574,8 @@ async function monterReine(
             'repoUrl invalide : une URL Git distante est requise ; un chemin local est réservé à un administrateur',
         });
       }
+      const refus = await refuserDestination(repoUrl, reply);
+      if (refus) return refus;
       const userId = (req as AuthRequest).userId!;
       const project = store.createProject({
         ...req.body,
@@ -13688,6 +13738,13 @@ async function monterReine(
     try {
       await rayons.rafraichir(project.id, project.repoUrl);
     } catch (e) {
+      // Une destination refusée n'a pas de « copie d'hier » : le miroir l'a
+      // effacée (`Miroir.juger`). Le journal garde l'adresse ; la réponse, non.
+      if (e instanceof DestinationRefusee) {
+        app.log.warn({ projet: project.id, detail: e.detail }, 'miroir : destination refusée');
+        reply.code(403).send({ error: e.message, motif: e.motif });
+        return false;
+      }
       // Un amont muet (butoir du miroir atteint) ne se confond pas avec une
       // URL fausse : l'un se corrige, l'autre s'attend.
       const muet = e instanceof EchecGitHote && e.delaiDepasse;

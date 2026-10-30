@@ -7,6 +7,8 @@ import type { AnnonceReine } from '../shared/demarrage.js';
 import { estOrdreArret } from '../shared/demarrage.js';
 import { chargerEnvQueen } from '../shared/env-queen.js';
 import { adresseLocale } from '../shared/port.js';
+import { lireDestinationsClone } from '../shared/destination-clone.js';
+import { editionDepuisEnv } from '../shared/edition.js';
 import { lireConfianceProxy } from '../shared/proxy-confiance.js';
 
 try {
@@ -32,6 +34,18 @@ if (confianceProxy.refus !== null) {
   // Écrit PUIS quitté : vers un tuyau (un service, un banc), l'écriture peut
   // être asynchrone, et `exit` immédiat perdrait la seule ligne qui explique.
   const message = `\n✘ L'orchestrateur ne démarre pas : ${confianceProxy.refus}\n\n`;
+  await new Promise<void>((ecrit) => process.stderr.write(message, () => ecrit()));
+  process.exit(2);
+}
+
+// ─── UNE POLITIQUE DE CLONAGE ILLISIBLE ARRÊTE AUSSI LE DÉMARRAGE ───────────
+//
+// Même raison : en Community le défaut est `libres`, et une faute de frappe
+// dans `HIVE_CLONE_DESTINATIONS=filtrees` ouvrirait la porte qu'on croyait
+// fermer (#521). On dit quoi écrire, avant d'ouvrir le port.
+const destinationsClone = lireDestinationsClone(process.env, editionDepuisEnv(process.env));
+if (destinationsClone.refus !== null) {
+  const message = `\n✘ L'orchestrateur ne démarre pas : ${destinationsClone.refus}\n\n`;
   await new Promise<void>((ecrit) => process.stderr.write(message, () => ecrit()));
   process.exit(2);
 }

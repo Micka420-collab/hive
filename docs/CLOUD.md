@@ -108,14 +108,29 @@ docker compose -f docker-compose.cloud.yml up -d --wait
 
 `pull caddy` rafraîchit l'image de Caddy ; `build --pull` reconstruit la Reine sur une base Node à jour (correctifs de sécurité de Debian compris). Le volume `hive-cloud-donnees` n'est pas touché : la nouvelle Reine rouvre la même base. La CI l'éprouve à chaque PR, de la dernière étiquette à l'arbre proposé, sur un même volume (travail `montee`).
 
-## 6. Ce qui n'est pas encore branché
+## 6. Vers où la Queen clone
+
+L'image porte git : la Queen clone les dépôts des projets pour le Rayon. Sans filtre, quiconque crée un projet choisirait l'adresse que la Queen contacte — un autre service du réseau Docker, `169.254.169.254` (#521). En édition Cloud, les destinations sont donc **filtrées** par défaut (`HIVE_CLONE_DESTINATIONS=filtrees`, `src/shared/destination-clone.ts`) :
+
+- **Forme fermée.** Un hôte en lettres, chiffres, `.`, `-`, `_`, ou une IPv6 entre crochets. Deux `@`, une barre oblique inverse, un hôte encodé, un point final, une IPv4 écrite en octal ou en hexadécimal : refusés, pas interprétés.
+- **Toutes les adresses jugées.** Le nom est résolu comme curl et ssh le résolvent ; une seule adresse interne (bouclage, privée, CGNAT, lien local, ULA, NAT64 ou IPv6 mappée d'une interne…) refuse le dépôt.
+- **Épinglage.** git ne résout pas lui-même : `http.curloptResolve` (HTTP(S)) ou `HostName` + `HostKeyAlias` (SSH) lui imposent les adresses jugées. Un nom qui change de réponse entre le filtre et le clone (« DNS rebinding ») ne mène nulle part ailleurs.
+- **Redirections coupées** (`http.followRedirects=false`). Un dépôt renommé sur GitHub, qui redirige, se recrée avec sa nouvelle URL.
+- **`git://` refusé.** HTTPS ou SSH.
+
+Le refus tombe à la création du projet (400, motif `interne`, `introuvable`, `illisible`, `transport` ou `hote_hors_liste`) et à chaque rafraîchissement du Rayon (403) — un projet créé avant le filtre compris : sa copie est alors **effacée**, jamais servie comme « la copie d'hier ». La réponse ne dit jamais l'adresse qu'un nom a résolue ; le journal de la Queen, si.
+
+`HIVE_CLONE_HOTES=github.com,gitlab.com,*.gitlab.com` restreint en plus aux forges nommées. Une forge interne légitime : `HIVE_CLONE_DESTINATIONS=libres`, en connaissance de cause. Une valeur inconnue arrête la Queen au démarrage (code 2).
+
+Limites, dites : un **proxy HTTP** inscrit dans la configuration git de l'hôte résout à la place de curl — l'épinglage ne s'applique plus, le jugement du nom si. Et ce filtre protège la machine de la **Queen** : une ouvrière clone sur la machine de son membre, dans son réseau, avec ses identifiants — c'est un autre modèle de menace.
+
+## 7. Ce qui n'est pas encore branché
 
 - Le **Checkout Stripe hébergé** depuis le tableau de bord (lien à coller depuis Stripe).
 - Le **provisionnement automatique de VPS** (le fournisseur livré est manuel : instructions + billet).
-- Le **filtre des destinations de clonage**. L'image porte git (la Reine clone les dépôts des projets pour le Rayon) : tout compte authentifié peut donc faire émettre à la Reine une requête git vers l'adresse qu'il donne en `repoUrl` — y compris une adresse interne au réseau du serveur (un autre service du réseau Docker, `169.254.169.254`). Ce sont des requêtes aveugles, de forme git (`/info/refs?service=git-upload-pack`), et une Reine Cloud posée sur l'hôte avait déjà git ; mais tant que ce filtre manque (#521), ne posez pas Hive Cloud dans un réseau où une telle requête ouvre quelque chose.
 - Un **compte npm**. Pas d'image GHCR officielle non plus, et c'est une décision : l'image se construit chez l'opérateur, depuis le dépôt qu'il a sous les yeux.
 
-## 7. Ce que la CI prouve, à chaque PR
+## 8. Ce que la CI prouve, à chaque PR
 
 Le travail `cloud` de `.github/workflows/ci.yml` démarre ce compose tel que livré — le vrai Caddy, sur ce Caddyfile-ci — avec `HIVE_DOMAIN=hive.localhost` : un nom local, que Caddy sert avec son autorité interne. Il vérifie que compose refuse sans `HIVE_DOMAIN`, que la Reine refuse sans `HIVE_WEBHOOK_SECRET`, que `:80` redirige vers HTTPS, que `/api/edition` répond `cloud` sous un certificat vérifié, que la Reine n'est pas joignable en direct, puis lance deux clients dans deux conteneurs (deux adresses) : l'un s'acharne sous des `X-Forwarded-For` forgés jusqu'au 429, l'autre garde son compteur et reçoit l'état de la ruche par WebSocket. Le déroulé est dans `scripts/essai-conteneurs.mjs` et `scripts/sonde-cloud.mjs`.
 

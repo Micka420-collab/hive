@@ -215,7 +215,22 @@ export interface DepotEpingle {
 export function gitHote(
   args: readonly string[],
   ou: string | DepotEpingle,
-  { delaiMs, ssh, identite }: { delaiMs?: number; ssh?: string; identite?: IdentiteCommit } = {},
+  {
+    delaiMs,
+    ssh,
+    identite,
+    configReseau = [],
+  }: {
+    delaiMs?: number;
+    ssh?: string;
+    identite?: IdentiteCommit;
+    /**
+     * Des `-c` qui disent à git OÙ se connecter : l'épinglage d'une destination
+     * jugée (`shared/destination-clone.ts`). Posés APRÈS les protections, qu'ils
+     * ne peuvent donc pas défaire — ils n'en touchent aucune clé.
+     */
+    configReseau?: readonly string[];
+  } = {},
 ): Promise<string> {
   const local = typeof ou !== 'string';
   const delai = delaiMs ?? (local ? DELAI_GIT_LOCAL_MS : 0);
@@ -227,7 +242,7 @@ export function gitHote(
   return new Promise((resolve, reject) => {
     execFile(
       'git',
-      [...PROTECTIONS, ...transportBorne(delai), ...epingle, ...args],
+      [...PROTECTIONS, ...transportBorne(delai), ...configReseau, ...epingle, ...args],
       {
         cwd: local ? path.dirname(ou.workTree) : ou,
         env: envGitHote(ssh, identite),

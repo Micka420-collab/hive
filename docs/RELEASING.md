@@ -273,7 +273,7 @@ opérateur, par `scripts/essai-conteneurs.mjs` :
   (relevée par `unless-stopped`), et après `down` puis `up` ; la sauvegarde
   ci-dessus écrite, sortie du volume, rouverte — puis reposée comme au § 5.
 - **`cloud`** — `docker-compose.cloud.yml` derrière le vrai Caddy (voir
-  [`CLOUD.md`](CLOUD.md), § 7).
+  [`CLOUD.md`](CLOUD.md), § 8).
 - **`montee`** — la plus récente étiquette `vX.Y.Z` (qui n'est pas l'arbre
   éprouvé) démarre, pose ses données ; l'arbre courant démarre sur le même
   volume et relit tout, et annonce son propre numéro. **Tant qu'aucune

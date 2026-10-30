@@ -1630,7 +1630,8 @@ export function octetsDe(data: unknown): number {
   return 0;
 }
 
-const estCheminLocalAbsolu = (v: string): boolean => /^[A-Za-z]:[\\/]/.test(v) || /^\//.test(v);
+export const estCheminLocalAbsolu = (v: string): boolean =>
+  /^[A-Za-z]:[\\/]/.test(v) || /^\//.test(v);
 
 /**
  * Un chemin local destiné à une création administrée doit rester un chemin

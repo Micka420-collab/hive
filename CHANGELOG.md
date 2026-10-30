@@ -7,6 +7,19 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Sécurité
+
+- **Destinations de clonage filtrées** (#521). En édition Cloud, la Queen ne
+  clone plus vers une adresse interne à son réseau (bouclage, privée, lien
+  local — dont `169.254.169.254` —, ULA, NAT64 ou IPv6 mappée d'une interne),
+  refuse les URL ambiguës, `git://` et les redirections HTTP, et épingle chaque
+  clone sur les adresses jugées (`http.curloptResolve`, `HostName` SSH) contre
+  le « DNS rebinding ». Refus à la création du projet (400) et à chaque
+  rafraîchissement du Rayon (403) ; la copie d'un projet devenu refusé est
+  effacée. Nouveaux réglages `HIVE_CLONE_DESTINATIONS` (`filtrees` | `libres`)
+  et `HIVE_CLONE_HOTES` ; une valeur inconnue arrête la Queen (code 2).
+  Community garde son comportement par défaut. `docs/CLOUD.md`, § 6.
+
 ## [0.5.0] — 2026-09-28
 
 Hive s'installe désormais **comme une application** : la Reine, une ouvrière
