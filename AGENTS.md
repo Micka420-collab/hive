@@ -75,3 +75,20 @@ non-obvious caveats are captured below.
 - `npm test` runs the whole vitest suite (~4400 tests, ~70s). The `ECONNREFUSED`
   lines printed during the run come from tests that intentionally exercise
   connection-failure handling and do not indicate failures.
+
+### Agent skills
+
+- One source: `.agents/skills/<name>/SKILL.md` (agentskills.io standard),
+  read natively by Codex. `.claude/skills/` is a generated copy for Claude
+  Code — edit `.agents/skills/` only, then run
+  `node scripts/skills.mjs synchroniser`. `tests/skills-gouvernance.test.mjs`
+  fails on drift, on a non-standard frontmatter, or on an audit finding not
+  listed in `.agents/skills/.audit-exceptions.json`.
+- Project skills: `hive-contributor` (conventions, PR loop), `hive-adapter-spoke`
+  (agent adapters / worker nodes), `hive-security-review` (Hive threat model),
+  `testing-hive-dashboard`, `queen-intelligence-core`.
+- Third-party skills are NEVER copied into the repo. `skills.lock.json` pins
+  them (commit SHA, tree SHA-256, licence, who read them);
+  `node scripts/skills.mjs installer` puts them in `~/.agents/skills` and links
+  them into `~/.claude/skills`, refusing any hash mismatch or unlisted audit
+  finding. Never `npx skills add` into this repository.

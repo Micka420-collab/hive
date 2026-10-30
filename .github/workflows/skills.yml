@@ -1,0 +1,51 @@
+name: skills
+
+# Les skills TIERS du verrou, re-vérifiés contre leur amont.
+#
+# ─── POURQUOI UN TRAVAIL À PART ──────────────────────────────────────────────
+#
+# La suite vitest (`tests/skills-gouvernance.test.mjs`) vérifie le verrou SANS
+# réseau : sa forme, ses SHA complets, ses auditeurs. Elle ne peut pas savoir si
+# l'arbre épinglé est toujours celui qui a été lu. Ce travail le récupère, au
+# commit exact, refait son empreinte et son audit, et rougit à la moindre
+# différence — avant qu'un contributeur ne lance `installer` chez lui.
+#
+# Il ne tourne que quand le verrou, l'outil ou les skills du dépôt changent :
+# le réseau n'a rien à faire dans chaque PR.
+#
+# Aucun secret, aucune écriture : `contents: read`, et la maison d'installation
+# est un dossier jetable du runner.
+
+on:
+  pull_request:
+    paths:
+      - 'skills.lock.json'
+      - 'scripts/skills.mjs'
+      - '.agents/skills/**'
+      - '.claude/skills/**'
+      - '.github/workflows/skills.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verrou:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.18'
+
+      - name: Skills du dépôt — standard, copie fidèle, audit, verrou
+        run: node scripts/skills.mjs verifier
+
+      - name: Skills tiers — récupérés au commit épinglé, empreinte et audit refaits
+        run: node scripts/skills.mjs installer --dossier "$RUNNER_TEMP/maison"

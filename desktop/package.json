@@ -27,7 +27,7 @@
     "shell-env": "4.0.3"
   },
   "devDependencies": {
-    "electron": "44.4.5",
+    "electron": "44.10.0",
     "electron-builder": "26.15.3"
   }
 }
