@@ -9,11 +9,12 @@
 
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Preuve } from '../dashboard/src/api';
 import { setLang } from '../dashboard/src/i18n';
 import { part, PreuveRuche } from '../dashboard/src/PreuveRuche';
 import type { Poll } from '../dashboard/src/views/shared';
+import { couperLeReseau } from './aide/sans-reseau';
 
 const PREUVE: Preuve = {
   fenetre: { depuis: 1_000, evenements: 12, elague: false },
@@ -42,6 +43,12 @@ const sondage = (data: Preuve | null, error: string | null = null): Poll<Preuve>
 
 let conteneur: HTMLDivElement | null = null;
 let racine: Root | null = null;
+
+// La carte reçoit son sondage tout fait et n'appelle rien — le filet est la
+// règle de tous les bancs de rendu (tests/sans-vraie-connexion.test.ts).
+beforeEach(() => {
+  couperLeReseau();
+});
 
 afterEach(() => {
   if (racine) act(() => racine?.unmount());
