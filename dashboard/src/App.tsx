@@ -12,6 +12,7 @@ import {
   estAdmin,
   fetchPulse,
   fetchMonTableau,
+  fetchConfigurationInitiale,
   fetchReviews,
   getJwt,
   getToken,
@@ -21,12 +22,23 @@ import {
   surJwtAilleurs,
   surSessionExpiree,
 } from './api';
-import type { AuthUser } from './api';
+import type { AuthUser, EtatConfigurationInitiale, HiveFeed } from './api';
 import { AccountPanel, EVENT_OUVRIR_COMPTE } from './AccountPanel';
+import { ChoixDuTheme } from './ChoixDuTheme';
 import { Compagnon } from './Compagnon';
 import { setLang, useLang, useT } from './i18n';
 import { InvitePanel } from './InvitePanel';
+import { AvantPremierEtat, BandeauHorsLigne, lireLiaison } from './Liaison';
+import { Skeleton } from './composants';
 import { NewProjectModal } from './NewProjectModal';
+import { PremiereArrivee } from './PremiereArrivee';
+import {
+  doitOuvrirSeul,
+  EVENT_CONFIGURATION_CHANGEE,
+  EVENT_PREMIERE_ARRIVEE,
+  remettreAPlusTard,
+  renvoyeAPlusTard,
+} from './premiere-arrivee';
 import { TaskDrawer } from './TaskDrawer';
 import {
   creerMagasinSorties,
@@ -35,6 +47,7 @@ import {
   oublierTache,
 } from './sorties-directes';
 import { transitionDifferees } from './differees';
+import { creerMagasinDirects } from './directs';
 import { annoncesDepuisEvenements } from './horloge-vue';
 import {
   compteAffiche,
@@ -43,7 +56,7 @@ import {
   phraseAlertes,
   porteLaPastille,
 } from './views/pastille-alertes';
-import { FiletDeSecurite, modalOpen } from './ui';
+import { FiletDeSecurite, modalOpen, useGardeDialogue } from './ui';
 import Ruche from './views/Ruche';
 import {
   applyReviewEvent,
@@ -57,6 +70,7 @@ import {
 } from './views/shared';
 import type { ReviewState } from './views/shared';
 import type { ViewId, ViewProps } from './views/shared';
+import type { JetonCoquille } from './views/Parametres';
 
 // Chaque vue est un chunk séparé — la Ruche (première peinture) reste inline.
 const Miellerie = lazy(() => import('./views/Miellerie'));
@@ -73,6 +87,8 @@ const Cerveau = lazy(() => import('./views/Cerveau'));
 const Chantiers = lazy(() => import('./views/Chantiers'));
 const Chambre = lazy(() => import('./views/Chambre'));
 const WarRoom = lazy(() => import('./views/WarRoom'));
+const Parametres = lazy(() => import('./views/Parametres'));
+const Sandbox = lazy(() => import('./views/Sandbox'));
 
 const EMPTY: StateSnapshot = { projects: [], nodes: [], tasks: [], tasksTotal: 0 };
 
@@ -83,6 +99,12 @@ interface NavItem {
   key: string;
   /** Vue d'administration : la case n'est montrée qu'aux admins. */
   admin?: true;
+  /**
+   * Rangée au PIED de la barre, sous les vues de travail : les Paramètres
+   * règlent l'écran, ils ne montrent rien de la ruche. Mêlés aux vues, ils
+   * s'y liraient comme une quinzième chose à surveiller.
+   */
+  pied?: true;
 }
 
 const NAV: NavItem[] = [
@@ -98,6 +120,7 @@ const NAV: NavItem[] = [
   { id: 'monespace', label: 'Mon espace', labelEn: 'My space', key: '0' },
   { id: 'chantiers', label: 'Chantiers', labelEn: 'Works', key: 'h' },
   { id: 'warroom', label: 'War Room', labelEn: 'War Room', key: 'w' },
+  { id: 'sandbox', label: 'Sandbox Live', labelEn: 'Sandbox Live', key: 'l' },
   {
     id: 'intendance',
     label: 'Intendance',
@@ -112,7 +135,16 @@ const NAV: NavItem[] = [
     key: 'c',
     admin: true,
   },
+  { id: 'parametres', label: 'Paramètres', labelEn: 'Settings', key: 'p', pied: true },
 ];
+
+/**
+ * La largeur sous laquelle la barre devient un tiroir. DOIT valoir la borne
+ * de `@media (max-width: 560px)` qui le dessine (styles.css, « LE TIROIR DE
+ * NAVIGATION ») : au-dessus, un tiroir resté « ouvert » garderait le focus
+ * prisonnier d'une barre redevenue ordinaire.
+ */
+const REQUETE_TIROIR = '(max-width: 560px)';
 
 /** Traits fins façon produit : lisibles à 22 px, sans emoji. */
 function NavGlyph({ id }: { id: ViewId }) {
@@ -209,6 +241,24 @@ function NavGlyph({ id }: { id: ViewId }) {
           <path d="M15.5 9.5H20v6.2h-1.5V18l-2.7-2.3h-5.3v-3" />
         </svg>
       );
+    case 'parametres':
+      // Trois curseurs : des réglages, pas une machine (l'Intendance a le bouclier).
+      return (
+        <svg {...common}>
+          <path d="M5 7h8M17 7h2M5 12h3M12 12h7M5 17h10M19 17h0" />
+          <circle cx="15" cy="7" r="2" />
+          <circle cx="10" cy="12" r="2" />
+          <circle cx="17" cy="17" r="2" />
+        </svg>
+      );
+    case 'sandbox':
+      // Un bac (cadre) et le tracé d'une activité en cours : ce qui tourne dedans.
+      return (
+        <svg {...common}>
+          <rect x="3.5" y="5" width="17" height="14" rx="2.5" />
+          <path d="M6.5 13h2.5l1.5-3.5 2.5 6 1.5-2.5h3" />
+        </svg>
+      );
     case 'intendance':
       return (
         <svg {...common}>
@@ -287,11 +337,28 @@ export function App() {
   const [agentsByTask, setAgentsByTask] = useState<Record<string, SubAgent[]>>({});
   // Hors de l'état React : un morceau ne re-rend que la console qui l'affiche.
   const [magasinSorties] = useState(creerMagasinSorties);
+  // L'état en direct des exécutions (Sandbox Live), hors de React lui aussi.
+  const [magasinDirects] = useState(creerMagasinDirects);
   const [deferred, setDeferred] = useState<Set<string>>(() => new Set());
   const [connected, setConnected] = useState(false);
   const [tokenAuthError, setTokenAuthError] = useState(false);
   /** Coupé pour lenteur (`CODE_TABLEAU_TROP_LENT`) : le voyant dit pourquoi. */
   const [tropLent, setTropLent] = useState(false);
+  // ─── LES FAITS DE LA LIAISON (voir Liaison.tsx) ────────────────────────────
+  //
+  // Relevés là où ils se produisent — le flux, le navigateur — et lus par une
+  // seule décision, `lireLiaison`. `instantaneRecu` sépare « la ruche est
+  // vide » de « la ruche n'a encore rien dit » : l'instantané initial est vide
+  // dans les deux cas.
+  const [instantaneRecu, setInstantaneRecu] = useState(false);
+  /** Le flux est tombé à cette heure-là (la PREMIÈRE chute), `null` une fois revenu. */
+  const [coupeDepuis, setCoupeDepuis] = useState<number | null>(null);
+  /** Heure du dernier échec du flux : bouge à chaque essai, prouve qu'on rappelle. */
+  const [dernierEssai, setDernierEssai] = useState<number | null>(null);
+  const [horsReseauDepuis, setHorsReseauDepuis] = useState<number | null>(() =>
+    navigator.onLine === false ? Date.now() : null,
+  );
+  const feedRef = useRef<HiveFeed | null>(null);
   /** Événements perdus à l'élagage pendant une coupure — dit, jamais comblé. */
   const [journalElague, setJournalElague] = useState(0);
   const [token, setTokenState] = useState(getToken());
@@ -299,6 +366,11 @@ export function App() {
   const [route, setRoute] = useState(parseHash);
   const [openTaskId, setOpenTaskId] = useState<string | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
+  // L'assistant de première arrivée (PremiereArrivee.tsx) : l'état rangé chez
+  // la Reine, et s'il est ouvert. `null` tant que la Reine n'a pas répondu —
+  // rien ne s'ouvre sur une réponse qu'on n'a pas.
+  const [configInitiale, setConfigInitiale] = useState<EtatConfigurationInitiale | null>(null);
+  const [assistantOuvert, setAssistantOuvert] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
   // La vue (`#/…`) où la session est morte ; `null` tant qu'elle vit. Voir
   // « LA SESSION QUI EXPIRE, DITE À L'ÉCRAN » plus bas. Une marque restée d'un
@@ -338,18 +410,36 @@ export function App() {
   const refreshTimer = useRef<number | undefined>(undefined);
   // La cible du lien d'évitement (voir plus bas).
   const principal = useRef<HTMLElement>(null);
+  // ─── LE TIROIR DE NAVIGATION (téléphone) ────────────────────────────────────
+  //
+  // Sous 560 px, le rail d'icônes de 62 px restait à demeure et prenait un
+  // sixième de l'écran à chaque vue. La barre devient un tiroir hors champ :
+  // le contenu a toute la largeur, le bouton ☰ de la barre du haut l'ouvre.
+  // Ouvert, c'est un dialogue modal — même garde que les modales
+  // (`useGardeDialogue`) : focus sur la vue courante, Tab qui boucle, Échap
+  // qui ferme et rend le focus au bouton. Fermé, la feuille le cache
+  // (`visibility: hidden`) : ses cases ne sont plus tabulables, ni lues.
+  const [tiroirOuvert, setTiroirOuvert] = useState(false);
+  const barre = useRef<HTMLElement>(null);
+  const celluleCourante = useRef<HTMLButtonElement>(null);
+  const fermerTiroir = useCallback(() => setTiroirOuvert(false), []);
+  useGardeDialogue(barre, fermerTiroir, tiroirOuvert, celluleCourante);
 
   // ─── Flux temps réel ────────────────────────────────────────────────────────
   useEffect(() => {
     const feed = connectFeed({
       onState: (snap) => {
         setSnapshot(snap);
+        setInstantaneRecu(true);
         // Un `task_done` manqué pendant une coupure ne viderait jamais ces
         // états : l'instantané, lui, dit toujours quelles tâches vivent.
         magasinSorties.garderVivantes(snap.tasks);
+        magasinDirects.garderVivantes(snap.tasks);
         setAgentsByTask((prev) => garderVivantes(prev, snap.tasks));
       },
-      onSortie: (taskId, nodeId, sortie) => magasinSorties.ajouter(taskId, nodeId, sortie),
+      onSortie: (taskId, nodeId, sortie, niveaux) =>
+        magasinSorties.ajouter(taskId, nodeId, sortie, niveaux),
+      onDirect: (taskId, direct) => magasinDirects.appliquer(taskId, direct),
       onEvent: (ev) => {
         setEvents((prev) => [...prev.slice(-499), ev]);
         // Tout événement de fin de tâche / merge / conflit invalide les vues qui fetchent.
@@ -369,6 +459,9 @@ export function App() {
             'delegation_cancelled',
             'delegation_budget_exhausted',
             'routage_consigne',
+            // Un commentaire de revue ancré posé ou retiré par un AUTRE
+            // opérateur : la Miellerie relit la liste (G06).
+            'revue_commentaire',
             'task_requeued',
             'task_retry',
             // Verdict humain persisté (émis APRÈS l'écriture) : la raison jointe
@@ -419,6 +512,7 @@ export function App() {
         } else if (FINS_D_EXECUTION.includes(ev.type)) {
           setAgentsByTask((prev) => oublierTache(prev, taskId));
           magasinSorties.oublier(taskId);
+          magasinDirects.oublier(taskId);
         }
         // La transition vit dans `differees.ts`, PUR — la loupe l'avait rendue
         // SANS TEST tant qu'elle était enfouie ici. Rendre `prev` lui-même
@@ -429,6 +523,12 @@ export function App() {
       onStatus: (up, meta) => {
         setConnected(up);
         setTropLent(!up && meta?.tropLent === true);
+        if (up) setCoupeDepuis(null);
+        else {
+          const maintenant = Date.now();
+          setCoupeDepuis((depuis) => depuis ?? maintenant);
+          setDernierEssai(maintenant);
+        }
         if (up) setTokenAuthError(false);
         else if (meta?.authError) setTokenAuthError(true);
         // À CHAQUE (re)connexion : ré-hydrater les revues. Le flux rejoue les
@@ -449,20 +549,68 @@ export function App() {
         }
       },
     });
+    feedRef.current = feed;
     return () => {
       if (refreshTimer.current !== undefined) {
         window.clearTimeout(refreshTimer.current);
         refreshTimer.current = undefined;
       }
+      feedRef.current = null;
       feed.close();
     };
-  }, [feedKey, demanderSession, magasinSorties]);
+  }, [feedKey, demanderSession, magasinSorties, magasinDirects]);
+
+  // Le réseau de l'APPAREIL : une Wi-Fi tombée se dit comme telle, pas comme
+  // une ruche muette. Le retour du réseau rappelle la ruche sans attendre la
+  // fin du recul du flux.
+  useEffect(() => {
+    const coupe = () => setHorsReseauDepuis((d) => d ?? Date.now());
+    const revenu = () => {
+      setHorsReseauDepuis(null);
+      feedRef.current?.reconnecter();
+    };
+    window.addEventListener('offline', coupe);
+    window.addEventListener('online', revenu);
+    return () => {
+      window.removeEventListener('offline', coupe);
+      window.removeEventListener('online', revenu);
+    };
+  }, []);
+
+  const liaison = lireLiaison({
+    instantaneRecu,
+    coupeDepuis,
+    horsReseauDepuis,
+    jetonRefuse: tokenAuthError,
+    tropLent,
+  });
+  const reconnecter = () => feedRef.current?.reconnecter();
 
   // ─── Navigation par hash ────────────────────────────────────────────────────
   useEffect(() => {
     const onHash = () => setRoute(parseHash());
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  // Toute arrivée sur une adresse referme le tiroir : un clic sur une case,
+  // mais aussi le bouton Précédent, qui ne passe pas par la barre.
+  useEffect(() => setTiroirOuvert(false), [route.view, route.selectedId]);
+
+  // Revenu au-dessus de la borne (rotation, fenêtre élargie) : plus de tiroir.
+  useEffect(() => {
+    const mq = window.matchMedia?.(REQUETE_TIROIR);
+    if (!mq) return;
+    const suivre = () => {
+      if (mq.matches) return;
+      // Le focus d'abord sur la case courante, visible dans le rail : la garde
+      // le rendrait sinon au ☰, qui n'existe plus à cette largeur (`display:
+      // none`) — `focus()` n'y fait rien et le clavier retombe sur <body>.
+      celluleCourante.current?.focus();
+      setTiroirOuvert(false);
+    };
+    mq.addEventListener('change', suivre);
+    return () => mq.removeEventListener('change', suivre);
   }, []);
 
   const navigate = (view: ViewId, selectedId?: string, opts?: { replace?: boolean }) => {
@@ -554,6 +702,10 @@ export function App() {
     if (token === getToken()) return;
     saveToken(token);
     setTokenAuthError(false);
+    // Le nouvel essai repart de zéro : sans cela, la coupure de l'ANCIEN
+    // jeton ferait dire « la ruche ne répond pas » avant que le nouveau
+    // flux ait seulement répondu — le squelette est la vérité de ce moment.
+    setCoupeDepuis(null);
     setFeedKey((k) => k + 1);
   };
 
@@ -584,6 +736,46 @@ export function App() {
 
   // Restaurée au montage (voir `demanderSession`).
   useEffect(() => demanderSession(false), [demanderSession]);
+
+  // ─── LA PREMIÈRE ARRIVÉE ───────────────────────────────────────────────────
+  //
+  // Relue à chaque (re)connexion du flux et à chaque changement de compte : la
+  // porte dépend de QUI regarde (`porteConfiguration`) — un administrateur qui
+  // se connecte peut écrire là où le jeton seul ne le pouvait plus. L'assistant
+  // ne s'ouvre SEUL que sur une ruche jamais configurée (`doitOuvrirSeul`).
+  useEffect(() => {
+    if (!connected) return;
+    let vivant = true;
+    fetchConfigurationInitiale()
+      .then((etat) => {
+        if (!vivant) return;
+        setConfigInitiale(etat);
+        if (doitOuvrirSeul(etat, renvoyeAPlusTard())) setAssistantOuvert(true);
+      })
+      .catch(() => {
+        // Reine plus ancienne ou refus : aucun assistant, rien d'inventé.
+      });
+    return () => {
+      vivant = false;
+    };
+  }, [connected, user?.id]);
+
+  // La relance à la main (Santé, Intendance) : relue d'abord, pour reprendre
+  // les choix rangés — y compris ceux faits depuis un autre poste.
+  useEffect(() => {
+    const relancer = () => {
+      fetchConfigurationInitiale()
+        .then((etat) => {
+          setConfigInitiale(etat);
+          if (etat.ecriture === 'permis') setAssistantOuvert(true);
+        })
+        .catch(() => {
+          /* la Santé et l'Intendance disent déjà une Reine injoignable */
+        });
+    };
+    window.addEventListener(EVENT_PREMIERE_ARRIVEE, relancer);
+    return () => window.removeEventListener(EVENT_PREMIERE_ARRIVEE, relancer);
+  }, []);
 
   // Un AUTRE onglet a changé le JWT. Déconnecté là-bas : plus de nom ici, sans
   // quoi « + Projet » partirait sans compte sous un nom affiché. Connecté
@@ -633,6 +825,60 @@ export function App() {
   const annonces = useMemo(() => annoncesDepuisEvenements(events), [events]);
   const current = NAV.find((n) => n.id === route.view) ?? NAV[0]!;
 
+  const jeton: JetonCoquille = {
+    valeur: token,
+    changer: setTokenState,
+    appliquer: applyToken,
+    enregistre: token === getToken(),
+    refuse: tokenAuthError,
+    connecte: connected,
+  };
+
+  const caseNav = (item: NavItem) => (
+    <li key={item.id}>
+      <button
+        className={`mc-nav-cell${route.view === item.id ? ' active' : ''}`}
+        ref={route.view === item.id ? celluleCourante : undefined}
+        // L'identifiant de la vue, lisible sans dépendre de la langue :
+        // `npm run captures` nomme ses images d'après lui.
+        data-vue={item.id}
+        // Refermer ICI aussi, pas seulement au changement d'adresse : la case
+        // de la vue où l'on est déjà ne change rien au hash, et le tiroir
+        // restait ouvert sous le doigt qui venait de choisir.
+        onClick={() => {
+          setTiroirOuvert(false);
+          navigate(item.id);
+        }}
+        title={`${lang === 'fr' ? item.label : item.labelEn} (${t('touche', 'key')} ${item.key})`}
+        aria-current={route.view === item.id ? 'page' : undefined}
+      >
+        <span className="mc-nav-icon" aria-hidden="true">
+          <NavGlyph id={item.id} />
+        </span>
+        <span className="mc-nav-label">{lang === 'fr' ? item.label : item.labelEn}</span>
+        {porteLaPastille(item.id, pastille) && (
+          <span
+            className={`mc-nav-badge mc-nav-badge--${pastille.gravite}`}
+            data-gravite={pastille.gravite}
+            aria-label={phraseAlertes(pastille, lang)}
+            title={phraseAlertes(pastille, lang)}
+          >
+            {compteAffiche(pastille.total)}
+          </span>
+        )}
+        {item.id === 'miellerie' && pendingReviews > 0 && (
+          <span
+            className="mc-nav-badge"
+            title={`${pendingReviews} ${t('production(s) à revoir', 'production(s) to review')}`}
+          >
+            {pendingReviews > 99 ? '99+' : pendingReviews}
+          </span>
+        )}
+      </button>
+    </li>
+  );
+  const visibles = NAV.filter((item) => !item.admin || estAdmin(user));
+
   return (
     <div className="app mc-app">
       {/* ─── LE LIEN D'ÉVITEMENT, ET POURQUOI IL NE SUIT PAS SON `href` ──────
@@ -652,7 +898,17 @@ export function App() {
       >
         {t('Aller au contenu', 'Skip to content')}
       </a>
-      <nav className="mc-sidebar" aria-label={t('Navigation principale', 'Main navigation')}>
+      <nav
+        id="mc-navigation"
+        ref={barre}
+        className={`mc-sidebar${tiroirOuvert ? ' mc-sidebar--ouverte' : ''}`}
+        aria-label={t('Navigation principale', 'Main navigation')}
+        // Ouvert en tiroir, c'est un dialogue modal : `modalOpen()` suspend
+        // alors les raccourcis de vue, et Échap n'est pas volé par une vue
+        // (la Chambre y ramène à la Ruche).
+        role={tiroirOuvert ? 'dialog' : undefined}
+        aria-modal={tiroirOuvert || undefined}
+      >
         <div className="mc-sidebar-brand" title="Hive — Mission Control">
           <span className="brand-logo" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -675,44 +931,8 @@ export function App() {
             <span className="mc-sidebar-product">Mission Control</span>
           </span>
         </div>
-        <ul className="mc-nav">
-          {NAV.filter((item) => !item.admin || estAdmin(user)).map((item) => (
-            <li key={item.id}>
-              <button
-                className={`mc-nav-cell${route.view === item.id ? ' active' : ''}`}
-                // L'identifiant de la vue, lisible sans dépendre de la langue :
-                // `npm run captures` nomme ses images d'après lui.
-                data-vue={item.id}
-                onClick={() => navigate(item.id)}
-                title={`${lang === 'fr' ? item.label : item.labelEn} (${t('touche', 'key')} ${item.key})`}
-                aria-current={route.view === item.id ? 'page' : undefined}
-              >
-                <span className="mc-nav-icon" aria-hidden="true">
-                  <NavGlyph id={item.id} />
-                </span>
-                <span className="mc-nav-label">{lang === 'fr' ? item.label : item.labelEn}</span>
-                {porteLaPastille(item.id, pastille) && (
-                  <span
-                    className={`mc-nav-badge mc-nav-badge--${pastille.gravite}`}
-                    data-gravite={pastille.gravite}
-                    aria-label={phraseAlertes(pastille, lang)}
-                    title={phraseAlertes(pastille, lang)}
-                  >
-                    {compteAffiche(pastille.total)}
-                  </span>
-                )}
-                {item.id === 'miellerie' && pendingReviews > 0 && (
-                  <span
-                    className="mc-nav-badge"
-                    title={`${pendingReviews} ${t('production(s) à revoir', 'production(s) to review')}`}
-                  >
-                    {pendingReviews > 99 ? '99+' : pendingReviews}
-                  </span>
-                )}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <ul className="mc-nav">{visibles.filter((i) => !i.pied).map(caseNav)}</ul>
+        <ul className="mc-nav mc-nav-pied">{visibles.filter((i) => i.pied).map(caseNav)}</ul>
         {/* Le compagnon habite la barre, pas un calque sur les vues : il ne
             couvre jamais le contenu (voir `Compagnon.tsx`). Il relit les
             comptes que la barre affiche déjà — jamais un second calcul. */}
@@ -735,15 +955,38 @@ export function App() {
         </div>
       </nav>
 
-      <div className="mc-body">
+      {tiroirOuvert && (
+        <div className="mc-tiroir-voile" aria-hidden="true" onClick={fermerTiroir} />
+      )}
+
+      {/* Inerte sous le tiroir ouvert : ni clic, ni Tab, ni lecteur d'écran
+          n'atteignent la vue qu'il recouvre. */}
+      <div className="mc-body" inert={tiroirOuvert || undefined}>
         <header className="topbar mc-topbar">
           <div className="brand">
+            <button
+              type="button"
+              className="btn ghost mc-burger"
+              data-testid="mc-burger"
+              aria-controls="mc-navigation"
+              aria-expanded={tiroirOuvert}
+              aria-label={t('Ouvrir la navigation', 'Open navigation')}
+              onClick={() => setTiroirOuvert(true)}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h16M4 12h16M4 17h16" />
+              </svg>
+            </button>
             <div>
               <h1>{lang === 'fr' ? current.label : current.labelEn}</h1>
               <span className="brand-sub">
-                {snapshot.projects.length === 0
-                  ? t('Prête — un projet, ce nœud', 'Ready — one project, this node')
-                  : `${snapshot.projects.length} ${t('projet(s)', 'project(s)')} · ${snapshot.nodes.length} ${t('nœud(s)', 'node(s)')}`}
+                {/* Avant le premier instantané, on ne sait RIEN : « Prête », ce
+                    serait l'état vide dit comme un fait (voir Liaison.tsx). */}
+                {!instantaneRecu
+                  ? '—'
+                  : snapshot.projects.length === 0
+                    ? t('Prête — un projet, ce nœud', 'Ready — one project, this node')
+                    : `${snapshot.projects.length} ${t('projet(s)', 'project(s)')} · ${snapshot.nodes.length} ${t('nœud(s)', 'node(s)')}`}
               </span>
             </div>
           </div>
@@ -765,6 +1008,7 @@ export function App() {
             >
               {lang === 'fr' ? 'EN' : 'FR'}
             </button>
+            <ChoixDuTheme />
             <AccountPanel
               user={user}
               onUser={changerDeCompte}
@@ -780,7 +1024,13 @@ export function App() {
               onChange={(e) => setTokenState(e.target.value)}
               onBlur={applyToken}
               onKeyDown={(e) => e.key === 'Enter' && applyToken()}
+              // Un champ compact de la barre : pas de libellé visible, mais un
+              // NOM (le texte d'exemple n'en est pas un — il disparaît à la
+              // saisie), et sa faute reliée : le bandeau « Jeton refusé » est
+              // lu avec le champ, au lieu de vivre à l'autre bout de l'écran.
+              aria-label={t('Jeton de la ruche', 'Hive token')}
               aria-invalid={tokenAuthError || undefined}
+              aria-describedby={tokenAuthError ? 'mc-jeton-refuse' : undefined}
             />
             {unsyncedReviews > 0 && (
               <span
@@ -796,45 +1046,48 @@ export function App() {
             {/* Le voyant d'à côté dit si le NAVIGATEUR parle au hub. Il était
                 vert pendant que « 0 nœud(s) actif(s) » travaillait sur rien :
                 deux questions distinctes, donc deux voyants distincts. */}
-            {(() => {
-              const agents = agentsConnectes(snapshot.nodes);
-              const etat = etatBandeau(agents);
-              const reels = agents.filter((a) => a.enLigne > 0 && !a.simule);
-              const titre =
-                etat === 'reelle'
-                  ? t(
-                      'Les IA qui codent réellement en ce moment',
-                      'The AIs actually coding right now',
-                    )
-                  : etat === 'simulee'
+            {/* Même raison : « aucune ouvrière » sur un instantané pas encore
+                arrivé serait une absence inventée. Inconnu reste inconnu. */}
+            {instantaneRecu &&
+              (() => {
+                const agents = agentsConnectes(snapshot.nodes);
+                const etat = etatBandeau(agents);
+                const reels = agents.filter((a) => a.enLigne > 0 && !a.simule);
+                const titre =
+                  etat === 'reelle'
                     ? t(
-                        'Seul un agent SIMULÉ répond : les diffs produits ne viennent d’aucune IA',
-                        'Only a SIMULATED agent answers: the diffs produced come from no AI',
+                        'Les IA qui codent réellement en ce moment',
+                        'The AIs actually coding right now',
                       )
-                    : etat === 'aucune_ia'
+                    : etat === 'simulee'
                       ? t(
-                          'Des ouvrières sont inscrites, aucune ne répond',
-                          'Workers are registered, none answers',
+                          'Seul un agent SIMULÉ répond : les diffs produits ne viennent d’aucune IA',
+                          'Only a SIMULATED agent answers: the diffs produced come from no AI',
                         )
-                      : t(
-                          'Aucune ouvrière inscrite — lancez « npm run node » sur votre poste',
-                          'No worker registered — run « npm run node » on your machine',
-                        );
-              return (
-                <span className={`mc-ia mc-ia-${etat}`} data-testid="mc-ia" title={titre}>
-                  <span className="conn-dot" />
-                  <span data-testid="mc-ia-mot">
-                    {etat === 'reelle'
-                      ? reels.map((a) => a.libelle).join(' · ')
-                      : etat === 'simulee'
-                        ? t('simulé — aucune IA', 'simulated — no AI')
-                        : etat === 'aucune_ia'
-                          ? t('aucune ouvrière en ligne', 'no worker online')
-                          : t('aucune ouvrière', 'no worker')}
+                      : etat === 'aucune_ia'
+                        ? t(
+                            'Des ouvrières sont inscrites, aucune ne répond',
+                            'Workers are registered, none answers',
+                          )
+                        : t(
+                            'Aucune ouvrière inscrite — lancez « npm run node » sur votre poste',
+                            'No worker registered — run « npm run node » on your machine',
+                          );
+                return (
+                  <span className={`mc-ia mc-ia-${etat}`} data-testid="mc-ia" title={titre}>
+                    <span className="conn-dot" />
+                    <span data-testid="mc-ia-mot">
+                      {etat === 'reelle'
+                        ? reels.map((a) => a.libelle).join(' · ')
+                        : etat === 'simulee'
+                          ? t('simulé — aucune IA', 'simulated — no AI')
+                          : etat === 'aucune_ia'
+                            ? t('aucune ouvrière en ligne', 'no worker online')
+                            : t('aucune ouvrière', 'no worker')}
+                    </span>
                   </span>
-                </span>
-              );
-            })()}
+                );
+              })()}
             <span
               className={connected ? 'conn online' : 'conn offline'}
               title={
@@ -858,13 +1111,29 @@ export function App() {
 
         {tokenAuthError && (
           <div className="mc-token-banner" role="alert">
-            <p>
+            <p id="mc-jeton-refuse">
               {t(
-                'Jeton de ruche refusé — collez dans le champ « Jeton » (en haut à droite) la valeur exacte de HIVE_TOKEN depuis le fichier .env de l’orchestrateur. Ce n’est pas le jeton GitHub.',
-                'Hive token rejected — paste the exact HIVE_TOKEN from the orchestrator’s .env into the Token field (top right). This is not the GitHub token.',
+                'Jeton de ruche refusé — collez la valeur exacte de HIVE_TOKEN, depuis le fichier .env de l’orchestrateur, dans le champ « Jeton » (barre du haut, ou Paramètres). Ce n’est pas le jeton GitHub.',
+                'Hive token rejected — paste the exact HIVE_TOKEN from the orchestrator’s .env into the Token field (top bar, or Settings). This is not the GitHub token.',
+              )}{' '}
+              {/* Sur téléphone, le champ de la barre est replié : les
+                  Paramètres portent le même, avec son libellé et son aide. */}
+              {route.view !== 'parametres' && (
+                <button className="btn ghost" onClick={() => navigate('parametres')}>
+                  {t('Saisir le jeton dans Paramètres', 'Enter the token in Settings')}
+                </button>
               )}
             </p>
           </div>
+        )}
+
+        {liaison.affichage === 'vue' && liaison.bandeau !== null && (
+          <BandeauHorsLigne
+            cause={liaison.bandeau.cause}
+            depuis={liaison.bandeau.depuis}
+            dernierEssai={dernierEssai}
+            onReessayer={reconnecter}
+          />
         )}
 
         {journalElague > 0 && (
@@ -915,24 +1184,54 @@ export function App() {
           <FiletDeSecurite adresse={`${route.view}/${route.selectedId ?? ''}`} portee="vue">
             <Suspense
               fallback={
-                <div className="mc-view-loading">{t('Chargement de la vue…', 'Loading view…')}</div>
+                <div className="mc-view mc-avant-etat">
+                  <Skeleton lignes={6} libelle={t('Chargement de la vue…', 'Loading view…')} />
+                </div>
               }
             >
-              {route.view === 'ruche' && <Ruche {...viewProps} />}
-              {route.view === 'miellerie' && <Miellerie {...viewProps} />}
-              {route.view === 'projets' && <Projets {...viewProps} />}
-              {route.view === 'essaim' && <Essaim {...viewProps} />}
-              {route.view === 'sante' && <Sante {...viewProps} />}
-              {route.view === 'chronique' && <Chronique {...viewProps} />}
-              {route.view === 'memoire' && <Memoire {...viewProps} />}
-              {route.view === 'reine' && <Reine {...viewProps} />}
-              {route.view === 'rayon' && <Rayon {...viewProps} />}
-              {route.view === 'monespace' && <MonEspace {...viewProps} />}
-              {route.view === 'intendance' && <Intendance {...viewProps} />}
-              {route.view === 'cerveau' && <Cerveau {...viewProps} />}
-              {route.view === 'chantiers' && <Chantiers {...viewProps} />}
-              {route.view === 'chambre' && <Chambre {...viewProps} />}
-              {route.view === 'warroom' && <WarRoom {...viewProps} />}
+              {/* Avant le premier instantané, AUCUNE vue : chacune dirait son
+                  état vide sur un instantané qui n'est pas encore arrivé.
+                  Sauf Paramètres : il répare ce qui empêche cet instantané
+                  d'arriver (le jeton — sur téléphone, son SEUL champ). Derrière
+                  la porte, « Saisir le jeton dans Paramètres » menait à la
+                  panne « jeton refusé » elle-même. */}
+              {route.view === 'parametres' && (
+                <Parametres
+                  {...viewProps}
+                  jeton={jeton}
+                  onCompte={changerDeCompte}
+                  instantaneRecu={instantaneRecu}
+                />
+              )}
+              {liaison.affichage !== 'vue' && route.view !== 'parametres' && (
+                <AvantPremierEtat liaison={liaison} onReessayer={reconnecter} />
+              )}
+              {liaison.affichage === 'vue' && (
+                <>
+                  {route.view === 'ruche' && <Ruche {...viewProps} />}
+                  {route.view === 'miellerie' && <Miellerie {...viewProps} />}
+                  {route.view === 'projets' && <Projets {...viewProps} />}
+                  {route.view === 'essaim' && <Essaim {...viewProps} />}
+                  {route.view === 'sante' && <Sante {...viewProps} />}
+                  {route.view === 'chronique' && <Chronique {...viewProps} />}
+                  {route.view === 'memoire' && <Memoire {...viewProps} />}
+                  {route.view === 'reine' && <Reine {...viewProps} />}
+                  {route.view === 'rayon' && <Rayon {...viewProps} />}
+                  {route.view === 'monespace' && <MonEspace {...viewProps} />}
+                  {route.view === 'intendance' && <Intendance {...viewProps} />}
+                  {route.view === 'cerveau' && <Cerveau {...viewProps} />}
+                  {route.view === 'chantiers' && <Chantiers {...viewProps} />}
+                  {route.view === 'chambre' && <Chambre {...viewProps} />}
+                  {route.view === 'warroom' && <WarRoom {...viewProps} />}
+                  {route.view === 'sandbox' && (
+                    <Sandbox
+                      {...viewProps}
+                      magasinSorties={magasinSorties}
+                      magasinDirects={magasinDirects}
+                    />
+                  )}
+                </>
+              )}
             </Suspense>
           </FiletDeSecurite>
         </main>
@@ -946,6 +1245,22 @@ export function App() {
           refreshTick={refreshTick}
           magasinSorties={magasinSorties}
           onClose={() => setOpenTaskId(null)}
+        />
+      )}
+      {assistantOuvert && configInitiale && (
+        <PremiereArrivee
+          etat={configInitiale}
+          projets={snapshot.projects.length}
+          onFermer={() => {
+            remettreAPlusTard();
+            setAssistantOuvert(false);
+          }}
+          onNouveauProjet={() => setShowNewProject(true)}
+          onTermine={(etat) => {
+            setConfigInitiale(etat);
+            setAssistantOuvert(false);
+            window.dispatchEvent(new Event(EVENT_CONFIGURATION_CHANGEE));
+          }}
         />
       )}
       {showNewProject && <NewProjectModal onClose={() => setShowNewProject(false)} />}

@@ -1,0 +1,88 @@
+
+> vt@1.0.0 testv
+> vitest run --reporter=verbose
+
+
+ RUN  v4.1.11 /hive/tache
+
+stdout | tests/a.test.js > suite A > echoue
+journal du test
+
+ ✓ tests/a.test.js > suite A > passe 1ms
+ × tests/a.test.js > suite A > echoue 6ms
+   → expected 1 to be 2 // Object.is equality
+ ↓ tests/a.test.js > suite A > saute
+ □ tests/a.test.js > suite A > plus tard
+ ✓ tests/a.test.js > suite A > echec attendu 1ms
+ ✓ tests/a.test.js > suite A > imbriquee > profond passe 0ms
+ ✓ tests/a.test.js > hors suite 0ms
+ ↓ tests/b.test.js > crochet > jamais
+ ✓ tests/b.test.js > b passe 1ms
+ × tests/b.test.js > b echoue 0ms
+   → boum
+ ✓ tests/c.test.js > c passe 2ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/b.test.js > crochet
+Error: beforeAll casse
+ ❯ tests/b.test.js:2:27
+      1| describe('crochet', () => {
+      2|   beforeAll(() => { throw new Error('beforeAll casse'); });
+       |                           ^
+      3|   it('jamais', () => {});
+      4| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tests/d.test.js [ tests/d.test.js ]
+Error: Cannot find module './inexistant.js' imported from /hive/tache/tests/d.test.js
+ ❯ tests/d.test.js:1:1
+      1| import './inexistant.js';
+       | ^
+      2| test('d', () => {});
+      3|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+Serialized Error: { code: 'ERR_MODULE_NOT_FOUND' }
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/a.test.js > suite A > echoue
+AssertionError: expected 1 to be 2 // Object.is equality
+
+- Expected
++ Received
+
+- 2
++ 1
+
+ ❯ tests/a.test.js:3:66
+      1| describe('suite A', () => {
+      2|   it('passe', () => { expect(1).toBe(1); });
+      3|   it('echoue', () => { console.log('journal du test'); expect(1).toBe(…
+       |                                                                  ^
+      4|   it.skip('saute', () => {});
+      5|   it.todo('plus tard');
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tests/b.test.js > b echoue
+Error: boum
+ ❯ tests/b.test.js:6:32
+      4| });
+      5| test('b passe', () => {});
+      6| test('b echoue', () => { throw new Error('boum'); });
+       |                                ^
+      7|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  3 failed | 1 passed (4)
+      Tests  2 failed | 5 passed | 1 expected fail | 2 skipped | 1 todo (11)
+   Start at  10:52:43
+   Duration  723ms (transform 67ms, setup 0ms, import 69ms, tests 21ms, environment 0ms)
+

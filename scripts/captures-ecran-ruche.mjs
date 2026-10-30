@@ -552,6 +552,16 @@ export async function amorcerRuche(ruche, plan = PLAN_DEMO, patienceMs = 120_000
     password: tirage(),
   });
 
+  // La configuration initiale est ARRÊTÉE, par l'administratrice : sans elle,
+  // l'assistant de première arrivée s'ouvrirait par-dessus chaque vue et
+  // chaque capture photographierait le même dialogue. Les choix sont ceux
+  // d'une ruche de laboratoire : tout sur la machine, rien ne sort.
+  await demander(ruche.http, '/api/configuration-initiale/terminer', {
+    method: 'POST',
+    headers: { ...json, authorization: `Bearer ${compte.token}` },
+    body: JSON.stringify({ mode: 'local', secrets: 'sessions_cli', git: 'local', connecteurs: [] }),
+  });
+
   const projets = [];
   for (const p of plan) {
     const projet = await poster('/api/projects', { name: p.name, description: p.description });

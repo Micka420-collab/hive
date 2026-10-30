@@ -1,17 +1,40 @@
 // Réquisitions — l'ouvrière demande un besoin ; l'humain tranche une fois.
 //
-// Doctrine (ADR 0010) : `cle_api` | `mcp` | `binaire` | `atelier` | `logiciel`.
+// Doctrine (ADR 0010) : `cle_api` | `mcp` | `binaire` | `atelier` | `logiciel`,
+// plus `action` (G12) — une action irréversible proposée par un agent EN VOL
+// (git push, publication, rm hors du répertoire, réseau non déclaré), que la
+// Chambre accorde ou refuse pendant que le Worker attend. Seul ce genre porte
+// une ÉCHÉANCE : sans décision à temps, la réquisition passe `expiree`, le
+// Worker reçoit un deny, et l'escalade se journalise.
 // La clé reste chez la Queen / Intendance — JAMAIS dans le nœud ni l'Atelier.
 // MODULE PUR : aucune I/O. Le store persiste ; l'API pose / répond.
 
-/** Version de la règle de réquisition. */
-export const VERSION_REQUISITION = 1;
+/** Version de la règle de réquisition (2 : genre `action`, statut `expiree`). */
+export const VERSION_REQUISITION = 2;
 
-export const GENRES_REQUISITION = ['cle_api', 'mcp', 'binaire', 'atelier', 'logiciel'] as const;
+export const GENRES_REQUISITION = [
+  'cle_api',
+  'mcp',
+  'binaire',
+  'atelier',
+  'logiciel',
+  'action',
+] as const;
 
 export type GenreRequisition = (typeof GENRES_REQUISITION)[number];
 
-export type StatutRequisition = 'ouverte' | 'accordee' | 'refusee';
+export type StatutRequisition = 'ouverte' | 'accordee' | 'refusee' | 'expiree';
+
+export const STATUTS_REQUISITION: readonly StatutRequisition[] = [
+  'ouverte',
+  'accordee',
+  'refusee',
+  'expiree',
+];
+
+export function estStatutRequisition(brut: unknown): brut is StatutRequisition {
+  return (STATUTS_REQUISITION as readonly unknown[]).includes(brut);
+}
 
 export type MotifRefusRequisition =
   'vide' | 'genre_inconnu' | 'trop_long' | 'noeud_inconnu' | 'inconnue' | 'deja_close';
@@ -55,6 +78,7 @@ export function libelleGenreRequisition(genre: GenreRequisition, lang: 'fr' | 'e
     binaire: 'Binaire / outil CLI',
     atelier: 'Atelier (bureau de recette)',
     logiciel: 'Logiciel à installer ou fabriquer',
+    action: 'Action irréversible',
   };
   const en: Record<GenreRequisition, string> = {
     cle_api: 'API key',
@@ -62,6 +86,7 @@ export function libelleGenreRequisition(genre: GenreRequisition, lang: 'fr' | 'e
     binaire: 'Binary / CLI tool',
     atelier: 'Studio (acceptance desktop)',
     logiciel: 'Software to install or build',
+    action: 'Irreversible action',
   };
   return (lang === 'en' ? en : fr)[genre];
 }
@@ -74,13 +99,17 @@ export type SuiteAccordRequisition =
   | { action: 'modal_cle' }
   | { action: 'atelier' }
   | { action: 'fabrique'; genreFabrique: 'mcp' | 'script_npm' | 'pont' }
-  | { action: 'hint_binaire' };
+  | { action: 'hint_binaire' }
+  | { action: 'relais_noeud' };
 
 export function suiteAccordRequisition(genre: GenreRequisition): SuiteAccordRequisition {
   if (genre === 'cle_api') return { action: 'modal_cle' };
   if (genre === 'atelier') return { action: 'atelier' };
   if (genre === 'mcp') return { action: 'fabrique', genreFabrique: 'mcp' };
   if (genre === 'logiciel') return { action: 'fabrique', genreFabrique: 'script_npm' };
+  // `action` (G12) : le POST repondre relaie déjà la décision au nœud qui
+  // attend (requisition_result) — l'écran n'a qu'à le dire.
+  if (genre === 'action') return { action: 'relais_noeud' };
   return { action: 'hint_binaire' };
 }
 

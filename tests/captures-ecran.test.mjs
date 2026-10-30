@@ -27,7 +27,7 @@
 // de déclarations de types (cf. `premier-quart-heure.test.mjs`).
 
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -113,17 +113,32 @@ describe('où vont les captures', () => {
   it('par défaut : le français, dans captures-ecran/fr, toutes les vues', () => {
     expect(optionsDepuisArgv([], RACINE)).toEqual({
       langue: 'fr',
+      theme: 'clair',
       sortie: path.join(RACINE, SORTIE_PAR_DEFAUT, 'fr'),
       vues: null,
     });
     expect(optionsDepuisArgv(['--langue', 'en'], RACINE)).toEqual({
       langue: 'en',
+      theme: 'clair',
       sortie: path.join(RACINE, SORTIE_PAR_DEFAUT, 'en'),
       vues: null,
     });
     expect(optionsDepuisArgv(['--sortie', 'docs/images/captures'], RACINE).sortie).toBe(
       path.join(RACINE, 'docs', 'images', 'captures'),
     );
+  });
+
+  it('LE THÈME SOMBRE A SON PROPRE DOSSIER — deux séries ne s’effacent pas l’une l’autre', () => {
+    // Mêmes noms d'images dans les deux thèmes : un dossier commun ferait
+    // effacer la série claire par la sombre (`estNotreCapture`).
+    expect(optionsDepuisArgv(['--theme', 'sombre', '--langue', 'en'], RACINE)).toEqual({
+      langue: 'en',
+      theme: 'sombre',
+      sortie: path.join(RACINE, SORTIE_PAR_DEFAUT, 'en-sombre'),
+      vues: null,
+    });
+    expect(optionsDepuisArgv(['--theme', 'noir'], RACINE).erreur).toMatch(/thème inconnu/);
+    expect(optionsDepuisArgv(['--theme'], RACINE).erreur).toMatch(/attend une valeur/);
   });
 
   it('LA SORTIE RESTE DANS LE DÉPÔT — ni au-dessus, ni ailleurs, ni la racine elle-même', () => {
@@ -171,6 +186,36 @@ describe('où vont les captures', () => {
     );
     for (const hors of ['/..%2F..%2Fetc%2Fpasswd', '/assets/..%2F..%2F..%2Fsecret', '/%E0%A4%A']) {
       expect(fichierDeLEcran(ecran, `http://127.0.0.1:41873${hors}`), hors).toBeNull();
+    }
+  });
+});
+
+describe('ce que le coureur attend, l’écran le rend', () => {
+  // Le coureur attend que l'attente d'une vue DISPARAISSE avant de la
+  // photographier. Une classe que le tableau de bord ne rend plus n'attend
+  // rien : `.mc-view-loading` avait cédé la place au squelette
+  // `.mc-avant-etat` (#524), et chaque capture partait sans attendre — sur un
+  // squelette quand le morceau paresseux de la vue tardait.
+  const coureur = readFileSync(path.join(RACINE, 'scripts', 'captures-ecran.mjs'), 'utf8');
+  const sources = (dossier) =>
+    readdirSync(dossier, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory()
+        ? sources(path.join(dossier, e.name))
+        : e.name.endsWith('.tsx')
+          ? [readFileSync(path.join(dossier, e.name), 'utf8')]
+          : [],
+    );
+  const ecran = sources(path.join(RACINE, 'dashboard', 'src')).join('\n');
+
+  it('CHAQUE CLASSE DONT IL ATTEND LA DISPARITION EST UNE CLASSE QUE L’ÉCRAN POSE', () => {
+    const attendues = [
+      ...coureur.matchAll(/locator\('\.([\w-]+)'\)\.waitFor\(\{ state: 'detached'/g),
+    ].map((m) => m[1]);
+    expect(attendues.length, 'aucune attente lue : la garde serait creuse').toBeGreaterThan(0);
+    for (const classe of attendues) {
+      expect(ecran, `.${classe} n’est posée par aucun composant`).toMatch(
+        new RegExp(`className="[^"]*\\b${classe}\\b`),
+      );
     }
   });
 });

@@ -23,13 +23,13 @@
 }
 
 .in-refus h2 {
-  font-size: 15px;
+  font-size: var(--fs-lg);
   color: var(--text);
 }
 
 .in-refus p {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.55;
 }
 
@@ -61,11 +61,11 @@
 /* Chaud = de l'argent part en ce moment, ou une machine est en échec. */
 .in-tuile.chaud {
   border-color: var(--amber);
-  background: rgba(224, 138, 20, 0.12);
+  background: color-mix(in srgb, var(--miel-2) 12%, transparent);
 }
 
 .in-tuile-valeur {
-  font-size: 26px;
+  font-size: var(--fs-4xl);
   font-weight: 700;
   line-height: 1;
   color: var(--text);
@@ -77,7 +77,7 @@
 }
 
 .in-tuile-libelle {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -90,9 +90,9 @@
   padding: 10px 12px;
   border-radius: var(--r-sm);
   border: 1px solid var(--amber);
-  background: rgba(224, 138, 20, 0.13);
+  background: color-mix(in srgb, var(--miel-2) 13%, transparent);
   color: var(--gold);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
 }
 
@@ -114,7 +114,7 @@
 
 .in-table small {
   display: block;
-  font-size: 10.5px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
   margin-top: 2px;
 }
@@ -127,14 +127,14 @@
 .in-id,
 .in-table code {
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
   word-break: break-all;
 }
 
 .in-date {
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--muted);
 }
 
@@ -150,7 +150,7 @@
   padding: 6px 8px;
   border: 1px solid var(--border-2);
   border-radius: 6px;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   line-height: 1.45;
   word-break: break-all;
   user-select: all;
@@ -161,7 +161,7 @@
   display: inline-block;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   border: 1px solid var(--border-2);
   color: var(--muted);
@@ -213,7 +213,7 @@
 }
 
 .in-geste {
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   padding: 4px 9px;
   white-space: nowrap;
 }
@@ -224,7 +224,7 @@
 }
 
 .in-geste.danger:hover:not(:disabled) {
-  background: rgba(168, 64, 42, 0.1);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
 }
 
 .in-ligne-suite td {
@@ -237,12 +237,12 @@
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: var(--gold);
 }
 
 .in-confirme .btn {
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   padding: 4px 10px;
 }
 
@@ -255,7 +255,7 @@
 
 .in-email {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: var(--muted);
   word-break: break-all;
 }
@@ -264,7 +264,7 @@
   display: inline-block;
   padding: 2px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   border: 1px solid var(--border-2);
   color: var(--muted);
@@ -281,7 +281,7 @@
   border-radius: 999px;
   background: var(--panel-3);
   color: var(--faint);
-  font-size: 10px;
+  font-size: var(--fs-2xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -306,7 +306,7 @@
 .in-cles-note {
   margin: 0;
   padding: 0 14px 8px;
-  font-size: 11.5px;
+  font-size: var(--fs-xs);
   color: var(--faint);
 }
 
@@ -332,7 +332,7 @@
   padding: 6px 10px;
   background: var(--panel-2);
   border-radius: var(--r-sm);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 
 /* Révoqué reste visible — savoir qu'on a exclu quelqu'un fait partie du suivi —
@@ -350,13 +350,13 @@
 
 .in-cle-vu {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
   white-space: nowrap;
 }
 
 .in-cle-etat {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--amber);
   font-family: var(--mono);
   white-space: nowrap;
@@ -378,12 +378,12 @@
   gap: 10px;
 }
 .in-connecteur-tete strong {
-  font-size: 14px;
+  font-size: var(--fs-md);
 }
 .in-connecteur-actif,
 .in-connecteur-dormant,
 .in-connecteur-mode {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   font-family: var(--mono);
   padding: 1px 6px;
   border-radius: var(--r-sm);
@@ -401,7 +401,7 @@
   margin-left: auto;
 }
 .in-connecteur-hint {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--muted);
   margin: 6px 0;
 }
@@ -420,7 +420,7 @@
   grid-template-columns: minmax(0, 1fr);
 }
 .in-secret-nom {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   font-weight: 600;
 }
 .in-secret-pose {
@@ -432,7 +432,7 @@
   font-weight: 400;
 }
 .in-secret-hint {
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   color: var(--faint);
 }
 .in-secret-ligne {
@@ -445,7 +445,7 @@
      bouton hors de la carte sur un téléphone. */
   min-width: 0;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 .in-connecteurs-projet {
   margin-top: 14px;
@@ -453,14 +453,14 @@
   padding: 10px 14px 12px;
 }
 .in-connecteurs-projet h3 {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   margin: 10px 0 6px;
 }
 .in-projet-choix {
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 .in-connecteur-message {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   color: var(--blue);
 }
 .in-autorisation {
@@ -479,7 +479,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 .in-portee {
   display: flex;
@@ -494,11 +494,11 @@
 .in-slack-listes label {
   display: grid;
   gap: 3px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 .in-slack-listes input {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 .in-autorisation-actions {
   display: flex;
@@ -516,7 +516,7 @@
   margin: 0;
   display: grid;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--fs-xs);
 }
 .in-connecteurs-journal li {
   display: flex;
@@ -529,7 +529,7 @@
 .in-journal-quand {
   color: var(--faint);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
 }
 .in-journal-quoi {
   font-family: var(--mono);
@@ -548,7 +548,7 @@
 }
 .in-journal-apercu {
   color: var(--faint);
-  font-size: 11px;
+  font-size: var(--fs-2xs);
   /* L'aperçu est du JSON d'une seule ligne : sans coupure, il élargit la page
      au-delà de l'écran d'un téléphone. */
   overflow-wrap: anywhere;

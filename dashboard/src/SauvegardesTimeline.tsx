@@ -16,6 +16,7 @@ import type { SauvegardeResumeUi } from './api';
 import { useT } from './i18n';
 import { timeShort } from './views/shared';
 import type { ViewId } from './views/shared';
+import { Skeleton } from './composants';
 
 function libelleGenre(kind: SauvegardeResumeUi['kind'], t: ReturnType<typeof useT>): string {
   switch (kind) {
@@ -279,7 +280,7 @@ export function SauvegardesTimeline({
               {ouvertId === s.id && (
                 <div className="ry-sg-patch-cadre">
                   {patchCharge && !patchTexte ? (
-                    <p className="ry-sg-patch-attente">{t('Chargement…', 'Loading…')}</p>
+                    <Skeleton lignes={6} />
                   ) : (
                     <>
                       <div className="ry-sg-patch-barre">

@@ -91,6 +91,9 @@ function machine(
           : OK;
       },
       plateforme: 'linux',
+      // Le réseau filtré, mesuré ailleurs (`reseau-bac.integration.test.ts`) :
+      // ici, le bac retenu sait filtrer, pour que `exige` juge le reste.
+      sonderReseau: async (f) => ({ filtre: true, motif: `réseau filtré via ${f.nom}` }),
     },
   };
 }

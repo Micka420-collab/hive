@@ -7,8 +7,8 @@ import { existsSync } from 'node:fs';
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { cheminsNatifs } from '../node-client/agent-detect.js';
-import { assertRealExecutionAllowed, runCommand } from './exec.js';
-import { lecteurCursor } from './texte-final.js';
+import { assertRealExecutionAllowed, runCommandStreaming } from './exec.js';
+import { graviteStreamJson, lecteurCursor } from './texte-final.js';
 import type { AdapterContext, AdapterResult, AgentAdapter } from './index.js';
 
 const CURSOR_TIMEOUT_MS = 15 * 60_000;
@@ -70,10 +70,14 @@ export function createCursorAdapter(token = process.env.HIVE_TOKEN ?? DEFAULT_TO
       // Même flux que Claude Code, mais PAS la même ligne `result` : chez
       // Cursor, elle recolle toute la narration de l'exécution. La réponse est
       // le texte depuis le dernier outil — un lecteur neuf par exécution.
-      const result = await runCommand(
+      // Ses événements d'erreur, eux, ont la forme de Claude Code (`result` à
+      // `is_error`) : sans `graviteStreamJson`, ils partaient à l'écran en
+      // simple stdout, et la console n'avait aucune erreur de Cursor à filtrer.
+      const result = await runCommandStreaming(
         bin,
         argvCursor(task.prompt, ctx.modele),
         ctx,
+        graviteStreamJson,
         CURSOR_TIMEOUT_MS,
         lecteurCursor(),
       );

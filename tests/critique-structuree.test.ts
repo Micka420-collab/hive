@@ -506,7 +506,6 @@ describe('la consigne du relecteur demande le marqueur', () => {
     nodeId: 'noeud-a',
     agentType: 'claude-code',
     diff: 'diff --git a/src/auth.ts b/src/auth.ts',
-    logs: 'ok',
   };
 
   it('nomme le marqueur, toute la grille et ce qui bloque', () => {

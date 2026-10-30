@@ -57,7 +57,7 @@ describe('un dépôt sans aucun commit', () => {
       expect(diff).toContain('LISEZMOI.md');
       expect(diff).toContain('+# Premier fichier');
     } finally {
-      ws.cleanup();
+      await ws.cleanup();
     }
   });
 

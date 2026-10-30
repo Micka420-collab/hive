@@ -107,6 +107,8 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
   essaim: 'clé primaire `projectId` — une seule ligne par projet, par construction',
   garde_fous:
     'clé primaire `projectId` — un consentement humain (opt-in + bornes), une seule ligne par projet',
+  reseaux_projets:
+    'clé primaire `projectId` — le réseau des agents posé par le propriétaire, une ligne par projet',
   banc_ombre:
     'clé primaire `projectId` — le consentement humain du banc d’ombre (opt-in + budget), une ligne par projet',
   balance_ledger_cache:
@@ -119,8 +121,12 @@ const BORNÉES_PAR_L_HUMAIN: Record<string, string> = {
     'un compteur cumulé par couple (type d’événement, motif d’élagage) — bornée par le vocabulaire FERMÉ des types que le code émet, jamais une ligne par événement ; l’élaguer effacerait ce que le Genome doit savoir de ses pertes',
   connecteurs_projet:
     'autorisation de connecteur par projet (src/connectors) — clé primaire (connecteurId, projectId), une poignée par projet, posée par l’humain et supprimée à la révocation ; jamais auto-générée',
+  routines:
+    'une ligne par routine créée par un humain qui répond du projet (ADR 0014) — jamais auto-générée, supprimée avec son projet ; son historique (`routines_runs`) a son élagueur',
   identite_ruche:
     'l’empreinte publique de la ruche — UNE ligne (CHECK id = 1), tirée au premier démarrage, jamais réécrite',
+  configuration_initiale:
+    'une seule ligne pour toute la ruche — clé primaire tenue par CHECK (cle = ruche), choix de l’hôte',
 };
 
 /** Le corps de chaque méthode `prune*` du magasin, accolades suivies. */

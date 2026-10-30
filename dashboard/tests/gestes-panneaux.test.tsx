@@ -36,7 +36,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { EquipeProjet, PartagesProjet } from '../src/views/Projets';
+import { EquipeProjet, PartagesProjet } from '../src/views/projets/Equipe';
 import { SectionCles } from '../src/views/Intendance';
 import { setLang } from '../src/i18n';
 import type { AuthUser, ClesRuche, LienPartage, MembreProjet } from '../src/api';

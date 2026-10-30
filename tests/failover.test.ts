@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { HiveStore } from '../src/orchestrator/store.js';
 import { Scheduler } from '../src/orchestrator/scheduler.js';
-import { runCommand } from '../src/adapters/exec.js';
+import { ligneDInfra, runCommand } from '../src/adapters/exec.js';
 import type { HiveEvent } from '../src/shared/types.js';
 import type { NodeProfile } from '../src/orchestrator/store.js';
 import type { AdapterContext } from '../src/adapters/index.js';
@@ -141,5 +141,21 @@ describe('détection d’échec infra (exec)', () => {
     const r = await runCommand('node', ['-e', 'process.exit(2)'], ctx());
     expect(r.success).toBe(false);
     expect(r.infra).toBeUndefined();
+  });
+
+  it('LA LIGNE CITÉE PAR LE REFUS : la DERNIÈRE qui dit la panne, sinon la dernière', () => {
+    // C'est elle que le refus du nœud cite (`raisonAgentIndisponible`). La
+    // première ligne qui dit la panne serait souvent un avertissement de
+    // démarrage, pas ce qui a fait tomber l'agent.
+    const journal = [
+      'warning: login shell not found, using sh',
+      'travail en cours…',
+      'API Error: 429 rate_limit_error',
+      '   ',
+      'nouvelle tentative abandonnée',
+    ].join('\n');
+    expect(ligneDInfra(journal)).toBe('API Error: 429 rate_limit_error');
+    expect(ligneDInfra('lancement…\nexit status 2\n')).toBe('exit status 2');
+    expect(ligneDInfra(' \n\n')).toBe('');
   });
 });

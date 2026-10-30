@@ -61,7 +61,7 @@ function rendre(
   const lecteur = createLecteurFluxCodex();
   const lignes = flux
     .split('\n')
-    .map((l) => lecteur.lire(l))
+    .map((l) => lecteur.lire(l)?.texte)
     .filter((l): l is string => l !== undefined);
   const bilan = lecteur.bilan(code, false);
   return { logs: [...lignes, ...(bilan !== undefined ? [bilan] : [])].join('\n'), lecteur };

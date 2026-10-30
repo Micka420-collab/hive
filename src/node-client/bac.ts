@@ -21,8 +21,10 @@
 // « Passe quand même » est TOUJOURS affiché, même au meilleur niveau
 // d'isolement. Une interface qui dirait « isolé ✓ » sans dire ce qui traverse
 // encore ferait prendre un risque à quelqu'un qui croit ne pas en prendre —
-// et le réseau traverse toujours, parce qu'un agent de codage doit joindre
-// l'API de son modèle.
+// et quelque chose traverse toujours : au mieux, ce que l'agent envoie aux
+// hôtes que son projet permet (l'API de son modèle d'abord). Le RÉSEAU FILTRÉ
+// se mesure ici, une fois (`sonderReseauFiltre`) : annoncé seulement s'il a
+// été éprouvé, et exigé par `HIVE_ISOLEMENT=exige`.
 
 import { existsSync } from 'node:fs';
 import {
@@ -33,11 +35,14 @@ import {
   preparerImage,
   ramasserConteneurs,
   sonderAgentDansBac,
+  sonderReseauFiltre,
   trouverFournisseurs,
   type BacExecution,
   type Fournisseur,
   type ResultatPreflightAgent,
+  type ResultatSondeReseau,
 } from './isolement.js';
+import type { CapaciteReseau } from './reseau-tache.js';
 import { CODE, type CodeSortie } from '../codes-sortie.js';
 import { requisitionSiCredentialsManquantes, type AgentType } from './agent-detect.js';
 import type { IsolementDeclare } from '../shared/types.js';
@@ -102,14 +107,23 @@ export interface Bac {
    * avec son bac réel (`sessionsHote: !bac` dans le client).
    */
   sessionsHote: boolean;
+  /**
+   * Ce que le bac sait faire du réseau, mesuré au démarrage — `null` sans bac
+   * (la sandbox de processus ne filtre rien). Passé au client (`optionReseau`).
+   */
+  reseau: CapaciteReseau | null;
 }
 
 /**
  * Compose l'annonce du bac à sable. **Pur** : c'est ce qui la rend testable
  * sans sonder la machine.
  */
-export function annonce(decision: Decision, fournisseur: Fournisseur | null): string[] {
-  const etat = constat(decision.niveau, fournisseur);
+export function annonce(
+  decision: Decision,
+  fournisseur: Fournisseur | null,
+  reseauFiltre = false,
+): string[] {
+  const etat = constat(decision.niveau, fournisseur, reseauFiltre);
   const lignes = [`\n🛡  Isolement : ${decision.motif}`];
   if (etat.protege.length > 0) {
     lignes.push('   Protégé :');
@@ -238,6 +252,8 @@ export interface OutilsBac {
   plateforme?: NodeJS.Platform;
   /** Ce qu'il faut dire PENDANT la préparation (un téléchargement). Défaut : la console. */
   informer?: (ligne: string) => void;
+  /** Le bac retenu filtre-t-il le réseau ? Défaut : la vraie sonde (`sonderReseauFiltre`). */
+  sonderReseau?: (fournisseur: Fournisseur, image: string) => Promise<ResultatSondeReseau>;
 }
 
 /**
@@ -412,13 +428,29 @@ export async function preparerBac(
       ({ decision, fournisseur } = sansBac(mode, choix.ecartes.join(' · ')));
     }
   }
-  const lignes = annonce(decision, fournisseur);
+  // ─── LE RÉSEAU FILTRÉ, ÉPROUVÉ AVEC LE BAC RETENU ─────────────────────────
+  //
+  // Seulement quand un bac isole : la sandbox de processus n'a pas d'espace
+  // de noms réseau, et `off` ne filtre rien. En `exige`, un bac qui ne sait
+  // pas filtrer (moteur dans une VM, socket qui ne traverse pas) fait
+  // REFUSER le nœud : le membre a demandé que rien ne sorte hors liste.
+  let reseau: CapaciteReseau | null = null;
+  if (fournisseur && decision.isole) {
+    const sonde = await (outils.sonderReseau ?? sonderReseauFiltre)(fournisseur, image);
+    reseau = { filtre: sonde.filtre, exige: mode === 'exige', motif: sonde.motif };
+    if (!sonde.filtre && mode === 'exige') {
+      ({ decision, fournisseur } = sansBac(mode, sonde.motif));
+      reseau = null;
+    }
+  }
+  const lignes = annonce(decision, fournisseur, reseau?.filtre === true);
   if (fournisseur) {
     // Un moteur écarté AVANT celui qu'on garde se dit : l'humain qui a
     // installé podman doit savoir pourquoi c'est docker qui isole.
     const details = [
       ...(preflight ? [`   Preflight : ${preflight}`] : []),
       ...ecartes.map((e) => `   Écarté : ${e}`),
+      ...(reseau ? [`   Réseau : ${reseau.motif}`] : []),
     ];
     lignes.splice(1, 0, ...details);
   }
@@ -433,7 +465,16 @@ export async function preparerBac(
     refuse: decision.refuse,
     codeSortie: codeDuBac(decision.refuse),
     sessionsHote: sessionsHoteDuMode(mode),
+    reseau,
   };
+}
+
+/**
+ * L'option `reseau` à passer au client — ou rien : sans bac actif, le client
+ * dit lui-même « réseau non filtré, pas de bac » à chaque tâche qui le demandait.
+ */
+export function optionReseau(bac: Bac): { reseau: CapaciteReseau } | Record<string, never> {
+  return bacActif(bac) && bac.reseau ? { reseau: bac.reseau } : {};
 }
 
 /**

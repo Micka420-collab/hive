@@ -22,7 +22,7 @@
 
 .onboarding-entete h3 {
   margin: 0;
-  font-size: 1rem;
+  font-size: var(--fs-lg);
 }
 
 .onboarding-etapes {
@@ -53,7 +53,7 @@
 }
 
 .onboarding-actif {
-  background: rgba(255, 200, 80, 0.06);
+  background: color-mix(in srgb, var(--miel) 6%, transparent);
   margin: 0 -0.5rem;
   padding-left: 0.5rem !important;
   padding-right: 0.5rem !important;
@@ -62,7 +62,7 @@
 
 .onboarding-hint {
   margin: 0.25rem 0 0;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
   color: var(--muted);
 }
 
@@ -80,7 +80,7 @@
 
 .pourquoi-hive h3 {
   margin: 0 0 0.5rem;
-  font-size: 0.95rem;
+  font-size: var(--fs-lg);
 }
 
 .pourquoi-hive ul {
@@ -90,5 +90,5 @@
 
 .pourquoi-hive-compact {
   margin: 0.5rem 0 0;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
 }

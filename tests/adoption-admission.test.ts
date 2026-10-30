@@ -409,6 +409,34 @@ describe('créer un projet, et pouvoir s’en servir', () => {
     expect(((await admin.json()) as { repoUrl: string }).repoUrl).toBe(local);
   });
 
+  it('UNE ADRESSE QUE LE PROTOCOLE REFUSE DIT SA CAUSE — à l’administrateur aussi, aux deux portes', async () => {
+    // Un chemin local d'administrateur au caractère de contrôle : accepté, il
+    // faisait refuser par chaque nœud toutes les assignations du projet. Refusé
+    // depuis, il l'était sous « un chemin local est réservé à un
+    // administrateur » — dit à un administrateur.
+    const motif =
+      'URL de dépôt du projet illisible (caractère de contrôle) — recréez le projet avec une URL valide';
+    const admin = await fetch(`${base}/api/projects/user`, {
+      method: 'POST',
+      headers: auth(jetonAdmin),
+      body: JSON.stringify({ name: 'Chemin illisible', repoUrl: '/srv/dé\tpôt' }),
+    });
+    expect(admin.status).toBe(400);
+    expect(((await admin.json()) as { error: string }).error).toBe(motif);
+    // La porte du jeton de ruche, sources distantes seulement : la même cause,
+    // plutôt que « une URL Git distante est requise » pour une URL distante.
+    const ruche = await fetch(`${base}/api/projects`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-hive-token': TOKEN },
+      body: JSON.stringify({ name: 'URL illisible', repoUrl: 'https://github.com/o/r.git\n' }),
+    });
+    expect(ruche.status).toBe(400);
+    expect(((await ruche.json()) as { error: string }).error).toBe(motif);
+    const noms = server.store.listProjects().map((p) => p.name);
+    expect(noms, 'un projet illisible a été rangé').not.toContain('Chemin illisible');
+    expect(noms, 'un projet illisible a été rangé').not.toContain('URL illisible');
+  });
+
   it('LA VOIE « JETON DE RUCHE » RESTE ORPHELINE — et c’est pour ça qu’on adopte', async () => {
     // Le tableau de bord s'utilise sans compte : cette porte-là ne disparaît
     // pas. Elle produit un projet que personne ne tient, ce qui est exactement

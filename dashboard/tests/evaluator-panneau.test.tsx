@@ -4,6 +4,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { EvaluationResult } from '../../src/orchestrator/evaluator.js';
+import { PORTE_SANS_RAPPORT } from '../../src/shared/porte-securite.js';
 import { setLang } from '../src/i18n';
 import { EvaluationPanel } from '../src/views/Miellerie';
 
@@ -40,6 +41,7 @@ const evidence: EvaluationResult['evidence'] = {
   },
   crossReviewPending: 0,
   humanReview: 'approved',
+  securite: PORTE_SANS_RAPPORT,
 };
 
 const evaluation = (patch: Partial<EvaluationResult> = {}): EvaluationResult => ({

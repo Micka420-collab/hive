@@ -68,7 +68,9 @@ export function libelleNoeud(n: NoeudExperience, t: Traduire): string {
           ? t(' — rendue', ' — delivered')
           : n.issue === 'echec'
             ? t(' — échouée', ' — failed')
-            : '';
+            : n.issue === 'arret'
+              ? t(' — arrêtée sur son plafond de coût', ' — stopped at its cost cap')
+              : '';
       return `${quoi}${issue}`;
     }
     case 'review': {
