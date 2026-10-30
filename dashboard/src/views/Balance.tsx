@@ -39,6 +39,7 @@ import { useEffect, useRef, useState } from 'react';
 import { fetchProjectBalance, setProjectPlafond } from '../api';
 import type { BalanceState, Compte, DevisPlan, Poste, SoldeProjet } from '../api';
 import { useT } from '../i18n';
+import { EmptyState, Skeleton } from '../composants';
 import { DOMAINE_LABEL, formatDuree } from '../ui';
 import type { StateSnapshot } from '../../../src/shared/types';
 import './balance.css';
@@ -273,17 +274,18 @@ export function CarteBalance({
       </header>
 
       {!balance || !pesee || !global ? (
-        <p className="empty pad">{t('Pesée de la ruche…', 'Weighing the hive…')}</p>
+        <Skeleton lignes={3} libelle={t('Pesée de la ruche…', 'Weighing the hive…')} />
       ) : global.totalMs === 0 ? (
         // Corpus vide : le rendement vaut 1 par convention (jamais NaN) — mais
         // afficher « 100 % » sur une ruche qui n'a rien dépensé serait un
         // mensonge flatteur. On se tait, et on dit pourquoi.
-        <p className="empty pad">
-          {t(
-            'Rien à peser pour l’instant — la Balance s’exprime dès les premiers résultats de butinage.',
-            'Nothing to weigh yet — the Balance speaks up as soon as the first foraging results land.',
+        <EmptyState
+          titre={t('Rien à peser pour l’instant', 'Nothing to weigh yet')}
+          texte={t(
+            'La Balance s’exprime dès les premiers résultats de butinage.',
+            'The Balance speaks up as soon as the first foraging results land.',
           )}
-        </p>
+        />
       ) : (
         <div className="bal-body">
           <div className="bal-head">

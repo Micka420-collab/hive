@@ -45,6 +45,7 @@ function bacDe(mode: 'off' | 'auto' | 'exige', fournisseur: Fournisseur | null):
     refuse: decision.refuse,
     codeSortie: codeDuBac(decision.refuse),
     sessionsHote: sessionsHoteDuMode(mode),
+    reseau: null,
   };
 }
 

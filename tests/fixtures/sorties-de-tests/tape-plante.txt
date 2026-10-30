@@ -1,0 +1,33 @@
+
+> tp@1.0.0 test
+> tape 'test/*.js'
+
+TAP version 13
+# ancien
+not ok 1 ancien
+  ---
+    operator: equal
+    expected: 'réparé'
+    actual:   'cassé'
+    at: Test.<anonymous> (/hive/tache/test/a.js:2:27)
+    stack: |-
+      Error: ancien
+          at Test.assert [as _assert] (/hive/tache/node_modules/tape/lib/test.js:548:48)
+          at Test.strictEqual (/hive/tache/node_modules/tape/lib/test.js:734:7)
+          at Test.<anonymous> (/hive/tache/test/a.js:2:27)
+          at Test.run (/hive/tache/node_modules/tape/lib/test.js:151:28)
+          at Immediate.next [as _onImmediate] (/hive/tache/node_modules/tape/lib/results.js:175:7)
+          at process.processImmediate (node:internal/timers:574:21)
+  ...
+# plante
+/hive/tache/test/a.js:3
+test('plante', () => { throw new Error('plantage'); });
+                       ^
+
+Error: plantage
+    at Test.<anonymous> (/hive/tache/test/a.js:3:30)
+    at Test.run (/hive/tache/node_modules/tape/lib/test.js:151:28)
+    at Immediate.next (/hive/tache/node_modules/tape/lib/results.js:175:7)
+    at process.processImmediate (node:internal/timers:574:21)
+
+Node.js v24.20.0

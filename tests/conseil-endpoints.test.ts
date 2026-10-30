@@ -257,7 +257,7 @@ describe('lire un conseil', () => {
 describe('le Conseil, côté écran', () => {
   const VUE = (() => {
     const brut = readFileSync(
-      fileURLToPath(new URL('../dashboard/src/views/Projets.tsx', import.meta.url)),
+      fileURLToPath(new URL('../dashboard/src/views/projets/Conseil.tsx', import.meta.url)),
       'utf8',
     );
     // Dépouillé : l'en-tête du panneau EXPLIQUE les règles, il ne les applique

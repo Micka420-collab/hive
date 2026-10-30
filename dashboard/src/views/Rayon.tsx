@@ -50,6 +50,7 @@ import { icone, taille } from './rayon-affichage';
 import type { ViewProps } from './shared';
 import { sansIdentifiants } from '../../../src/shared/projet-public';
 import { presenceCorrespondAuRayon } from '../../../src/shared/presence.js';
+import { EmptyState } from '../composants';
 import { useT } from '../i18n';
 import './rayon.css';
 
@@ -331,18 +332,15 @@ export default function Rayon({ snapshot, selectedId, onNavigate, refreshTick }:
 
   if (projets.length === 0) {
     return (
-      <div className="ry-vide">
-        <span className="marque" aria-hidden="true" />
-        <p>
-          {t(
-            'Le rayon s’ouvre avec un projet. Démarrez-en un, puis revenez ici.',
-            'The comb opens with a project. Start one, then come back here.',
-          )}
-        </p>
-        <button className="btn primary" onClick={() => onNavigate('projets')}>
-          {t('Aller aux projets', 'Go to projects')}
-        </button>
-      </div>
+      <EmptyState
+        titre={t('Le rayon s’ouvre avec un projet.', 'The comb opens with a project.')}
+        texte={t('Démarrez-en un, puis revenez ici.', 'Start one, then come back here.')}
+        action={
+          <button type="button" className="btn primary" onClick={() => onNavigate('projets')}>
+            {t('Aller aux projets', 'Go to projects')}
+          </button>
+        }
+      />
     );
   }
 

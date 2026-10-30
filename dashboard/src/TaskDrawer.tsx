@@ -11,10 +11,14 @@ import type {
   RaceVictory,
   TaskDelegationGraph,
 } from './api';
-import type { ExecutionUsage, HiveNode, Task, TaskResult } from '../../src/shared/types';
+import type { HiveNode, RessourcesExecution, Task, TaskResult } from '../../src/shared/types';
+import { ressourcesLues } from '../../src/shared/protocol';
+import { direRessources } from './ressources-agent';
 import { useLang, useT } from './i18n';
-import { formatMs, StatusBadge, useDialog } from './ui';
+import { Skeleton } from './composants';
+import { direUsd, formatMs, NOTE_COUT_DECLARE, StatusBadge, useDialog } from './ui';
 import { direAnnonce, direDuree } from '../../src/shared/horloge-chantier';
+import { arreteeParSonBudget } from '../../src/shared/arret-budgetaire';
 import { verdictAnnonce } from './horloge-vue';
 import { RoutageTache } from './RoutageTache';
 import { ConsigneRoutageTache } from './ConsigneRoutageTache';
@@ -122,14 +126,17 @@ function enveloppeDelegation(e: EnveloppeDelegation, t: ReturnType<typeof useT>)
 
 /**
  * La durée réellement observée vient du résultat persisté, relayé dans
- * `delegation_result`. Le budget demandé ne doit jamais être présenté comme
- * une consommation : coût et ressources restent inconnus tant qu'un Worker ne
- * fournit pas un contrat de mesure fiable.
+ * `delegation_result` — et, avec elle, les ressources de l'agent de l'enfant
+ * et le coût que SON CLI a déclaré, s'il en a déclaré un. Le budget demandé
+ * n'est jamais présenté comme une consommation, ni un coût comme estimé — ni
+ * comme « non mesuré », qui contredisait la dépense déclarée de l'enveloppe
+ * (`NOTE_COUT_DECLARE`) : c'est la déclaration du CLI, ou « inconnu ».
  */
 function consommationDelegation(
   events: DelegationEvent[],
   taskId: string,
   t: ReturnType<typeof useT>,
+  lang: 'fr' | 'en',
 ): string {
   const event = [...events]
     .reverse()
@@ -140,56 +147,44 @@ function consommationDelegation(
   const durationMs = event?.payload.durationMs;
   if (typeof durationMs !== 'number' || !Number.isFinite(durationMs) || durationMs < 0) {
     return t(
-      'Consommation réelle : non disponible · coût et ressources non mesurés',
-      'Actual usage: unavailable · cost and resources not measured',
+      'Consommation réelle : non disponible · ressources non mesurées',
+      'Actual usage: unavailable · resources not measured',
     );
   }
   const duree = formatMs(durationMs);
-  const usage = event?.payload.usage;
-  if (typeof usage === 'object' && usage !== null) {
-    const mesure = usage as Record<string, unknown>;
-    const userCpuMicros = mesure.userCpuMicros;
-    const systemCpuMicros = mesure.systemCpuMicros;
-    const maxRssBytes = mesure.maxRssBytes;
-    if (
-      typeof userCpuMicros === 'number' &&
-      Number.isFinite(userCpuMicros) &&
-      typeof systemCpuMicros === 'number' &&
-      Number.isFinite(systemCpuMicros) &&
-      typeof maxRssBytes === 'number' &&
-      Number.isFinite(maxRssBytes)
-    ) {
-      return t(
-        `Dernière exécution mesurée : ${duree} · processus Worker : ${(userCpuMicros + systemCpuMicros) / 1_000} ms CPU · ${(maxRssBytes / (1024 * 1024)).toFixed(1)} MiB RSS · coût fournisseur non mesuré`,
-        `Last measured run: ${duree} · Worker process: ${(userCpuMicros + systemCpuMicros) / 1_000} ms CPU · ${(maxRssBytes / (1024 * 1024)).toFixed(1)} MiB RSS · provider cost not measured`,
-      );
-    }
-  }
+  // Le journal garde aussi les mesures d'AVANT celle de l'agent (`usage`, les
+  // compteurs du nœud) : lues `noeud_ancien`, jamais affichées comme les siennes.
+  const ressources = ressourcesLues(event?.payload.ressources, event?.payload.usage);
+  const coutUsd = event?.payload.coutUsd;
+  // Comme « Où est passé le temps » : déclaré par le CLI, ou inconnu — jamais estimé.
+  const cout =
+    typeof coutUsd === 'number' && Number.isFinite(coutUsd) && coutUsd >= 0
+      ? t(
+          `coût fournisseur : ${direUsd(coutUsd, lang)} déclarés par le CLI`,
+          `provider cost: ${direUsd(coutUsd, lang)} declared by the CLI`,
+        )
+      : t('coût fournisseur inconnu — jamais estimé', 'provider cost unknown — never estimated');
   return t(
-    `Dernière exécution mesurée : ${duree} · coût non mesuré · ressources non mesurées`,
-    `Last measured run: ${duree} · cost not measured · resources not measured`,
+    `Dernière exécution mesurée : ${duree} · ${direRessources(ressources, t, lang)} · ${cout}`,
+    `Last measured run: ${duree} · ${direRessources(ressources, t, lang)} · ${cout}`,
   );
 }
 
-// Les ressources du processus Worker (CPU, mémoire) ne sont PAS un coût : le
-// coût fournisseur a sa propre ligne, dans « Où est passé le temps », avec ce
-// que le CLI de l'agent déclare — ou « inconnu ». Le dire ici « non mesuré »
+// Les ressources de l'agent (CPU, mémoire) ne sont PAS un coût : le coût
+// fournisseur a sa propre ligne, dans « Où est passé le temps », avec ce que le
+// CLI de l'agent déclare — ou « inconnu ». Le dire ici « non mesuré »
 // contredirait ce panneau dès qu'un CLI déclare un montant.
 function ressourcesObservees(
-  usage: ExecutionUsage | undefined,
+  ressources: RessourcesExecution | undefined,
   t: ReturnType<typeof useT>,
+  lang: 'fr' | 'en',
 ): string {
-  if (!usage)
-    return t(
-      'Non mesurées · coût fournisseur à part (« Où est passé le temps »)',
-      'Not measured · provider cost shown separately (“Where the time went”)',
-    );
-  const cpuMs = (usage.userCpuMicros + usage.systemCpuMicros) / 1_000;
-  const rssMiB = usage.maxRssBytes / (1024 * 1024);
-  return t(
-    `processus Worker : ${formatMs(cpuMs)} CPU · ${rssMiB.toFixed(1)} MiB RSS · coût fournisseur à part (« Où est passé le temps »)`,
-    `Worker process: ${formatMs(cpuMs)} CPU · ${rssMiB.toFixed(1)} MiB RSS · provider cost shown separately (“Where the time went”)`,
+  const dit = direRessources(ressources, t, lang);
+  const cout = t(
+    'coût fournisseur à part (« Où est passé le temps »)',
+    'provider cost shown separately (“Where the time went”)',
   );
+  return `${dit.charAt(0).toUpperCase()}${dit.slice(1)} · ${cout}`;
 }
 
 // L'éditeur (CodeMirror) est chargé à la demande — pesant seulement quand on
@@ -373,7 +368,7 @@ export function TaskDrawer({
         <header className="drawer-head">
           <div>
             <h2 id="drawer-title">{task.title}</h2>
-            <StatusBadge status={task.status} />
+            <StatusBadge status={task.status} arretBudgetaire={arreteeParSonBudget(task.result)} />
           </div>
           <button className="modal-close" onClick={onClose} aria-label={t('Fermer', 'Close')}>
             ×
@@ -391,7 +386,7 @@ export function TaskDrawer({
           <dd>{task.result ? formatMs(task.result.durationMs) : '—'}</dd>
           <dt>{t('Ressources observées', 'Observed resources')}</dt>
           <dd data-testid="task-observed-resources">
-            {ressourcesObservees(task.result?.usage, t)}
+            {ressourcesObservees(task.result?.ressources, t, lang)}
           </dd>
           {horloge?.annonce && (
             <>
@@ -425,9 +420,10 @@ export function TaskDrawer({
             )}
           </div>
           {delegationLoading && (
-            <p className="muted-text" role="status">
-              {t('Lecture du graphe réel…', 'Reading the live graph…')}
-            </p>
+            <Skeleton
+              lignes={2}
+              libelle={t('Lecture du graphe réel…', 'Reading the live graph…')}
+            />
           )}
           {delegationError && (
             <p className="modal-error" role="status">
@@ -444,7 +440,8 @@ export function TaskDrawer({
                 className={`delegation-tree-budget${delegation.enveloppe.coutEpuise ? ' epuise' : ''}`}
                 data-testid="delegation-enveloppe"
               >
-                {enveloppeDelegation(delegation.enveloppe, t)}
+                {enveloppeDelegation(delegation.enveloppe, t)}{' '}
+                {t(NOTE_COUT_DECLARE.fr, NOTE_COUT_DECLARE.en)}
               </p>
             )}
           {!delegationLoading && !delegationError && delegation && delegation.graph.length <= 1 && (
@@ -492,7 +489,7 @@ export function TaskDrawer({
                         className="delegation-tree-budget"
                         data-testid={`delegation-consumption-${node.taskId}`}
                       >
-                        {consommationDelegation(delegation.events, node.taskId, t)}
+                        {consommationDelegation(delegation.events, node.taskId, t, lang)}
                       </p>
                     )}
                     {reason && <p className="delegation-tree-reason">{reason}</p>}

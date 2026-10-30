@@ -50,6 +50,14 @@ export const FORMATS = [
 /** Les langues de l'interface (`dashboard/src/i18n.ts`). */
 export const LANGUES = ['fr', 'en'];
 
+/**
+ * Les thèmes photographiés (`dashboard/src/theme.ts`). Le navigateur des
+ * captures les obtient par la PRÉFÉRENCE DU SYSTÈME (`colorScheme`), pas par
+ * un choix mémorisé : c'est le chemin sans script de la feuille — celui que
+ * voit tout opérateur qui n'a jamais ouvert le menu du thème.
+ */
+export const THEMES = ['clair', 'sombre'];
+
 /** Le manifeste d'une exécution : ce qui a été photographié, et ce qui a été mesuré. */
 export const MANIFESTE = 'captures.json';
 
@@ -90,12 +98,14 @@ export function estNotreCapture(nom) {
 }
 
 /**
- * Lit la ligne de commande : `--langue fr|en`, `--sortie <dossier>`,
- * `--vues <liste>`.
+ * Lit la ligne de commande : `--langue fr|en`, `--theme clair|sombre`,
+ * `--sortie <dossier>`, `--vues <liste>`.
  *
  * La sortie est RELATIVE À LA RACINE DU DÉPÔT et doit y rester : c'est là que
  * `.gitignore` peut la couvrir, et c'est ce qui borne l'effacement ci-dessus à
- * un endroit qu'on voit dans `git status`. Défaut : `captures-ecran/<langue>`.
+ * un endroit qu'on voit dans `git status`. Défaut : `captures-ecran/<langue>`,
+ * et `captures-ecran/<langue>-sombre` pour le thème sombre — deux séries dans
+ * un même dossier s'effaceraient l'une l'autre (mêmes noms d'images).
  *
  * `--vues` restreint ce qui est photographié : `ruche` (tous les formats) ou
  * `ruche.mobile` (un seul), séparés par des virgules. C'est ce qui rend la série
@@ -103,20 +113,22 @@ export function estNotreCapture(nom) {
  * commande, au lieu de trente-quatre images à trier à la main (cf.
  * docs/CAPTURES.md).
  *
- * Rend `{ langue, sortie, vues }` (sortie absolue ; `vues` : `null` = tout), ou
- * `{ erreur }`.
+ * Rend `{ langue, theme, sortie, vues }` (sortie absolue ; `vues` : `null` =
+ * tout), ou `{ erreur }`.
  */
 export function optionsDepuisArgv(argv, racine) {
   let langue = 'fr';
+  let theme = 'clair';
   let demandee = null;
   let vues = null;
   for (let i = 0; i < argv.length; i++) {
     const cle = argv[i];
     const valeur = argv[i + 1];
-    if (cle === '--langue' || cle === '--sortie' || cle === '--vues') {
+    if (cle === '--langue' || cle === '--theme' || cle === '--sortie' || cle === '--vues') {
       if (valeur === undefined || valeur.startsWith('--'))
         return { erreur: `${cle} attend une valeur` };
       if (cle === '--langue') langue = valeur;
+      else if (cle === '--theme') theme = valeur;
       else if (cle === '--sortie') demandee = valeur;
       else vues = valeur.split(',').map((v) => v.trim());
       i++;
@@ -125,6 +137,7 @@ export function optionsDepuisArgv(argv, racine) {
     }
   }
   if (!LANGUES.includes(langue)) return { erreur: `langue inconnue : ${langue} (fr ou en)` };
+  if (!THEMES.includes(theme)) return { erreur: `thème inconnu : ${theme} (clair ou sombre)` };
 
   const selection = new RegExp(`^${MOTIF_VUE}(?:\\.(?:${NOMS_FORMATS}))?$`);
   const fautive = vues?.find((v) => !selection.test(v));
@@ -132,12 +145,13 @@ export function optionsDepuisArgv(argv, racine) {
     return { erreur: `--vues : « ${fautive} » n'est ni <vue> ni <vue>.<${NOMS_FORMATS}>` };
   }
 
-  const sortie = path.resolve(racine, demandee ?? path.join(SORTIE_PAR_DEFAUT, langue));
+  const serie = theme === 'clair' ? langue : `${langue}-${theme}`;
+  const sortie = path.resolve(racine, demandee ?? path.join(SORTIE_PAR_DEFAUT, serie));
   const relative = path.relative(racine, sortie);
   if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
     return { erreur: `--sortie doit désigner un dossier DANS le dépôt : ${demandee}` };
   }
-  return { langue, sortie, vues };
+  return { langue, theme, sortie, vues };
 }
 
 /** La vue `vue`, au format `format`, est-elle demandée ? (`vues` : `null` = tout.) */

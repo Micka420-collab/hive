@@ -41,6 +41,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { instantaneDe } from '../src/orchestrator/missions.js';
+import { validerRoutine } from '../src/orchestrator/routines.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
@@ -54,6 +55,7 @@ interface Cible {
   motifPerso: string;
   sauvegarde: string;
   mission: string;
+  routine: string;
 }
 
 interface Acte {
@@ -82,6 +84,16 @@ const p = (suite: string) => (c: Cible) => `/api/projects/${c.projet}/${suite}`;
  * exactement ce qui est arrivé à la première version de ce fichier.
  */
 const ENGAGEMENTS: readonly Acte[] = [
+  {
+    // Lancer une routine maintenant pose du travail, comme une tâche à la
+    // main : un engagement. Le travail part ensuite avec l'autorité de la
+    // routine (ADR 0014), relue par le moteur — pas celle de qui clique.
+    nom: 'routines/:routineId/declencher',
+    methode: 'POST',
+    route: '/api/projects/:projectId/routines/:routineId/declencher',
+    url: (c) => `/api/projects/${c.projet}/routines/${c.routine}/declencher`,
+    refus: 'projet',
+  },
   {
     nom: 'tasks',
     methode: 'POST',
@@ -294,10 +306,51 @@ const DECISIONS: readonly Acte[] = [
     refus: 'tache',
   },
   {
+    // G06 : un commentaire ancré prépare un verdict — même porte que lui.
+    nom: 'tasks/:taskId/commentaires-revue',
+    methode: 'POST',
+    route: '/api/tasks/:taskId/commentaires-revue',
+    url: (c) => `/api/tasks/${c.tache}/commentaires-revue`,
+    corps: () => ({ resultId: 1, fichier: 'src/a.ts', ligneDebut: 1, ligneFin: 1, texte: 'x' }),
+    refus: 'tache',
+  },
+  {
+    nom: 'tasks/:taskId/commentaires-revue/:commentaireId',
+    methode: 'DELETE',
+    route: '/api/tasks/:taskId/commentaires-revue/:commentaireId',
+    url: (c) => `/api/tasks/${c.tache}/commentaires-revue/com-inconnu`,
+    refus: 'tache',
+  },
+  {
+    // Le verdict « demander des changements » : un rejet qui relance.
+    nom: 'tasks/:taskId/demande-changements',
+    methode: 'POST',
+    route: '/api/tasks/:taskId/demande-changements',
+    url: (c) => `/api/tasks/${c.tache}/demande-changements`,
+    corps: () => ({ resultId: 1, resume: 'reprendre' }),
+    refus: 'tache',
+  },
+  {
     nom: 'tasks/:taskId/cancel',
     methode: 'POST',
     route: '/api/tasks/:taskId/cancel',
     url: (c) => `/api/tasks/${c.tache}/cancel`,
+    refus: 'tache',
+  },
+  // Sandbox Live : suspendre et reprendre l'agent d'une tâche décident de son
+  // sort comme l'annuler — même porte.
+  {
+    nom: 'tasks/:taskId/pause',
+    methode: 'POST',
+    route: '/api/tasks/:taskId/pause',
+    url: (c) => `/api/tasks/${c.tache}/pause`,
+    refus: 'tache',
+  },
+  {
+    nom: 'tasks/:taskId/resume',
+    methode: 'POST',
+    route: '/api/tasks/:taskId/resume',
+    url: (c) => `/api/tasks/${c.tache}/resume`,
     refus: 'tache',
   },
   {
@@ -315,6 +368,42 @@ const DECISIONS: readonly Acte[] = [
 /** Les actes qui RÈGLENT un projet : propriétaire ou administrateur. */
 const REGLAGES: readonly Acte[] = [
   {
+    // Créer une routine, c'est autoriser À L'AVANCE une dépense que personne
+    // ne redemandera (ADR 0014) : un réglage, comme le plafond ou le banc
+    // d'ombre. La mettre en pause, la supprimer, régénérer sa clé : aussi.
+    nom: 'routines (créer)',
+    methode: 'POST',
+    route: '/api/projects/:projectId/routines',
+    url: p('routines'),
+    corps: () => ({ nom: 'Veille', consigne: 'Regarder.', declencheur: 'webhook' }),
+    refus: 'projet',
+    succes: 201,
+  },
+  {
+    nom: 'routines/:routineId (pause)',
+    methode: 'PUT',
+    route: '/api/projects/:projectId/routines/:routineId',
+    url: (c) => `/api/projects/${c.projet}/routines/${c.routine}`,
+    corps: () => ({ actif: false }),
+    refus: 'projet',
+  },
+  {
+    nom: 'routines/:routineId/secret',
+    methode: 'POST',
+    route: '/api/projects/:projectId/routines/:routineId/secret',
+    url: (c) => `/api/projects/${c.projet}/routines/${c.routine}/secret`,
+    refus: 'projet',
+  },
+  {
+    // Idempotente (`supprimee: false` la seconde fois) : elle peut partager
+    // la cible des autres tables sans les priver de leur 200.
+    nom: 'routines/:routineId (supprimer)',
+    methode: 'DELETE',
+    route: '/api/projects/:projectId/routines/:routineId',
+    url: (c) => `/api/projects/${c.projet}/routines/${c.routine}`,
+    refus: 'projet',
+  },
+  {
     nom: 'essaim (niveau d’autonomie)',
     methode: 'POST',
     route: '/api/projects/:projectId/essaim',
@@ -328,6 +417,16 @@ const REGLAGES: readonly Acte[] = [
     route: '/api/projects/:projectId/garde-fou',
     url: p('garde-fou'),
     corps: () => ({ actif: false, borneMin: 'leger', borneMax: 'strict' }),
+    refus: 'projet',
+  },
+  {
+    // Le réseau des agents décide de ce qui peut SORTIR des machines de
+    // l'essaim pour ce projet : un réglage, pas un engagement.
+    nom: 'reseau (réseau des agents)',
+    methode: 'PUT',
+    route: '/api/projects/:projectId/reseau',
+    url: p('reseau'),
+    corps: () => ({ niveau: 'dependances' }),
     refus: 'projet',
   },
   {
@@ -431,7 +530,33 @@ const HORS_ENGAGEMENT: Readonly<Record<string, string>> = {
     'un lien de LECTURE, par un compte qui a affaire au projet (`peutEngager`)',
   'DELETE /api/projects/:projectId/partages/:partageId':
     'révoquer : le créateur du lien, ou qui répond du projet (`peutRegler`)',
+  'POST /api/projects/:projectId/routines/:routineId/webhook':
+    'ni jeton ni compte : la signature HMAC de la clé propre à la routine (révocable), qui part avec l’autorité de son créateur, relue à chaque déclenchement (ADR 0014)',
 };
+
+/**
+ * Les RÉGLAGES DE LA RUCHE — hors de l'espace projet, mais même question :
+ * le jeton partagé par tout l'essaim peut-il décider pour la ruche ?
+ *
+ * La configuration initiale (mode local / hybride / cloud, politique des
+ * secrets, Git, connecteurs) se garde par `porteConfiguration` : un
+ * ADMINISTRATEUR, ou le jeton TANT QU'AUCUN COMPTE N'EXISTE — l'amorce, où le
+ * porteur du jeton peut déjà créer le premier compte administrateur. Ce banc a
+ * des comptes : le jeton n'y règle donc plus rien. Le cas « aucun compte » est
+ * éprouvé dans `tests/configuration-initiale.test.ts`.
+ */
+const REGLAGES_RUCHE: ReadonlyArray<{
+  methode: 'PUT' | 'POST';
+  route: string;
+  corps: Record<string, unknown>;
+}> = [
+  { methode: 'PUT', route: '/api/configuration-initiale', corps: { mode: 'local' } },
+  {
+    methode: 'POST',
+    route: '/api/configuration-initiale/terminer',
+    corps: { mode: 'local', secrets: 'sessions_cli', git: 'local' },
+  },
+];
 
 describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', () => {
   let server: HiveServer;
@@ -453,6 +578,7 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     motifPerso: 'motif-qui-nexiste-pas',
     sauvegarde: 'sauvegarde-qui-nexiste-pas',
     mission: 'mission-qui-nexiste-pas',
+    routine: 'routine-qui-nexiste-pas',
   };
 
   const inscrire = async (
@@ -534,7 +660,23 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     const membres = [tache];
     const debut = instantaneDe(s, s.getProject(projet)!, ouverture, 'debut', Date.now(), membres);
     s.ouvrirMission({ ...ouverture, projectId: projet, membres, debut: JSON.stringify(debut) });
-    return { projet, tache, fabrique: fabrique.id, motifPerso: motif.id, sauvegarde, mission };
+    // Une routine rangée : la régler, la lancer, la supprimer doit pouvoir
+    // réussir — sans quoi ses gardes ne seraient éprouvées que sur des refus.
+    const routine = validerRoutine(
+      { nom: 'Routine', consigne: 'Faire quelque chose.', declencheur: 'webhook' },
+      { projectId: projet, creePar: null, repoGithub: false, now: Date.now() },
+    );
+    if (!routine.ok) throw new Error(routine.motif);
+    s.creerRoutine(routine.routine);
+    return {
+      projet,
+      tache,
+      fabrique: fabrique.id,
+      motifPerso: motif.id,
+      sauvegarde,
+      mission,
+      routine: routine.routine.id,
+    };
   };
 
   beforeAll(async () => {
@@ -729,6 +871,51 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
     });
   });
 
+  describe('les RÉGLAGES DE LA RUCHE', () => {
+    const regler = (acte: (typeof REGLAGES_RUCHE)[number], entetes: Record<string, string>) => {
+      tentatives += 1;
+      return fetch(`${base}${acte.route}`, {
+        method: acte.methode,
+        headers: {
+          'content-type': 'application/json',
+          'x-forwarded-for': `10.9.${tentatives >> 8}.${tentatives & 255}`,
+          ...entetes,
+        },
+        body: JSON.stringify(acte.corps),
+      });
+    };
+
+    it('SEULE L’ADMINISTRATRICE RÈGLE LA RUCHE — ni le jeton, ni un membre, ni un tiers', async () => {
+      for (const acte of REGLAGES_RUCHE) {
+        const nom = `${acte.methode} ${acte.route}`;
+        expect((await regler(acte, jeton)).status, `${nom} par le jeton`).toBe(403);
+        expect((await regler(acte, compte(jetonMembre))).status, `${nom} par un membre`).toBe(403);
+        expect((await regler(acte, compte(jetonTiers))).status, `${nom} par un tiers`).toBe(403);
+        expect(
+          (await regler(acte, { ...compte(jetonProprio), ...jeton })).status,
+          `${nom} par un propriétaire de projet + jeton`,
+        ).toBe(403);
+        expect((await regler(acte, {})).status, `${nom} anonyme`).toBe(401);
+        expect((await regler(acte, compte(jetonReine))).status, `${nom} par l’admin`).toBe(200);
+      }
+    });
+
+    it('AUCUNE ÉCRITURE DE LA CONFIGURATION N’ÉCHAPPE À CETTE TABLE', () => {
+      const serveur = readFileSync(
+        path.join(path.dirname(fileURLToPath(import.meta.url)), '../src/orchestrator/server.ts'),
+        'utf8',
+      );
+      const declarees = [
+        ...serveur.matchAll(/app\.(post|put|patch|delete)\b[\s\S]{0,400}?'(\/api\/[^']+)'/g),
+      ]
+        .map((m) => `${m[1]!.toUpperCase()} ${m[2]!}`)
+        .filter((r) => /^\S+ \/api\/configuration-initiale/.test(r));
+      const connues = REGLAGES_RUCHE.map((a) => `${a.methode} ${a.route}`);
+      expect(declarees.length, 'le relevé des routes de configuration a échoué').toBeGreaterThan(0);
+      expect(new Set(declarees)).toEqual(new Set(connues));
+    });
+  });
+
   describe('les DÉCISIONS', () => {
     it('le propriétaire et l’administratrice décident ; le jeton décide sur un orphelin', async () => {
       for (const acte of DECISIONS) {
@@ -766,6 +953,19 @@ describe('ADR 0007 — le jeton de ruche n’engage plus le projet d’autrui', 
         expect(tiersEtJeton.status, `${acte.nom} (tiers + jeton)`).toBe(404);
         expect((await tenter(possede, acte, {})).status, `${acte.nom} anonyme`).toBe(401);
       }
+    });
+
+    it('LE DIFF EN DIRECT est une LECTURE du code : un tiers ne le voit pas, un membre si', async () => {
+      // Sandbox Live : le diff d'une exécution en cours montre le code du
+      // projet. Un compte qui n'a pas affaire au projet reçoit la forme d'une
+      // tâche inconnue ; un membre passe la garde (409 : rien ne tourne ici).
+      // Le jeton de ruche garde sa porte des lectures (`lectureProjetPermise`).
+      const url = `${base}/api/tasks/${possede.tache}/diff-direct`;
+      const tiers = await fetch(url, { headers: compte(jetonTiers) });
+      expect(tiers.status).toBe(404);
+      expect(await tiers.text()).toBe(REFUS.tache);
+      expect((await fetch(url, { headers: compte(jetonMembre) })).status).toBe(409);
+      expect((await fetch(url, { headers: compte(jetonProprio) })).status).toBe(409);
     });
 
     it('S’INSCRIRE SUR UNE VITRINE N’Y DONNE PAS LE DROIT DE DÉCIDER', async () => {

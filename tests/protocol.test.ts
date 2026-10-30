@@ -3,11 +3,13 @@
 
 import { describe, expect, it } from 'vitest';
 import {
+  assignationIllisible,
   isValidLocalRepoPath,
   isValidRemoteRepoUrl,
   isValidRepoUrl,
   isValidTask,
   LIMITS,
+  motifDepotIllisible,
   parseClientMessage,
   parseServerMessage,
 } from '../src/shared/protocol.js';
@@ -195,28 +197,8 @@ describe('parseClientMessage', () => {
     expect(msg?.type).toBe('task_result');
   });
 
-  it('accepte et borne la mesure de ressources d’un Worker', () => {
-    const usage = {
-      userCpuMicros: 12_000,
-      systemCpuMicros: 3_000,
-      maxRssBytes: 8 * 1024 * 1024,
-      rssBytes: 6 * 1024 * 1024,
-      heapUsedBytes: 3 * 1024 * 1024,
-    };
-    const msg = parseClientMessage(
-      JSON.stringify({
-        type: 'task_result',
-        taskId: 't-usage',
-        success: true,
-        diff: '',
-        logs: '',
-        durationMs: 12,
-        subAgents: [],
-        usage,
-      }),
-    );
-    expect(msg).toMatchObject({ type: 'task_result', usage });
-    expect(
+  it('les ressources de l’AGENT : les deux formes, et une mesure fausse tombe seule', () => {
+    const resultat = (mesure: Record<string, unknown>) =>
       parseClientMessage(
         JSON.stringify({
           type: 'task_result',
@@ -226,10 +208,100 @@ describe('parseClientMessage', () => {
           logs: '',
           durationMs: 12,
           subAgents: [],
-          usage: { ...usage, rssBytes: -1 },
+          ...mesure,
         }),
-      ),
-    ).toBeNull();
+      );
+    for (const ressources of [
+      { portee: 'arbre', releves: 7, cpuMs: 1_234, picOctets: 512 * 1024 * 1024, memoire: 'pss' },
+      { portee: 'arbre', releves: 2, cpuMs: 9, picOctets: 700, memoire: 'somme_rss' },
+      { portee: 'arbre', releves: 3, cpuMs: 10 },
+      { portee: 'conteneur', releves: 2, cpuMs: 80, picOctets: 9_000, memoire: 'noyau' },
+      { portee: 'conteneur', releves: 1, picOctets: 9_000, memoire: 'moteur' },
+      { portee: 'aucune', raison: 'plateforme' },
+    ]) {
+      expect(resultat({ ressources }), JSON.stringify(ressources)).toMatchObject({
+        type: 'task_result',
+        ressources,
+      });
+    }
+
+    // Un nœud d'avant envoyait `usage` : les compteurs de SON processus Node.
+    // Accepté — le résultat ne se perd pas —, mais jamais pris pour l'agent.
+    const usage = {
+      userCpuMicros: 12_000,
+      systemCpuMicros: 3_000,
+      maxRssBytes: 8 * 1024 * 1024,
+      rssBytes: 6 * 1024 * 1024,
+      heapUsedBytes: 3 * 1024 * 1024,
+    };
+    const ancien = resultat({ usage });
+    expect(ancien).toMatchObject({
+      type: 'task_result',
+      ressources: { portee: 'aucune', raison: 'noeud_ancien' },
+    });
+    expect(ancien && 'usage' in ancien).toBe(false);
+
+    // Hors contrat : la mesure tombe, le résultat reste (une tâche pendue
+    // pour une mesure serait pire que la mesure absente).
+    for (const mesure of [
+      { usage: { ...usage, rssBytes: -1 } },
+      { ressources: { portee: 'arbre', releves: 0, cpuMs: 1 } },
+      { ressources: { portee: 'arbre', releves: 1 } },
+      { ressources: { portee: 'arbre', releves: 1, cpuMs: -5 } },
+      // Une mémoire sans dire laquelle, ou l'inverse, ou une que sa portée ne lit pas.
+      { ressources: { portee: 'arbre', releves: 1, picOctets: 9 } },
+      { ressources: { portee: 'arbre', releves: 1, cpuMs: 5, memoire: 'pss' } },
+      { ressources: { portee: 'arbre', releves: 1, picOctets: 9, memoire: 'noyau' } },
+      { ressources: { portee: 'conteneur', releves: 1, picOctets: 9, memoire: 'pss' } },
+      { ressources: { portee: 'arbre', releves: 1, picOctets: 9, memoire: 'vss' } },
+      { ressources: { portee: 'noeud', releves: 1, cpuMs: 5 } },
+      { ressources: { portee: 'aucune', raison: 'flemme' } },
+      { ressources: { portee: 'arbre', releves: 1, picOctets: 2 ** 51, memoire: 'pss' } },
+    ]) {
+      const msg = resultat(mesure);
+      expect(msg?.type, JSON.stringify(mesure)).toBe('task_result');
+      expect(msg && 'ressources' in msg, JSON.stringify(mesure)).toBe(false);
+    }
+  });
+
+  it('delegation_result : la mesure de l’enfant, sous les deux formes', () => {
+    const resultat = (mesure: Record<string, unknown>) =>
+      parseServerMessage(
+        JSON.stringify({
+          type: 'delegation_result',
+          parentTaskId: 'parent-1',
+          childTaskId: 'enfant-1',
+          success: true,
+          diff: '',
+          logs: '',
+          durationMs: 10,
+          ...mesure,
+        }),
+      );
+    const ressources = {
+      portee: 'arbre',
+      releves: 2,
+      cpuMs: 300,
+      picOctets: 1_000,
+      memoire: 'pss',
+    };
+    expect(resultat({ ressources })).toMatchObject({ ressources });
+    expect(
+      resultat({
+        usage: {
+          userCpuMicros: 1,
+          systemCpuMicros: 1,
+          maxRssBytes: 1,
+          rssBytes: 1,
+          heapUsedBytes: 1,
+        },
+      }),
+    ).toMatchObject({ ressources: { portee: 'aucune', raison: 'noeud_ancien' } });
+    const faux = resultat({ ressources: { portee: 'arbre', releves: -1, cpuMs: 1 } });
+    expect(faux?.type, 'un parent qui perdrait son enfant attendrait jusqu’à l’échéance').toBe(
+      'delegation_result',
+    );
+    expect(faux && 'ressources' in faux).toBe(false);
   });
 
   it('garde la déclaration fournisseur valide, et abandonne un champ faux sans perdre le résultat', () => {
@@ -332,6 +404,26 @@ describe('parseClientMessage', () => {
     expect(refus({ infra: true, avantAgent: 'oui' })).toBeNull();
   });
 
+  it('task_reject : « illisible » ne voyage qu’avec un refus avant l’agent', () => {
+    // Ce n'est pas une panne : la température et les fantômes l'écartent. Sans
+    // `avantAgent`, rien ne dit qu'aucun agent n'a tourné — le drapeau tombe.
+    const refus = (extra: Record<string, unknown>) =>
+      parseClientMessage(
+        JSON.stringify({ type: 'task_reject', taskId: 't1', reason: 'illisible', ...extra }),
+      );
+    expect(refus({ infra: true, avantAgent: true, illisible: true })).toEqual({
+      type: 'task_reject',
+      taskId: 't1',
+      reason: 'illisible',
+      infra: true,
+      avantAgent: true,
+      illisible: true,
+    });
+    expect(refus({ infra: true, illisible: true })).not.toHaveProperty('illisible');
+    expect(refus({ illisible: true })).not.toHaveProperty('illisible');
+    expect(refus({ infra: true, avantAgent: true, illisible: 'oui' })).toBeNull();
+  });
+
   it('accepte task_reject et register avec activeTasks, rejette les invalides', () => {
     expect(
       parseClientMessage(JSON.stringify({ type: 'task_reject', taskId: 't1', reason: 'sature' }))
@@ -417,6 +509,55 @@ describe('parseClientMessage', () => {
       ),
     ).toBeNull();
     expect(parseClientMessage(JSON.stringify({ type: 'requisition_open', injecte: 1 }))).toBeNull();
+  });
+
+  it('requisition_open (G12) : la corrélation requestId voyage, validée comme un id', () => {
+    expect(
+      parseClientMessage(
+        JSON.stringify({
+          type: 'requisition_open',
+          genre: 'action',
+          libelle: 'git push',
+          taskId: 't1',
+          requestId: 'r-1',
+        }),
+      ),
+    ).toEqual({
+      type: 'requisition_open',
+      genre: 'action',
+      libelle: 'git push',
+      taskId: 't1',
+      requestId: 'r-1',
+    });
+    expect(
+      parseClientMessage(
+        JSON.stringify({
+          type: 'requisition_open',
+          genre: 'action',
+          libelle: 'git push',
+          requestId: 'x'.repeat(65),
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it('requisition_open (revue G12) : le budget du run voyage — entier positif, sinon le message tombe', () => {
+    const message = (budgetMs: unknown) =>
+      parseClientMessage(
+        JSON.stringify({
+          type: 'requisition_open',
+          genre: 'action',
+          libelle: 'git push',
+          requestId: 'r-1',
+          budgetMs,
+        }),
+      );
+    expect(message(120_000)).toMatchObject({ budgetMs: 120_000 });
+    expect(message(undefined)).toMatchObject({ type: 'requisition_open' });
+    expect(message(0)).toBeNull();
+    expect(message(-5)).toBeNull();
+    expect(message(1.5)).toBeNull();
+    expect(message('vite')).toBeNull();
   });
 });
 
@@ -573,6 +714,15 @@ describe('parseServerMessage — validation des messages du hub (anti-traversal/
     expect(message(3)).toBeNull();
   });
 
+  it('L’AUTONOMIE d’un assign_task (G12) : un niveau connu passe, un inventé fait tomber le message', () => {
+    const message = (autonomie: unknown) =>
+      parseServerMessage(JSON.stringify({ type: 'assign_task', task: validTask, autonomie }));
+    expect(message('gouverne')).toMatchObject({ type: 'assign_task', autonomie: 'gouverne' });
+    expect(message(undefined)).toMatchObject({ type: 'assign_task' });
+    expect(message('total')).toBeNull();
+    expect(message(3)).toBeNull();
+  });
+
   it('rejette un budget enfant malformé dans assign_task', () => {
     const budget = { durationMs: 60_000, costMicros: 42, resourceUnits: 1 };
     const message = (delegationBudget: unknown) =>
@@ -588,6 +738,38 @@ describe('parseServerMessage — validation des messages du hub (anti-traversal/
       delegationBudget: budget,
     });
     expect(parseServerMessage(message({ ...budget, costMicros: 1_000_000_001 }))).toBeNull();
+  });
+
+  it('LE PLAFOND D’UNE TENTATIVE (G09a) : nul ou non entier, tout l’assign_task tombe ; un arrêt inconnu est abandonné, pas le résultat', () => {
+    const assignation = (plafondCoutMicros: unknown) =>
+      parseServerMessage(
+        JSON.stringify({ type: 'assign_task', task: validTask, plafondCoutMicros }),
+      );
+    expect(assignation(50_000)).toMatchObject({ type: 'assign_task', plafondCoutMicros: 50_000 });
+    // `0` : le CLI le refuse (« must be a positive number greater than 0 »).
+    for (const mauvais of [0, -1, 0.5, '50000', LIMITS.delegationCostMicros + 1]) {
+      expect(assignation(mauvais), String(mauvais)).toBeNull();
+    }
+    const resultat = (arretBudgetaire: unknown) =>
+      parseClientMessage(
+        JSON.stringify({
+          type: 'task_result',
+          taskId: 't1',
+          success: false,
+          diff: '',
+          logs: '',
+          durationMs: 1,
+          subAgents: [],
+          arretBudgetaire,
+        }),
+      );
+    expect(resultat('cout')).toMatchObject({ type: 'task_result', arretBudgetaire: 'cout' });
+    // Hive ne passe aucun plafond de tours : `tours` n'est pas un arrêt connu.
+    for (const inconnu of ['tours', 'duree']) {
+      const lu = resultat(inconnu);
+      expect(lu, inconnu).toMatchObject({ type: 'task_result', success: false });
+      expect(lu, inconnu).not.toHaveProperty('arretBudgetaire');
+    }
   });
 
   it('rejette assign_task sans task ou avec un task.id malveillant (path traversal)', () => {
@@ -669,6 +851,127 @@ describe('isValidRepoUrl', () => {
     expect(isValidRepoUrl('')).toBe(false);
     expect(isValidRepoUrl(42)).toBe(false);
   });
+
+  it('rejette un caractère de contrôle — où qu’il soit, l’URL entière', () => {
+    // Mesuré (git 2.53) : un saut de ligne dans les identifiants faisait
+    // citer à git la clé de configuration ENTIÈRE, jeton compris — et le
+    // lavage s'arrête au premier blanc. La route de création refuse donc
+    // l'URL, et un message du hub qui en porterait une est écarté.
+    for (const url of [
+      'https://u:SECRET\nX@github.com/o/r.git',
+      'https://github.com/o/r.git\n',
+      'https://github.com/o/\tr.git',
+      'git@github.com:o/r\r.git',
+      '/home/user/re\u0000po',
+      '/srv/dé\tpôt',
+      'C:\\depots\\dé\u007fpôt',
+      'https://github.com/o/r.git\u007f',
+    ]) {
+      expect(isValidRepoUrl(url), JSON.stringify(url)).toBe(false);
+      expect(isValidRemoteRepoUrl(url), JSON.stringify(url)).toBe(false);
+      // Le chemin local d'un administrateur suit la même règle : accepté, il
+      // faisait refuser par chaque nœud toutes les assignations du projet.
+      expect(isValidLocalRepoPath(url), JSON.stringify(url)).toBe(false);
+    }
+  });
+
+  it('motifDepotIllisible : LA cause du refus, par la même règle — jamais l’adresse', () => {
+    const cas: Array<[unknown, string | null]> = [
+      ['https://github.com/x/y.git', null],
+      ['/home/user/repo', null],
+      ['', 'absente'],
+      [42, 'absente'],
+      [`https://h/${'x'.repeat(500)}`, 'plus de 500 caractères'],
+      ['-oProxyCommand=evil', 'tiret initial'],
+      ['https://u:SECRET-DU-PROJET@h/o/r.git\nX', 'caractère de contrôle'],
+      ["ext::sh -c 'id'", 'transport non permis'],
+      ['file:///etc/passwd', 'transport non permis'],
+    ];
+    for (const [url, defaut] of cas) {
+      const motif = motifDepotIllisible(url);
+      expect(motif, JSON.stringify(url)).toBe(
+        defaut === null
+          ? null
+          : `URL de dépôt du projet illisible (${defaut}) — recréez le projet avec une URL valide`,
+      );
+      // Une seule règle : la garde et sa cause ne peuvent pas diverger.
+      expect(isValidRepoUrl(url), JSON.stringify(url)).toBe(defaut === null);
+      if (motif === null || typeof url !== 'string' || url === '') continue;
+      // C'est la raison d'un `task_reject` : au-delà, la Reine refuserait le refus.
+      expect(motif.length).toBeLessThanOrEqual(LIMITS.name);
+      expect(motif, 'le motif recopie l’adresse').not.toContain(url.slice(0, 12));
+      // Ni la suite : c'est là, dans les identifiants, que vit le jeton.
+      expect(motif, 'le motif recopie le jeton').not.toContain('SECRET');
+    }
+  });
+});
+
+describe('assignationIllisible — ce que le nœud répond à ce qu’il ne sait pas lire', () => {
+  const URL_ILLISIBLE = 'https://marie:ghp_SECRET0123456789@h.invalid/o/r.git\nX';
+  const MOTIF =
+    'URL de dépôt du projet illisible (caractère de contrôle) — recréez le projet avec une URL valide';
+  const HORS_PROTOCOLE =
+    'assignation illisible pour ce nœud — versions Reine/nœud différentes, ou champ hors bornes (titre, consigne, plafond)';
+
+  it('UN REFUS QUE LA REINE SAIT LIRE, pour chaque travail et chaque cause — sans le jeton', () => {
+    const cas: Array<[Record<string, unknown>, string]> = [
+      [{ type: 'assign_task', task: validTask, repoUrl: URL_ILLISIBLE }, MOTIF],
+      [{ type: 'assign_merge', mergeId: 'm1', repoUrl: URL_ILLISIBLE, diffs: [] }, MOTIF],
+      [{ type: 'assign_chantier', chantierId: 'c1', repoUrl: URL_ILLISIBLE, nom: 'test' }, MOTIF],
+      // Sans dépôt reproché (absent, ou nul pour une tâche), un champ hors
+      // protocole : un niveau qu'un nœud plus ancien ne connaît pas — aligner
+      // les versions —, un titre qu'un producteur n'a pas borné — qu'aucune
+      // mise à jour ne lève. Le motif dit les deux.
+      [{ type: 'assign_task', task: validTask, repoUrl: null, effort: 'inconnu' }, HORS_PROTOCOLE],
+      [
+        { type: 'assign_task', task: { ...validTask, title: 'x'.repeat(LIMITS.title + 1) } },
+        HORS_PROTOCOLE,
+      ],
+    ];
+    for (const [message, motif] of cas) {
+      const brut = JSON.stringify(message);
+      const nom = `${String(message.type)} → ${motif.slice(0, 40)}`;
+      expect(parseServerMessage(brut), `prémisse : ${nom} est illisible`).toBeNull();
+      const illisible = assignationIllisible(brut);
+      expect(illisible?.motif, nom).toBe(motif);
+      // La Reine relit la réponse avec SON parseur : une réponse qu'il
+      // refuserait (une raison au-delà de `LIMITS.name`) serait un second silence.
+      const reponse = illisible?.reponse;
+      expect(reponse, nom).not.toBeNull();
+      expect(parseClientMessage(JSON.stringify(reponse)), nom).toEqual(reponse);
+      expect(JSON.stringify(illisible), nom).not.toContain('ghp_SECRET');
+    }
+  });
+
+  it('SANS IDENTIFIANT SÛR, AUCUNE RÉPONSE — et ce qui n’est pas une assignation ne la concerne pas', () => {
+    expect(
+      assignationIllisible(
+        JSON.stringify({
+          type: 'assign_task',
+          task: { ...validTask, id: '../x' },
+          repoUrl: URL_ILLISIBLE,
+        }),
+      ),
+    ).toEqual({ type: 'assign_task', motif: MOTIF, reponse: null });
+    for (const message of [
+      { type: 'assign_task', repoUrl: URL_ILLISIBLE },
+      { type: 'assign_merge', mergeId: '../m', repoUrl: URL_ILLISIBLE, diffs: [] },
+      { type: 'assign_chantier', chantierId: 'c1', repoUrl: URL_ILLISIBLE, nom: '--evil' },
+    ]) {
+      expect(assignationIllisible(JSON.stringify(message))?.reponse, message.type).toBeNull();
+    }
+    // Une pose n'est illisible que par ses identifiants : jamais de réponse sûre.
+    expect(
+      assignationIllisible(JSON.stringify({ type: 'poser_outil', poseId: '../p', outilId: 'x' })),
+    ).toEqual({
+      type: 'poser_outil',
+      motif: 'identifiant de pose ou d’outil mal formé',
+      reponse: null,
+    });
+    for (const brut of ['pas du json', '[]', JSON.stringify({ type: 'cancel_task' }), 42]) {
+      expect(assignationIllisible(brut), String(brut)).toBeNull();
+    }
+  });
 });
 
 describe('isValidTask', () => {
@@ -705,6 +1008,41 @@ describe('parseServerMessage', () => {
         JSON.stringify({ type: 'requisition_result', id: 'req-1', statut: 'peut-etre' }),
       ),
     ).toBeNull();
+    // G12 : l'échéance est un statut terminal transporté, pas un refus déguisé.
+    expect(
+      parseServerMessage(
+        JSON.stringify({ type: 'requisition_result', id: 'req-1', statut: 'expiree' }),
+      ),
+    ).toMatchObject({ statut: 'expiree' });
+    // G12 : l'ack rend la corrélation telle quelle, et la valide comme un id.
+    expect(
+      parseServerMessage(
+        JSON.stringify({
+          type: 'requisition_ack',
+          id: 'req-1',
+          genre: 'action',
+          libelle: 'git push',
+          requestId: 'r-1',
+        }),
+      ),
+    ).toMatchObject({ requestId: 'r-1' });
+    // Revue G12 : l'échéance effective revient dans l'ack — un entier positif,
+    // sinon le message tombe (le filet local retomberait sur son plafond figé).
+    const ack = (expiresAt: unknown) =>
+      parseServerMessage(
+        JSON.stringify({
+          type: 'requisition_ack',
+          id: 'req-1',
+          genre: 'action',
+          libelle: 'git push',
+          requestId: 'r-1',
+          expiresAt,
+        }),
+      );
+    expect(ack(1_700_000_600_000)).toMatchObject({ expiresAt: 1_700_000_600_000 });
+    expect(ack(undefined)).toMatchObject({ type: 'requisition_ack' });
+    expect(ack(0)).toBeNull();
+    expect(ack('demain')).toBeNull();
     expect(parseServerMessage(JSON.stringify({ type: 'intrus' }))).toBeNull();
     expect(parseServerMessage('')).toBeNull();
     expect(parseServerMessage('{}')).toBeNull();

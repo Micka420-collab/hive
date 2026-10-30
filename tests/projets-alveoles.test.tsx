@@ -60,6 +60,7 @@ vi.mock('../dashboard/src/api', async (importOriginal) => ({
   // fichier de la vue ne suffit pas : il faut suivre ses ENFANTS.
   fetchReviews: vi.fn(() => Promise.resolve({ reviews: {} })),
   fetchGardeFou: vi.fn(() => Promise.resolve(null)),
+  fetchReseauProjet: vi.fn(() => Promise.resolve(null)),
   postReview: vi.fn(() => Promise.resolve()),
 }));
 

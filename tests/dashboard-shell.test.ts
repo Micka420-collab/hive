@@ -145,3 +145,80 @@ describe('les alertes du tableau de bord se traduisent', () => {
     expect(vue).toMatch(/default:\s*\n?\s*return a\.message;/);
   });
 });
+
+describe('le tiroir de navigation du téléphone', () => {
+  // Rien de ce qui suit ne se voit en jsdom/happy-dom, qui n'applique pas les
+  // `@media` : le comportement du tiroir (dialogue, focus, Échap) est tenu par
+  // tests/app-tiroir-parametres.test.tsx, sa FORME ici.
+
+  /** Le bloc `@media (max-width: 560px)` qui dessine le tiroir. */
+  const blocTiroir = (): string => {
+    const motif = /@media \(max-width: (\d+)px\) \{\n {2}\.mc-burger \{/;
+    const m = motif.exec(CSS);
+    expect(m, 'le bloc média du tiroir a disparu de styles.css').not.toBeNull();
+    const debut = m!.index;
+    // Le bloc finit à la première accolade fermante en colonne 0.
+    return CSS.slice(debut, CSS.indexOf('\n}\n', debut)).replace(/\/\*[\s\S]*?\*\//g, '');
+  };
+
+  /** Corps d'une règle à l'intérieur du bloc (indentée de deux espaces). */
+  const dansLeBloc = (selecteur: string): string => {
+    const bloc = blocTiroir();
+    const i = bloc.indexOf(`\n  ${selecteur} {`);
+    expect(i, `règle « ${selecteur} » introuvable dans le bloc du tiroir`).toBeGreaterThan(-1);
+    return bloc.slice(i, bloc.indexOf('\n  }', i));
+  };
+
+  it('LA BORNE DE LA FEUILLE EST CELLE QUE LA COQUILLE SURVEILLE', () => {
+    // Désaccordées, un tiroir ouvert survivrait à un élargissement de la
+    // fenêtre : focus prisonnier d'une barre redevenue ordinaire.
+    const largeur = /@media \(max-width: (\d+)px\) \{\n {2}\.mc-burger \{/.exec(CSS)?.[1];
+    expect(APP).toContain(`const REQUETE_TIROIR = '(max-width: ${largeur}px)'`);
+  });
+
+  it('FERMÉ, LE TIROIR SORT DU FLUX ET N’EST NI TABULABLE NI LU', () => {
+    const barre = dansLeBloc('.mc-sidebar');
+    // Hors du flux : le contenu reprend toute la largeur de l'écran.
+    expect(barre).toMatch(/position:\s*fixed/);
+    expect(barre).toMatch(/transform:\s*translateX\(-100%\)/);
+    // Décalée seulement, la barre garderait ses cases dans l'ordre de Tab.
+    expect(barre).toMatch(/visibility:\s*hidden/);
+    expect(dansLeBloc('.mc-sidebar--ouverte')).toMatch(/visibility:\s*visible/);
+  });
+
+  it('LE ☰ N’EXISTE QU’AU FORMAT TÉLÉPHONE', () => {
+    expect(regle('.mc-burger')).toMatch(/display:\s*none/);
+    expect(dansLeBloc('.mc-burger')).toMatch(/display:\s*inline-flex/);
+  });
+});
+
+describe('le fil des décisions de l’accueil — une liste, à côté du Journal devenu Terminal', () => {
+  // `DecisionsRecentes` (l'accueil, #504) dit chaque décision comme le Journal
+  // (`ligneDuJournal`), dans une liste : `ul.journal > li.jrow`, icône, texte,
+  // heure. Le Journal vit désormais dans le Terminal (#523), qui a emporté les
+  // règles de cette liste : l'accueil retombait en puces, l'icône, le texte et
+  // l'heure collés sur une ligne, et la liste débordait de sa carte.
+  const DECISIONS = readFileSync(
+    new URL('../dashboard/src/DecisionsRecentes.tsx', import.meta.url),
+    'utf8',
+  );
+
+  it('LE FIL EST BIEN CETTE LISTE — sinon la garde qui suit est creuse', () => {
+    expect(DECISIONS).toContain('<ul className="journal">');
+    expect(DECISIONS).toContain('className={`jrow ');
+    expect(DECISIONS).toContain('className="jicon"');
+  });
+
+  it('SANS PUCES, UNE GRILLE PAR DÉCISION, QUI DÉFILE DANS SA CARTE — sans toucher au Terminal', () => {
+    expect(regle('ul.journal')).toMatch(/list-style:\s*none/);
+    expect(regle('.panel ul.journal')).toMatch(/overflow-y:\s*auto/);
+    const decision = regle('ul.journal > .jrow');
+    expect(decision).toMatch(/display:\s*grid/);
+    expect(decision).toMatch(/grid-template-columns:/);
+    expect(regle('.jicon')).toMatch(/text-align:\s*center/);
+    // Le Terminal porte aussi `journal` (sa zone) et `jrow` (ses lignes,
+    // placées une à une) : une règle nue sur l'un ou l'autre les déplacerait.
+    expect(CSS).not.toMatch(/\n\.journal \{/);
+    expect(CSS).not.toMatch(/\n\.jrow \{/);
+  });
+});

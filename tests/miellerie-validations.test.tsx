@@ -22,6 +22,7 @@ import { setLang } from '../dashboard/src/i18n';
 import { EvaluationPanel } from '../dashboard/src/views/Miellerie';
 import { texteControle } from '../dashboard/src/views/validations-rendu';
 import type { EvaluationResult, ValidationProvenance } from '../src/orchestrator/evaluator';
+import { PORTE_SANS_RAPPORT } from '../src/shared/porte-securite';
 import {
   ETATS_PAR_RAISON,
   PANNES_ENVIRONNEMENT,
@@ -82,6 +83,7 @@ function evaluation(provenance: ValidationProvenance): EvaluationResult {
         recordedAt: 0,
       },
       humanReview: 'missing',
+      securite: PORTE_SANS_RAPPORT,
     },
   };
 }
@@ -114,6 +116,61 @@ function monter(e: EvaluationResult): HTMLElement {
 
 const parTestId = (racine: HTMLElement, id: string): HTMLElement | null =>
   racine.querySelector(`[data-testid="${id}"]`);
+
+describe('panneau Evaluator — la porte de sécurité', () => {
+  it('NON VÉRIFIÉE SE LIT COMME TELLE — volet par volet, avec sa raison, jamais en vert', () => {
+    const vue = monter(evaluation(bac));
+    const ligne = parTestId(vue, 'mi-porte-securite')?.textContent ?? '';
+    expect(ligne).toContain('secrets non_verifie (aucun rapport du nœud');
+    expect(ligne).toContain('dépendances non_verifie');
+    expect(ligne).not.toContain('rien_trouve');
+  });
+
+  it('UN CONSTAT EST COMPTÉ, AVEC L’OUTIL QUI L’A VU', () => {
+    const e = evaluation(bac);
+    e.evidence.securite = {
+      secrets: {
+        etat: 'constat',
+        raison: 'trouve',
+        outil: { nom: 'betterleaks', version: '1.9.0' },
+        constats: [{ regle: 'aws-access-token', fichier: 'src/config.ts', ligne: 2 }],
+        total: 1,
+      },
+      dependances: { etat: 'rien_trouve', raison: 'aucun_lockfile', constats: [], total: 0 },
+    };
+    const ligne = parTestId(monter(e), 'mi-porte-securite')?.textContent ?? '';
+    expect(ligne).toContain('secrets constat ×1 (constat · betterleaks 1.9.0)');
+    expect(ligne).toContain('dépendances rien_trouve (aucun lockfile touché)');
+  });
+
+  it('UNE RAISON QUE CET ÉCRAN NE CONNAÎT PAS (Reine plus récente) se lit telle quelle — le panneau ne tombe pas', () => {
+    const e = evaluation(bac);
+    e.evidence.securite = {
+      secrets: { etat: 'non_verifie', raison: 'raison_de_demain', constats: [], total: 0 },
+      dependances: {
+        etat: 'rien_trouve',
+        raison: 'analyse_propre',
+        outil: { nom: 'osv-scanner', version: '2.6.0' },
+        constats: [],
+        total: 0,
+        nonInterroges: 2,
+      },
+    } as unknown as typeof e.evidence.securite;
+    const ligne = parTestId(monter(e), 'mi-porte-securite')?.textContent ?? '';
+    expect(ligne).toContain('secrets non_verifie (raison_de_demain)');
+    expect(ligne).toContain(
+      'dépendances rien_trouve (rien trouvé · osv-scanner 2.6.0 · 2 non interrogé(s))',
+    );
+  });
+
+  it('UNE REINE ANTÉRIEURE À LA PORTE n’en rend pas — la ligne le dit, sans inventer un « rien »', () => {
+    const e = evaluation(bac);
+    delete (e.evidence as Partial<typeof e.evidence>).securite;
+    expect(parTestId(monter(e), 'mi-porte-securite')?.textContent).toBe(
+      'non rapportée par cette Reine',
+    );
+  });
+});
 
 describe('panneau Evaluator — la provenance des validations', () => {
   it('bac Hive : la source, le nœud, la base, et un constat par validation', () => {
@@ -201,5 +258,93 @@ describe('panneau Evaluator — la provenance des validations', () => {
       expect(en, raison).toMatch(/\S/);
       if (raison !== 'termine') expect(fr, raison).not.toBe(en);
     }
+  });
+});
+
+// G11b — des tests comparés à la base : l'écran dit ce qui bloque, ce qui
+// reste rouge SANS bloquer, et ce que la comparaison a coûté. Un `passed` du
+// bac qui tairait ses tests rouges serait un vert muet.
+describe('panneau Evaluator — les tests comparés à la base (G11b)', () => {
+  const aucun = { total: 0, noms: [] };
+  const comparaison = {
+    format: 'node-test' as const,
+    executions: { tete: 2, base: 2 },
+    memoire: false,
+    surcoutMs: 12_000,
+    regressions: aucun,
+    dejaRouges: aucun,
+    instables: aucun,
+    ciblesPassees: aucun,
+  };
+
+  it('un test déjà rouge à la base se lit sur la ligne verte — dans les deux langues', () => {
+    const detail = {
+      raison: 'comparee',
+      script: 'test',
+      code: 1,
+      comparaison: {
+        ...comparaison,
+        executions: { tete: 1, base: 1 },
+        dejaRouges: { total: 3, noms: ['ancien', 'vieux'] },
+      },
+    } as const;
+    const fr = texteControle(detail, (f) => f);
+    const en = texteControle(detail, (_f, e) => e);
+    expect(fr).toContain('npm run test → 1 · comparé test par test à la base');
+    expect(fr).toContain(
+      'déjà rouge à la base, du même échec, non bloquant : ancien ; vieux ; … et 1 autre(s)',
+    );
+    expect(fr).toContain('base rejouée à part, 12 s de plus');
+    expect(en).toContain(
+      'already red at the base, with the same failure, not blocking: ancien ; vieux ; … and 1 more',
+    );
+  });
+
+  it('la régression d’abord, nommée — et le panneau la montre sur la ligne des tests', () => {
+    const provenance: ValidationProvenance = {
+      ...bac,
+      details: {
+        ...bac.details,
+        tests: {
+          raison: 'comparee',
+          script: 'test',
+          code: 1,
+          comparaison: {
+            ...comparaison,
+            regressions: { total: 1, noms: ['additionne'] },
+            dejaRouges: { total: 1, noms: ['ancien'] },
+          },
+        },
+      },
+    };
+    const vue = monter({
+      ...evaluation(provenance),
+      evidence: { ...evaluation(provenance).evidence, tests: 'failed' },
+    });
+    const ligne = parTestId(vue, 'mi-validation-details')?.querySelector('li');
+    expect(ligne?.getAttribute('data-etat')).toBe('failed');
+    expect(ligne?.textContent).toContain(
+      'régression : additionne — rouge à chaque exécution, jamais à la base · ' +
+        'déjà rouge à la base, du même échec, non bloquant : ancien',
+    );
+  });
+
+  it('instable : ni régression ni vert ; une base tirée de la mémoire du nœud le dit', () => {
+    const detail = {
+      raison: 'instable',
+      script: 'test',
+      code: 1,
+      comparaison: {
+        ...comparaison,
+        memoire: true,
+        instables: { total: 1, noms: ['vacille une fois'] },
+      },
+    } as const;
+    const fr = texteControle(detail, (f) => f);
+    expect(fr).toContain(
+      'instable : vacille une fois — vu rouge à une exécution et vert à une autre, de la production ou de la base',
+    );
+    expect(fr).toContain('ni régression ni vert, verdict inconnu');
+    expect(fr).toContain('base déjà rejouée sur ce nœud');
   });
 });

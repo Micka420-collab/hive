@@ -162,7 +162,7 @@ describe('ce qui arrête la ruche', () => {
       <AlertesRuche
         cockpit={sondage(
           cockpit({
-            total: 5,
+            total: 6,
             alertes: [
               { genre: 'blocage', cause: 'aucune_ouvriere', taches: 2, depuis: 1 },
               {
@@ -188,6 +188,7 @@ describe('ce qui arrête la ruche', () => {
                 raison: 'quota épuisé',
                 depuis: 3,
                 definitif: false,
+                avantAgent: false,
               },
               {
                 genre: 'refus',
@@ -197,6 +198,17 @@ describe('ce qui arrête la ruche', () => {
                 raison: 'non authentifié',
                 depuis: 4,
                 definitif: true,
+                avantAgent: false,
+              },
+              {
+                genre: 'refus',
+                taskId: 't4',
+                titre: 'Page',
+                nodeId: 'n1',
+                raison: 'dossier de la tâche impossible à vider (EBUSY)',
+                depuis: 5,
+                definitif: true,
+                avantAgent: true,
               },
             ],
           }),
@@ -213,6 +225,7 @@ describe('ce qui arrête la ruche', () => {
       'relecture_impossible',
       'refus',
       'refus',
+      'refus',
     ]);
     expect(items[1]?.textContent).toContain('« Vitrine » arrêté par son plafond');
     expect(items[2]?.textContent).toContain('aucune autre famille en ligne');
@@ -220,10 +233,13 @@ describe('ce qui arrête la ruche', () => {
     // Échouée faute d'agent : dite jusqu'à la relance, nœud inconnu dit « ? ».
     expect(items[4]?.textContent).toContain('« Schéma » a échoué : aucun agent qui fonctionne');
     expect(items[4]?.textContent).toContain('dernier refus, ? : non authentifié');
-    expect(dom.querySelector('[data-testid="alertes-ruche-total"]')?.textContent).toBe('5');
+    // Refusée AVANT l'agent : l'écran ne met pas l'agent en cause.
+    expect(items[5]?.textContent).toContain('« Page » a échoué : aucun nœud n’a pu la préparer');
+    expect(items[5]?.textContent).not.toContain('agent');
+    expect(dom.querySelector('[data-testid="alertes-ruche-total"]')?.textContent).toBe('6');
     act(() => items.forEach((b) => b.click()));
     expect(onNavigate.mock.calls).toEqual([['essaim'], ['projets', 'p1']]);
-    expect(onOpenTask.mock.calls).toEqual([['t1'], ['t2'], ['t3']]);
+    expect(onOpenTask.mock.calls).toEqual([['t1'], ['t2'], ['t3'], ['t4']]);
   });
 });
 

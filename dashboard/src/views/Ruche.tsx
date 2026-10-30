@@ -14,6 +14,7 @@ import { NodesPanel } from '../NodesPanel';
 import { StatTiles } from '../StatTiles';
 import { annoncesDepuisEvenements, calibrationDepuisEvenements } from '../horloge-vue';
 import { direDuree, direAnnonce } from '../../../src/shared/horloge-chantier';
+import { arreteeParSonBudget } from '../../../src/shared/arret-budgetaire';
 import { SwarmView } from '../SwarmView';
 import { activateProps, StatusBadge } from '../ui';
 import { Honeycomb, travailDesProjets, useApiPoll } from './shared';
@@ -220,7 +221,10 @@ export default function Ruche({
                         className="clickable"
                         {...activateProps(() => onOpenTask(task.id))}
                       >
-                        <StatusBadge status={task.status} />
+                        <StatusBadge
+                          status={task.status}
+                          arretBudgetaire={arreteeParSonBudget(task.result)}
+                        />
                         <span className="queue-title">{task.title}</span>
                         {/*
                           L'ANNONCE, LÀ OÙ ON REGARDE LA FILE.

@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchEssaim, fetchEssaimCycles, setEssaim } from './api';
 import type { CycleEssaimUi, EtatEssaimUi, NiveauEssaim, PasEssaim, PretEssaimUi } from './api';
+import { ErrorState, Skeleton } from './composants';
 import { useT } from './i18n';
 import { timeShort } from './views/shared';
 
@@ -219,7 +220,18 @@ export function PleinEssaim({ projectId }: { projectId: string }) {
         <h3>
           <span className="marque" aria-hidden="true" /> {t('Plein Essaim', 'Full Swarm')}
         </h3>
-        <p className="essaim-vide">{erreur || t('Chargement…', 'Loading…')}</p>
+        {/* Un échec AVANT toute lecture : dit, et rattrapable tout de suite —
+            la relecture suivante est à cinq secondes, et rien ne disait
+            qu'il y en aurait une. */}
+        {erreur ? (
+          <ErrorState
+            titre={t('Plein Essaim illisible.', 'Full Swarm unreadable.')}
+            detail={erreur}
+            onReessayer={() => void recharger()}
+          />
+        ) : (
+          <Skeleton lignes={3} />
+        )}
       </section>
     );
   }

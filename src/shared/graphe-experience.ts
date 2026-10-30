@@ -77,6 +77,7 @@
 // n'importe quel ordre : même graphe, au caractère près.
 
 import type { Categorie } from '../orchestrator/aiguillage.js';
+import { arreteeParSonBudget } from './arret-budgetaire.js';
 import { liensDe, type Note } from './cerveau.js';
 import { declarationDe } from './declaration-fournisseur.js';
 import { blocDonnees, champSurUneLigne } from './donnees-non-fiables.js';
@@ -162,8 +163,11 @@ export type NoeudExperience = BaseNoeud &
         taskId: string;
         /** `null` : production journalisée avant que `task_done` ne porte son résultat. */
         resultId: number | null;
-        /** `null` tant que seul un avis ou une validation l'a nommée. */
-        issue: 'rendu' | 'echec' | null;
+        /**
+         * `null` tant que seul un avis ou une validation l'a nommée. `arret` :
+         * arrêtée sur son plafond de coût — ni rendue, ni échouée.
+         */
+        issue: 'rendu' | 'echec' | 'arret' | null;
       }
     | {
         genre: 'review';
@@ -493,7 +497,7 @@ export function projeterGrapheExperience(
       ...avis,
     });
 
-  const fixerIssue = (id: string, issue: 'rendu' | 'echec'): void => {
+  const fixerIssue = (id: string, issue: 'rendu' | 'echec' | 'arret'): void => {
     const n = noeuds.get(id);
     if (n?.genre === 'artifact') noeuds.set(id, { ...n, issue });
   };
@@ -649,10 +653,12 @@ export function projeterGrapheExperience(
           break;
         }
         // Une tentative ratée n'est une production que si son résultat est
-        // nommé ; sinon (échec d'infrastructure, journal ancien), rien.
+        // nommé ; sinon (échec d'infrastructure, journal ancien), rien. Une
+        // tentative arrêtée sur son plafond n'est pas ratée : l'expérience
+        // voisine ne la compte pas parmi ses tentatives échouées.
         if (resultId === null) break;
         const artifact = noeudProduction(taskId, info, resultId, provenance);
-        fixerIssue(artifact, 'echec');
+        fixerIssue(artifact, arreteeParSonBudget(p) ? 'arret' : 'echec');
         attribuer(artifact, etat, nodeId, p, provenance);
         etat.derniere = artifact;
         break;

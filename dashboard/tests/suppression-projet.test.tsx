@@ -20,7 +20,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
-import { SuppressionProjet } from '../src/views/Projets';
+import { SuppressionProjet } from '../src/views/projets/Suppression';
 import { setLang } from '../src/i18n';
 import { saveToken } from '../src/api';
 import type { AuthUser, ProjetSupprime } from '../src/api';

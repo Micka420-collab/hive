@@ -76,6 +76,12 @@ function texteAlerte(
       const titre = titreOu(a.titre, a.taskId);
       // Le dernier refus a pu sortir du journal : le nœud reste inconnu, dit tel.
       const noeud = a.nodeId === null ? '?' : (nomsDeNoeuds.get(a.nodeId) ?? a.nodeId.slice(0, 8));
+      if (a.definitif && a.avantAgent) {
+        return t(
+          `« ${titre} » a échoué : aucun nœud n’a pu la préparer (dernier refus, ${noeud} : ${a.raison}) — levez cette cause sur le poste, puis relancez-la`,
+          `“${titre}” failed: no node could prepare it (last refusal, ${noeud}: ${a.raison}) — clear that cause on the machine, then retry it`,
+        );
+      }
       if (a.definitif) {
         return t(
           `« ${titre} » a échoué : aucun agent qui fonctionne (dernier refus, ${noeud} : ${a.raison}) — réparez l’agent puis relancez-la`,

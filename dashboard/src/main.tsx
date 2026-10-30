@@ -2,8 +2,15 @@ import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { clearPartage, getPartage, savePartage } from './api';
+import { ToastProvider } from './composants';
+import { appliquerTheme } from './theme';
 import { FiletDeSecurite } from './ui';
 import './styles.css';
+import './composants/composants.css';
+
+// Le thème choisi, AVANT le premier rendu : posé après, le mauvais thème
+// clignoterait le temps d'une image (voir theme.ts).
+appliquerTheme();
 
 const Partage = lazy(() => import('./views/Partage'));
 
@@ -59,13 +66,15 @@ const r = racine();
 createRoot(document.getElementById('root') as HTMLElement).render(
   <StrictMode>
     <FiletDeSecurite portee="application">
-      {r.partage ? (
-        <Suspense fallback={null}>
-          <Partage projectId={r.projectId} />
-        </Suspense>
-      ) : (
-        <App />
-      )}
+      <ToastProvider>
+        {r.partage ? (
+          <Suspense fallback={null}>
+            <Partage projectId={r.projectId} />
+          </Suspense>
+        ) : (
+          <App />
+        )}
+      </ToastProvider>
     </FiletDeSecurite>
   </StrictMode>,
 );

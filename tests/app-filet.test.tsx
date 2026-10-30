@@ -38,7 +38,12 @@ const panne = vi.hoisted(() => ({
 
 vi.mock('../dashboard/src/api', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  connectFeed: vi.fn(() => ({ close: () => {} })),
+  // Le flux livre un instantané (vide) : sans lui, la coquille montre
+  // l'attente du premier état au lieu d'une vue (dashboard/src/Liaison.tsx).
+  connectFeed: vi.fn((h: { onState: (s: unknown) => void }) => {
+    h.onState({ projects: [], nodes: [], tasks: [], tasksTotal: 0 });
+    return { close: () => {}, reconnecter: () => {} };
+  }),
   fetchPulse: vi.fn(() => Promise.resolve(null)),
   fetchReviews: vi.fn(() => Promise.resolve({ reviews: {} })),
   authMe: vi.fn(() => Promise.reject(new Error('pas de compte simulé'))),
@@ -279,9 +284,12 @@ describe('la coquille au clavier et au lecteur d’écran', () => {
   it('LA RUCHE PEUPLÉE N’EMBOÎTE PAS UN SECOND `main`', async () => {
     const { connectFeed } = await import('../dashboard/src/api');
     let poser: ((s: never) => void) | null = null;
-    vi.mocked(connectFeed).mockImplementation((h) => {
+    // `Once` : ce flux-ci ne livre rien de lui-même. Laissé en place, il
+    // passait au test suivant (ordre mélangé), dont la coquille attendait
+    // alors pour toujours son premier instantané.
+    vi.mocked(connectFeed).mockImplementationOnce((h) => {
       poser = h.onState as (s: never) => void;
-      return { close: () => {} };
+      return { close: () => {}, reconnecter: () => {} };
     });
     const dom = await monter('#/ruche');
     await act(async () => {

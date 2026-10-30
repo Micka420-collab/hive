@@ -1,0 +1,48 @@
+FAIL tests/a.test.js
+  ● suite A › echoue
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 2
+    Received: 1
+
+    [0m [90m 1 |[39m describe([32m'suite A'[39m[33m,[39m () [33m=>[39m {
+     [90m 2 |[39m   test([32m'passe'[39m[33m,[39m () [33m=>[39m { expect([35m1[39m)[33m.[39mtoBe([35m1[39m)[33m;[39m })[33m;[39m
+    [31m[1m>[22m[39m[90m 3 |[39m   test([32m'echoue'[39m[33m,[39m () [33m=>[39m { expect([35m1[39m)[33m.[39mtoBe([35m2[39m)[33m;[39m })[33m;[39m
+     [90m   |[39m                                    [31m[1m^[22m[39m
+     [90m 4 |[39m   test[33m.[39mskip([32m'saute'[39m[33m,[39m () [33m=>[39m {})[33m;[39m
+     [90m 5 |[39m   test[33m.[39mtodo([32m'plus tard'[39m)[33m;[39m
+     [90m 6 |[39m   describe([32m'imbriquee'[39m[33m,[39m () [33m=>[39m {[0m
+
+      at Object.toBe (tests/a.test.js:3:36)
+
+FAIL tests/b.test.js
+  ● b echoue
+
+    boum
+
+    [0m [90m 1 |[39m test([32m'b passe'[39m[33m,[39m () [33m=>[39m {})[33m;[39m
+    [31m[1m>[22m[39m[90m 2 |[39m test([32m'b echoue'[39m[33m,[39m () [33m=>[39m { [36mthrow[39m [36mnew[39m [33mError[39m([32m'boum'[39m)[33m;[39m })[33m;[39m
+     [90m   |[39m                                [31m[1m^[22m[39m
+     [90m 3 |[39m[0m
+
+      at Object.<anonymous> (tests/b.test.js:2:32)
+
+FAIL tests/d.test.js
+  ● Test suite failed to run
+
+    Cannot find module './inexistant' from 'tests/d.test.js'
+
+    [0m[31m[1m>[22m[39m[90m 1 |[39m require([32m'./inexistant'[39m)[33m;[39m
+     [90m   |[39m [31m[1m^[22m[39m
+     [90m 2 |[39m test([32m'd'[39m[33m,[39m () [33m=>[39m {})[33m;[39m
+     [90m 3 |[39m[0m
+
+      at Resolver._throwModNotFoundError (node_modules/jest-resolve/build/index.js:1031:11)
+      at Object.require (tests/d.test.js:1:1)
+
+Test Suites: 3 failed, 1 passed, 4 total
+Tests:       2 failed, 1 skipped, 1 todo, 5 passed, 9 total
+Snapshots:   0 total
+Time:        0.439 s, estimated 1 s
+Ran all test suites.

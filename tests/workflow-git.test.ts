@@ -61,7 +61,7 @@
 // AUTRE raison — chacun a donc été lancé en `it` simple, et son message
 // d'échec lu : c'est bien le défaut nommé qui le fait échouer.
 
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
   existsSync,
@@ -73,13 +73,11 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer as createHttpServer } from 'node:http';
-import type { IncomingMessage, ServerResponse } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ServeurGit } from './aide/serveur-git.js';
 import type { AgentAdapter } from '../src/adapters/index.js';
 import { HiveNodeClient } from '../src/node-client/client.js';
 import { runMerge } from '../src/node-client/merge-runner.js';
@@ -275,120 +273,6 @@ async function issueSous<T>(promesse: Promise<T>, ms: number): Promise<Issue<T>>
     ]);
   } finally {
     clearTimeout(minuteur);
-  }
-}
-
-type ModeServeur = 'normal' | 'coupe' | 'identifiants';
-
-/** Octets du pack servis avant de couper la connexion, en mode `coupe`. */
-const COUPURE_OCTETS = 8 * 1024;
-
-/**
- * Un serveur HTTP Git RÉEL — `git http-backend`, le CGI livré avec git — sur la
- * boucle locale, avec deux pannes à la demande :
- *
- *   · `identifiants` : tout est refusé en 401 Basic, comme un dépôt privé ;
- *   · `coupe` : la réponse du pack est tranchée après `COUPURE_OCTETS`, et la
- *     connexion fermée — un réseau qui lâche en plein transfert.
- *
- * Aucun octet ne sort de la machine : un banc qui dépend d'un tiers pour savoir
- * quand il finit mesure le tiers, pas le code (docs/ERREURS.md).
- */
-class ServeurGit {
-  mode: ModeServeur = 'normal';
-  /** Requêtes reçues AVEC un en-tête `Authorization`, en mode `identifiants`. */
-  authentifications = 0;
-  private port = 0;
-  private readonly http = createHttpServer((req, res) => this.repondre(req, res));
-
-  constructor(private readonly racineDepots: string) {}
-
-  async demarrer(): Promise<void> {
-    await new Promise<void>((pret) => this.http.listen(0, '127.0.0.1', () => pret()));
-    this.port = (this.http.address() as AddressInfo).port;
-  }
-
-  url(nom: string): string {
-    return `http://127.0.0.1:${this.port}/${nom}.git`;
-  }
-
-  async fermer(): Promise<void> {
-    this.http.closeAllConnections();
-    await new Promise<void>((fin) => this.http.close(() => fin()));
-  }
-
-  private repondre(req: IncomingMessage, res: ServerResponse): void {
-    if (this.mode === 'identifiants') {
-      if (req.headers.authorization) this.authentifications += 1;
-      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="depot prive"' });
-      res.end('identifiants requis');
-      return;
-    }
-    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-    const cgi = spawn('git', ['http-backend'], {
-      windowsHide: true,
-      env: {
-        PATH: process.env.PATH,
-        SYSTEMROOT: process.env.SYSTEMROOT,
-        SYSTEMDRIVE: process.env.SYSTEMDRIVE,
-        GIT_PROJECT_ROOT: this.racineDepots,
-        GIT_HTTP_EXPORT_ALL: '1',
-        REQUEST_METHOD: req.method ?? 'GET',
-        PATH_INFO: url.pathname,
-        QUERY_STRING: url.search.slice(1),
-        CONTENT_TYPE: req.headers['content-type'] ?? '',
-        ...(req.headers['content-encoding']
-          ? { HTTP_CONTENT_ENCODING: req.headers['content-encoding'] }
-          : {}),
-        ...(req.headers['git-protocol']
-          ? { GIT_PROTOCOL: String(req.headers['git-protocol']) }
-          : {}),
-      },
-    });
-    cgi.on('error', () => {
-      if (!res.headersSent) res.writeHead(500);
-      res.end();
-    });
-    cgi.stdin.on('error', () => {}); // le CGI tué en mode `coupe` ne lit plus
-    req.pipe(cgi.stdin);
-
-    const couper = this.mode === 'coupe' && req.method === 'POST';
-    let tampon = Buffer.alloc(0);
-    let entetesEnvoyes = false;
-    let envoyes = 0;
-    cgi.stdout.on('data', (morceau: Buffer) => {
-      let corps = morceau;
-      if (!entetesEnvoyes) {
-        tampon = Buffer.concat([tampon, morceau]);
-        const fin = tampon.indexOf('\r\n\r\n');
-        if (fin < 0) return;
-        let statut = 200;
-        const entetes: Record<string, string> = {};
-        for (const ligne of tampon.subarray(0, fin).toString('latin1').split('\r\n')) {
-          const deuxPoints = ligne.indexOf(':');
-          const nom = ligne.slice(0, deuxPoints).trim();
-          const valeur = ligne.slice(deuxPoints + 1).trim();
-          if (nom.toLowerCase() === 'status') statut = Number.parseInt(valeur, 10);
-          else entetes[nom] = valeur;
-        }
-        res.writeHead(statut, entetes);
-        entetesEnvoyes = true;
-        corps = tampon.subarray(fin + 4);
-      }
-      if (!couper) {
-        res.write(corps);
-        return;
-      }
-      res.write(corps.subarray(0, Math.max(0, COUPURE_OCTETS - envoyes)));
-      envoyes += corps.length;
-      if (envoyes >= COUPURE_OCTETS) {
-        cgi.kill();
-        res.destroy();
-      }
-    });
-    cgi.stdout.on('end', () => {
-      if (!res.destroyed) res.end();
-    });
   }
 }
 
@@ -770,11 +654,11 @@ describe('branche absente', () => {
       git(a.depot, 'symbolic-ref', 'HEAD', 'refs/heads/master');
       // Résolue, la préparation rend ce que l'agent recevrait — aujourd'hui
       // `['.git']`, et c'est ce que le message d'échec affichera.
-      const recu = prepareWorkspace(travail, tache('tete-orpheline'), a.url).then((ws) => {
+      const recu = prepareWorkspace(travail, tache('tete-orpheline'), a.url).then(async (ws) => {
         try {
           return readdirSync(ws.cwd);
         } finally {
-          ws.cleanup();
+          await ws.cleanup();
         }
       });
       await expect(recu).rejects.toThrow(/master/);
@@ -804,7 +688,7 @@ describe(
         expect(resultat.applied).toEqual(['non-suivi']);
         expect(lireTexte(dossier, 'docs/guide/nouveau.md')).toBe('# Guide\n');
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     });
 
@@ -829,7 +713,7 @@ describe(
         expect(resultat.conflicts).toEqual([]);
         expect(readFileSync(path.join(dossier, 'logo.png')).equals(logo)).toBe(true);
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     });
 
@@ -855,7 +739,7 @@ describe(
         git(ws.cwd, 'add', 'app.txt');
         expect(await ws.collectDiff()).toContain('+bonjour, ruche');
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     });
 
@@ -867,7 +751,7 @@ describe(
         git(ws.cwd, 'commit', '-q', '-a', '-m', 'l’agent committe lui-même');
         expect(await ws.collectDiff()).toContain('+bonjour, ruche');
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     });
   },
@@ -900,7 +784,7 @@ describe('changement concurrent — l’amont bouge sous l’espace de travail',
       ecrire(ws.cwd, fichiers);
       return await ws.collectDiff();
     } finally {
-      ws.cleanup();
+      await ws.cleanup();
     }
   }
 
@@ -1046,7 +930,7 @@ describe('changement concurrent — l’amont bouge sous l’espace de travail',
         );
         expect(diff, 'le diff doit échouer').toBeInstanceOf(Error);
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     },
   );
@@ -1080,7 +964,7 @@ describe('clone interrompu', () => {
         expect(ws.branch).toBe('hive/clone-coupe');
         expect(lireTexte(ws.cwd, 'LISEZMOI.md')).toBe('# Lourd\n');
       } finally {
-        ws.cleanup();
+        await ws.cleanup();
       }
     },
   );
@@ -1108,7 +992,7 @@ describe('clone interrompu', () => {
       );
       expect(existsSync(path.join(`${cwd}.tmp`, 'reste.txt'))).toBe(false);
     } finally {
-      ws.cleanup();
+      await ws.cleanup();
     }
   });
 

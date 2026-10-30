@@ -1,0 +1,39 @@
+
+> tp@1.0.0 test
+> tape 'test/*.js'
+
+TAP version 13
+# calcul
+not ok 1 bug connu
+  ---
+    operator: equal
+    expected: 5
+    actual:   4
+    at: Test.<anonymous> (/hive/tache/test/a.js:3:5)
+    stack: |-
+      Error: bug connu
+          at Test.assert [as _assert] (/hive/tache/node_modules/tape/lib/test.js:548:48)
+          at Test.strictEqual (/hive/tache/node_modules/tape/lib/test.js:734:7)
+          at Test.<anonymous> (/hive/tache/test/a.js:3:5)
+          at Test.run (/hive/tache/node_modules/tape/lib/test.js:151:28)
+          at Immediate.next [as _onImmediate] (/hive/tache/node_modules/tape/lib/results.js:175:7)
+          at process.processImmediate (node:internal/timers:574:21)
+  ...
+ok 2 un plus un
+# chaines
+ok 3 contient b
+ok 4 pas ici # SKIP
+# TODO à faire
+not ok 5 pas encore # TODO
+  ---
+    operator: ok
+    expected: true
+    actual:   false
+    at: Test.<anonymous> (/hive/tache/test/a.js:13:5)
+  ...
+
+1..5
+# tests 5
+# pass  4
+# fail  1
+

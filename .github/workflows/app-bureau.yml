@@ -105,6 +105,13 @@ jobs:
       - name: Installer les dépendances de l'app
         run: npm ci --prefix desktop
 
+      # Le nœud tourne dans l'Electron de l'app, pas dans le Node de la CI — et
+      # sous Windows, les deux n'effacent pas pareil un clone git (objets en
+      # lecture seule) : Hive 0.5.0 refusait chaque tentative d'une tâche dont
+      # la précédente avait été tuée. Voir desktop/scripts/effacement-electron.mjs.
+      - name: Le dossier d'une tâche s'efface sous l'Electron de l'app
+        run: node desktop/scripts/effacement-electron.mjs
+
       - name: Construire les paquets
         run: npm --prefix desktop run ${{ matrix.dist }}
         env:

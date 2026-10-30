@@ -1,0 +1,103 @@
+TAP version 13
+# Subtest: passe
+ok 1 - passe
+  ---
+  duration_ms: 0.934199
+  type: 'test'
+  ...
+# Subtest: echoue
+not ok 2 - echoue
+  ---
+  duration_ms: 0.879768
+  type: 'test'
+  location: '/hive/tache/test/a.test.js:4:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly equal:
+    
+    1 !== 2
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: 2
+  actual: 1
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (/hive/tache/test/a.test.js:4:31)
+    Test.runInAsyncScope (node:async_hooks:227:14)
+    Test.run (node:internal/test_runner/test:1397:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:969:18)
+    Test.postRun (node:internal/test_runner/test:1537:19)
+    Test.run (node:internal/test_runner/test:1462:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3)
+  ...
+# Subtest: saute
+ok 3 - saute # SKIP
+  ---
+  duration_ms: 0.137351
+  type: 'test'
+  ...
+# Subtest: groupe
+    # Subtest: sous passe
+    ok 1 - sous passe
+      ---
+      duration_ms: 0.187403
+      type: 'test'
+      ...
+    # Subtest: sous echoue
+    not ok 2 - sous echoue
+      ---
+      duration_ms: 0.156048
+      type: 'test'
+      location: '/hive/tache/test/a.test.js:8:11'
+      failureType: 'testCodeFailure'
+      error: 'boum'
+      code: 'ERR_TEST_FAILURE'
+      stack: |-
+        TestContext.<anonymous> (/hive/tache/test/a.test.js:8:45)
+        Test.runInAsyncScope (node:async_hooks:227:14)
+        Test.run (node:internal/test_runner/test:1397:25)
+        Test.start (node:internal/test_runner/test:1257:17)
+        TestContext.test (node:internal/test_runner/test:399:20)
+        TestContext.<anonymous> (/hive/tache/test/a.test.js:8:11)
+        async Test.run (node:internal/test_runner/test:1404:7)
+        async Test.processPendingSubtests (node:internal/test_runner/test:969:7)
+      ...
+    1..2
+not ok 4 - groupe
+  ---
+  duration_ms: 0.957772
+  type: 'test'
+  location: '/hive/tache/test/a.test.js:6:1'
+  failureType: 'subtestsFailed'
+  error: '1 subtest failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# Subtest: suite B
+    # Subtest: b passe
+    ok 1 - b passe
+      ---
+      duration_ms: 5.072184
+      type: 'test'
+      ...
+    # Subtest: b todo
+    ok 2 - b todo # TODO
+      ---
+      duration_ms: 0.165859
+      type: 'test'
+      ...
+    1..2
+ok 5 - suite B
+  ---
+  duration_ms: 6.412279
+  type: 'suite'
+  ...
+1..5
+# tests 8
+# suites 1
+# pass 3
+# fail 3
+# cancelled 0
+# skipped 1
+# todo 1
+# duration_ms 214.831167

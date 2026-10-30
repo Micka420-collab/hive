@@ -5,6 +5,7 @@
 import { useEffect, useState } from 'react';
 import { authLogin, authMe, authRegister, clearJwt, saveJwt } from './api';
 import type { AuthUser } from './api';
+import { Input } from './composants';
 import { useT } from './i18n';
 import { useDialog, Voile } from './ui';
 import type { LONGUEUR_MIN } from '../../src/orchestrator/comptes';
@@ -116,6 +117,11 @@ function AccountModal({
   const [displayName, setDisplayName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Les champs QUITTÉS au moins une fois. Une faute ne se dit qu'après : la
+  // crier à la première lettre (« courriel invalide » en tapant « m ») apprend
+  // surtout à ignorer les messages rouges.
+  const [quittes, setQuittes] = useState<ReadonlySet<string>>(() => new Set());
+  const quitter = (champ: string) => setQuittes((q) => new Set(q).add(champ));
   const dialogRef = useDialog<HTMLDivElement>(onClose);
 
   const submit = async () => {
@@ -144,6 +150,28 @@ function AccountModal({
     (mode === 'login'
       ? password.length > 0
       : password.length >= MDP_MIN && displayName.length >= 2);
+
+  // ─── POURQUOI LE BOUTON RESTE ÉTEINT, DIT SOUS LE CHAMP FAUTIF ─────────────
+  //
+  // Le bouton s'éteint tant que le formulaire ne peut pas aboutir — c'était
+  // déjà le cas, mais sans dire POURQUOI : un « Créer le compte » grisé face à
+  // un mot de passe de onze caractères est une énigme. Les mêmes règles que
+  // `canSubmit`, champ par champ, une fois le champ quitté.
+  const erreurEmail =
+    quittes.has('email') && !email.includes('@')
+      ? t('Une adresse e-mail contient un « @ ».', 'An email address contains an “@”.')
+      : undefined;
+  const erreurNom =
+    mode === 'register' && quittes.has('nom') && displayName.length < 2
+      ? t('Deux caractères au moins.', 'At least two characters.')
+      : undefined;
+  const erreurMdp =
+    mode === 'register' && quittes.has('mdp') && password.length < MDP_MIN
+      ? t(
+          `Encore ${MDP_MIN - password.length} caractère(s) : ${MDP_MIN} au minimum.`,
+          `${MDP_MIN - password.length} more character(s): ${MDP_MIN} minimum.`,
+        )
+      : undefined;
 
   return (
     <Voile onClose={onClose}>
@@ -196,70 +224,75 @@ function AccountModal({
             )}
           </p>
         )}
-        {error && <p className="modal-error">{error}</p>}
+        {error && (
+          <p className="modal-error" role="alert">
+            {error}
+          </p>
+        )}
 
-        {mode === 'register' && (
-          <label className="field">
-            <span>{t('Nom affiché', 'Display name')}</span>
-            <input
+        <form
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (canSubmit && !busy) void submit();
+          }}
+        >
+          {mode === 'register' && (
+            <Input
               type="text"
+              libelle={t('Nom affiché', 'Display name')}
+              requis
+              erreur={erreurNom}
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
+              onBlur={() => quitter('nom')}
               placeholder={t('Abeille', 'Worker bee')}
               autoComplete="name"
             />
-          </label>
-        )}
+          )}
 
-        <label className="field">
-          <span>{t('Email', 'Email')}</span>
-          <input
+          <Input
             type="email"
+            libelle={t('Email', 'Email')}
+            requis
+            erreur={erreurEmail}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
+            onBlur={() => quitter('email')}
             placeholder="vous@exemple.fr"
             autoComplete="email"
             autoFocus
           />
-        </label>
 
-        <label className="field">
-          <span>
-            {t('Mot de passe', 'Password')}
-            {mode === 'register' && (
-              <>
-                {' '}
-                <small className="muted-text">
-                  {t(`(${MDP_MIN} caractères minimum)`, `(${MDP_MIN} characters minimum)`)}
-                </small>
-              </>
-            )}
-          </span>
-          <input
+          <Input
             type="password"
+            libelle={t('Mot de passe', 'Password')}
+            requis
+            aide={
+              mode === 'register'
+                ? t(`${MDP_MIN} caractères minimum.`, `${MDP_MIN} characters minimum.`)
+                : undefined
+            }
+            erreur={erreurMdp}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            onBlur={() => quitter('mdp')}
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
-            onKeyDown={(e) => e.key === 'Enter' && canSubmit && !busy && void submit()}
           />
-        </label>
 
-        <div className="modal-actions">
-          <button className="btn ghost" onClick={onClose} disabled={busy}>
-            {t('Annuler', 'Cancel')}
-          </button>
-          <button
-            className="btn primary"
-            onClick={() => void submit()}
-            disabled={busy || !canSubmit}
-          >
-            {busy
-              ? t('Un instant…', 'One moment…')
-              : mode === 'login'
-                ? t('Se connecter', 'Sign in')
-                : t('Créer le compte', 'Create the account')}
-          </button>
-        </div>
+          <div className="modal-actions">
+            <button type="button" className="btn ghost" onClick={onClose} disabled={busy}>
+              {t('Annuler', 'Cancel')}
+            </button>
+            <button type="submit" className="btn primary" disabled={busy || !canSubmit}>
+              {busy
+                ? t('Un instant…', 'One moment…')
+                : mode === 'login'
+                  ? t('Se connecter', 'Sign in')
+                  : t('Créer le compte', 'Create the account')}
+            </button>
+          </div>
+        </form>
       </div>
     </Voile>
   );

@@ -1,0 +1,33 @@
+
+> vt@1.0.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /hive/tache
+
+ ❯ tests/a.test.js (1 test | 1 failed) 17ms
+   × ancien 13ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/a.test.js > ancien
+AssertionError: expected 'cassé' to be 'réparé' // Object.is equality
+
+Expected: "réparé"
+Received: "cassé"
+
+ ❯ tests/a.test.js:301:40
+    299| // remplissage : ce fichier passe en premier
+    300| // remplissage : ce fichier passe en premier
+    301| test('ancien', () => { expect('cassé').toBe('réparé'); });
+       |                                        ^
+    302|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (2)
+      Tests  1 failed (1)
+   Start at  10:52:55
+   Duration  238ms (transform 29ms, setup 0ms, import 49ms, tests 17ms, environment 0ms)
+
