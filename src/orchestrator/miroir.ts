@@ -360,6 +360,14 @@ export class Miroir {
    * la ruche ne sert plus — un miroir cloné depuis une adresse interne avant
    * le filtre ne doit pas continuer d'en montrer le contenu comme « la copie
    * d'hier ».
+   *
+   * SAUF `introuvable` : un nom qui ne se résout pas À CET INSTANT n'est pas
+   * une destination interdite. Un hoquet du DNS (`EAI_AGAIN`, délai) sur
+   * github.com effaçait la copie qu'un amont muet, lui, laisse servir — tout
+   * ce fichier existe pour garder « la copie d'hier + avertissement » quand
+   * l'amont est injoignable (revue indépendante de #521). Le rafraîchissement
+   * échoue, la copie reste ; un nom interne qui se résout de nouveau tombe
+   * sur `interne` au passage suivant.
    */
   private async juger(dir: string, repoUrl: string): Promise<Epinglage> {
     if (estCheminLocalAbsolu(repoUrl)) return SANS_EPINGLAGE;
@@ -368,7 +376,7 @@ export class Miroir {
         ...(this.resoudre ? { resoudre: this.resoudre } : {}),
       });
     } catch (e) {
-      if (e instanceof DestinationRefusee) {
+      if (e instanceof DestinationRefusee && e.motif !== 'introuvable') {
         await fs.rm(voisinDeReclone(dir), { recursive: true, force: true, maxRetries: 10 });
         await fs.rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
       }

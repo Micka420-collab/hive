@@ -13740,7 +13740,10 @@ async function monterReine(
     } catch (e) {
       // Une destination refusée n'a pas de « copie d'hier » : le miroir l'a
       // effacée (`Miroir.juger`). Le journal garde l'adresse ; la réponse, non.
-      if (e instanceof DestinationRefusee) {
+      // `introuvable` est l'exception : un nom qui ne se résout pas À CET
+      // INSTANT est un amont injoignable, traité comme tel ci-dessous — la
+      // copie d'hier reste servie.
+      if (e instanceof DestinationRefusee && e.motif !== 'introuvable') {
         app.log.warn({ projet: project.id, detail: e.detail }, 'miroir : destination refusée');
         reply.code(403).send({ error: e.message, motif: e.motif });
         return false;

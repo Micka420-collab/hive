@@ -248,6 +248,22 @@ describe('LES DESTINATIONS DE CLONAGE, AVEC UN VRAI GIT (#521)', () => {
       expect(filtre.existe('bascule')).toBe(false);
     });
 
+    it('UN HOQUET DU DNS NE FAIT PAS PERDRE LA COPIE D’HIER : `introuvable` échoue sans effacer', async () => {
+      // Trouvé par la revue indépendante de #521 : tout refus effaçait le
+      // miroir, y compris un `EAI_AGAIN` passager sur une forge légitime.
+      const racine = path.join(dir, 'rayons-hoquet');
+      await new Miroir(racine).rafraichir('hoquet', `http://127.0.0.1:${p1}/depot.git`);
+      const hoquet: Resolveur = async () => {
+        throw new Error('getaddrinfo EAI_AGAIN depot.test');
+      };
+      const filtre = new Miroir(racine, { politique: FILTREE, resoudre: hoquet });
+      expect(await motif(filtre.rafraichir('hoquet', `http://depot.test:${p1}/depot.git`))).toBe(
+        'introuvable',
+      );
+      expect(filtre.existe('hoquet')).toBe(true);
+      expect((await filtre.lister('hoquet', '')).map((e) => e.nom)).toContain('README.md');
+    });
+
     it('un chemin local (réservé à un administrateur) ne passe pas par le filtre', async () => {
       const miroir = new Miroir(path.join(dir, 'rayons-local'), { politique: FILTREE });
       await miroir.rafraichir('local', nu);
@@ -263,6 +279,7 @@ describe('LES DESTINATIONS DE CLONAGE, AVEC UN VRAI GIT (#521)', () => {
     const dnsBanc: Resolveur = async (hote) => {
       if (hote === 'github.com') return ['140.82.112.3'];
       if (hote === 'interne.exemple.org') return ['10.0.0.5'];
+      if (hote === 'hoquet.test') throw new Error('getaddrinfo EAI_AGAIN hoquet.test');
       throw new Error(`ENOTFOUND ${hote}`);
     };
 
@@ -345,6 +362,27 @@ describe('LES DESTINATIONS DE CLONAGE, AVEC UN VRAI GIT (#521)', () => {
       });
       expect(res.status).toBe(403);
       expect(((await res.json()) as { motif: string }).motif).toBe('interne');
+      expect(s1.srv.etat.requetes).toBe(0);
+    });
+
+    it('le Rayon sert la copie d’hier quand le DNS hoquette — comme pour un amont muet', async () => {
+      const id = server.store.createProject({
+        name: 'Projet au DNS capricieux',
+        repoUrl: `http://hoquet.test:${p1}/depot.git`,
+        visibility: 'public',
+      }).id;
+      // La copie d'hier, posée là où la Reine range ses miroirs.
+      await new Miroir(path.join(dir, 'reine', 'rayons')).rafraichir(
+        id,
+        `http://127.0.0.1:${p1}/depot.git`,
+      );
+      s1.srv.etat.requetes = 0;
+      const res = await fetch(`${base}/api/projects/${id}/rayon`, {
+        headers: { authorization: `Bearer ${jeton}` },
+      });
+      expect(res.status).toBe(200);
+      const { entrees } = (await res.json()) as { entrees: { nom: string }[] };
+      expect(entrees.map((e) => e.nom)).toContain('README.md');
       expect(s1.srv.etat.requetes).toBe(0);
     });
   });

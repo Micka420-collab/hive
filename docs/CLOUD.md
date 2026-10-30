@@ -120,7 +120,7 @@ L'image porte git : la Queen clone les dépôts des projets pour le Rayon. Sans 
 
 Le refus tombe à la création du projet (400, motif `interne`, `introuvable`, `illisible`, `transport` ou `hote_hors_liste`) et à chaque rafraîchissement du Rayon (403) — un projet créé avant le filtre compris : sa copie est alors **effacée**, jamais servie comme « la copie d'hier ». La réponse ne dit jamais l'adresse qu'un nom a résolue ; le journal de la Queen, si.
 
-`HIVE_CLONE_HOTES=github.com,gitlab.com,*.gitlab.com` restreint en plus aux forges nommées. Une forge interne légitime : `HIVE_CLONE_DESTINATIONS=libres`, en connaissance de cause. Une valeur inconnue arrête la Queen au démarrage (code 2).
+`HIVE_CLONE_HOTES=github.com,gitlab.com,*.gitlab.com` restreint en plus aux forges nommées. Une forge interne légitime : `HIVE_CLONE_DESTINATIONS=libres`, en connaissance de cause — en mode `libres`, la liste d'hôtes est la SEULE garde : rien n'est résolu, épinglé ni coupé, et les hôtes listés restent exposés au DNS rebinding et aux redirections. Une valeur inconnue arrête la Queen au démarrage (code 2).
 
 Limites, dites : un **proxy HTTP** inscrit dans la configuration git de l'hôte résout à la place de curl — l'épinglage ne s'applique plus, le jugement du nom si. Et ce filtre protège la machine de la **Queen** : une ouvrière clone sur la machine de son membre, dans son réseau, avec ses identifiants — c'est un autre modèle de menace.
 
