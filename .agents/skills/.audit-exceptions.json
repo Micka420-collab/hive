@@ -1,0 +1,12 @@
+[
+  {
+    "fichier": "hive-security-review/SKILL.md",
+    "regle": "secret",
+    "raison": "Nomme le jeton de ruche (HIVE_TOKEN) pour demander QUI peut appeler une route ; ne demande jamais de le lire ni de l'afficher."
+  },
+  {
+    "fichier": "testing-hive-dashboard/SKILL.md",
+    "regle": "secret",
+    "raison": "Liste les clés du .env qui comptent pour un essai local (HIVE_TOKEN, HIVE_JWT_SECRET) ; le skill dit explicitement de ne pas imprimer ni committer leurs valeurs."
+  }
+]

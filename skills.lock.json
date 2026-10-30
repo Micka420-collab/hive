@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "skills": [
+    {
+      "nom": "differential-review",
+      "source": "https://github.com/trailofbits/skills",
+      "commit": "2be6433b39e009cd2b6fd3be1895f6b1faa5af9a",
+      "chemin": "plugins/differential-review/skills/differential-review",
+      "empreinte": "965e48b69aad8c4e490a21378fbeb7f4dd12ecdf02c12a69b3e8fc0b0d88022b",
+      "licence": "CC-BY-SA-4.0",
+      "scripts": false,
+      "audit": {
+        "par": "Claude (relecture assistée) — à contre-signer par un mainteneur",
+        "le": "2026-10-30",
+        "notes": "SKILL.md lu en entier ; methodology, adversarial, patterns, reporting balayés (aucune URL externe hors schéma SVG). Revue de sécurité de diff : trains d'intégration, PR à risque.",
+        "exceptions": [
+          {
+            "fichier": "SKILL.md",
+            "regle": "outils-larges",
+            "raison": "allowed-tools pré-autorise Bash (git blame, grep sur l'arbre revu) ; à n'activer que sur un dépôt de confiance."
+          }
+        ]
+      }
+    },
+    {
+      "nom": "agentic-actions-auditor",
+      "source": "https://github.com/trailofbits/skills",
+      "commit": "2be6433b39e009cd2b6fd3be1895f6b1faa5af9a",
+      "chemin": "plugins/agentic-actions-auditor/skills/agentic-actions-auditor",
+      "empreinte": "72e9723e627a5f2505174ee51f2cdab1b8c78c0147d3601783a3ae9690321669",
+      "licence": "CC-BY-SA-4.0",
+      "scripts": false,
+      "audit": {
+        "par": "Claude (relecture assistée) — à contre-signer par un mainteneur",
+        "le": "2026-10-30",
+        "notes": "En-tête et références signalées lus : les motifs relevés sont des EXEMPLES d'attaques documentées, pas des ordres. Audit des workflows GitHub qui font tourner des agents (boucle V3 Hive → Hive).",
+        "exceptions": [
+          {
+            "fichier": "SKILL.md",
+            "regle": "outils-larges",
+            "raison": "allowed-tools pré-autorise Bash pour lister et lire les workflows ; skill d'audit en lecture."
+          },
+          {
+            "fichier": "references/cross-file-resolution.md",
+            "regle": "secret",
+            "raison": "Explique qu'un secrets.ANTHROPIC_API_KEY dans une action composite ne se résout pas — documentation du modèle de secrets GitHub."
+          },
+          {
+            "fichier": "references/vector-f-subshell-expansion.md",
+            "regle": "tuyau-vers-shell",
+            "raison": "Cite `echo $(curl … | sh)` comme exemple de contournement d'une liste d'outils restreinte — à détecter, pas à exécuter."
+          }
+        ]
+      }
+    },
+    {
+      "nom": "security-threat-model",
+      "source": "https://github.com/openai/skills",
+      "commit": "49f948faa9258a0c61caceaf225e179651397431",
+      "chemin": "skills/.curated/security-threat-model",
+      "empreinte": "c3a968004c25b9c7aaf133801adba36962e7ab34a7d073834c084472d7854eee",
+      "licence": "Apache-2.0",
+      "scripts": false,
+      "audit": {
+        "par": "Claude (relecture assistée) — à contre-signer par un mainteneur",
+        "le": "2026-10-30",
+        "notes": "Instructions seules, aucune trouvaille. Dépôt openai/skills déprécié au profit d'openai/plugins : épinglé, sans mise à jour attendue.",
+        "exceptions": []
+      }
+    },
+    {
+      "nom": "gh-fix-ci",
+      "source": "https://github.com/openai/skills",
+      "commit": "49f948faa9258a0c61caceaf225e179651397431",
+      "chemin": "skills/.curated/gh-fix-ci",
+      "empreinte": "cfd48b5727ca3e6fd4906fa5c472739a73301c99f5b4dc30b1589cfdc6cd1a0e",
+      "licence": "Apache-2.0",
+      "scripts": true,
+      "audit": {
+        "par": "Claude (relecture assistée) — à contre-signer par un mainteneur",
+        "le": "2026-10-30",
+        "notes": "SKILL.md lu ; scripts/inspect_pr_checks.py n'appelle que `gh` et `git rev-parse` sans shell. Lit les journaux de CI avec les droits gh du membre ; n'implémente qu'après approbation.",
+        "exceptions": []
+      }
+    },
+    {
+      "nom": "skill-creator",
+      "source": "https://github.com/anthropics/skills",
+      "commit": "ca45fc496a3436251f191354091d557da31c15b5",
+      "chemin": "skills/skill-creator",
+      "empreinte": "4557d54c524c67984e4bab23fa436e90196292ae8df4d2093f0ce0e6951bfc1c",
+      "licence": "Apache-2.0",
+      "scripts": true,
+      "audit": {
+        "par": "Claude (relecture assistée) — à contre-signer par un mainteneur",
+        "le": "2026-10-30",
+        "notes": "Scripts d'évaluation : lancent `claude -p` (abonnement du membre, coûte des crédits), le visualiseur tue tout processus qui écoute sur son port (lsof) et charge Google Fonts. À lancer à la main, jamais en automatique.",
+        "exceptions": [
+          {
+            "fichier": "scripts/improve_description.py",
+            "regle": "secret",
+            "raison": "Docstring : précise qu'AUCUNE ANTHROPIC_API_KEY n'est nécessaire (authentification de la session Claude Code)."
+          }
+        ]
+      }
+    },
+    {
+      "nom": "mcp-builder",
+      "source": "https://github.com/anthropics/skills",
+      "commit": "ca45fc496a3436251f191354091d557da31c15b5",
+      "chemin": "skills/mcp-builder",
+      "empreinte": "3e62325b392401dfffcc7ce0db0e11e27ed5910d8f903973ee93e860bf067d83",
+      "licence": "Apache-2.0",
+      "scripts": true,
+      "audit": {
+        "par": "Claude (relecture assistée) — à contre-signer par un mainteneur",
+        "le": "2026-10-30",
+        "notes": "Pour exposer Hive comme serveur MCP (roadmap P2). scripts/evaluation.py appelle l'API Anthropic avec la clé de l'environnement : à lancer à la main.",
+        "exceptions": [
+          {
+            "fichier": "reference/evaluation.md",
+            "regle": "secret",
+            "raison": "Documente `export ANTHROPIC_API_KEY=…` pour lancer l'évaluation ; aucune lecture ni envoi de clé."
+          }
+        ]
+      }
+    }
+  ]
+}
