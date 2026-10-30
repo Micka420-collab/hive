@@ -84,6 +84,8 @@ describe('les liens `hive://` — une route de l’écran, rien d’autre', () =
   it('tout autre lien est refusé', () => {
     for (const lien of [
       'hive://supprimer/tout',
+      // La porte : un billet, pas une route — c'est `billetDuLienProfond` qui le lit.
+      'hive://rejoindre/hive2_abc',
       'hive://ouvrir/projets?jeton=x',
       'hive://ouvrir/projets#x',
       'hive://ouvrir/a b',
@@ -294,6 +296,22 @@ describe('la page de la fenêtre — décidée sur les faits de l’état (#532)
     expect(pageVoulue(base, null, false)).toBe('ecran');
     expect(pageVoulue(base, REINE, false)).toBeNull();
     expect(pageVoulue({ ...base, origine: null }, REINE, false)).toBeNull();
+  });
+
+  it('une ruche amie PROPOSÉE retient l’accueil, quoi qu’ait lu la personne ; en ligne, l’écran reprend', () => {
+    const amie = (etat: 'proposee' | 'en-cours' | 'en-ligne' | 'arretee') => ({
+      ...base,
+      amie: { etat },
+    });
+    expect(pageVoulue(amie('proposee'), REINE, true)).toBe('accueil');
+    expect(pageVoulue(amie('proposee'), null, true)).toBe('accueil');
+    // En cours ou tombée : l'accueil a à dire — il garde la main tant que la
+    // personne ne l'a pas quitté elle-même.
+    expect(pageVoulue(amie('en-cours'), null, false)).toBeNull();
+    expect(pageVoulue(amie('arretee'), null, false)).toBeNull();
+    expect(pageVoulue(amie('en-cours'), null, true)).toBe('ecran');
+    // En ligne : rien à retenir, l'écran de SA Reine.
+    expect(pageVoulue(amie('en-ligne'), null, false)).toBe('ecran');
   });
 
   it('l’accueil qui a quelque chose à dire garde la fenêtre jusqu’au geste', () => {

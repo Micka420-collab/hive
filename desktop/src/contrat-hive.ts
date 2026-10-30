@@ -80,6 +80,20 @@ export interface ModuleLibelles {
   readonly libelleAgent: (agentType: string, anglais?: boolean) => string;
 }
 
+/** `src/shared/porte.ts` : le lien `hive://rejoindre/<billet>` que la page de la porte remet à l'app. */
+export interface ModulePorte {
+  readonly billetDuLienProfond: (
+    brut: unknown,
+    limites: { readonly id: number; readonly nom: number },
+  ) => {
+    readonly url: string;
+    readonly id: string;
+    readonly secret: string;
+    readonly label?: string;
+  } | null;
+  readonly HOTE_LIEN_PROFOND: string;
+}
+
 /** `src/ecriture-atomique.ts`. */
 export interface ModuleEcriture {
   readonly ecrireAtomique: (chemin: string, contenu: string, mode?: number) => void;
@@ -97,8 +111,9 @@ export interface Hive {
   readonly libelles: ModuleLibelles;
   readonly installeur: RecetteReglages;
   readonly ecriture: ModuleEcriture;
-  /** Les fichiers que l'app lance en mode Node. */
-  readonly fichiers: { readonly cli: string };
+  readonly porte: ModulePorte;
+  /** Les fichiers que l'app lance en mode Node. `join` : l'ouvrière chez une ruche amie. */
+  readonly fichiers: { readonly cli: string; readonly join: string };
 }
 
 /** Les modules, relatifs à la racine — la table que le banc du contrat relit. */
@@ -109,19 +124,23 @@ export const MODULES_HIVE = {
   libelles: 'dist/shared/agent-libelle.js',
   installeur: 'dist/installer.js',
   ecriture: 'dist/ecriture-atomique.js',
+  porte: 'dist/shared/porte.js',
 } as const;
 
 export async function chargerHive(racine: string): Promise<Hive> {
   const charger = async <T>(rel: string): Promise<T> =>
     (await import(pathToFileURL(path.join(racine, rel)).href)) as T;
-  const [demarrage, superviseur, agents, libelles, installeur, ecriture] = await Promise.all([
-    charger<ModuleDemarrage<PlanOpaque>>(MODULES_HIVE.demarrage),
-    charger<ModuleSuperviseur>(MODULES_HIVE.superviseur),
-    charger<ModuleAgents>(MODULES_HIVE.agents),
-    charger<ModuleLibelles>(MODULES_HIVE.libelles),
-    charger<RecetteReglages>(MODULES_HIVE.installeur),
-    charger<ModuleEcriture>(MODULES_HIVE.ecriture),
-  ]);
+  const [demarrage, superviseur, agents, libelles, installeur, ecriture, porte] = await Promise.all(
+    [
+      charger<ModuleDemarrage<PlanOpaque>>(MODULES_HIVE.demarrage),
+      charger<ModuleSuperviseur>(MODULES_HIVE.superviseur),
+      charger<ModuleAgents>(MODULES_HIVE.agents),
+      charger<ModuleLibelles>(MODULES_HIVE.libelles),
+      charger<RecetteReglages>(MODULES_HIVE.installeur),
+      charger<ModuleEcriture>(MODULES_HIVE.ecriture),
+      charger<ModulePorte>(MODULES_HIVE.porte),
+    ],
+  );
   return {
     racine,
     demarrage,
@@ -130,6 +149,10 @@ export async function chargerHive(racine: string): Promise<Hive> {
     libelles,
     installeur,
     ecriture,
-    fichiers: { cli: path.join(racine, 'dist', 'cli.js') },
+    porte,
+    fichiers: {
+      cli: path.join(racine, 'dist', 'cli.js'),
+      join: path.join(racine, 'dist', 'node-client', 'join.js'),
+    },
   };
 }

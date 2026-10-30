@@ -89,6 +89,16 @@ export function notificationMortOuvriere(nom: string, message: string): Notifica
   return { titre: `${nom} s’est arrêtée`, corps: message.replace(/^✘\s*/, ''), route: '' };
 }
 
+/** L'ouvrière amie butine : ce que la personne attendait depuis la page de la porte. */
+export function notificationAmieEnLigne(label: string): NotificationRuche {
+  return {
+    titre: `Vous butinez pour « ${label} »`,
+    corps:
+      'Votre ordinateur travaille pour cette ruche. Hive vous le dira quand on lui confie une tâche.',
+    route: '',
+  };
+}
+
 /** Les relances épuisées : la Reine ne reviendra pas seule. Le clic ramène la fenêtre sur l'écran d'erreur. */
 export const NOTIFICATION_REINE_ARRETEE: NotificationRuche = {
   titre: 'La Reine s’est arrêtée',

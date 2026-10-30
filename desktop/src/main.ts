@@ -39,7 +39,7 @@ import { shellEnv } from 'shell-env';
 import { ARGUMENT_SESSION, poserSession, sessionActive } from './autostart.js';
 import { creerBarre } from './barre.js';
 import { cheminsApp, metaApp } from './chemins.js';
-import { chargerHive } from './contrat-hive.js';
+import { chargerHive, type Hive } from './contrat-hive.js';
 import { argumentDiagnostic, executerDiagnostic } from './diagnostic.js';
 import { etat, etatPourAccueil, majEtat, surEtat } from './etat.js';
 import { creerFenetre, marquerQuitter, ramener, verrouillerSession } from './fenetre.js';
@@ -128,6 +128,8 @@ const RUCHE = cheminsRuche(DONNEES);
 
 let fenetre: BrowserWindow | null = null;
 let ruche: RucheBureau | null = null;
+/** Les modules de Hive une fois chargés (`chargerHive`) : la porte en lit les billets. */
+let hiveCharge: Hive | null = null;
 /** La route (`#/…`) demandée avant que l'écran soit prêt — un lien `hive://`, une notification. */
 let routeEnAttente = '#/';
 /** L'origine que la fenêtre affiche (ou charge) — `null` : elle est sur l'accueil. */
@@ -210,13 +212,63 @@ function ouvrirRoute(route: string): void {
   allerALEcran(route === '' ? '#/' : `#/${route}`);
 }
 
+// ─── LA PORTE : `hive://rejoindre/<billet>` ──────────────────────────────────
+//
+// La page de la porte (servie par la ruche d'un ami) remet ce lien à l'app.
+// On ne rejoint RIEN sans un geste de la personne : le billet est gardé ici,
+// l'accueil montre le nom de la ruche et son adresse, et attend « Rejoindre »
+// ou « Pas maintenant ». Un second lien remplace la proposition en attente.
+let billetAmie: string | null = null;
+/** Un lien arrivé avant que la ruche soit chargée : relu dès qu'elle l'est. */
+let lienEnAttente: string | null = null;
+
+function proposerAmie(lien: string): boolean {
+  if (ruche === null) {
+    lienEnAttente = lien;
+    return true;
+  }
+  const billet = hiveCharge?.porte.billetDuLienProfond(lien, { id: 64, nom: 120 }) ?? null;
+  if (billet === null) return false;
+  billetAmie = lien;
+  const label = billet.label ?? billet.url;
+  journal.info(`porte : rejoindre « ${label} » proposé (${billet.url})`);
+  majEtat({ amie: { label, url: billet.url, etat: 'proposee', detail: null } });
+  if (fenetre !== null) ramener(fenetre);
+  montrerAccueil();
+  return true;
+}
+
+async function repondreAmie(choix: 'rejoindre' | 'refuser' | 'quitter'): Promise<boolean> {
+  if (ruche === null) return false;
+  if (choix === 'quitter') {
+    billetAmie = null;
+    await ruche.quitterAmie();
+    return true;
+  }
+  const a = etat().amie;
+  if (a === null || a.etat !== 'proposee' || billetAmie === null) return false;
+  const lien = billetAmie;
+  billetAmie = null;
+  if (choix === 'refuser') {
+    majEtat({ amie: null });
+    return true;
+  }
+  const billet = hiveCharge?.porte.billetDuLienProfond(lien, { id: 64, nom: 120 }) ?? null;
+  if (billet === null) return false;
+  // Le billet encodé, tel que la page l'a remis : c'est l'argument de `hive join`.
+  const encode = new URL(lien).pathname.replace(/^\/+/, '').replace(/\/+$/, '');
+  await ruche.rejoindreAmie(encode, a.label, a.url);
+  return true;
+}
+
 function suivreLien(lien: string): void {
   const route = routeDepuisLien(lien);
-  if (route === null) {
-    journal.warn(`lien refusé : ${lien}`);
+  if (route !== null) {
+    allerALEcran(route);
     return;
   }
-  allerALEcran(route);
+  if (proposerAmie(lien)) return;
+  journal.warn(`lien refusé : ${lien}`);
 }
 
 /** « Redémarrer » (barre, accueil) : rien avant que la reprise ait décidé quelle ruche lancer. */
@@ -286,6 +338,11 @@ function brancherAppels(): void {
   // « Réessayer » et « Relancer la détection » : le même geste — la sonde des
   // agents se refait à chaque démarrage.
   ipcMain.handle('hive:accueil:reessayer', (e) => depuisAccueil(e) && redemarrerLaRuche());
+  ipcMain.handle('hive:accueil:amie', (e, choix: unknown) => {
+    if (!depuisAccueil(e)) return false;
+    if (choix !== 'rejoindre' && choix !== 'refuser' && choix !== 'quitter') return false;
+    return repondreAmie(choix);
+  });
   ipcMain.handle('hive:accueil:ecran', (e) => {
     if (!depuisAccueil(e) || etat().origine === null) return false;
     allerALEcran(routeEnAttente);
@@ -451,7 +508,9 @@ async function sauvegarderSiNouvelleVersion(): Promise<void> {
 
 let sortieEnCours = false;
 async function arreterLaRuche(): Promise<void> {
-  if (ruche !== null) await ruche.arreter();
+  if (ruche === null) return;
+  await ruche.quitterAmie();
+  await ruche.arreter();
 }
 
 app.on('before-quit', (e) => {
@@ -517,6 +576,7 @@ async function demarrer(): Promise<void> {
   }
 
   const hive = await chargerHive(CHEMINS.racineHive);
+  hiveCharge = hive;
   ruche = new RucheBureau({
     hive,
     chemins: RUCHE,
@@ -541,7 +601,16 @@ async function demarrer(): Promise<void> {
   ecouterLaRuche(notifier);
 
   const lienDeDepart = lienDansArgv(process.argv);
-  if (lienDeDepart !== null) routeEnAttente = routeDepuisLien(lienDeDepart) ?? '#/';
+  if (lienDeDepart !== null) {
+    const route = routeDepuisLien(lienDeDepart);
+    if (route !== null) routeEnAttente = route;
+    else if (!proposerAmie(lienDeDepart)) journal.warn(`lien refusé : ${lienDeDepart}`);
+  }
+  if (lienEnAttente !== null) {
+    const l = lienEnAttente;
+    lienEnAttente = null;
+    if (!proposerAmie(l)) journal.warn(`lien refusé : ${l}`);
+  }
 
   const lancer = DIAGNOSTIC !== null ? true : await reprendre();
   if (lancer) {

@@ -25,6 +25,7 @@ import { libelleAgent } from '../shared/agent-libelle.js';
 import { HiveNodeClient, arreterSurSignaux } from './client.js';
 import { decodeInvite } from '../shared/invite.js';
 import { decoderBillet, encoderBillet, jugerTransport, urlHttpDeRuche } from '../shared/acces.js';
+import { billetDuLien, billetDuLienProfond } from '../shared/porte.js';
 import type { Billet } from '../shared/acces.js';
 import { LIMITS } from '../shared/protocol.js';
 import {
@@ -190,7 +191,7 @@ async function attendreSurLeReseau(
     // en silence une offre qui ne pourra jamais arriver serait le pire des cas.
     console.error(
       `\n✘ Impossible de se signaler sur le réseau local : ${err instanceof Error ? err.message : String(err)}\n` +
-        '  Rejoignez avec un billet : `hive join hive2_…` (l’hôte le crée d’un clic sur « Inviter »).',
+        '  Rejoignez avec le lien reçu : `hive join https://…/r/…` (l’hôte le crée d’un clic sur « Inviter »).',
     );
     process.exit(CODE.PREREQUIS);
   } finally {
@@ -246,14 +247,22 @@ async function main(): Promise<void> {
   }
   if (!raw && !dejaAccueillie) raw = await askInvite();
 
-  // Deux formats, deux modèles de sécurité :
+  // Trois formes, deux modèles de sécurité :
+  //   • un LIEN DE PORTE `https://…/r/<id>#hive2_…` ou `hive://rejoindre/…` —
+  //     ce que l'hôte partage désormais : le billet est dans le fragment, et
+  //     on le relit ici (`shared/porte.ts`) ;
   //   • `hive2_` — un BILLET. Éphémère et révocable, échangé contre une clé
   //     propre à ce nœud. C'est le chemin normal.
   //   • `hive1_` — l'ancienne invitation, qui CONTIENT le token maître. Toujours
   //     acceptée (des ruches tournent avec), mais on le dit franchement.
   //   • ni l'un ni l'autre : la REPRISE d'une machine déjà accueillie sur le
   //     réseau local (`dejaAccueillie`), avec sa clé et l'adresse mémorisées.
-  const billet = dejaAccueillie ? null : decoderBillet(raw, { id: LIMITS.id, nom: LIMITS.name });
+  const limites = { id: LIMITS.id, nom: LIMITS.name };
+  const billet = dejaAccueillie
+    ? null
+    : (billetDuLien(raw, limites) ??
+      billetDuLienProfond(raw, limites) ??
+      decoderBillet(raw, limites));
   const invite = billet || dejaAccueillie ? null : decodeInvite(raw);
   if (!dejaAccueillie && !billet && !invite) {
     console.error(
