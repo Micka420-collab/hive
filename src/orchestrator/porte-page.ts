@@ -173,12 +173,13 @@ main{width:100%;max-width:600px;margin:0 auto;padding:40px 20px 56px;flex:1}
 .alv{fill:var(--panel);stroke:var(--border-2);stroke-width:1.5}
 .alv.attend{fill:none;stroke:var(--miel);stroke-width:2;stroke-dasharray:6 7;animation:tourne 9s linear infinite}
 .alv.pleine{fill:var(--miel);stroke:var(--miel);stroke-dasharray:none;animation:none}
+.alv.fermee{fill:var(--panel);stroke:var(--border-2);stroke-width:1.5;stroke-dasharray:none;animation:none}
 @keyframes tourne{to{stroke-dashoffset:-78}}
 h1{font:600 clamp(28px,6vw,40px)/1.08 var(--titre);letter-spacing:-.035em;margin:0 0 14px;text-wrap:balance}
 .sous{color:var(--muted);margin:0 0 30px;max-width:48ch}
 .sous strong{color:var(--text);font-weight:600}
 .geste{display:flex;flex-direction:column;gap:12px;margin:0 0 34px}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;min-height:48px;padding:0 20px;border-radius:var(--r);font:600 16px/1 var(--texte);text-decoration:none;cursor:pointer;border:1px solid transparent;transition:background .16s ease,border-color .16s ease}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 20px;border-radius:var(--r);font:600 16px/1 var(--texte);text-decoration:none;cursor:pointer;border:1px solid transparent;transition:background .16s ease,border-color .16s ease}
 .btn.primaire{background:var(--miel);color:var(--encre);border-color:var(--miel)}
 .btn.primaire:hover{background:#ffd25c}
 .btn.second{background:var(--panel);color:var(--text);border-color:var(--border-2)}
@@ -278,7 +279,7 @@ if(!billet){
   return;
 }
 var label=billet.label&&billet.label.length<=200?billet.label:null;
-if(label){titre.textContent='Rejoindre « '+label+' »';document.title='Rejoindre « '+label+' » — Hive'}
+if(label){titre.textContent='Rejoindre «\u00a0'+label+'\u00a0»';document.title='Rejoindre « '+label+' » — Hive'}
 
 // ─── Le système, affiné côté navigateur ──────────────────────────────────
 var systeme=C.systeme;
@@ -320,6 +321,7 @@ $('copier').addEventListener('click',function(){
 var secret=billet.s,enAttente=false,minuteur=null,debut=0;
 function quand(ms){try{return new Date(ms).toLocaleString('fr-FR',{day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}catch(e){return new Date(ms).toISOString()}}
 function remplir(){var a=document.querySelector('.alv.attend');if(a){a.classList.remove('attend');a.classList.add('pleine')}}
+function fermer(){var a=document.querySelector('.alv.attend');if(a){a.classList.remove('attend');a.classList.add('fermee')}$('geste').classList.add('cache');$('terminal').classList.add('cache')}
 function lire(){
   return fetch('/api/billets/'+encodeURIComponent(C.id)+'/etat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({secret:secret}),credentials:'omit'})
   .then(function(r){return r.json().then(function(j){return {status:r.status,corps:j}})})
@@ -327,16 +329,17 @@ function lire(){
     var j=rep.corps||{};
     if(rep.status===429){dire('attente','Trop d’essais depuis cette connexion — <strong>patientez une minute</strong>.');return}
     if(rep.status!==200||!j.etat){dire('ferme','<strong>La ruche ne reconnaît pas ce lien.</strong> Redemandez-en un à la personne qui vous invite.');return}
-    if(j.label&&!label){label=j.label;titre.textContent='Rejoindre « '+label+' »';document.title='Rejoindre « '+label+' » — Hive'}
+    if(j.label&&!label){label=j.label;titre.textContent='Rejoindre «\u00a0'+label+'\u00a0»';document.title='Rejoindre « '+label+' » — Hive'}
     var arrivees=Array.isArray(j.arrivees)?j.arrivees:[];
     if(enAttente&&arrivees.length>0&&arrivees[0].quand>=debut){
       remplir();clearInterval(minuteur);
       dire('entre','<strong>« '+texte(arrivees[0].label||'votre machine')+' » est entrée dans la ruche.</strong> Vous pouvez fermer cette page : l’ouvrière continue sur votre ordinateur.');
+      $('geste').classList.add('cache');$('terminal').classList.add('cache');
       return;
     }
-    if(j.etat==='revoque'){clearInterval(minuteur);dire('ferme','<strong>Ce lien a été révoqué</strong> par l’hôte. Demandez-en un nouveau.');$('geste').classList.add('cache');$('terminal').classList.add('cache');return}
-    if(j.etat==='expire'){clearInterval(minuteur);dire('ferme','<strong>Ce lien a expiré</strong> le '+quand(j.expiresAt)+'. Demandez-en un nouveau.');$('geste').classList.add('cache');$('terminal').classList.add('cache');return}
-    if(j.etat==='epuise'){clearInterval(minuteur);dire('ferme','<strong>Ce lien a déjà servi</strong>'+(arrivees.length?' — « '+texte(arrivees[0].label||'une machine')+' » est entrée le '+quand(arrivees[0].quand)+'.':'.')+' Demandez-en un nouveau pour une autre machine.');$('geste').classList.add('cache');$('terminal').classList.add('cache');return}
+    if(j.etat==='revoque'){clearInterval(minuteur);dire('ferme','<strong>Ce lien a été révoqué</strong> par l’hôte. Demandez-en un nouveau.');fermer();return}
+    if(j.etat==='expire'){clearInterval(minuteur);dire('ferme','<strong>Ce lien a expiré</strong> le '+quand(j.expiresAt)+'. Demandez-en un nouveau.');fermer();return}
+    if(j.etat==='epuise'){clearInterval(minuteur);dire('ferme','<strong>Ce lien a déjà servi</strong>'+(arrivees.length?' — « '+texte(arrivees[0].label||'une machine')+' » est entrée le '+quand(arrivees[0].quand)+'.':'.')+' Demandez-en un nouveau pour une autre machine.');fermer();return}
     if(enAttente){dire('attente','<strong>En attente de votre machine…</strong> Dès qu’elle entre, cette alvéole se remplit. L’installation peut prendre une ou deux minutes.');return}
     var places=j.usesLeft===1?'une place':j.usesLeft+' places';
     dire('vivant','Ce lien est valable jusqu’au <strong>'+quand(j.expiresAt)+'</strong> · '+places+'.'+(j.label?'':''));

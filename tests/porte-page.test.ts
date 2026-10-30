@@ -71,7 +71,9 @@ describe('LA PAGE DE LA PORTE', () => {
           arrivees: [],
         },
       ]);
-      expect(document.getElementById('titre')!.textContent).toBe('Rejoindre « Ruche de Micka »');
+      expect(document.getElementById('titre')!.textContent).toBe(
+        'Rejoindre «\u00a0Ruche de Micka\u00a0»',
+      );
       expect(document.getElementById('app')!.getAttribute('href')).toBe(
         `hive://rejoindre/${billetEncode}`,
       );
@@ -143,6 +145,8 @@ describe('LA PAGE DE LA PORTE', () => {
         );
         expect(document.querySelector('.alv.pleine')).not.toBeNull();
         expect(document.querySelector('.alv.attend')).toBeNull();
+        // Le geste est fait : plus de bouton à cliquer.
+        expect(document.getElementById('geste')!.classList.contains('cache')).toBe(true);
         // Plus aucune relecture : la boucle est arrêtée.
         await vi.advanceTimersByTimeAsync(10_000);
         expect(espion).toHaveBeenCalledTimes(3);
