@@ -397,6 +397,7 @@ function gitNu(args, cwd) {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'Never' },
+      shell: false,
       windowsHide: true,
     },
   );
