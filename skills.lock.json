@@ -124,6 +124,21 @@
           }
         ]
       }
+    },
+    {
+      "nom": "frontend-design",
+      "source": "https://github.com/anthropics/skills",
+      "commit": "ca45fc496a3436251f191354091d557da31c15b5",
+      "chemin": "skills/frontend-design",
+      "empreinte": "7e9c2af00fd5b3144f49ce6fb1b16037b392ab9c2f049423b0b6114d99381ba2",
+      "licence": "Apache-2.0",
+      "scripts": false,
+      "audit": {
+        "par": "Claude (relecture assistée) — à contre-signer par un mainteneur",
+        "le": "2026-10-30",
+        "notes": "71 lignes d'instructions, aucune URL, aucun script. Direction de design (typo, palette, mise en page) et autocritique : la base de la refonte du site et de l'écran, à côté de docs/DIRECTION-ARTISTIQUE.md qui, lui, fixe les jetons.",
+        "exceptions": []
+      }
     }
   ]
 }

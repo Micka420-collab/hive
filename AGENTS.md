@@ -83,6 +83,8 @@ non-obvious caveats are captured below.
   `node scripts/skills.mjs synchroniser`. `tests/skills-gouvernance.test.mjs`
   fails on drift, on a non-standard frontmatter, or on an audit finding not
   listed in `.agents/skills/.audit-exceptions.json`.
+- Design: `frontend-design` (pinned, third party) sets the method — direction,
+  type, palette, self-critique; `docs/DIRECTION-ARTISTIQUE.md` sets the tokens.
 - Project skills: `hive-contributor` (conventions, PR loop), `hive-adapter-spoke`
   (agent adapters / worker nodes), `hive-security-review` (Hive threat model),
   `testing-hive-dashboard`, `queen-intelligence-core`.
