@@ -14,6 +14,7 @@ import {
   type ModuleEcriture,
   type ModuleLibelles,
   MODULES_HIVE,
+  type ModulePorte,
   type ModuleSuperviseur,
 } from '../desktop/src/contrat-hive.js';
 import type { RecetteReglages } from '../desktop/src/reglages.js';
@@ -31,6 +32,7 @@ import * as superviseur from '../src/ruche-superviseur.js';
 import * as libelles from '../src/shared/agent-libelle.js';
 import * as demarrage from '../src/shared/demarrage.js';
 import type { PlanOuvrieres } from '../src/shared/demarrage.js';
+import * as porte from '../src/shared/porte.js';
 
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
 
@@ -148,7 +150,8 @@ describe('le contrat : ce que l’app appelle existe, avec cette forme', () => {
     const l: ModuleLibelles = libelles;
     const i: RecetteReglages = installeur;
     const e: ModuleEcriture = ecriture;
-    for (const m of [d, s, a, l, i, e]) expect(m).toBeDefined();
+    const p: ModulePorte = porte;
+    for (const m of [d, s, a, l, i, e, p]) expect(m).toBeDefined();
   });
 
   it('chaque module chargé depuis `dist/` est l’image d’une source de `src/`', () => {

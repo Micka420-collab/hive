@@ -19,6 +19,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   désormais son nom). Le billet entier vit dans le fragment : la ruche ne le
   voit jamais passer. `hive join`, `rejoindre.sh` et `rejoindre.ps1` acceptent
   le lien. `shared/porte.ts`, `orchestrator/porte-page.ts`.
+- **L'application de bureau rejoint une ruche amie d'un clic.** Le lien
+  `hive://rejoindre/<billet>` remis par la page ouvre l'app, qui montre le nom
+  de la ruche et son adresse et attend « Rejoindre cette ruche » : elle lance
+  alors `hive join` avec le billet, à côté de la ruche locale, et dit « Vous
+  butinez pour … » à la connexion. « Quitter cette ruche » l'arrête.
 
 ### Sécurité
 

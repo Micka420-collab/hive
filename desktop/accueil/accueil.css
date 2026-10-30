@@ -191,3 +191,48 @@ button.primaire span {
   gap: 10px;
   margin-top: 16px;
 }
+
+/* ─── La porte : rejoindre la ruche d'un ami ───────────────────────────────
+   Une consigne, l'adresse, et deux gestes — rien ne part sans le premier. */
+.amie-consigne {
+  margin: 0 0 10px;
+  line-height: 1.55;
+}
+.amie-consigne strong {
+  color: var(--texte);
+}
+.amie-adresse {
+  margin: 0 0 14px;
+  color: var(--attenue);
+  font-size: 13px;
+}
+.amie-adresse code {
+  font-family: var(--police-code);
+  font-size: 12.5px;
+  color: var(--texte);
+  background: var(--fond);
+  border: 1px solid var(--bordure);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+.amie-etat {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--bordure);
+  color: var(--attenue);
+  line-height: 1.5;
+}
+.amie-etat.en-cours {
+  border-left-color: var(--miel);
+}
+.amie-etat.en-ligne {
+  border-left-color: var(--succes);
+  color: var(--texte);
+}
+.amie-etat.arretee {
+  border-left-color: var(--alerte);
+  color: var(--texte);
+  font-family: var(--police-code);
+  font-size: 12.5px;
+  white-space: pre-wrap;
+}

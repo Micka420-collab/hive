@@ -76,6 +76,25 @@
         </div>
       </section>
 
+      <!-- La porte : un lien hive://rejoindre/… demande à cette machine de
+           travailler pour la ruche de quelqu'un d'autre. Rien ne part sans
+           un geste ici. -->
+      <section id="amie" hidden>
+        <p class="amie-consigne" id="amie-consigne">
+          <strong id="amie-label"></strong> vous ouvre une alvéole. Votre ordinateur travaillera
+          pour cette ruche avec votre agent de code, dans un dossier jetable — vos fichiers, vos
+          clés et votre propre ruche ne sont pas touchés. Vous pourrez partir quand vous voulez.
+        </p>
+        <p class="amie-adresse">Adresse de la ruche : <code id="amie-url"></code></p>
+        <p class="amie-etat" id="amie-etat" hidden></p>
+        <div class="actions">
+          <button type="button" id="amie-rejoindre" class="primaire">Rejoindre cette ruche</button>
+          <button type="button" id="amie-refuser">Pas maintenant</button>
+          <button type="button" id="amie-quitter" hidden>Quitter cette ruche</button>
+          <button type="button" id="amie-ecran" hidden>Ouvrir ma ruche</button>
+        </div>
+      </section>
+
       <!-- Erreur : la Reine s'est arrêtée, et ne redémarre pas. -->
       <section id="erreur" hidden>
         <p id="erreur-titre"></p>

@@ -85,7 +85,12 @@ interface EtatPourPage {
   readonly origine: string | null;
   readonly portChange: number | null;
   readonly agents: readonly { readonly nonConnecte: string | null }[] | null;
+  /** La ruche amie (la porte) : une proposition ou un démarrage retient l'accueil. */
+  readonly amie?: { readonly etat: 'proposee' | 'en-cours' | 'en-ligne' | 'arretee' } | null;
 }
+
+/** Une ruche amie dont l'accueil doit parler : proposée, en train d'entrer, ou tombée. */
+const amieADire = (s: EtatPourPage): boolean => s.amie != null && s.amie.etat !== 'en-ligne';
 
 /**
  * L'accueil a-t-il quelque chose à dire AVANT Mission Control ? Aucun agent
@@ -94,7 +99,9 @@ interface EtatPourPage {
  */
 export function accueilADire(s: EtatPourPage): boolean {
   return (
-    s.portChange !== null || (s.agents !== null && s.agents.every((a) => a.nonConnecte !== null))
+    s.portChange !== null ||
+    amieADire(s) ||
+    (s.agents !== null && s.agents.every((a) => a.nonConnecte !== null))
   );
 }
 
@@ -116,6 +123,8 @@ export function pageVoulue(
   accueilLu: boolean,
 ): 'accueil' | 'ecran' | null {
   if (s.erreur !== null) return 'accueil';
+  // Une ruche amie PROPOSÉE attend un geste : l'accueil, quoi qu'ait lu la personne.
+  if (s.amie?.etat === 'proposee') return 'accueil';
   if (s.origine === null || s.origine === origineMontree) return null;
   return accueilLu || !accueilADire(s) ? 'ecran' : null;
 }

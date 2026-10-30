@@ -13,6 +13,23 @@ export interface AgentVu {
   readonly nonConnecte: string | null;
 }
 
+/**
+ * La ruche d'un AUTRE, que cette machine rejoint comme ouvrière — ouverte par
+ * un lien `hive://rejoindre/<billet>` (la porte, `shared/porte.ts`).
+ *   · `proposee` : le lien est arrivé, l'accueil demande si on y va ;
+ *   · `en-cours` : l'ouvrière démarre (échange du billet, détection de l'agent) ;
+ *   · `en-ligne` : « ✔ Nœud démarré » — elle butine pour la ruche amie ;
+ *   · `arretee` : sortie, avec sa dernière phrase dans `detail`.
+ * Le billet lui-même ne vit que dans le processus principal : l'accueil n'en
+ * voit que le nom de la ruche et son adresse.
+ */
+export interface RucheAmie {
+  readonly label: string;
+  readonly url: string;
+  readonly etat: 'proposee' | 'en-cours' | 'en-ligne' | 'arretee';
+  readonly detail: string | null;
+}
+
 export interface Etat {
   readonly reine: EtatReine;
   /** `http://127.0.0.1:<port>` une fois la Reine annoncée (ou la ruche externe ouverte). */
@@ -30,6 +47,7 @@ export interface Etat {
   readonly erreur: { readonly titre: string; readonly lignes: readonly string[] } | null;
   readonly session: boolean;
   readonly cspViolations: readonly string[];
+  readonly amie: RucheAmie | null;
 }
 
 const INITIAL: Etat = {
@@ -44,6 +62,7 @@ const INITIAL: Etat = {
   erreur: null,
   session: false,
   cspViolations: [],
+  amie: null,
 };
 
 type Ecouteur = (e: Etat) => void;

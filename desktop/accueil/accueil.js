@@ -7,12 +7,50 @@ const $ = (id) => document.getElementById(id);
 const api = window.hiveAccueil;
 
 function montrer(section) {
-  for (const id of ['demarrage', 'reprise', 'erreur']) $(id).hidden = id !== section;
+  for (const id of ['demarrage', 'reprise', 'amie', 'erreur']) $(id).hidden = id !== section;
+}
+
+/** La ruche amie (la porte) : proposée, en train d'entrer, en ligne, ou tombée. */
+function rendreAmie(a, reineEnLigne) {
+  montrer('amie');
+  $('amie-label').textContent = a.label;
+  $('amie-url').textContent = a.url;
+  const titres = {
+    proposee: 'Rejoindre une ruche ?',
+    'en-cours': 'Entrée dans la ruche…',
+    'en-ligne': 'Vous butinez pour cette ruche',
+    arretee: 'L’ouvrière s’est arrêtée',
+  };
+  $('sous-titre').textContent = titres[a.etat] || '';
+  const etat = $('amie-etat');
+  etat.hidden = a.etat === 'proposee';
+  etat.className = 'amie-etat ' + a.etat;
+  etat.textContent =
+    a.etat === 'en-cours'
+      ? 'Échange du billet, détection de votre agent, première connexion… une minute au plus.'
+      : a.etat === 'en-ligne'
+        ? 'Votre ordinateur travaille pour « ' +
+          a.label +
+          ' ». Vous pouvez fermer cette fenêtre : l’ouvrière continue tant que Hive est ouvert.'
+        : a.etat === 'arretee'
+          ? (a.detail || 'Sans un mot.').replace(/^✘\s*/, '')
+          : '';
+  $('amie-rejoindre').hidden = a.etat !== 'proposee';
+  $('amie-refuser').hidden = a.etat !== 'proposee';
+  $('amie-rejoindre').disabled = false;
+  $('amie-quitter').hidden = a.etat === 'proposee';
+  $('amie-quitter').textContent = a.etat === 'arretee' ? 'Fermer' : 'Quitter cette ruche';
+  $('amie-ecran').hidden = !reineEnLigne || a.etat === 'proposee';
 }
 
 function rendre(e) {
   if (!e) return;
   $('session').checked = e.session === true;
+
+  if (e.amie && (e.amie.etat !== 'en-ligne' || !e.erreur)) {
+    rendreAmie(e.amie, e.reine === 'en-ligne');
+    if (e.amie.etat !== 'en-ligne') return;
+  }
 
   if (e.erreur) {
     montrer('erreur');
@@ -90,6 +128,13 @@ $('choix-ouvrir').addEventListener('click', () => void api.choisir('ouvrir'));
 $('choix-importer').addEventListener('click', () => void api.choisir('importer'));
 $('choix-neuve').addEventListener('click', () => void api.choisir('neuve'));
 $('reessayer').addEventListener('click', () => void api.reessayer());
+$('amie-rejoindre').addEventListener('click', () => {
+  $('amie-rejoindre').disabled = true;
+  void api.amie('rejoindre');
+});
+$('amie-refuser').addEventListener('click', () => void api.amie('refuser'));
+$('amie-quitter').addEventListener('click', () => void api.amie('quitter'));
+$('amie-ecran').addEventListener('click', () => void api.ouvrirEcran());
 $('detecter').addEventListener('click', () => void api.reessayer());
 $('ouvrir-ecran').addEventListener('click', () => void api.ouvrirEcran());
 $('journaux').addEventListener('click', () => void api.ouvrirJournaux());
