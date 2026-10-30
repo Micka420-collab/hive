@@ -5,12 +5,13 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { AccesWarRoom } from '../AccesWarRoom';
 import { AlertesRuche } from '../AlertesRuche';
-import { fetchCockpit } from '../api';
+import { fetchCockpit, fetchPreuve } from '../api';
 import { AutonomiePulse } from '../AutonomiePulse';
 import { DecisionsRecentes } from '../DecisionsRecentes';
 import { useLang, useT } from '../i18n';
 import { Journal } from '../Journal';
 import { NodesPanel } from '../NodesPanel';
+import { PreuveRuche } from '../PreuveRuche';
 import { StatTiles } from '../StatTiles';
 import { annoncesDepuisEvenements, calibrationDepuisEvenements } from '../horloge-vue';
 import { direDuree, direAnnonce } from '../../../src/shared/horloge-chantier';
@@ -75,6 +76,8 @@ export default function Ruche({
   // ils parlent du même instant. Trente secondes, comme les autres relevés de
   // l'accueil ; `refreshTick` relit tout de suite après une reconnexion.
   const cockpit = useApiPoll(fetchCockpit, 30_000, refreshTick);
+  // La preuve suit le même rythme : ce que la ruche a fait de ses productions.
+  const preuve = useApiPoll(fetchPreuve, 30_000, refreshTick);
   const nomsDeNoeuds = useMemo(
     () => new Map(snapshot.nodes.map((n) => [n.id, n.name] as const)),
     [snapshot.nodes],
@@ -127,6 +130,11 @@ export default function Ruche({
             onOpenTask={onOpenTask}
             onNavigate={onNavigate}
           />
+
+          {/* Sous les arrêts, avant l'autonomie : ce que la ruche PROUVE de
+              ses productions — la raison d'être du produit, en quatre
+              fractions comptées sur le journal. */}
+          <PreuveRuche preuve={preuve} />
 
           <AutonomiePulse
             projets={snapshot.projects.map((p) => ({ id: p.id, name: p.name }))}

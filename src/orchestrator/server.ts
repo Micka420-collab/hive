@@ -491,6 +491,7 @@ import {
   decisionsRecentes,
   depenseDepuisEvenements,
 } from './cockpit.js';
+import { releverPreuve, TYPES_PREUVE } from './preuve.js';
 import { computePulse } from './pulse.js';
 import { buildTimeline } from './replay.js';
 import { detectConflicts } from './sting-detector.js';
@@ -5146,6 +5147,21 @@ async function monterReine(
       ),
       ...alertes,
     };
+  });
+
+  /**
+   * LA PREUVE — ce que la ruche peut montrer, chiffres à l'appui, qu'un agent
+   * seul ne fait pas : relecture par une autre famille, bac, validations, coût
+   * déclaré. Relevée sur le journal réel (`preuve.ts`), fenêtre dite, rien
+   * d'estimé. Derrière le jeton, comme le cockpit.
+   */
+  app.get('/api/preuve', async (req, reply) => {
+    if (!authorized(req)) return reject(reply);
+    return releverPreuve(
+      store.evenementsParTypes(TYPES_PREUVE, EVENT_RETENTION),
+      store.listNodes(),
+      store.journalElague(),
+    );
   });
 
   /**
