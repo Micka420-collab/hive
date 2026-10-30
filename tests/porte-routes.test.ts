@@ -187,14 +187,25 @@ describe('LA PORTE (#lien)', () => {
     });
 
     it('voit la machine ENTRER, et le billet passer à épuisé au dernier usage', async () => {
+      // SON billet : la suite tourne dans plusieurs ordres (tamis-ordres), et
+      // consommer le billet partagé ici rendrait « vivant, deux places » faux
+      // pour le banc d'à côté selon qui passe le premier.
+      const deuxPlaces = (await (
+        await poster(
+          '/api/billets',
+          { url: `ws://127.0.0.1:${server.port}/ws`, label: 'Ruche de Micka', uses: 2 },
+          admin,
+        )
+      ).json()) as { id: string; lien: string; billet: string };
+      const secret = billetDuLien(deuxPlaces.lien, { id: 80, nom: 200 })!.secret;
       const entree = await poster('/api/rejoindre', {
-        billet: billetEncode,
+        billet: deuxPlaces.billet,
         nodeId: 'noeud-porte-1',
         label: 'PC-Léa',
       });
       expect(entree.status).toBe(201);
       let corps = (await (
-        await poster(`/api/billets/${id}/etat`, { secret: billet.secret })
+        await poster(`/api/billets/${deuxPlaces.id}/etat`, { secret })
       ).json()) as { etat: string; usesLeft: number; arrivees: { label: string; quand: number }[] };
       expect(corps.etat).toBe('vivant');
       expect(corps.usesLeft).toBe(1);
@@ -202,12 +213,12 @@ describe('LA PORTE (#lien)', () => {
       expect(corps.arrivees[0]!.label).toBe('PC-Léa');
 
       await poster('/api/rejoindre', {
-        billet: billetEncode,
+        billet: deuxPlaces.billet,
         nodeId: 'noeud-porte-2',
         label: 'Mac',
       });
       corps = (await (
-        await poster(`/api/billets/${id}/etat`, { secret: billet.secret })
+        await poster(`/api/billets/${deuxPlaces.id}/etat`, { secret })
       ).json()) as typeof corps;
       expect(corps.etat).toBe('epuise');
       expect(corps.arrivees.map((a) => a.label)).toEqual(['Mac', 'PC-Léa']);
