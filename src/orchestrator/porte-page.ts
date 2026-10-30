@@ -205,7 +205,7 @@ details[open] summary::after{content:'−'}
 .os{display:flex;gap:6px;margin:10px 0 12px}
 .os button{min-height:36px;padding:0 12px;border-radius:999px;border:1px solid var(--border-2);background:transparent;color:var(--muted);font:500 13px/1 var(--texte);cursor:pointer}
 .os button[aria-pressed=true]{background:var(--panel-3);color:var(--text);border-color:var(--faint)}
-.cmd{position:relative;background:var(--panel);border:1px solid var(--border);border-radius:var(--r-lg);padding:14px 56px 14px 16px;margin:0 0 10px}
+.cmd{position:relative;background:var(--panel);border:1px solid var(--border);border-radius:var(--r-lg);padding:14px 100px 14px 16px;margin:0 0 10px}
 .cmd code{display:block;font:400 13px/1.5 var(--mono);color:var(--text);white-space:pre-wrap;word-break:break-all}
 .copier{position:absolute;top:8px;right:8px;min-height:36px;padding:0 12px;border-radius:8px;border:1px solid var(--border-2);background:var(--panel-2);color:var(--text);font:500 13px/1 var(--texte);cursor:pointer}
 .copier:hover{border-color:var(--faint)}
@@ -218,7 +218,7 @@ footer{border-top:1px solid var(--border);color:var(--faint);font-size:13px;padd
 footer a{color:var(--faint)}
 .cache{display:none !important}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}}
-@media (max-width:480px){main{padding:28px 16px 44px}.rayon{margin-left:-4px}}
+@media (max-width:480px){main{padding:28px 16px 44px}.rayon{margin-left:-4px}.cmd{padding:52px 16px 14px}}
 </style>
 </head>
 <body>
@@ -234,7 +234,7 @@ ${rayon()}
 
 <div class="geste" id="geste">
   <a class="btn primaire" id="app" href="#" rel="noreferrer">Rejoindre avec l’application Hive</a>
-  <a class="btn second" id="telecharger" href="${h(o.releases)}" target="_blank" rel="noopener noreferrer">Télécharger Hive pour <span id="os-nom">${h(systemeLibelle)}</span></a>
+  <a class="btn second" id="telecharger" href="${h(o.releases)}" target="_blank" rel="noopener noreferrer"><span>Télécharger Hive pour <span id="os-nom">${h(systemeLibelle)}</span></span></a>
   <p class="note" id="note-app">Pas encore l’application ? Téléchargez-la, installez-la, puis revenez ici et cliquez sur <em>Rejoindre</em>.</p>
 </div>
 
