@@ -8,7 +8,8 @@
       name="description"
       content="La présentation de Hive en une page, faite pour être imprimée ou enregistrée en PDF : ce que fait la ruche, comment l'installer selon son matériel, les trois étapes, la sécurité, les tarifs et le tableau de bord."
     />
-    <meta name="theme-color" content="#f7f3e9" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#0c0d10" />
     <link rel="canonical" href="https://micka420-collab.github.io/hive/presentation/" />
     <meta property="og:type" content="article" />
     <meta property="og:title" content="Hive — Présentation à imprimer" />
@@ -19,10 +20,7 @@
     <meta property="og:url" content="https://micka420-collab.github.io/hive/presentation/" />
     <meta property="og:image" content="https://micka420-collab.github.io/hive/og.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <link
-      rel="icon"
-      href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐝</text></svg>"
-    />
+    <link rel="icon" href="../marque.svg" type="image/svg+xml" />
     <!-- Fontes servies depuis ce dépôt, jamais depuis Google Fonts : une page qui
          va chercher sa fonte chez un tiers lui transmet l'IP de chaque visiteur.
          Voir site/fonts/LICENSE.txt (SIL OFL 1.1) pour l'origine des fichiers. -->
@@ -106,28 +104,32 @@
           U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
       }
 
-      /* Les mêmes valeurs que la vitrine — c'est le MÊME document, sous une
-         autre forme. Un ton qui dériverait ici ferait deux Hive. */
+      /* La feuille est BLANCHE : elle part sur papier. Autour d'elle, le
+         bureau et la barre d'outils portent l'anthracite de la vitrine
+         (docs/DIRECTION-ARTISTIQUE.md), et le miel est le même. Les textes de
+         la feuille sont ceux du thème clair de Mission Control. */
       :root {
         --papier: #ffffff;
-        --bureau: #ebe4d4;
-        --bg: #f7f3e9;
-        --panel: #fffdf8;
-        --border: #e3d8c2;
-        --border-2: #e0d2b6;
-        --text: #1b1712;
-        --muted: #7c7263;
-        --dim: #9a8f7c;
-        --blue: #4a4238;
+        --bureau: #0c0d10;
+        --barre: #15171d;
+        --barre-filet: #262a33;
+        --barre-texte: #eeebe5;
+        --barre-muet: #a9abb2;
+        --bg: #f6f4ef;
+        --panel: #fbfaf7;
+        --border: #e4e1d9;
+        --border-2: #d2cec4;
+        --text: #1a1714;
+        --muted: #6a635a;
+        --dim: #8a8378;
+        --encre: #08090b;
         --gold: #f6c445;
-        --gold-2: #e08a14;
-        --orange: #a85e06;
-        --green: #235e52;
-        --creme: #f4eee0;
-        --encre-clair: #b5a991;
-        --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-        --titre: 'Bricolage Grotesque', 'Segoe UI', system-ui, sans-serif;
-        --texte: 'Instrument Sans', 'Segoe UI', system-ui, sans-serif;
+        --honey: #9a5508;
+        --green: #215c51;
+        --rouge: #a53e2a;
+        --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        --titre: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+        --texte: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
       }
 
       /* ── LE PAPIER ────────────────────────────────────────────────────────
@@ -162,17 +164,18 @@
       .feuille {
         width: 8.5in;
         max-width: 100%;
-        margin: 26px auto;
+        margin: 28px auto;
         padding: 0.7in;
         background: var(--papier);
-        box-shadow: 0 24px 60px -30px rgba(27, 23, 18, 0.55);
+        border: 1px solid var(--barre-filet);
+        border-radius: 4px;
       }
       h1,
       h2,
       h3 {
         margin: 0;
         font-family: var(--titre);
-        font-weight: 700;
+        font-weight: 600;
         letter-spacing: -0.025em;
         line-height: 1.08;
         text-wrap: balance;
@@ -182,7 +185,7 @@
         text-wrap: pretty;
       }
       a {
-        color: var(--orange);
+        color: var(--honey);
         text-decoration: none;
       }
       :focus-visible {
@@ -203,7 +206,7 @@
         font-family: var(--texte);
         font-size: 11px;
         font-weight: 700;
-        color: var(--orange);
+        color: var(--muted);
         letter-spacing: 0.11em;
         text-transform: uppercase;
       }
@@ -230,21 +233,22 @@
         gap: 10px;
         flex-wrap: wrap;
         padding: 10px clamp(12px, 4vw, 26px);
-        background: rgba(27, 23, 18, 0.94);
-        color: var(--bg);
+        background: var(--barre);
+        border-bottom: 1px solid var(--barre-filet);
+        color: var(--barre-texte);
       }
       .barre .marque {
         display: flex;
         align-items: center;
         gap: 9px;
         font-family: var(--titre);
-        font-weight: 700;
-        letter-spacing: -0.03em;
+        font-weight: 600;
+        letter-spacing: -0.02em;
       }
       .barre .marque .hex {
         width: 17px;
         height: 19px;
-        background: linear-gradient(150deg, var(--gold), var(--gold-2));
+        background: var(--barre-texte);
       }
       .barre .droite {
         margin-left: auto;
@@ -259,30 +263,40 @@
         cursor: pointer;
       }
       .barre a.retour {
-        color: var(--encre-clair);
+        color: var(--barre-muet);
+      }
+      .barre a.retour:hover {
+        color: var(--barre-texte);
+      }
+      .lang {
+        display: inline-flex;
+        border: 1px solid var(--barre-filet);
+        border-radius: 8px;
+        overflow: hidden;
       }
       .lang button {
         min-height: 34px;
         padding: 6px 11px;
-        border: 1px solid rgba(244, 238, 224, 0.28);
+        border: 0;
         background: transparent;
-        color: var(--encre-clair);
-        border-radius: 999px;
+        color: var(--barre-muet);
         font-weight: 600;
       }
+      .lang button + button {
+        border-left: 1px solid var(--barre-filet);
+      }
       .lang button[aria-pressed='true'] {
-        background: var(--gold);
-        border-color: var(--gold);
-        color: var(--text);
+        background: var(--barre-filet);
+        color: var(--barre-texte);
       }
       .imprimer {
         min-height: 34px;
         padding: 7px 15px;
-        border: 0;
-        border-radius: 999px;
+        border: 1px solid var(--gold);
+        border-radius: 8px;
         background: var(--gold);
-        color: var(--text);
-        font-weight: 700;
+        color: var(--encre);
+        font-weight: 600;
       }
 
       /* ── L'en-tête du document ── */
@@ -296,13 +310,13 @@
       .entete .hex {
         width: 24px;
         height: 27px;
-        background: linear-gradient(150deg, var(--gold), var(--gold-2));
+        background: var(--text);
       }
       .entete .nom {
         font-family: var(--titre);
-        font-weight: 700;
+        font-weight: 600;
         font-size: 20px;
-        letter-spacing: -0.03em;
+        letter-spacing: -0.02em;
       }
       .entete .sous {
         margin-left: auto;
@@ -314,21 +328,20 @@
       h1 {
         margin-top: 26px;
         font-size: 38px;
+        color: var(--muted);
       }
-      /* Le miel du titre. Sur un titre qui se coupe, un fond doit se recopier
-         sur CHAQUE fragment de ligne — sans quoi il relie les deux lignes par
-         un filet vertical. C'est la même leçon que sur la vitrine. */
+      /* Le titre en deux temps, comme sur la vitrine : la prémisse en gris, la
+         thèse en encre. Ni surligneur ni dégradé. */
       .miel {
+        display: block;
         font-style: normal;
-        background: linear-gradient(180deg, transparent 62%, var(--gold) 62%);
-        -webkit-box-decoration-break: clone;
-        box-decoration-break: clone;
+        color: var(--text);
       }
       .chapo {
         margin-top: 14px;
         font-size: 15.5px;
         line-height: 1.55;
-        color: var(--blue);
+        color: var(--muted);
         max-width: 620px;
       }
 
@@ -345,12 +358,11 @@
         border-radius: 8px;
         font-family: var(--mono);
         font-size: 11px;
-        font-weight: 600;
-        color: var(--blue);
+        font-weight: 500;
+        color: var(--muted);
       }
       .jeton.vert {
-        background: #eaf2ef;
-        border-color: #bfd8d1;
+        border-color: var(--green);
         color: var(--green);
       }
 
@@ -367,7 +379,7 @@
       }
       .cmd {
         padding: 12px 14px;
-        background: var(--text);
+        background: var(--encre);
         border-radius: 12px;
       }
       .cmd.large {
@@ -383,7 +395,7 @@
         margin-top: 6px;
         font-family: var(--mono);
         font-size: 11.5px;
-        color: var(--creme);
+        color: var(--papier);
         /* Les commandes Windows sont longues et n'ont pas d'espace où couper :
            sans ceci, elles débordent de la feuille au lieu de se plier. */
         overflow-wrap: anywhere;
@@ -405,20 +417,13 @@
         padding: 16px;
         background: var(--panel);
         border: 1px solid var(--border-2);
-        border-top: 3px solid var(--orange);
         border-radius: 12px;
-      }
-      .etape.deux {
-        border-top-color: var(--gold-2);
-      }
-      .etape.trois {
-        border-top-color: var(--green);
       }
       .etape .n {
         font-family: var(--mono);
         font-size: 12px;
-        font-weight: 700;
-        color: var(--orange);
+        font-weight: 600;
+        color: var(--honey);
       }
       .etape h3 {
         margin-top: 8px;
@@ -428,7 +433,7 @@
         margin-top: 7px;
         font-size: 12.5px;
         line-height: 1.5;
-        color: var(--blue);
+        color: var(--muted);
       }
 
       /* ── Sécurité ── */
@@ -456,23 +461,21 @@
       .alerte {
         margin-top: 9px;
         padding: 13px 16px;
-        background: #fbf0e4;
-        border: 1px solid #e8c79b;
-        border-left: 3px solid #c4711a;
+        background: var(--bg);
+        border: 1px solid var(--border-2);
+        border-left: 3px solid var(--rouge);
         border-radius: 12px;
       }
       .alerte .t {
-        font-size: 11px;
-        font-weight: 700;
-        color: var(--orange);
-        letter-spacing: 0.07em;
-        text-transform: uppercase;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text);
       }
       .alerte p {
         margin-top: 6px;
         font-size: 12.5px;
         line-height: 1.5;
-        color: #5a4530;
+        color: var(--muted);
       }
 
       /* ── Tarifs ────────────────────────────────────────────────────────────
@@ -494,9 +497,9 @@
         border-radius: 12px;
       }
       .plan.encre {
-        background: var(--text);
-        border-color: var(--text);
-        color: var(--panel);
+        background: var(--encre);
+        border-color: var(--encre);
+        color: var(--papier);
       }
       .plan h3 {
         font-size: 16px;
@@ -507,7 +510,7 @@
       .plan .prix b {
         font-family: var(--titre);
         font-size: 26px;
-        font-weight: 700;
+        font-weight: 600;
         letter-spacing: -0.03em;
       }
       .plan .prix span {
@@ -515,7 +518,7 @@
         color: var(--muted);
       }
       .plan.encre .prix span {
-        color: var(--encre-clair);
+        color: var(--border-2);
       }
       .plan p.d {
         margin-top: 7px;
@@ -524,25 +527,46 @@
         color: var(--muted);
       }
       .plan.encre p.d {
-        color: var(--encre-clair);
+        color: var(--border-2);
       }
       .plan .pastille {
         margin-left: 6px;
         padding: 2px 8px;
         border-radius: 999px;
         background: var(--gold);
-        color: var(--text);
+        color: var(--encre);
         font-family: var(--mono);
         font-size: 10px;
-        font-weight: 700;
+        font-weight: 600;
         vertical-align: 2px;
+      }
+
+      /* ── La preuve, en quatre lignes ─────────────────────────────────────── */
+      .preuve {
+        margin-top: 10px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 9px;
+      }
+      .preuve .carte b {
+        display: block;
+        font-family: var(--titre);
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: -0.015em;
+      }
+      .preuve .carte p {
+        margin-top: 5px;
+        font-size: 12.5px;
+        line-height: 1.5;
+        color: var(--muted);
       }
 
       .tableau {
         margin-top: 10px;
         font-size: 13px;
         line-height: 1.55;
-        color: var(--blue);
+        color: var(--muted);
         max-width: 640px;
       }
 
@@ -567,11 +591,13 @@
         .feuille {
           margin: 0;
           padding: 22px 16px 30px;
-          box-shadow: none;
+          border: 0;
+          border-radius: 0;
         }
         .cmds,
         .etapes,
         .cartes,
+        .preuve,
         .plans {
           grid-template-columns: 1fr;
         }
@@ -616,7 +642,7 @@
           width: auto;
           margin: 0;
           padding: 0;
-          box-shadow: none;
+          border: 0;
         }
         .barre {
           display: none;
@@ -653,22 +679,28 @@
       </div>
 
       <h1 data-i18n="h1">
-        Faites coder plusieurs IA sur votre projet, <em class="miel">en même temps</em>.
+        Une IA seule demande qu'on la croie. <em class="miel">Un essaim Hive doit le prouver.</em>
       </h1>
       <p class="chapo" data-i18n="chapo">
-        Vous écrivez ce que vous voulez construire. Hive le découpe en tâches, les distribue aux
-        ordinateurs de votre équipe, et vous montre le résultat à valider. Rien n'est fusionné sans
-        votre accord — votre code et vos clés restent sur vos machines.
+        Hive fait travailler plusieurs IA de codage sur votre projet, depuis les machines de votre
+        équipe. Chaque production est relue par une autre famille d'agents, exécutée dans un bac à
+        sable et consignée avec son coût déclaré. Rien n'est fusionné sans votre accord — votre code
+        et vos clés restent sur vos machines.
       </p>
 
       <div class="jetons">
         <span class="jeton" data-i18n="jeton.mit">Gratuit · MIT</span>
-        <span class="jeton" data-i18n="badge.tests">8 388 tests</span>
+        <span class="jeton" data-i18n="badge.tests">8 387 tests</span>
         <span class="jeton" data-i18n="jeton.machines">Sur vos machines</span>
         <span class="jeton vert" data-i18n="jeton.cle">Aucune clé d'API</span>
       </div>
 
-      <h2 class="kicker" data-i18n="inst.titre">Installation — choisissez votre matériel</h2>
+      <h2 class="kicker" data-i18n="inst.titre">Installation — l'application, ou une commande</h2>
+      <p class="note" data-i18n="inst.app">
+        Le plus simple : l'application de bureau (Windows, macOS, Linux), sur
+        github.com/Micka420-collab/hive/releases. Elle crée sa ruche, détecte vos agents connectés
+        et ouvre Mission Control. Sinon, une commande selon votre matériel :
+      </p>
       <div class="cmds">
         <div class="cmd">
           <p class="quoi">macOS / Linux</p>
@@ -696,31 +728,64 @@
       </p>
 
       <h2 class="kicker" data-i18n="et.titre">
-        Comment ça marche — trois étapes, et vous gardez la main
+        Comment ça marche — trois gestes, et vous gardez la main
       </h2>
       <div class="etapes">
         <div class="etape">
           <p class="n mono">01</p>
-          <h3 data-i18n="et.1.t">Vous décrivez le projet</h3>
+          <h3 data-i18n="et.1.t">Installez Hive</h3>
           <p data-i18n="et.1.d">
-            Quelques phrases suffisent. Hive propose une liste de tâches ordonnées — vous la
-            corrigez avant de lancer.
+            L'application lance la Reine et une ouvrière par agent connecté — Claude Code, Codex,
+            Cursor… — puis ouvre Mission Control.
           </p>
         </div>
-        <div class="etape deux">
+        <div class="etape">
           <p class="n mono">02</p>
-          <h3 data-i18n="et.2.t">Les IA travaillent en parallèle</h3>
+          <h3 data-i18n="et.2.t">Invitez par un lien</h3>
           <p data-i18n="et.2.d">
-            Chaque tâche part sur l'ordinateur d'un membre, dans un dossier isolé. Vous voyez
-            l'avancement en direct.
+            Inviter remet un lien. La personne l'ouvre sur son ordinateur : la ruche reconnaît son
+            système, l'installe si besoin, et vous voyez sa machine entrer.
           </p>
         </div>
-        <div class="etape trois">
+        <div class="etape">
           <p class="n mono">03</p>
-          <h3 data-i18n="et.3.t">Vous validez, puis ça fusionne</h3>
+          <h3 data-i18n="et.3.t">L'essaim travaille, et se relit</h3>
           <p data-i18n="et.3.d">
-            Chaque résultat s'arrête devant vous. Vous lisez, vous validez ou refusez. Rien ne passe
-            sans votre accord.
+            Chaque production est relue par une autre famille d'IA, validée dans un bac, puis
+            s'arrête devant vous. Rien ne passe sans votre accord.
+          </p>
+        </div>
+      </div>
+
+      <h2 class="kicker" data-i18n="pr.titre">
+        La preuve — comptée sur le journal, jamais estimée
+      </h2>
+      <div class="preuve">
+        <div class="carte">
+          <b data-i18n="pr.1.t">Relues par une autre famille d'agent</b>
+          <p data-i18n="pr.1.d">
+            Un modèle reçoit vraiment le travail d'un autre et rend un verdict. La même famille ne
+            compte pas.
+          </p>
+        </div>
+        <div class="carte">
+          <b data-i18n="pr.2.t">Validées dans un bac (tests, types, build, lint)</b>
+          <p data-i18n="pr.2.d">
+            Les contrôles du projet tournent dans un clone jetable ; le nœud déclare l'isolement
+            qu'il a obtenu.
+          </p>
+        </div>
+        <div class="carte">
+          <b data-i18n="pr.3.t">Tentatives au coût déclaré par le CLI</b>
+          <p data-i18n="pr.3.d">
+            Le coût est celui que l'agent déclare ; sinon la ruche écrit « inconnu, jamais estimé ».
+          </p>
+        </div>
+        <div class="carte">
+          <b data-i18n="pr.4.t">Désaccords entre IA tranchés par un humain</b>
+          <p data-i18n="pr.4.d">
+            Un désaccord monte vers vous, et la fusion reste un geste humain. Aucun benchmark publié
+            : les chiffres sont ceux de votre ruche.
           </p>
         </div>
       </div>
@@ -797,14 +862,15 @@
 
       <h2 class="kicker" data-i18n="tb.titre">Le tableau de bord</h2>
       <p class="tableau" data-i18n="tb.d">
-        Treize vues pour piloter la ruche : la <strong>Ruche</strong> (tâches, ordinateurs, activité
-        en direct), <strong>la Reine</strong> (posez vos questions, elle répond depuis l'état réel),
-        la <strong>Miellerie</strong> (chaque diff attend votre verdict), les
-        <strong>Projets</strong> et leur atelier qui transforme un brief en plan,
-        l'<strong>Essaim</strong>, la <strong>Mémoire</strong> (ce que la ruche a retenu de ses
-        erreurs), la <strong>Santé</strong>, la <strong>Chronique</strong> rejouable, le
+        Quatorze vues pour piloter la ruche : la <strong>Ruche</strong> (tâches, ordinateurs,
+        activité en direct et ce que la ruche prouve), <strong>la Reine</strong> (posez vos
+        questions, elle répond depuis l'état réel), la <strong>Miellerie</strong> (chaque diff
+        attend votre verdict), les <strong>Projets</strong> et leur atelier qui transforme un brief
+        en plan, l'<strong>Essaim</strong>, la <strong>Mémoire</strong> (ce que la ruche a retenu de
+        ses erreurs), la <strong>Santé</strong>, la <strong>Chronique</strong> rejouable, le
         <strong>Rayon</strong> de code en lecture seule, les <strong>Chantiers</strong>, le
-        <strong>Cerveau</strong>, <strong>Mon espace</strong> et l'<strong>Intendance</strong>.
+        <strong>Cerveau</strong>, <strong>Mon espace</strong>, la <strong>War Room</strong> et
+        l'<strong>Intendance</strong>.
       </p>
 
       <div class="pied">
@@ -825,28 +891,43 @@
           'barre.retour': '← Back to the site',
           'barre.imprimer': 'Print / PDF',
           'entete.sous': 'AI agent orchestration · open source · MIT',
-          h1: 'Put several AIs to work on your project, <em class="miel">at the same time</em>.',
+          h1: 'A single AI asks to be believed. <em class="miel">A Hive swarm has to prove it.</em>',
           chapo:
-            'You write what you want to build. Hive splits it into tasks, hands them to your team’s computers, and shows you the result to approve. Nothing is merged without your say-so — your code and your keys stay on your machines.',
+            'Hive puts several coding AIs to work on your project, from your team’s machines. Every production is reviewed by another family of agents, run in a sandbox and recorded with its declared cost. Nothing is merged without your say-so — your code and your keys stay on your machines.',
           'jeton.mit': 'Free · MIT',
-          'badge.tests': '8,388 tests',
+          'badge.tests': '8,387 tests',
           'jeton.machines': 'On your machines',
           'jeton.cle': 'No API key',
-          'inst.titre': 'Install — pick your hardware',
+          'inst.titre': 'Install — the application, or one command',
+          'inst.app':
+            'Simplest: the desktop application (Windows, macOS, Linux), on github.com/Micka420-collab/hive/releases. It creates its hive, detects your connected agents and opens Mission Control. Otherwise, one command for your hardware:',
           'inst.win': 'Windows (PowerShell)',
           'inst.docker': 'Server · Docker',
           'inst.note':
             'Three questions at most. Never sudo, and nothing outside its own folder. No API key to hand over — your existing AI subscription is enough.',
-          'et.titre': 'How it works — three steps, and you stay in charge',
-          'et.1.t': 'You describe the project',
+          'et.titre': 'How it works — three gestures, and you stay in charge',
+          'et.1.t': 'Install Hive',
           'et.1.d':
-            'A few sentences are enough. Hive proposes an ordered task list — you fix it before launching.',
-          'et.2.t': 'The AIs work in parallel',
+            'The application starts the Queen and one worker per connected agent — Claude Code, Codex, Cursor… — then opens Mission Control.',
+          'et.2.t': 'Invite with a link',
           'et.2.d':
-            'Each task goes to a member’s computer, in an isolated folder. You watch progress live.',
-          'et.3.t': 'You approve, then it merges',
+            'Invite hands you a link. The person opens it on their computer: the hive recognises their system, installs if needed, and you watch their machine join.',
+          'et.3.t': 'The swarm works, and reviews itself',
           'et.3.d':
-            'Every result stops in front of you. You read it, you approve or refuse. Nothing goes through without your say-so.',
+            'Every production is reviewed by another AI family, validated in a sandbox, then stops in front of you. Nothing goes through without your say-so.',
+          'pr.titre': 'The evidence — counted from the journal, never estimated',
+          'pr.1.t': 'Reviewed by another agent family',
+          'pr.1.d':
+            'A model really receives another model’s work and returns a verdict. The same family does not count.',
+          'pr.2.t': 'Validated in a sandbox (tests, types, build, lint)',
+          'pr.2.d':
+            'The project’s checks run in a disposable clone; the node declares the isolation it obtained.',
+          'pr.3.t': 'Attempts with a CLI-declared cost',
+          'pr.3.d':
+            'The cost is the one the agent declares; otherwise the hive writes “unknown, never estimated”.',
+          'pr.4.t': 'Disagreements between AIs settled by a human',
+          'pr.4.d':
+            'A disagreement rises to you, and the merge stays a human gesture. No published benchmark: the numbers are your hive’s.',
           'se.titre': 'Security — nothing leaves without your approval',
           'se.1.t': 'The code stays with you',
           'se.1.d': 'Your repositories and your keys never leave the machine doing the work.',
@@ -878,7 +959,7 @@
             'Both paid offers are a proposed model: no payment is taken today. The full computation is public in docs/MODELE-ECONOMIQUE.md. The self-hosted hive will stay free.',
           'tb.titre': 'The dashboard',
           'tb.d':
-            'Thirteen views to steer the hive: the <strong>Hive</strong> (tasks, computers, live activity), <strong>the Queen</strong> (ask your questions, she answers from the real state), the <strong>Honey house</strong> (every diff waits for your verdict), the <strong>Projects</strong> and their workshop turning a brief into a plan, the <strong>Swarm</strong>, the <strong>Memory</strong> (what the hive learned from its mistakes), the <strong>Health</strong>, the replayable <strong>Chronicle</strong>, the read-only <strong>Comb</strong> of code, the <strong>Worksites</strong>, the <strong>Brain</strong>, <strong>My space</strong> and the <strong>Stewardship</strong>.',
+            'Fourteen views to steer the hive: the <strong>Hive</strong> (tasks, computers, live activity and what the hive proves), <strong>the Queen</strong> (ask your questions, she answers from the real state), the <strong>Honey house</strong> (every diff waits for your verdict), the <strong>Projects</strong> and their workshop turning a brief into a plan, the <strong>Swarm</strong>, the <strong>Memory</strong> (what the hive learned from its mistakes), the <strong>Health</strong>, the replayable <strong>Chronicle</strong>, the read-only <strong>Comb</strong> of code, the <strong>Worksites</strong>, the <strong>Brain</strong>, <strong>My space</strong>, the <strong>War Room</strong> and the <strong>Stewardship</strong>.',
           'pied.gauche': '© 2026 Hive · MIT licence',
         };
 
