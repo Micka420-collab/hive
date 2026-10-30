@@ -10,7 +10,7 @@ import Fastify from 'fastify';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { existsSync, readFileSync } from 'node:fs';
 import { isIP } from 'node:net';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,6 +43,8 @@ import {
   type PorteeExperience,
 } from '../shared/reglages.js';
 import { editionDepuisEnv, secretWebhookExige } from '../shared/edition.js';
+import { lienDePorte, systemeDepuisUserAgent } from '../shared/porte.js';
+import { cspPorte, fontesDuTableau, pagePorte } from './porte-page.js';
 import type { Edition } from '../shared/edition.js';
 import {
   atelierDepuisEnv,
@@ -6225,6 +6227,13 @@ async function monterReine(
       emitEvent('invite_created', { ticketId: id, uses, expiresAt: now + ttl, transport });
 
       const billet = encoderBillet({ url: wsUrl, id, secret, label });
+      // ─── LE LIEN DE PORTE, AVANT LA COMMANDE ───────────────────────────────
+      //
+      // Ce que l'hôte PARTAGE désormais : un lien que l'invité ouvre, et la
+      // page de la ruche fait le reste (`shared/porte.ts`). Le billet entier
+      // est dans le fragment, que le navigateur ne transmet jamais ; la ruche
+      // ne verra passer que `/r/<id>`.
+      const lien = lienDePorte({ url: wsUrl, id, secret, label });
       return reply.code(201).send({
         billet,
         id,
@@ -6233,6 +6242,7 @@ async function monterReine(
         transport,
         expiresAt: now + ttl,
         uses,
+        ...(lien ? { lien } : {}),
         joinCommand: `npm run join -- ${billet}`,
         // ─── LA COMMANDE D'ENTRÉE, UNE PAR SYSTÈME ─────────────────────────
         //
@@ -6250,6 +6260,141 @@ async function monterReine(
             ? 'Billet à usage UNIQUE : il devient inutile dès que votre ami a rejoint.'
             : `Billet valable pour ${uses} machines.`,
       });
+    },
+  );
+
+  // ─── La porte : rejoindre en ouvrant un lien ───────────────────────────────
+  //
+  // `GET /r/<id>` sert la page de l'invité (`porte-page.ts`). Elle ne sait du
+  // billet que son identifiant ; le reste vit dans le fragment du lien, côté
+  // navigateur. `POST /api/billets/:id/etat` dit à qui DÉTIENT le secret où en
+  // est son billet — et quelles machines sont entrées avec. Ces deux routes
+  // sont publiques par construction, comme `/api/rejoindre`, et tenues par les
+  // mêmes gardes : lecture par clé primaire, PBKDF2 payé même pour un billet
+  // inconnu, compteur d'échecs par IP.
+
+  /** Les ouvertures de chaque lien depuis le démarrage : l'hôte les voit arriver. Bornée. */
+  const porteOuvertures = new Map<string, { n: number; quand: number }>();
+  const PORTE_OUVERTURES_MAX = 2_000;
+
+  /**
+   * Un secret déjà vérifié pour ce billet, pour un court moment : la page de
+   * l'invité relit l'état toutes les quelques secondes en attendant sa
+   * machine, et chaque relecture coûterait sinon un PBKDF2 complet. On garde
+   * l'EMPREINTE SHA-256 du secret, jamais le secret — et la vérification
+   * complète reprend dès que l'entrée expire.
+   */
+  const porteVerifies = new Map<string, { sha: string; jusqua: number }>();
+  const PORTE_CACHE_MS = 10 * 60_000;
+  const PORTE_CACHE_MAX = 2_000;
+  const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex');
+
+  const dashboardDistPorte = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../../dashboard/dist',
+  );
+  const fontesPorte = fontesDuTableau(dashboardDistPorte);
+  const RELEASES = 'https://github.com/Micka420-collab/hive/releases/latest';
+  const ID_BILLET_PORTE = /^[A-Za-z0-9_-]{1,80}$/;
+
+  app.get<{ Params: { id: string } }>('/r/:id', async (req, reply) => {
+    const id = req.params.id;
+    // La réponse est la MÊME que le billet existe ou non : la page ne sait
+    // rien, et c'est l'appel suivant, avec le secret, qui dira. Seul le
+    // journal de l'hôte distingue — et il ne dit rien à l'invité.
+    if (ID_BILLET_PORTE.test(id) && store.getBillet(id) !== null) {
+      const vu = porteOuvertures.get(id);
+      const maintenant = Date.now();
+      if (!vu && porteOuvertures.size >= PORTE_OUVERTURES_MAX) {
+        porteOuvertures.delete(porteOuvertures.keys().next().value as string);
+      }
+      porteOuvertures.set(id, { n: (vu?.n ?? 0) + 1, quand: maintenant });
+      emitEvent('porte_ouverte', { ticketId: id, ouvertures: (vu?.n ?? 0) + 1 });
+    }
+    const nonce = randomBytes(16).toString('base64url');
+    const page = pagePorte({
+      id: ID_BILLET_PORTE.test(id) ? id : 'inconnu',
+      nonce,
+      systeme: systemeDepuisUserAgent(req.headers['user-agent']),
+      releases: RELEASES,
+      fontes: fontesPorte,
+      version: VERSION_DECLAREE,
+    });
+    return reply
+      .code(200)
+      .header('content-type', 'text/html; charset=utf-8')
+      .header('content-security-policy', cspPorte(nonce))
+      .header('cache-control', 'no-store')
+      .header('referrer-policy', 'no-referrer')
+      .header('x-content-type-options', 'nosniff')
+      .header('x-frame-options', 'DENY')
+      .send(page);
+  });
+
+  app.post<{ Params: { id: string }; Body: { secret: string } }>(
+    '/api/billets/:id/etat',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['id'],
+          properties: { id: { type: 'string', minLength: 1, maxLength: 80 } },
+        },
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['secret'],
+          properties: { secret: { type: 'string', minLength: 20, maxLength: 256 } },
+        },
+      },
+    },
+    async (req, reply) => {
+      if (!joinAutorise(req.ip)) {
+        return reply.code(429).send({ error: 'trop de tentatives, réessayez dans une minute' });
+      }
+      const { id } = req.params;
+      const range = ID_BILLET_PORTE.test(id) ? store.getBillet(id) : null;
+      const maintenant = Date.now();
+      const sha = sha256(req.body.secret);
+      const cache = porteVerifies.get(id);
+      let secretOk: boolean;
+      if (range && cache && cache.jusqua > maintenant && cache.sha === sha) {
+        secretOk = true;
+      } else {
+        // Même coût que le billet existe ou non (ADR 0005).
+        secretOk = empreinteValide(req.body.secret, range?.secretHash ?? empreinteLeurre());
+        if (secretOk && range) {
+          if (!cache && porteVerifies.size >= PORTE_CACHE_MAX) {
+            porteVerifies.delete(porteVerifies.keys().next().value as string);
+          }
+          porteVerifies.set(id, { sha, jusqua: maintenant + PORTE_CACHE_MS });
+        }
+      }
+      if (!range || !secretOk) {
+        joinEchec(req.ip);
+        return reply.code(401).send({ error: 'billet refusé' });
+      }
+      const etat =
+        range.revokedAt !== null
+          ? 'revoque'
+          : range.expiresAt <= maintenant
+            ? 'expire'
+            : range.usesLeft <= 0
+              ? 'epuise'
+              : 'vivant';
+      return {
+        etat,
+        label: range.label,
+        expiresAt: range.expiresAt,
+        usesLeft: range.usesLeft,
+        usesTotal: range.usesTotal,
+        // Qui est entré avec ce billet : le nom de la machine et quand. Ni
+        // identifiant de nœud, ni empreinte : la page n'en a pas besoin.
+        arrivees: store.listClesNoeudsDuBillet(id).map((c) => ({
+          label: c.label,
+          quand: c.createdAt,
+        })),
+      };
     },
   );
 
@@ -6384,7 +6529,13 @@ async function monterReine(
         ticketId: decode.id,
         now,
       });
-      emitEvent('node_joined', { nodeId: req.body.nodeId, ticketId: decode.id });
+      // Le nom de la machine dans le fait : c'est ce que l'hôte lit dans
+      // Mission Control quand l'invité arrive (« PC-Léa est entrée »).
+      emitEvent('node_joined', {
+        nodeId: req.body.nodeId,
+        ticketId: decode.id,
+        label: req.body.label ?? range!.label ?? null,
+      });
       return reply.code(201).send({ cle, nodeId: req.body.nodeId, label: range!.label });
     },
   );
@@ -9650,6 +9801,7 @@ async function monterReine(
         createdAt: c.createdAt,
         lastSeenAt: c.lastSeenAt,
         revoque: c.revokedAt !== null,
+        ticketId: c.ticketId,
       })),
       billets: store.listBillets().map((b) => ({
         id: b.id,
@@ -9658,6 +9810,12 @@ async function monterReine(
         expiresAt: b.expiresAt,
         usesLeft: b.usesLeft,
         usesTotal: b.usesTotal,
+        lastUsedAt: b.lastUsedAt,
+        // Le lien a-t-il été OUVERT ? Compté en mémoire depuis le démarrage
+        // (la page `/r/<id>`), et journalisé (`porte_ouverte`) : l'hôte voit
+        // l'invité arriver avant même que sa machine n'entre.
+        ouvertures: porteOuvertures.get(b.id)?.n ?? 0,
+        derniereOuverture: porteOuvertures.get(b.id)?.quand ?? null,
         // État calculé plutôt que rangé : un billet devient « expiré » par le
         // simple passage du temps, sans que personne n'écrive rien.
         etat:

@@ -71,8 +71,13 @@ fi
 # La même règle vit dans `src/shared/commande-entree.ts`, qui compose la
 # commande côté ruche. Deux endroits, une seule règle — et un banc qui l'éprouve
 # sur des billets empoisonnés.
-if ! printf '%s' "$BILLET" | grep -Eq '^hive2_[A-Za-z0-9_-]+$'; then
-  echo "✘ Ce billet n'a pas la forme attendue (hive2_…)." >&2
+# Un LIEN DE PORTE passe aussi (`https://…/r/<id>#hive2_…`, ce que l'hôte
+# partage désormais) : le billet en est le fragment, le même alphabet, et
+# `hive join` sait le relire tel quel (`shared/porte.ts`). On n'accepte que des
+# caractères qu'aucun shell n'interprète : lettres, chiffres, `.`, `-`, `_`,
+# `:`, `/`, `#`, `[`, `]` — ni espace, ni guillemet, ni `;`.
+if ! printf '%s' "$BILLET" | grep -Eq '^hive2_[A-Za-z0-9_-]+$|^https?://[A-Za-z0-9._:/\[\]-]+/r/[A-Za-z0-9_-]+#hive2_[A-Za-z0-9_-]+$'; then
+  echo "✘ Ce billet n'a pas la forme attendue (hive2_… ou le lien https://…/r/…)." >&2
   echo "  Redemandez-en un à la personne qui vous invite." >&2
   exit 64
 fi

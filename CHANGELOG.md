@@ -7,6 +7,26 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Ajouté
+
+- **La porte : rejoindre une ruche en ouvrant un lien.** « Inviter » remet
+  désormais un lien `https://<ruche>/r/<id>#hive2_…` plutôt qu'une commande.
+  La page, servie par la Reine (`GET /r/<id>`), reconnaît le système de
+  l'invité, propose l'application (`hive://rejoindre/…`) ou la commande, et
+  lui dit quand sa machine est entrée (`POST /api/billets/:id/etat`, qui
+  n'écoute que le porteur du secret). Côté hôte, Mission Control montre le lien
+  ouvert (`porte_ouverte`) puis la machine entrée (`node_joined`, qui porte
+  désormais son nom). Le billet entier vit dans le fragment : la ruche ne le
+  voit jamais passer. `hive join`, `rejoindre.sh` et `rejoindre.ps1` acceptent
+  le lien. `shared/porte.ts`, `orchestrator/porte-page.ts`.
+
+### Sécurité
+
+- Le panneau « Inviter » du tableau de bord passait par `GET /api/invite`,
+  l'ancien format qui **contenait le jeton maître** de la ruche — sans
+  expiration ni révocation. Il demande désormais un billet à usage unique
+  (`POST /api/billets`). Le jeton ne sort plus de la Reine par ce chemin.
+
 ## [0.5.0] — 2026-09-28
 
 Hive s'installe désormais **comme une application** : la Reine, une ouvrière
