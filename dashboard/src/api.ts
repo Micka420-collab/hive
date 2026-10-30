@@ -1447,6 +1447,17 @@ export function fetchCockpit(): Promise<Cockpit> {
 }
 
 /**
+ * La preuve (`GET /api/preuve`, `src/orchestrator/preuve.ts`) : ce que la ruche
+ * a fait de ses productions — relues par une autre famille, validées dans un
+ * bac, coût déclaré, désaccords tranchés — compté sur le journal, rien d'estimé.
+ */
+export type Preuve = import('../../src/orchestrator/preuve').Preuve;
+
+export function fetchPreuve(): Promise<Preuve> {
+  return api<Preuve>('/api/preuve');
+}
+
+/**
  * Réponse de `GET /api/workers/:nodeId/fiche` — la fiche d'un Worker. Chaque
  * liste est prouvée fait par fait (`src/orchestrator/fiche-worker.ts`) ; aucune
  * moyenne n'y est posée. `memoire: 'non_attribuee'` : la mémoire de la ruche

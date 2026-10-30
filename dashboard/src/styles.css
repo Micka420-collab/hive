@@ -3134,6 +3134,92 @@ ul.journal .empty {
 /* Ce qui arrête la ruche : même cadre que le pouls d'autonomie qu'il précède.
    Une ligne par arrêt, cliquable jusqu'au geste qui le lève ; le genre se dit
    par l'icône ET par le texte — jamais par la seule couleur. */
+/* ─── LA PREUVE DU COCKPIT ───────────────────────────────────────────────
+   Quatre fractions, une par ligne : le chiffre à gauche en tabulaire, la
+   phrase qui dit ce qu'il compte, une jauge fine. Pas de score, pas de
+   couleur de verdict : la ruche montre, elle ne se note pas. */
+.preuve-ruche {
+  margin: 8px 22px 0;
+  padding: 12px 14px;
+}
+.preuve-tete h3 {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.preuve-sous {
+  margin: 2px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.preuve-elague {
+  color: var(--amber);
+}
+.preuve-vide {
+  margin: 10px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.preuve-mesures {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 10px;
+}
+.preuve-mesure {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--panel-2);
+}
+.preuve-chiffre {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+.preuve-chiffre strong {
+  font-family: var(--titre);
+  font-size: var(--fs-2xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+.preuve-pct {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.preuve-texte {
+  display: grid;
+  gap: 2px;
+}
+.preuve-libelle {
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.preuve-detail {
+  font-size: var(--fs-2xs);
+  color: var(--muted);
+  line-height: 1.4;
+}
+.preuve-jauge {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+.preuve-jauge span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--miel);
+}
+
 .alertes-ruche {
   margin: 8px 22px 0;
   padding: 10px 12px;

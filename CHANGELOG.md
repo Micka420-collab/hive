@@ -37,6 +37,20 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   lire (des versions différentes, ou un champ hors des bornes du protocole) :
   gardez la Reine et ses ouvrières à la même version (#554).
 
+### Ajouts
+
+- **« Ce que la ruche prouve »**, sur la Ruche : quatre mesures comptées sur
+  le journal réel, production par production — relues par une autre famille
+  d'agent (contestées, reprises après relecture, relecture impossible),
+  validées dans un bac (tout vert / un contrôle rouge vu avant la livraison,
+  nœuds isolés), tentatives au coût déclaré par le CLI (le reste est
+  « inconnu », jamais estimé), désaccords tranchés par un humain. Chaque
+  mesure est une fraction de ce qui a été produit, jamais un score ; un
+  journal élagué le dit en tête. `GET /api/preuve` rend le même relevé
+  (`src/orchestrator/preuve.ts`, module pur). C'est la thèse du produit —
+  plus sûr qu'un agent seul — rendue comptable, sans comparer à un agent seul
+  que personne n'a fait tourner.
+
 ## [0.5.0] — 2026-09-28
 
 Hive s'installe désormais **comme une application** : la Reine, une ouvrière
