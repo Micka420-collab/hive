@@ -304,6 +304,10 @@ describe('la coquille au clavier et au lecteur d’écran', () => {
         tasksTotal: 0,
       } as never);
     });
+    // La Ruche est une vue PARESSEUSE depuis Hive Studio (l'accueil est la
+    // porte d'entrée) : sans attendre son morceau, ce banc ne passait que si
+    // un banc précédent l'avait déjà chargée — rouge sous `--sequence.shuffle`.
+    await attendre(dom, (d) => d.querySelector('.layout') !== null);
     expect(dom.querySelector('.layout'), 'la Ruche peuplée ne s’est pas rendue').not.toBeNull();
     const mains = dom.querySelectorAll('main');
     expect(mains.length, 'deux `main` emboîtés').toBe(1);
