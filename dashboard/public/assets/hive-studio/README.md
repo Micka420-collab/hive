@@ -14,3 +14,17 @@ Une seule navigation à gauche. En haut : projet actif, statut, recherche, actio
 
 ## Implémentation
 Auditer les composants et les flux existants avant intégration ; ne pas remplacer le protocole d'invitation existant. Tester clavier, mobile, états vides et contrastes WCAG AA. Voir issue #579.
+
+
+## Maquette validée — 03 novembre 2026
+La capture de référence approuvée est **Hive Studio v1.0**, avec sidebar sombre à gauche, projet NextendoDrop en haut, bannière montagne derrière le titre, saisie de mission, suivi Shopify, conversation et éditeur côte à côte, agents/activité/collaboration à droite. Ne pas utiliser une refonte surchargée.
+
+### Ressources binaires à intégrer
+- `dashboard/public/assets/hive-studio/dashboard-reference.png` : rendu visuel haute résolution, **référence de conception uniquement**, non fonctionnelle.
+- `dashboard/public/assets/hive-studio/mountain-sunset.webp` : panorama haute qualité optimisé pour le web ; PNG source conservé pour réexport.
+- Ne pas confondre `mountain-sunset.svg` (version vectorielle simplifiée déjà présente) avec la photographie panoramique WebP.
+
+### Critères d'intégration
+Conserver les proportions, la hiérarchie, les labels et les interactions de la capture ; utiliser de vrais composants accessibles, responsive, et de vraies données. L'image de référence ne doit jamais être utilisée comme fond de tout le dashboard. La bannière, elle, est décorative et peut être intégrée en CSS avec dégradé de lisibilité.
+
+**Statut des binaires :** préparés hors dépôt ; leur ajout doit être confirmé séparément. Ne pas supposer qu'ils sont déjà commités.
