@@ -130,9 +130,16 @@ async function retourNavigateur(hash: string): Promise<void> {
   await act(async () => {});
 }
 
-/** La vue courante, lue là où l'utilisateur la voit : la case allumée. */
-const vueAllumee = (dom: HTMLElement): string =>
-  dom.querySelector('.mc-nav-cell.active')?.querySelector('.mc-nav-label')?.textContent ?? '';
+/**
+ * La page courante, lue là où l'utilisateur la voit : l'onglet allumé de sa
+ * section — ou, sur l'accueil (une page sans onglets), la section du rail.
+ */
+const vueAllumee = (dom: HTMLElement): string => {
+  const ongletCourant = dom.querySelector('.hs-onglet-vue[aria-current="page"]');
+  if (ongletCourant) return ongletCourant.getAttribute('data-vue') ?? '';
+  const accueil = dom.querySelector('.hs-section[aria-current="page"][data-section="accueil"]');
+  return accueil ? 'studio' : '';
+};
 
 describe('le bouton Précédent du navigateur', () => {
   it('CHANGER L’ADRESSE CHANGE L’ÉCRAN — sinon rien ici ne mesure rien', async () => {
@@ -140,14 +147,14 @@ describe('le bouton Précédent du navigateur', () => {
     // retombe sur la Ruche » serait vert sur un écouteur entièrement débranché,
     // puisqu'on n'aurait jamais quitté la Ruche.
     const dom = await monter();
-    expect(vueAllumee(dom), 'on ne part pas de la Ruche').toBe('Ruche');
+    expect(vueAllumee(dom), 'on ne part pas de l’accueil').toBe('studio');
 
     await retourNavigateur('#/chronique');
-    expect(vueAllumee(dom), 'le bouton Précédent ne change pas d’écran').toBe('Chronique');
+    expect(vueAllumee(dom), 'le bouton Précédent ne change pas d’écran').toBe('chronique');
 
     // Et l'on revient : c'est le geste complet, aller ET retour.
     await retourNavigateur('#/reine');
-    expect(vueAllumee(dom)).toBe('Reine');
+    expect(vueAllumee(dom)).toBe('reine');
   });
 
   it('UN HASH INCONNU RETOMBE SUR LA RUCHE — jamais sur un écran vide', async () => {
@@ -159,10 +166,11 @@ describe('le bouton Précédent du navigateur', () => {
     // sans moyen d'en sortir autrement qu'en retapant l'adresse.
     const dom = await monter();
     await retourNavigateur('#/chronique');
-    expect(vueAllumee(dom)).toBe('Chronique');
+    expect(vueAllumee(dom)).toBe('chronique');
 
+    // Hive Studio : le repli est l'ACCUEIL, la page d'où tout part.
     await retourNavigateur('#/cette-vue-nexiste-pas');
-    expect(vueAllumee(dom), 'un hash inconnu laisse l’écran nulle part').toBe('Ruche');
+    expect(vueAllumee(dom), 'un hash inconnu laisse l’écran nulle part').toBe('studio');
   });
 
   it('UNE VUE À CASE MASQUÉE RESTE ATTEIGNABLE PAR SON SIGNET', async () => {
@@ -178,20 +186,17 @@ describe('le bouton Précédent du navigateur', () => {
     // n'existe pas — la case de l'Intendance n'est même pas rendue. La route,
     // elle, doit tenir.
     //
-    // On ne peut donc pas lire la case allumée : elle n'existe pas. On lit ce
-    // qui reste vrai — aucune AUTRE case n'est allumée, et surtout on n'a pas
-    // été renvoyé sur la Ruche.
+    // Avec Hive Studio, la page courante a TOUJOURS son onglet, même masqué
+    // aux non-admins (`ongletsDe`) : on peut donc lire mieux qu'avant — c'est
+    // l'Intendance qui est allumée, et rien d'autre.
     const dom = await monter();
     await retourNavigateur('#/intendance');
 
     expect(
-      dom.querySelector('.mc-nav-cell.active'),
-      'une case est allumée : la route a été détournée vers une vue visible',
-    ).toBeNull();
-    expect(
       vueAllumee(dom),
-      'le signet d’un administrateur a été renvoyé sur la Ruche avant que la session réponde',
-    ).not.toBe('Ruche');
+      'le signet d’un administrateur a été détourné avant que la session réponde',
+    ).toBe('intendance');
+    expect(dom.querySelectorAll('.hs-onglet-vue[aria-current="page"]')).toHaveLength(1);
   });
 
   it('L’ADRESSE SE LIT EN DEUX PARTS — la vue, puis l’identifiant', async () => {
@@ -210,7 +215,7 @@ describe('le bouton Précédent du navigateur', () => {
     const brut = 'dossier/mon fichier é.ts';
     await retourNavigateur(`#/rayon/${encodeURIComponent(brut)}`);
 
-    expect(vueAllumee(dom), 'la route du Rayon ne s’allume pas').toBe('Rayon');
+    expect(vueAllumee(dom), 'la route du Rayon ne s’allume pas').toBe('rayon');
     // La vue reçoit `selectedId` ; ce qu'on peut observer sans la monter en
     // entier, c'est que l'adresse a bien été comprise comme UNE vue et UN
     // identifiant — deux parties, pas trois.

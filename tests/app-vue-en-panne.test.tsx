@@ -121,16 +121,19 @@ describe('une vue qui tombe — la barre reste, l’écran le dit', () => {
       'le message dit POURQUOI',
     ).toMatch(message);
     expect(
-      dom.querySelectorAll('.mc-nav-cell').length,
-      'la barre survit à la vue tombée — sans frontière, l’arbre entier est démonté',
+      dom.querySelectorAll('.hs-section').length,
+      'le rail survit à la vue tombée — sans frontière, l’arbre entier est démonté',
     ).toBeGreaterThan(0);
 
-    // Une autre vue : la frontière repart à neuf, l'erreur ne la suit pas.
-    const ruche = dom.querySelector<HTMLButtonElement>('.mc-nav-cell[data-vue="ruche"]');
-    expect(ruche, 'la case de la Ruche').not.toBeNull();
-    await act(async () => ruche?.click());
+    // Une autre vue : la frontière repart à neuf, l'erreur ne la suit pas. La
+    // section « Missions » du rail ouvre sa première page, la Vue d'ensemble.
+    const missions = dom.querySelector<HTMLButtonElement>('.hs-section[data-section="missions"]');
+    expect(missions, 'la section Missions du rail').not.toBeNull();
+    await act(async () => missions?.click());
     await attendre(() => dom.querySelector('.mc-panne') === null);
     expect(dom.querySelector('.mc-panne'), 'la Ruche s’affiche, sans la panne').toBeNull();
-    expect(dom.querySelector('.mc-nav-cell.active')?.getAttribute('data-vue')).toBe('ruche');
+    expect(dom.querySelector('.hs-onglet-vue[aria-current="page"]')?.getAttribute('data-vue')).toBe(
+      'ruche',
+    );
   });
 });

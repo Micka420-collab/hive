@@ -97,16 +97,22 @@ async function monter(): Promise<HTMLElement> {
   return conteneur;
 }
 
-function celluleNav(dom: HTMLElement, libelle: string): HTMLButtonElement {
-  const b = [...dom.querySelectorAll('.mc-nav-cell')].find(
-    (x) => x.querySelector('.mc-nav-label')?.textContent === libelle,
-  );
-  expect(b, `cellule de navigation « ${libelle} » introuvable`).toBeTruthy();
+/** Une entrée du rail de Hive Studio (une section), par sa clé stable. */
+function section(dom: HTMLElement, id: string): HTMLButtonElement {
+  const b = dom.querySelector(`.hs-section[data-section="${id}"]`);
+  expect(b, `section « ${id} » introuvable dans le rail`).toBeTruthy();
+  return b as HTMLButtonElement;
+}
+
+/** Un onglet de section — une page —, par son identifiant de vue. */
+function onglet(dom: HTMLElement, vue: string): HTMLButtonElement {
+  const b = dom.querySelector(`.hs-onglet-vue[data-vue="${vue}"]`);
+  expect(b, `onglet « ${vue} » introuvable`).toBeTruthy();
   return b as HTMLButtonElement;
 }
 
 describe('la coquille de l’App — les deux dernières survivantes du balayage', () => {
-  it('LA CELLULE DE LA VUE COURANTE PORTE `aria-current` ET la classe active', async () => {
+  it('L’ENTRÉE COURANTE PORTE `aria-current` ET la classe active — au rail comme aux onglets', async () => {
     // Survivantes loupe (§ 9 vicies, la famille GardeFous / PleinEssaim /
     // AccountPanel) : sur la navigation, `aria-current={route.view === item.id ?
     // 'page' : undefined}` ET `className={… === item.id ? ' active'}`. Mutées en
@@ -114,29 +120,48 @@ describe('la coquille de l’App — les deux dernières survivantes du balayage
     // jamais l'état COURANT de la cellule. Or `aria-current="page"` est ce qu'un
     // lecteur d'écran annonce comme « la page où vous êtes », et `.active` la
     // surligne : inverser désigne TOUTES les vues SAUF la bonne comme courantes.
+    //
+    // Hive Studio (#579) range les pages sous SEPT sections : la promesse vaut
+    // désormais à deux étages — la section courante dans le rail, la page
+    // courante dans les onglets de la section.
     const dom = await monter();
-    // Au réveil, la Ruche est la vue courante (hash vide → 'ruche').
-    const ruche = celluleNav(dom, 'Ruche');
-    const projets = celluleNav(dom, 'Projets');
-    expect(ruche.getAttribute('aria-current'), 'la Ruche est la page courante').toBe('page');
-    expect(ruche.className, 'la Ruche porte la classe active').toContain('active');
+    // Au réveil, l'Accueil est la page courante (hash vide → 'studio').
+    const accueil = section(dom, 'accueil');
+    const projets = section(dom, 'projets');
+    expect(accueil.getAttribute('aria-current'), 'l’Accueil est la page courante').toBe('page');
+    expect(accueil.className, 'l’Accueil porte la classe active').toContain('actif');
     expect(projets.getAttribute('aria-current'), 'les Projets ne sont pas la page').toBeNull();
-    expect(projets.className, 'les Projets ne portent pas la classe active').not.toContain(
-      'active',
-    );
+    expect(projets.className, 'les Projets ne portent pas la classe active').not.toContain('actif');
+
+    act(() => racine?.unmount());
+    location.hash = '#/miellerie';
+    const validation = await monter();
+    expect(section(validation, 'missions').getAttribute('aria-current')).toBe('page');
+    expect(section(validation, 'accueil').getAttribute('aria-current')).toBeNull();
+    expect(
+      onglet(validation, 'miellerie').getAttribute('aria-current'),
+      'la Validation est la page courante',
+    ).toBe('page');
+    expect(
+      onglet(validation, 'ruche').getAttribute('aria-current'),
+      'la Vue d’ensemble n’est pas la page',
+    ).toBeNull();
   });
 
   it('L’INFO-BULLE PARLE LA LANGUE DE L’ÉCRAN — jamais l’autre', async () => {
     // La survivante du `title` : mutée, chaque info-bulle parlerait la langue
     // que l'utilisateur n'a PAS choisie. Le libellé visible (ligne voisine,
     // non mutée) sert de poignée : c'est le TITRE qu'on juge.
+    // L'onglet garde aussi l'ANCIEN nom de la page (« ex-Ruche ») : dans la
+    // langue de l'écran, lui aussi.
+    location.hash = '#/ruche';
     const dom = await monter();
-    expect(celluleNav(dom, 'Ruche').title).toBe('Ruche (touche 1)');
-    expect(celluleNav(dom, 'Ruche').title).not.toContain('Hive');
+    expect(onglet(dom, 'ruche').title).toBe('Vue d’ensemble — ex-Ruche (touche 1)');
+    expect(onglet(dom, 'ruche').title).not.toContain('Hive');
 
     act(() => setLang('en'));
-    expect(celluleNav(dom, 'Hive').title).toBe('Hive (key 1)');
-    expect(celluleNav(dom, 'Hive').title).not.toContain('Ruche');
+    expect(onglet(dom, 'ruche').title).toBe('Overview — formerly Hive (key 1)');
+    expect(onglet(dom, 'ruche').title).not.toContain('Ruche');
   });
 
   it('LE RAYON NE S’AFFICHE QUE SUR SA ROUTE — et sa route l’affiche', async () => {
@@ -276,6 +301,9 @@ describe('la coquille de l’App — les survivantes du balayage du soir', () =>
     // flux en perdant les événements de la fenêtre), et la touche Entrée —
     // le geste attendu — ne ferait plus rien.
     const dom = await monter();
+    // Le champ vit dans le panneau de la LIAISON (il s'ouvre de lui-même quand
+    // le jeton est refusé) : on l'ouvre comme le ferait la personne.
+    act(() => (dom.querySelector('[data-testid="mc-liaison"]') as HTMLElement).click());
     const champ = dom.querySelector('.token-input') as HTMLInputElement;
     expect(champ, 'le champ du jeton existe').toBeTruthy();
 
@@ -332,9 +360,12 @@ describe('la coquille de l’App — les survivantes du balayage du soir', () =>
     // cockpit y mène, mais la barre aussi. Les deux sens de la ligne de
     // routage, comme pour les autres vues : absente ailleurs, présente chez
     // elle.
+    // Elle s'appelle désormais « Débats », rangée avec les missions ; son
+    // ancien nom reste dans l'infobulle, sa touche aussi.
+    location.hash = '#/ruche';
     const accueil = await monter();
-    expect(celluleNav(accueil, 'War Room').title).toBe('War Room (touche w)');
-    expect(accueil.querySelector('.wr-view'), 'la War Room vit sous l’accueil').toBeNull();
+    expect(onglet(accueil, 'warroom').title).toBe('Débats — ex-War Room (touche w)');
+    expect(accueil.querySelector('.wr-view'), 'la War Room vit sous une autre page').toBeNull();
 
     act(() => racine?.unmount());
     location.hash = '#/warroom';
@@ -435,6 +466,9 @@ describe('la sortie en direct — du flux au tiroir, et vidée quand la tâche n
       poignees = h;
       return { close: () => {} };
     });
+    // La file vit sur la Vue d'ensemble (l'ex-Ruche) : l'accueil, c'est
+    // désormais Hive Studio.
+    location.hash = '#/ruche';
     const dom = await monter();
     const h = poignees as unknown as FeedHandlers;
     await act(async () => h.onState(instantane('running')));

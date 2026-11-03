@@ -4,6 +4,9 @@ import { App } from './App';
 import { clearPartage, getPartage, savePartage } from './api';
 import { FiletDeSecurite } from './ui';
 import './styles.css';
+// Après `styles.css`, et c'est voulu : à spécificité égale, la coquille du
+// studio l'emporte sur l'ancienne (même règle que l'ordre des imports CSS de Vite).
+import './studio/studio.css';
 
 const Partage = lazy(() => import('./views/Partage'));
 
