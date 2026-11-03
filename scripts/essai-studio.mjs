@@ -50,6 +50,9 @@ mkdirSync(SORTIE, { recursive: true });
 
 const argAgents = process.argv.indexOf('--agents');
 const AGENTS = (argAgents > 0 ? process.argv[argAgents + 1] : 'claude-code').split(',');
+// `--deux` : DEUX missions, chacune sur son fichier, lancées l'une après
+// l'autre depuis l'accueil — avec deux ouvrières, elles avancent en même temps.
+const DEUX = process.argv.includes('--deux');
 const PORT = Number(process.env.E2E_PORT ?? 7791);
 const JETON = randomBytes(24).toString('hex');
 const D = mkdtempSync(path.join(os.tmpdir(), 'hive-e2e-'));
@@ -75,10 +78,22 @@ writeFileSync(
   path.join(source, 'test.js'),
   "import assert from 'node:assert/strict';\nimport { add } from './calc.js';\n\nassert.equal(add(2, 3), 5);\nconsole.log('ok');\n",
 );
+if (DEUX) {
+  writeFileSync(path.join(source, 'geo.js'), 'export function aire(l, h) {\n  return l + h;\n}\n');
+  writeFileSync(
+    path.join(source, 'test-geo.js'),
+    "import assert from 'node:assert/strict';\nimport { aire } from './geo.js';\n\nassert.equal(aire(2, 3), 6);\nconsole.log('ok');\n",
+  );
+}
 writeFileSync(
   path.join(source, 'package.json'),
   JSON.stringify(
-    { name: 'calc-e2e', private: true, type: 'module', scripts: { test: 'node test.js' } },
+    {
+      name: 'calc-e2e',
+      private: true,
+      type: 'module',
+      scripts: { test: DEUX ? 'node test.js && node test-geo.js' : 'node test.js' },
+    },
     null,
     2,
   ) + '\n',
@@ -195,7 +210,7 @@ try {
     },
   });
   const jwt = compte.token;
-  etape('compte créé (premier = administrateur)', true, compte.user?.role ?? '?');
+  etape('compte créé (premier = administrateur)', true, compte.role ?? compte.user?.role ?? '?');
 
   const projet = await api('/api/projects/user', {
     method: 'POST',
@@ -205,15 +220,16 @@ try {
   etape('projet isolé créé sur le dépôt local', true, projet.id);
 
   // ─── 3. Les ouvrières RÉELLES ──────────────────────────────────────────────
-  for (const agent of AGENTS) {
-    lancer(`noeud-${agent}`, 'src/node-client/main.ts', {
+  for (const [i, agent] of AGENTS.entries()) {
+    const nom = AGENTS.indexOf(agent) === AGENTS.lastIndexOf(agent) ? agent : `${agent}-${i + 1}`;
+    lancer(`noeud-${nom}`, 'src/node-client/main.ts', {
       ...base,
       HIVE_URL: `ws://127.0.0.1:${PORT}/ws`,
       HIVE_TOKEN: JETON,
       HIVE_AGENT: agent,
-      HIVE_NODE_NAME: `poste-${agent}`,
+      HIVE_NODE_NAME: `poste-${nom}`,
       HIVE_OWNER_NAME: 'Micka',
-      HIVE_WORKDIR: path.join(D, `work-${agent}`),
+      HIVE_WORKDIR: path.join(D, `work-${nom}`),
       HIVE_MAX_CONCURRENCY: '1',
       HIVE_ISOLEMENT: 'off',
       ...(process.env.E2E_MODELES ? { HIVE_MODELES: process.env.E2E_MODELES } : {}),
@@ -268,8 +284,13 @@ try {
   await photo('01-accueil');
 
   // La saisie de mission.
-  const MISSION =
-    'Dans calc.js, la fonction add soustrait au lieu d’additionner : corrige-la, puis lance npm test pour vérifier.';
+  // À deux missions, chacune lance SON test : `npm test` rougirait du défaut de
+  // l'autre, et l'agent serait tenté de corriger un fichier qui n'est pas le sien.
+  const MISSION = DEUX
+    ? 'Dans calc.js, la fonction add soustrait au lieu d’additionner : corrige-la, puis lance node test.js pour vérifier.'
+    : 'Dans calc.js, la fonction add soustrait au lieu d’additionner : corrige-la, puis lance npm test pour vérifier.';
+  const MISSION2 =
+    'Dans geo.js, la fonction aire additionne au lieu de multiplier : corrige-la, puis lance node test-geo.js pour vérifier.';
   await page.locator('#hs-saisie').fill(MISSION);
   await page.getByRole('button', { name: 'Préparer la mission' }).click();
   await page.getByRole('button', { name: 'Lancer la mission' }).waitFor({ timeout: 60_000 });
@@ -293,6 +314,47 @@ try {
     true,
     creees.map((t) => `${t.title} [${t.status}]`).join(' | '),
   );
+
+  if (DEUX) {
+    await page.locator('#hs-saisie').fill(MISSION2);
+    await page.getByRole('button', { name: 'Préparer la mission' }).click();
+    await page.getByRole('button', { name: 'Lancer la mission' }).waitFor({ timeout: 60_000 });
+    await page.getByRole('button', { name: 'Lancer la mission' }).click();
+    const deux = await attendre(
+      async () => {
+        const s = await api('/api/state');
+        const t = s.tasks.filter((x) => !x.ombre);
+        return t.length >= 2 ? t : null;
+      },
+      30_000,
+      'la seconde mission ne crée pas de tâche',
+    );
+    etape(
+      'seconde mission lancée depuis l’accueil',
+      true,
+      deux.map((t) => t.title.slice(0, 60)).join(' | '),
+    );
+    try {
+      const ensemble = await attendre(
+        async () => {
+          const s = await api('/api/state');
+          const actives = s.tasks.filter(
+            (t) => ['assigned', 'running'].includes(t.status) && t.assignedNodeId,
+          );
+          return new Set(actives.map((t) => t.assignedNodeId)).size >= 2 ? actives : null;
+        },
+        180_000,
+        'jamais deux tâches en cours sur deux ouvrières à la fois',
+      );
+      etape(
+        'deux agents travaillent EN MÊME TEMPS, chacun sur sa tâche',
+        true,
+        ensemble.map((t) => `${t.title.slice(0, 32)}… → ${t.assignedNodeId}`).join(' | '),
+      );
+    } catch (e) {
+      etape('deux agents travaillent EN MÊME TEMPS, chacun sur sa tâche', false, e.message);
+    }
+  }
 
   // L'agent reçoit et travaille : on photographie l'état « en cours ».
   await attendre(
@@ -350,6 +412,19 @@ try {
     /calc\.js/.test(diffs) && /\+\s*return a \+ b/.test(diffs),
     diffs ? `${diffs.length} octets de diff` : 'diff vide',
   );
+  if (DEUX) {
+    etape(
+      'le diff (champ diff) corrige geo.js',
+      /geo\.js/.test(diffs) && /\+\s*return l \* h/.test(diffs),
+      '',
+    );
+    const auteurs = new Set(finies.map((t) => t.assignedNodeId).filter(Boolean));
+    etape(
+      'les deux productions viennent de deux ouvrières différentes',
+      auteurs.size >= 2,
+      [...auteurs].join(', '),
+    );
+  }
   for (const r of productions.filter((x) => x.success === false)) {
     etape(
       'raison d’échec rendue par l’ouvrière',
@@ -383,19 +458,34 @@ try {
     await page.waitForTimeout(1500);
     await photo('05b-diff');
   }
-  const approuver = page.getByRole('button', { name: /^Approuver/ }).first();
-  if (await approuver.count()) {
+  const aApprouver = DEUX ? 2 : 1;
+  let approuvees = 0;
+  for (let k = 0; k < aApprouver; k++) {
+    const approuver = page.getByRole('button', { name: /^Approuver/ }).first();
+    if (!(await approuver.count())) break;
     await approuver.click();
-    const revue = await attendre(
-      async () => {
-        const r = await api('/api/reviews');
-        const v = Object.values(r.reviews ?? {});
-        return v.length > 0 ? r.reviews : null;
-      },
-      20_000,
-      'la validation n’arrive pas à la Reine',
-    );
-    etape('validation enregistrée côté Reine', true, JSON.stringify(revue).slice(0, 160));
+    approuvees += 1;
+    await page.waitForTimeout(1500);
+  }
+  if (approuvees > 0) {
+    try {
+      const revue = await attendre(
+        async () => {
+          const r = await api('/api/reviews');
+          const v = Object.values(r.reviews ?? {});
+          return v.length >= aApprouver ? r.reviews : null;
+        },
+        20_000,
+        'la validation n’arrive pas à la Reine',
+      );
+      etape(
+        'validation enregistrée côté Reine',
+        true,
+        `${Object.keys(revue).length} verdict(s) — ${JSON.stringify(revue).slice(0, 140)}`,
+      );
+    } catch (e) {
+      etape('validation enregistrée côté Reine', false, e.message);
+    }
   } else {
     etape('validation enregistrée côté Reine', false, 'aucun bouton « Approuver » visible');
   }
