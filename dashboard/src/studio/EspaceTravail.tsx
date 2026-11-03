@@ -451,6 +451,55 @@ function VoletConversation(p: Props & { onMontrer: (a: Affichage) => void }) {
   );
 }
 
+/**
+ * Le verdict d'une production : le geste est celui de la Miellerie (POST de la
+ * revue, puis le cache local), partagé par la carte de la conversation et par
+ * la liste des résultats.
+ */
+function useVerdict(tacheId: string) {
+  const [etat, setEtat] = useState<'repos' | 'envoi' | 'erreur'>('repos');
+  const [erreur, setErreur] = useState<string | null>(null);
+  const trancher = (verdict: 'approved' | 'rejected') => {
+    setEtat('envoi');
+    setErreur(null);
+    postReview(tacheId, verdict)
+      .then(() => {
+        setReview(tacheId, verdict);
+        setEtat('repos');
+      })
+      .catch((e: unknown) => {
+        setEtat('erreur');
+        setErreur(e instanceof Error ? e.message : String(e));
+      });
+  };
+  return { etat, erreur, trancher };
+}
+
+/** Refuser / Approuver, et l'erreur du dernier envoi s'il y en a une. */
+function BoutonsVerdict({ v }: { v: ReturnType<typeof useVerdict> }) {
+  const t = useT();
+  return (
+    <>
+      <button
+        type="button"
+        className="hs-btn petit fantome"
+        disabled={v.etat === 'envoi'}
+        onClick={() => v.trancher('rejected')}
+      >
+        {t('Refuser', 'Reject')}
+      </button>
+      <button
+        type="button"
+        className="hs-btn petit primaire"
+        disabled={v.etat === 'envoi'}
+        onClick={() => v.trancher('approved')}
+      >
+        {t('Approuver', 'Approve')}
+      </button>
+    </>
+  );
+}
+
 /** Une production qui attend un verdict humain — le geste est celui de la Miellerie. */
 function CarteDecision({
   tache,
@@ -462,23 +511,8 @@ function CarteDecision({
   reviewTick: number;
 }) {
   const t = useT();
-  const [etat, setEtat] = useState<'repos' | 'envoi' | 'erreur'>('repos');
-  const [erreur, setErreur] = useState<string | null>(null);
+  const v = useVerdict(tache.id);
   void reviewTick;
-
-  const trancher = (verdict: 'approved' | 'rejected') => {
-    setEtat('envoi');
-    setErreur(null);
-    postReview(tache.id, verdict)
-      .then(() => {
-        setReview(tache.id, verdict);
-        setEtat('repos');
-      })
-      .catch((e: unknown) => {
-        setEtat('erreur');
-        setErreur(e instanceof Error ? e.message : String(e));
-      });
-  };
 
   return (
     <div className="hs-carte-fil decision">
@@ -493,32 +527,67 @@ function CarteDecision({
             'Read the diff before deciding. Nothing is merged without you.',
           )}
         </p>
-        {erreur && (
+        {v.erreur && (
           <p className="hs-alerte erreur" role="alert">
-            {erreur}
+            {v.erreur}
           </p>
         )}
       </div>
       <div className="hs-carte-actions">
         <BoutonDiff tache={tache} onMontrer={onMontrer} />
-        <button
-          type="button"
-          className="hs-btn petit fantome"
-          disabled={etat === 'envoi'}
-          onClick={() => trancher('rejected')}
-        >
-          {t('Refuser', 'Reject')}
-        </button>
-        <button
-          type="button"
-          className="hs-btn petit primaire"
-          disabled={etat === 'envoi'}
-          onClick={() => trancher('approved')}
-        >
-          {t('Approuver', 'Approve')}
-        </button>
+        <BoutonsVerdict v={v} />
       </div>
     </div>
+  );
+}
+
+/**
+ * Une ligne de la liste des résultats. Une production qui attend un verdict le
+ * reçoit SUR PLACE : on y lit le diff, et c'est là qu'on veut trancher —
+ * l'E2E réel cherchait « Approuver » dans les résultats et ne l'y trouvait pas.
+ */
+function LigneResultat({
+  x,
+  onOuvrirTache,
+  onMontrer,
+}: {
+  x: Task;
+  onOuvrirTache: (id: string) => void;
+  onMontrer: (a: Affichage) => void;
+}) {
+  const t = useT();
+  const v = useVerdict(x.id);
+  const verdict = getReview(x.id);
+  const attend = x.status === 'done' && verdict === null;
+  return (
+    <li className={`ton-${TON_TACHE[x.status]}`}>
+      <div className="hs-resultat-tete">
+        <button type="button" className="hs-lien fort" onClick={() => onOuvrirTache(x.id)}>
+          {x.title}
+        </button>
+        <ChipStatut tache={x} />
+        {verdict && (
+          <span className={`hs-chip ton-${verdict === 'approved' ? 'ok' : 'echec'}`}>
+            {verdict === 'approved' ? t('Validée', 'Approved') : t('Refusée', 'Rejected')}
+          </span>
+        )}
+      </div>
+      <p className="hs-discret">
+        {x.result
+          ? `${formatDuree(x.result.durationMs)} · ${x.result.success ? t('réussie', 'succeeded') : t('échouée', 'failed')}`
+          : t('sans production rangée', 'no stored production')}
+      </p>
+      {v.erreur && (
+        <p className="hs-alerte erreur" role="alert">
+          {v.erreur}
+        </p>
+      )}
+      <div className="hs-carte-actions">
+        <BoutonDiff tache={x} onMontrer={onMontrer} />
+        <BoutonDiff tache={x} onMontrer={onMontrer} genre="journaux" />
+        {attend && <BoutonsVerdict v={v} />}
+      </div>
+    </li>
   );
 }
 
@@ -754,33 +823,9 @@ function VoletResultats(p: Props & { onMontrer: (a: Affichage) => void }) {
   }
   return (
     <ul className="hs-resultats">
-      {finies.map((x) => {
-        const verdict = getReview(x.id);
-        return (
-          <li key={x.id} className={`ton-${TON_TACHE[x.status]}`}>
-            <div className="hs-resultat-tete">
-              <button type="button" className="hs-lien fort" onClick={() => p.onOuvrirTache(x.id)}>
-                {x.title}
-              </button>
-              <ChipStatut tache={x} />
-              {verdict && (
-                <span className={`hs-chip ton-${verdict === 'approved' ? 'ok' : 'echec'}`}>
-                  {verdict === 'approved' ? t('Validée', 'Approved') : t('Refusée', 'Rejected')}
-                </span>
-              )}
-            </div>
-            <p className="hs-discret">
-              {x.result
-                ? `${formatDuree(x.result.durationMs)} · ${x.result.success ? t('réussie', 'succeeded') : t('échouée', 'failed')}`
-                : t('sans production rangée', 'no stored production')}
-            </p>
-            <div className="hs-carte-actions">
-              <BoutonDiff tache={x} onMontrer={p.onMontrer} />
-              <BoutonDiff tache={x} onMontrer={p.onMontrer} genre="journaux" />
-            </div>
-          </li>
-        );
-      })}
+      {finies.map((x) => (
+        <LigneResultat key={x.id} x={x} onOuvrirTache={p.onOuvrirTache} onMontrer={p.onMontrer} />
+      ))}
     </ul>
   );
 }
