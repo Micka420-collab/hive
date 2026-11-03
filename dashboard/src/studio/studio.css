@@ -3119,11 +3119,29 @@ kbd {
   .hs-ia [data-testid='mc-ia-mot'] {
     display: none;
   }
+}
 
+/* ─── L'ESPACE DE TRAVAIL SE MESURE LUI-MÊME ──────────────────────────────────
+   Il s'empilait sous 1100 px de FENÊTRE. À 1024 px, la colonne repliée, il
+   disposait pourtant de 900 px pour ses deux panneaux — et le code passait
+   sous le pli, 1 400 px plus bas. C'est la place de l'accueil qui décide
+   désormais : sous 650 px (un téléphone, une fenêtre étroite), les panneaux
+   s'empilent ; au-dessus — tablette, 1280 px colonne ouverte —, ils restent
+   côte à côte, redimensionnables. */
+.hs-studio {
+  container: studio / inline-size;
+}
+
+@container studio (max-width: 650px) {
   .hs-espace {
     height: auto;
+    min-height: 0;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(380px, auto) 0 minmax(320px, auto);
+    grid-template-rows: auto 0 auto;
+  }
+
+  .hs-espace > .hs-panneau.gauche {
+    min-height: 320px;
   }
 
   .hs-separateur {
@@ -3139,8 +3157,35 @@ kbd {
     visibility: visible;
   }
 
+  /* Empilés, « agrandir » n'agrandirait rien : le bouton n'est pas montré. */
+  .hs-espace .hs-onglets > .hs-icone-btn[aria-pressed] {
+    display: none;
+  }
+
   .hs-espace > .hs-panneau.droite {
     margin-top: 12px;
+    min-height: 320px;
+  }
+
+  /* Un fichier ou un diff ouvert : tout l'écran sous la barre. Plus court, le
+     panneau restait le dernier de la page et ne pouvait pas monter jusqu'en
+     haut — « Diff » l'amenait à mi-écran. */
+  .hs-espace > .hs-panneau.droite:not(.vide) {
+    min-height: calc(100vh - var(--hs-topbar) - 24px);
+    min-height: calc(100dvh - var(--hs-topbar) - 24px);
+  }
+
+  /* Rien d'ouvert : une ligne qui dit où trouver un fichier, pas 320 px vides. */
+  .hs-espace > .hs-panneau.droite.vide {
+    min-height: 0;
+  }
+
+  .hs-panneau.droite.vide .hs-code {
+    min-height: 0;
+  }
+
+  .hs-panneau.droite.vide .hs-barre-etat {
+    display: none;
   }
 }
 
@@ -3158,11 +3203,22 @@ kbd {
     width: min(var(--hs-rail), 86vw);
     height: auto;
     transform: translateX(-105%);
-    transition: transform 0.18s ease;
+    /* Fermé, le tiroir est HORS de l'écran mais était toujours là : la
+       tabulation entrait dans ses liens invisibles, et le lecteur d'écran les
+       lisait. Caché, il sort de l'ordre du focus ; la visibilité bascule APRÈS
+       la glissade, pour que la fermeture reste vue. */
+    visibility: hidden;
+    transition:
+      transform 0.18s ease,
+      visibility 0s linear 0.18s;
   }
 
   .mc-app[data-studio][data-rail-mobile='ouvert'] > .hs-rail {
     transform: none;
+    visibility: visible;
+    transition:
+      transform 0.18s ease,
+      visibility 0s;
     box-shadow: var(--hs-ombre);
   }
 
@@ -3191,8 +3247,21 @@ kbd {
     display: none;
   }
 
+  /* Le projet prend la place qui reste — et n'en sort plus. Plafonné à 150 px
+     dans une boîte qui, elle, rétrécissait jusqu'à 43 px, le bouton débordait :
+     la liaison, le voyant de l'IA et la loupe se peignaient PAR-DESSUS. */
+  /* Base 0 : le projet prend ce qui RESTE, il ne réclame pas la largeur de
+     son nom (en base « auto », le nom entier poussait les boutons à la ligne). */
+  .hs-selecteur {
+    flex: 1 1 0;
+  }
+
   .hs-selecteur-btn {
-    max-width: 150px;
+    max-width: 100%;
+  }
+
+  .hs-statuts {
+    flex: none;
   }
 
   .hs-zone > .mc-main {
@@ -3218,6 +3287,12 @@ kbd {
 
   .hs-mission-corps h2 {
     white-space: normal;
+  }
+
+  /* Le titre garde une largeur lisible : les pastilles passent dessous plutôt
+     que de l'écraser (à 414 px, il tombait à une lettre par ligne). */
+  .hs-mission-titres {
+    flex: 1 1 220px;
   }
 
   .hs-mission-meta {
@@ -3260,10 +3335,6 @@ kbd {
 }
 
 @media (max-width: 420px) {
-  .hs-selecteur-btn {
-    max-width: 120px;
-  }
-
   .hs-progression {
     flex-direction: column;
     align-items: stretch;
@@ -3283,4 +3354,219 @@ kbd {
   .hs-apercu-actions .hs-btn {
     flex: 1;
   }
+}
+
+/* ─── LE RESPONSIVE, REVU DE 320 À 1920 PX ────────────────────────────────────
+   Mesuré sur la démo à dix largeurs, écran tactile simulé sous 1024 px. Ce que
+   la mesure a trouvé, et ce que chaque règle ci-dessous corrige :
+     · sous 480 px, la barre n'avait pas la place de ses sept éléments ;
+     · « Se connecter » prenait 99 px d'une barre de 375 ;
+     · des cibles de 20 px de haut (les tâches du fil) sous le plancher WCAG ;
+     · à 1024 × 768, le panorama et la saisie poussaient l'espace de travail
+       sous le pli. */
+
+/* La raccourci clavier se tait quand la recherche manque de place : son mot,
+   lui, reste lisible (il tombait à « Recherc… » à 1024 px). */
+@media (min-width: 769px) and (max-width: 1180px) {
+  .hs-recherche kbd {
+    display: none;
+  }
+}
+
+.mc-se-connecter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Sur téléphone, « Se connecter » devient son icône — le nom accessible reste. */
+@media (max-width: 600px) {
+  .hs-compte .mc-se-connecter {
+    justify-content: center;
+    width: 40px;
+    min-height: 36px;
+    padding: 0;
+  }
+
+  .mc-se-connecter-mot {
+    display: none;
+  }
+}
+
+/* Sous 480 px : deux lignes. La première garde les gestes (menu, projet,
+   recherche, cloche, colonne, compte) ; la seconde dit l'état EN MOTS
+   — « Connecté », « simulé — aucune IA » — au lieu de deux points de couleur
+   qui volaient la place du nom du projet. */
+@media (max-width: 480px) {
+  :root {
+    --hs-topbar: 92px;
+  }
+
+  .hs-topbar {
+    flex-wrap: wrap;
+    align-content: center;
+    row-gap: 6px;
+    padding: 6px 10px;
+  }
+
+  .hs-statuts {
+    order: 5;
+    flex: 1 0 100%;
+    gap: 8px;
+  }
+
+  .hs-statuts .hs-liaison-mot,
+  .hs-statuts .hs-ia [data-testid='mc-ia-mot'] {
+    display: inline;
+  }
+
+  .hs-statuts .hs-pastille,
+  .hs-statuts .hs-ia {
+    min-height: 26px;
+    font-size: 12px;
+  }
+
+  .hs-hero {
+    min-height: 0;
+    padding: 20px 16px 48px;
+  }
+
+  .hs-hero-texte h1 {
+    font-size: 24px;
+  }
+
+  .hs-hero-texte p {
+    font-size: 14px;
+  }
+
+  /* « Voir le plan » passait seul à la ligne, sous les pastilles : il rejoint
+     le coin de la carte, et le titre lui laisse sa place. */
+  .hs-mission {
+    position: relative;
+  }
+
+  .hs-mission-meta > .hs-icone-btn:last-child {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+  }
+
+  .hs-mission-titres {
+    flex-basis: 100%;
+    padding-right: 40px;
+  }
+}
+
+/* « + Projet » : le mot sur grand écran, l'icône sur téléphone — où il
+   réduisait le nom du projet à une boîte vide. Le mot reste lu par le lecteur
+   d'écran (caché visuellement, pas retiré). */
+.hs-nouveau-projet > svg {
+  display: none;
+}
+
+@media (max-width: 480px) {
+  .hs-nouveau-projet {
+    width: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .hs-nouveau-projet > svg {
+    display: inline;
+  }
+
+  .hs-nouveau-projet-mot {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+/* 320 px : la colonne des agents quitte la barre — la section « Agents » du
+   rail la remplace —, et le nom du projet retrouve de quoi se lire. */
+@media (max-width: 360px) {
+  .hs-bascule-colonne {
+    display: none;
+  }
+}
+
+/* Une fenêtre basse (1366 × 768, 1024 × 768) : le panorama se fait plus mince
+   pour que l'espace de travail commence au-dessus du pli. */
+@media (min-width: 769px) and (max-height: 820px) {
+  .hs-hero {
+    min-height: 0;
+    padding-block: 22px 46px;
+  }
+}
+
+/* Le plancher WCAG 2.2 (2.5.8) : 24 px de cible, partout. Les tâches du fil,
+   « Voir tout » et « Ignorer » faisaient 19 à 20 px de haut, les bascules des
+   garde-fous 21. Un lien DANS une phrase garde la hauteur de sa ligne
+   (exception « en ligne » du critère). Un bouton centre déjà son texte : la
+   hauteur suffit, et l'ellipse des titres longs tient. */
+button.hs-lien:not(p *),
+.mc-app[data-studio] button[aria-pressed],
+.mc-app[data-studio] select,
+.mc-app[data-studio] input:not([type='checkbox'], [type='radio'], [type='range']) {
+  min-height: 24px;
+}
+
+/* Au doigt, des cibles de doigt : 40 px pour les icônes et les boutons, 44 px
+   pour la navigation. La souris garde la densité de la maquette. */
+@media (pointer: coarse) {
+  .mc-app[data-studio] .hs-icone-btn:not(.petit) {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .mc-app[data-studio] .hs-btn {
+    min-height: 40px;
+  }
+
+  .mc-app[data-studio] .hs-btn.petit {
+    min-height: 36px;
+  }
+
+  .hs-onglets [role='tab'] {
+    min-height: 40px;
+  }
+
+  .hs-volet li > .hs-lien {
+    min-height: 36px;
+  }
+
+  .hs-section {
+    min-height: 44px;
+  }
+
+  .mc-app[data-studio] input[type='checkbox'],
+  .mc-app[data-studio] input[type='radio'] {
+    width: 24px;
+    height: 24px;
+  }
+
+  .mc-app[data-studio] button[aria-pressed] {
+    min-height: 36px;
+  }
+
+  /* La mini-ruche de la Validation : chaque alvéole ouvre sa tâche. Préfixée :
+     la feuille des vues se charge après celle-ci et l'emportait à égalité. */
+  .mc-app[data-studio] .mc-comb.mini .mc-cell {
+    width: 24px;
+    height: 22px;
+  }
+}
+
+/* Le panneau de code, quand « Diff » y amène la vue : son haut ne passe pas
+   sous la barre collante. */
+.hs-panneau.droite {
+  scroll-margin-top: calc(var(--hs-topbar) + 12px);
+}
+
+.hs-plus-validations {
+  align-self: flex-start;
+  margin: 2px 0 4px;
 }

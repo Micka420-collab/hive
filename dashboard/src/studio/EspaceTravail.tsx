@@ -61,6 +61,23 @@ interface Props {
   reviewTick: number;
 }
 
+/** Les cartes de validation montrées d'emblée dans la conversation. */
+const VALIDATIONS_EN_VUE = 3;
+
+/**
+ * Les validations montrées, et combien attendent un geste pour l'être.
+ *
+ * Huit cartes à la suite faisaient un mur — trois mille pixels sur téléphone.
+ * Trois restent en vue ; « toutes » les rend toutes.
+ */
+export function validationsEnVue<T>(
+  aValider: readonly T[],
+  toutes: boolean,
+): { vues: readonly T[]; repliees: number } {
+  const vues = toutes ? aValider : aValider.slice(0, VALIDATIONS_EN_VUE);
+  return { vues, repliees: aValider.length - vues.length };
+}
+
 export function EspaceTravail(p: Props) {
   const t = useT();
   const partage = usePreference(CLES.partage, lirePartage);
@@ -94,6 +111,19 @@ export function EspaceTravail(p: Props) {
   const montrer = (a: Affichage) => {
     setAffichage(a);
     if (agrandi === 'gauche') setAgrandi(null);
+    // ─── PANNEAUX EMPILÉS : LE DIFF S'OUVRE OÙ L'ON REGARDE ─────────────────
+    // Sur téléphone et sur une fenêtre étroite, le panneau de code est SOUS la
+    // conversation : « Diff » l'ouvrait deux mille pixels plus bas, et rien ne
+    // bougeait à l'écran. Empilés (le haut du code sous le bas du suivi), on
+    // l'amène à la vue ; côte à côte, il est déjà là.
+    requestAnimationFrame(() => {
+      const gauche = zone.current?.querySelector<HTMLElement>('.hs-panneau.gauche');
+      const droite = zone.current?.querySelector<HTMLElement>('.hs-panneau.droite');
+      if (!gauche || !droite) return;
+      if (droite.getBoundingClientRect().top < gauche.getBoundingClientRect().bottom - 1) return;
+      const sobre = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      droite.scrollIntoView({ block: 'start', behavior: sobre ? 'auto' : 'smooth' });
+    });
   };
 
   return (
@@ -284,12 +314,22 @@ function VoletConversation(p: Props & { onMontrer: (a: Affichage) => void }) {
   const fin = useRef<HTMLDivElement>(null);
   const { conversation: c, mission: m } = p;
 
+  // Le fil suit le dernier message DANS son panneau. `scrollIntoView` faisait
+  // aussi défiler la PAGE : panneaux empilés (téléphone), l'accueil s'ouvrait
+  // tout en bas, sous la saisie de mission. Un volet qui ne défile pas — il
+  // prend sa hauteur — n'a rien à suivre.
   useEffect(() => {
-    fin.current?.scrollIntoView({ block: 'end' });
+    const volet = fin.current?.closest<HTMLElement>('.hs-volet');
+    if (volet && volet.scrollHeight > volet.clientHeight + 1) volet.scrollTop = volet.scrollHeight;
   }, [c.messages.length, c.enCours]);
 
   const aValider = m.taches.filter((x) => x.status === 'done' && getReview(x.id) === null);
   const echecs = m.taches.filter((x) => x.status === 'failed');
+  const [toutesValidations, setToutesValidations] = useState(false);
+  const { vues: validationsVues, repliees: validationsRepliees } = validationsEnVue(
+    aValider,
+    toutesValidations,
+  );
 
   return (
     <div className="hs-conversation">
@@ -338,7 +378,7 @@ function VoletConversation(p: Props & { onMontrer: (a: Affichage) => void }) {
                 </li>
               ))}
             </ul>
-            {aValider.map((x) => (
+            {validationsVues.map((x) => (
               <CarteDecision
                 key={x.id}
                 tache={x}
@@ -346,6 +386,22 @@ function VoletConversation(p: Props & { onMontrer: (a: Affichage) => void }) {
                 reviewTick={p.reviewTick}
               />
             ))}
+            {(validationsRepliees > 0 || toutesValidations) &&
+              aValider.length > VALIDATIONS_EN_VUE && (
+                <button
+                  type="button"
+                  className="hs-btn petit fantome hs-plus-validations"
+                  aria-expanded={toutesValidations}
+                  onClick={() => setToutesValidations((v) => !v)}
+                >
+                  {toutesValidations
+                    ? t('Replier les validations', 'Collapse reviews')
+                    : t(
+                        `Afficher ${validationsRepliees} autre(s) validation(s)`,
+                        `Show ${validationsRepliees} more review(s)`,
+                      )}
+                </button>
+              )}
             {echecs.length > 0 && (
               <div className="hs-carte-fil echec">
                 <Icone nom="avertissement" taille={18} />
@@ -877,7 +933,10 @@ function PanneauCode({
         : `${affichage.genre === 'diff' ? 'diff' : t('journaux', 'logs')} · ${affichage.titre}`;
   const lignes = affichage ? affichage.contenu.split('\n').length : 0;
   return (
-    <section className="hs-panneau droite" aria-label={t('Code', 'Code')}>
+    <section
+      className={`hs-panneau droite${affichage === null ? ' vide' : ''}`}
+      aria-label={t('Code', 'Code')}
+    >
       <div className="hs-onglets code">
         <span
           className="hs-onglet-fichier"

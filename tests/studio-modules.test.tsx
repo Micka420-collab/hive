@@ -24,6 +24,7 @@ import { etapesGuide } from '../dashboard/src/studio/ColonneDroite';
 import { idsUniques } from '../dashboard/src/studio/Composeur';
 import { lireConversation } from '../dashboard/src/studio/conversation';
 import { titreOnglet } from '../dashboard/src/studio/EnteteSection';
+import { validationsEnVue } from '../dashboard/src/studio/EspaceTravail';
 import {
   compteDuResume,
   compterTaches,
@@ -592,5 +593,63 @@ describe('la palette', () => {
     expect(entreesPalette({ ...base, mode: 'commandes' }, false).map((e) => e.groupe)).toEqual([
       'commandes',
     ]);
+  });
+});
+
+describe('le responsive de la coquille', () => {
+  // ─── CE QUE LA MESURE A TROUVÉ, ET CE QUI LE TIENT ─────────────────────────
+  //
+  // Mesuré sur la démo, de 320 à 1440 px : la barre se chevauchait sous 768 px
+  // (le bouton du projet plafonné à 150 px dans une boîte de 43), le tiroir
+  // fermé gardait ses liens dans l'ordre de tabulation, l'espace de travail
+  // s'empilait sur la FENÊTRE (à 1024 px, le code passait sous le pli), et huit
+  // cartes de validation faisaient trois mille pixels de téléphone. Ces bancs
+  // tiennent les règles qui l'ont corrigé.
+  const css = readFileSync(path.join(process.cwd(), 'dashboard/src/studio/studio.css'), 'utf8');
+  const bloc768 = css.slice(css.indexOf('@media (max-width: 768px)'));
+
+  it('TROIS VALIDATIONS EN VUE, les autres sur demande — et toutes quand on le demande', () => {
+    const sept = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+    expect(validationsEnVue(sept, false)).toEqual({ vues: ['a', 'b', 'c'], repliees: 4 });
+    expect(validationsEnVue(sept, true)).toEqual({ vues: sept, repliees: 0 });
+    expect(validationsEnVue(['a', 'b'], false)).toEqual({ vues: ['a', 'b'], repliees: 0 });
+    expect(validationsEnVue([], false)).toEqual({ vues: [], repliees: 0 });
+  });
+
+  it('LE TIROIR FERMÉ SORT DE L’ORDRE DU FOCUS — caché, visible seulement ouvert', () => {
+    expect(bloc768).toMatch(
+      /> \.hs-rail \{[^}]*transform: translateX\(-105%\);[^}]*visibility: hidden;/,
+    );
+    expect(bloc768).toMatch(/data-rail-mobile='ouvert'\] > \.hs-rail \{[^}]*visibility: visible;/);
+  });
+
+  it('L’ESPACE S’EMPILE SELON SA PLACE (conteneur), plus selon la fenêtre', () => {
+    expect(css).toMatch(/\.hs-studio \{\s*container: studio \/ inline-size;/);
+    expect(css).toMatch(
+      /@container studio \(max-width: \d+px\) \{\s*\.hs-espace \{[^}]*grid-template-columns: minmax\(0, 1fr\);/,
+    );
+    const medias = [...css.matchAll(/@media[^{]*\{([\s\S]*?)\n\}/g)].map((m) => m[1] ?? '');
+    expect(
+      medias.some((b) => /\.hs-espace \{[^}]*grid-template-columns: minmax\(0, 1fr\)/.test(b)),
+      'une règle de FENÊTRE empile encore l’espace',
+    ).toBe(false);
+  });
+
+  it('SOUS 768 PX, LE PROJET PREND CE QUI RESTE — sans plafond fixe qui déborde', () => {
+    expect(bloc768).toMatch(/\.hs-selecteur \{\s*flex: 1 1 0;/);
+    expect(bloc768).not.toMatch(/\.hs-selecteur-btn \{\s*max-width: \d+px;/);
+  });
+
+  it('LE PLANCHER WCAG 2.5.8 : 24 px pour les liens-boutons, les bascules et les champs', () => {
+    expect(css).toMatch(/button\.hs-lien:not\(p \*\),[^{]*\{\s*min-height: 24px;/);
+  });
+
+  it('LES MOTS QUI SE REPLIENT GARDENT LEUR NOM ACCESSIBLE', () => {
+    const compte = readFileSync(path.join(process.cwd(), 'dashboard/src/AccountPanel.tsx'), 'utf8');
+    expect(compte).toMatch(/aria-label=\{t\('Se connecter', 'Sign in'\)\}/);
+    // « + Projet » est caché VISUELLEMENT sur téléphone, jamais retiré.
+    const repli = css.slice(css.indexOf('.hs-nouveau-projet-mot {'));
+    expect(repli).toMatch(/clip-path: inset\(50%\)/);
+    expect(repli.slice(0, 200)).not.toMatch(/display: none/);
   });
 });

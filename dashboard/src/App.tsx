@@ -68,6 +68,7 @@ import type { ViewId, ViewProps } from './views/shared';
 import { ColonneDroite } from './studio/ColonneDroite';
 import { Raccourcis, Reglages } from './studio/Dialogues';
 import { EnteteSection } from './studio/EnteteSection';
+import { Icone } from './studio/Icone';
 import { ContexteStudio } from './studio/gestes';
 import type { GenreInvitation, GestesStudio } from './studio/gestes';
 import { Invitation } from './studio/Invitation';
@@ -987,8 +988,13 @@ export function App() {
                     sans rapport avec ce qu'on regarde. Ailleurs, la palette, le
                     sélecteur de projet et le rail l'offrent. */}
                 {route.view === 'projets' && (
-                  <button className="hs-btn primaire" onClick={() => setShowNewProject(true)}>
-                    {t('+ Projet', '+ Project')}
+                  <button
+                    className="hs-btn primaire hs-nouveau-projet"
+                    onClick={() => setShowNewProject(true)}
+                  >
+                    {/* Sur téléphone, l'icône seule ; le mot reste lu (studio.css). */}
+                    <Icone nom="plus" taille={16} />
+                    <span className="hs-nouveau-projet-mot">{t('+ Projet', '+ Project')}</span>
                   </button>
                 )}
               </div>

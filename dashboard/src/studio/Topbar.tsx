@@ -172,7 +172,7 @@ export function Topbar(p: Props) {
         <Aide />
         <button
           type="button"
-          className={`hs-icone-btn${p.colonneOuverte ? ' actif' : ''}`}
+          className={`hs-icone-btn hs-bascule-colonne${p.colonneOuverte ? ' actif' : ''}`}
           onClick={gestes.basculerColonne}
           aria-pressed={p.colonneOuverte}
           aria-label={
