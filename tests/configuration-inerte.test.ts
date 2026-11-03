@@ -69,6 +69,13 @@ const REGLAGES_BANC = [
   'commit.gpgsign=false',
   '-c',
   'core.autocrlf=false',
+  // Le dépôt piège doit CONTENIR ses vecteurs, quelle que soit la machine.
+  // Claude Code inscrit `**/.claude/settings.local.json` dans l'exclusion
+  // globale (`~/.config/git/ignore`) : sur un poste où il est installé,
+  // `git add -A` laissait ce vecteur hors du dépôt, et quatre cas rougissaient
+  // pour une cause qui n'était pas la leur. Vide = aucune exclusion globale.
+  '-c',
+  'core.excludesFile=',
 ];
 
 const aNettoyer: string[] = [];
