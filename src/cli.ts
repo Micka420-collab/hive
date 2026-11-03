@@ -1128,6 +1128,9 @@ interface BilletResponse {
   expiresAt: number;
   uses: number;
   joinCommand: string;
+  /** Le lien de porte : ce qu'on envoie désormais (`shared/porte.ts`). Absent d'une Reine antérieure. */
+  lien?: string;
+  entree?: { posix: string | null; windows: string | null };
   note: string;
 }
 
@@ -1167,10 +1170,24 @@ async function cmdInvite(...args: string[]): Promise<void> {
 
   const restant = Math.max(0, inv.expiresAt - Date.now());
   const heuresRestantes = Math.round((restant / 3_600_000) * 10) / 10;
-  console.log('\n🐝 Billet à envoyer à votre ami (ruche : ' + inv.url + ')\n');
-  console.log('  Étape 1 — il récupère Hive puis, dans le dossier :  npm install');
-  console.log('  Étape 2 — il colle cette commande :\n');
-  console.log('    ' + inv.joinCommand + '\n');
+  console.log('\n🐝 Invitation pour votre ami (ruche : ' + inv.url + ')\n');
+  if (inv.lien) {
+    // ─── LE LIEN D'ABORD ───────────────────────────────────────────────────
+    // L'ami l'ouvre ; la page de la ruche reconnaît son système, lui propose
+    // l'application ou la commande, et lui dit quand sa machine est entrée.
+    console.log('  Envoyez-lui ce lien — il l’ouvre, et la ruche le guide :\n');
+    console.log('    ' + inv.lien + '\n');
+    if (inv.entree?.posix) {
+      console.log('  Plutôt un terminal ? La commande, une par système :\n');
+      console.log('    Linux/macOS  ' + inv.entree.posix);
+      if (inv.entree.windows) console.log('    Windows      ' + inv.entree.windows);
+      console.log('');
+    }
+  } else {
+    console.log('  Étape 1 — il récupère Hive puis, dans le dossier :  npm install');
+    console.log('  Étape 2 — il colle cette commande :\n');
+    console.log('    ' + inv.joinCommand + '\n');
+  }
   console.log('  Son Claude Code / Codex est détecté automatiquement. C’est tout.');
   console.log(
     `\n  Ce billet : ${inv.uses === 1 ? 'usage UNIQUE' : inv.uses + ' usages'} · expire dans ${heuresRestantes} h · id ${inv.id}`,
@@ -1190,8 +1207,8 @@ async function cmdInvite(...args: string[]): Promise<void> {
       '  aux autres :  npm run cli -- membres  puis  npm run cli -- exclure <nodeId>\n',
   );
   console.log(
-    '  ⚠ Passer le billet en argument le laisse dans l’historique du shell. Plus\n' +
-      '    discret : l’ami lance `npm run join` seul, puis colle le billet demandé.\n',
+    '  ⚠ Dans un terminal, le billet passe en argument et reste dans l’historique du\n' +
+      '    shell. Le lien, lui, garde le billet dans le navigateur : la ruche ne le voit pas.\n',
   );
 }
 

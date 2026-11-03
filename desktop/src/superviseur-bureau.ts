@@ -17,6 +17,7 @@ import type { Hive, PieceHive } from './contrat-hive.js';
 import { type AgentVu, etat, majEtat } from './etat.js';
 import {
   NOTIFICATION_REINE_ARRETEE,
+  notificationAmieEnLigne,
   notificationMortOuvriere,
   type NotificationRuche,
 } from './notifications.js';
@@ -201,6 +202,82 @@ export class RucheBureau {
   /** Les dernières lignes d'une pièce — l'écran d'erreur les cite. */
   dernieresLignes(nom: string): readonly string[] {
     return this.dernieres.get(nom) ?? [];
+  }
+
+  // ─── L'OUVRIÈRE CHEZ UNE RUCHE AMIE ────────────────────────────────────────
+  //
+  // Un lien `hive://rejoindre/<billet>` (la porte) demande à CETTE machine de
+  // travailler pour la ruche de quelqu'un d'autre. C'est `hive join` — le même
+  // programme qu'un terminal lancerait —, posé par l'amorce de l'app, dans le
+  // dossier de la ruche (son identité de nœud s'y range, `.hive-work/join`),
+  // avec l'environnement des enfants (le PATH du shell, donc l'agent). Le
+  // billet passe en argument de processus, comme dans un terminal ; il ne
+  // s'écrit nulle part.
+  //
+  // Elle vit À CÔTÉ de la ruche de l'app, pas dedans : l'arrêter, la perdre ou
+  // la relancer ne touche pas la Reine locale. Une seule à la fois : rejoindre
+  // une seconde ruche amie remplace la première.
+
+  private amie: Lancee | null = null;
+
+  /**
+   * Rejoint la ruche amie avec ce billet. `label`/`url` : ce que l'accueil
+   * montre. L'état passe `en-cours` → `en-ligne` au « ✔ Nœud démarré » de
+   * `join`, ou `arretee` avec sa dernière ligne quand il sort.
+   */
+  async rejoindreAmie(billet: string, label: string, url: string): Promise<void> {
+    await this.quitterAmie();
+    this.preparerDossier();
+    const { hive } = this.o;
+    const nom = 'ouvrière amie';
+    majEtat({ amie: { label, url, etat: 'en-cours', detail: null } });
+    const piece: PieceHive = {
+      nom,
+      bin: process.execPath,
+      argv: [this.o.piece, hive.fichiers.join, billet],
+      role: `butine pour « ${label} »`,
+      ouvriere: true,
+    };
+    this.dernieres.delete(nom);
+    const lancee = hive.superviseur.lancerRuche({
+      liste: [piece],
+      cwd: this.o.chemins.ruche,
+      env: envDesEnfants(this.o.envHerite(), this.o.chemins, 0),
+      ligne: ({ flux, texte }) => {
+        const j = this.o.journalDePiece(nom);
+        if (flux === 'stderr') j.warn(texte);
+        else j.info(texte);
+        const l = this.dernieres.get(nom) ?? [];
+        l.push(texte);
+        if (l.length > LIGNES_GARDEES) l.shift();
+        this.dernieres.set(nom, l);
+        if (texte.includes('✔ Nœud démarré') && etat().amie?.etat === 'en-cours') {
+          majEtat({ amie: { label, url, etat: 'en-ligne', detail: null } });
+          this.o.notifier(notificationAmieEnLigne(label));
+        }
+      },
+      mort: (_p, suite) => {
+        if (this.amie === lancee) {
+          majEtat({ amie: { label, url, etat: 'arretee', detail: suite.message } });
+          if (!suite.arreter) this.o.notifier(notificationMortOuvriere(nom, suite.message));
+        }
+      },
+    });
+    this.amie = lancee;
+    void lancee.fini.then(() => {
+      if (this.amie === lancee) this.amie = null;
+    });
+  }
+
+  /** Arrête l'ouvrière amie, s'il y en a une ; l'accueil n'en parle plus. */
+  async quitterAmie(): Promise<void> {
+    const l = this.amie;
+    this.amie = null;
+    if (l !== null) {
+      l.arreter(0);
+      await l.fini;
+    }
+    if (etat().amie !== null) majEtat({ amie: null });
   }
 
   /**

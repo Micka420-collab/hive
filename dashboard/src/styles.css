@@ -1909,6 +1909,135 @@ h3 {
   font-style: normal;
 }
 
+/* ─── La porte : UN lien, et l'invité vu d'ici ───────────────────────────
+   Le lien est la chose à voir : un champ large, lisible, un bouton plein.
+   L'arrivée est une rangée à pastille — grise (rien), miel (le lien est
+   ouvert, la personne est devant la page), verte (la machine est entrée).
+   Même grammaire que le reste de la modale : filets fins, miel en
+   remplissage seulement, pas d'ombre. */
+.porte {
+  margin: 0 0 14px;
+}
+.porte-consigne {
+  margin: 0 0 10px;
+  color: var(--text);
+  line-height: 1.5;
+}
+.porte-lien {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.porte-lien-champ {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+  text-overflow: ellipsis;
+}
+.porte-lien-champ:focus-visible {
+  outline: 2px solid var(--miel);
+  outline-offset: 1px;
+}
+.porte-copier,
+.porte-partager {
+  flex: none;
+  padding: 0 14px;
+  min-height: 40px;
+  border-radius: var(--r-sm);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.porte-copier {
+  background: var(--miel);
+  color: var(--encre);
+  border: 1px solid var(--miel);
+}
+.porte-copier:hover {
+  background: var(--miel-2);
+  border-color: var(--miel-2);
+}
+.porte-partager {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border-2);
+}
+.porte-partager:hover {
+  border-color: var(--border);
+  background: var(--panel-2);
+}
+.porte-portee {
+  margin: 10px 0 12px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.porte-arrivee {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.porte-arrivee strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.porte-pastille {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--border-2);
+}
+.porte-arrivee.ouvert .porte-pastille {
+  background: var(--miel);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--miel) 22%, transparent);
+}
+.porte-arrivee.entree {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--green) 35%, var(--border));
+}
+.porte-arrivee.entree .porte-pastille {
+  background: var(--green);
+}
+.invite-commande {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.invite-commande summary {
+  cursor: pointer;
+  color: var(--honey);
+  margin: 0 0 8px;
+}
+.invite-commande[open] summary {
+  margin-bottom: 10px;
+}
+@media (max-width: 560px) {
+  .porte-lien {
+    flex-wrap: wrap;
+  }
+  .porte-lien-champ {
+    flex-basis: 100%;
+  }
+}
+
 /* ─── Sur votre réseau local (découverte) ─────────────────────────────────
    Même grammaire que le reste de la modale d'invitation : filets fins, crème,
    le miel en remplissage seulement. La machine en attente est une rangée ; le

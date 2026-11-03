@@ -18,6 +18,7 @@ if (location.protocol === 'bureau:') {
     etat: () => ipcRenderer.invoke('hive:accueil:etat'),
     choisir: (choix) => ipcRenderer.invoke('hive:accueil:choix', String(choix)),
     reessayer: () => ipcRenderer.invoke('hive:accueil:reessayer'),
+    amie: (choix) => ipcRenderer.invoke('hive:accueil:amie', String(choix)),
     ouvrirEcran: () => ipcRenderer.invoke('hive:accueil:ecran'),
     ouvrirJournaux: () => ipcRenderer.invoke('hive:accueil:journaux'),
     poserSession: (actif) => ipcRenderer.invoke('hive:accueil:session', actif === true),

@@ -63,8 +63,10 @@ $ErrorActionPreference = 'Stop'
 # La meme regle vit dans `src/shared/commande-entree.ts` et dans
 # `rejoindre.sh`. Trois endroits, une seule regle, un banc qui l'eprouve sur des
 # billets empoisonnes.
-if ($Billet -notmatch '^hive2_[A-Za-z0-9_-]+$') {
-  Write-Error 'Ce billet n a pas la forme attendue (hive2_...). Redemandez-en un.'
+# Un LIEN DE PORTE passe aussi (`https://.../r/<id>#hive2_...`, ce que l'hote
+# partage desormais) : `npm run join` sait le relire (`shared/porte.ts`).
+if ($Billet -notmatch '^hive2_[A-Za-z0-9_-]+$' -and $Billet -notmatch '^https?://[A-Za-z0-9._:/\[\]-]+/r/[A-Za-z0-9_-]+#hive2_[A-Za-z0-9_-]+$') {
+  Write-Error 'Ce billet n a pas la forme attendue (hive2_... ou le lien https://.../r/...). Redemandez-en un.'
   exit 64
 }
 

@@ -900,7 +900,22 @@ export function fetchRaces(): Promise<{ races: DroneRace[] }> {
 }
 
 export interface InviteResponse {
-  invite: string;
+  /** L'ancienne invitation (`hive1_`, token maître) — une Reine antérieure seulement. */
+  invite?: string;
+  /** Le billet (`hive2_`) : éphémère, compté, révocable. */
+  billet?: string;
+  /** L'identifiant public du billet : ce que le journal nomme (`porte_ouverte`, `node_joined`). */
+  id?: string;
+  /**
+   * LE LIEN DE PORTE — ce qu'on envoie désormais. L'invité l'ouvre : la page de
+   * la ruche reconnaît son système, lui propose l'application ou la commande,
+   * et lui dit quand sa machine est entrée. Le billet est dans le fragment, que
+   * la ruche ne voit jamais passer (`shared/porte.ts`).
+   */
+  lien?: string;
+  expiresAt?: number;
+  uses?: number;
+  transport?: 'sur' | 'clair_prive' | 'clair_public';
   url: string;
   label: string;
   joinCommand: string;
@@ -920,10 +935,22 @@ export interface InviteResponse {
   injoignable?: string;
 }
 
-/** Demande une invitation à l'orchestrateur (URL WS optionnelle à annoncer). */
+/**
+ * Demande une invitation à l'orchestrateur : un BILLET à usage unique, valable
+ * 24 h, révocable — et son lien de porte. `url` : l'adresse WebSocket à
+ * annoncer, quand celle que la ruche détecte n'est pas la bonne.
+ *
+ * Ce panneau passait par `GET /api/invite`, l'ancien format qui CONTENAIT le
+ * jeton maître de la ruche — sans expiration, sans usage unique, sans
+ * révocation individuelle. Chaque clic sur « Inviter » le faisait sortir de
+ * la Reine. Il ne sort plus.
+ */
 export async function fetchInvite(url?: string): Promise<InviteResponse> {
-  const query = url ? `?url=${encodeURIComponent(url)}` : '';
-  return apiCompte<InviteResponse>(`/api/invite${query}`);
+  return apiCompte<InviteResponse>('/api/billets', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ uses: 1, ...(url ? { url } : {}) }),
+  });
 }
 
 // ─── La découverte du réseau local ──────────────────────────────────────────

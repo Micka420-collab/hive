@@ -6924,6 +6924,13 @@ export class HiveStore {
       .all(Math.max(1, Math.min(limit, 500))) as CleNoeudRangee[];
   }
 
+  /** Les machines entrées avec CE billet, la plus récente d'abord. Empreintes comprises : l'appelant projette. */
+  listClesNoeudsDuBillet(ticketId: string, limit = 50): CleNoeudRangee[] {
+    return this.db
+      .prepare('SELECT * FROM node_keys WHERE ticketId = ? ORDER BY createdAt DESC LIMIT ?')
+      .all(ticketId, Math.max(1, Math.min(limit, 500))) as CleNoeudRangee[];
+  }
+
   /**
    * Élague les billets MORTS (révoqués, expirés ou épuisés) plus vieux que la
    * période de grâce. Les billets vivants ne sont jamais touchés : un billet

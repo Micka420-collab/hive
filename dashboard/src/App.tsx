@@ -770,7 +770,7 @@ export function App() {
               onUser={changerDeCompte}
               sessionExpiree={retourSession !== null}
             />
-            <InvitePanel />
+            <InvitePanel events={events} />
             <input
               type="password"
               className={`token-input${tokenAuthError ? ' token-input-err' : ''}`}

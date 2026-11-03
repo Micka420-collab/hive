@@ -160,7 +160,14 @@ reprendre, une fusion refusée, un plafond de dépense atteint, une ouvrière qu
 s'arrête. Un clic ouvre la bonne vue.
 
 Les liens `hive://ouvrir/<vue>` (par exemple `hive://ouvrir/sante`) ouvrent
-une vue de l'écran. Rien d'autre n'est accepté.
+une vue de l'écran. Les liens `hive://rejoindre/<billet>` sont ceux que remet
+la page d'invitation d'une autre ruche (la porte, `docs/INSTALLATION.md`) :
+l'app montre alors le nom de cette ruche et son adresse, et **attend votre
+geste** — rien ne part sans « Rejoindre cette ruche ». Elle lance alors
+`hive join` avec le billet, à côté de votre propre ruche, avec votre agent de
+code ; l'accueil dit « Vous butinez pour … » quand la connexion est faite, et
+« Quitter cette ruche » l'arrête quand vous voulez. Une seule ruche amie à la
+fois. Rien d'autre n'est accepté.
 
 ## Mettre à jour
 

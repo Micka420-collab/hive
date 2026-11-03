@@ -1,8 +1,25 @@
-// Panneau « Inviter un ami » : génère une invitation (URL + token encodés) et
-// affiche la commande prête à copier, avec les étapes pour l'ami. L'ami colle
-// la commande, son agent IA est détecté automatiquement, il rejoint la ruche.
+// Panneau « Inviter » : UN lien à envoyer, et la ruche fait le reste.
+//
+// ─── CE QUE CE PANNEAU REMETTAIT, ET CE QU'IL REMET ──────────────────────────
+//
+// Il remettait une COMMANDE de deux cents caractères, à coller dans « un
+// terminal » — celui que l'invité ne sait pas toujours ouvrir, et dont il
+// fallait choisir la version à sa place. Et cette commande portait l'ancienne
+// invitation `hive1_`, qui CONTENAIT le jeton maître de la ruche : sans
+// expiration, sans usage unique, sans révocation. Chaque clic sur « Inviter »
+// faisait sortir le jeton de la Reine.
+//
+// Il remet désormais un LIEN DE PORTE (`shared/porte.ts`) : un billet à usage
+// unique, valable 24 h, révocable, dans le fragment d'une URL que la ruche
+// sert elle-même. L'invité l'ouvre ; la page reconnaît son système, lui
+// propose l'application ou la commande, et lui dit quand sa machine est
+// entrée. Ici, l'hôte VOIT l'invité arriver : le lien ouvert, puis la
+// machine entrée — lus dans le journal (`porte_ouverte`, `node_joined`).
+//
+// La commande reste, repliée, pour qui la préfère ; et la ruche d'à côté, sans
+// billet, reste en tête (`DecouvertsReseau`).
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { fetchInvite } from './api';
 import type { InviteResponse } from './api';
@@ -10,16 +27,12 @@ import { useT } from './i18n';
 import { useDialog, Voile } from './ui';
 import { copierTexte } from './copier';
 import { DecouvertsReseau } from './DecouvertsReseau';
+import type { HiveEvent } from '../../src/shared/types';
 
 /**
  * Le cadre du dialogue, dans un composant À LUI : `useDialog` agit au montage
  * et au démontage, il doit donc vivre le temps de l'OUVERTURE — pas celui du
  * bouton « Inviter », monté en permanence dans la barre du haut.
- *
- * C'est ce qui manquait : ce dialogue fermait sur Échap avec son propre
- * écouteur, mais n'y faisait pas entrer le focus, ne l'y gardait pas, et ne le
- * rendait pas au bouton en se fermant — le seul du tableau de bord à laisser
- * tabuler dans la page cachée sous son voile.
  */
 function CadreInvitation({ onClose, children }: { onClose: () => void; children: ReactNode }) {
   const ref = useDialog<HTMLDivElement>(onClose);
@@ -37,28 +50,65 @@ function CadreInvitation({ onClose, children }: { onClose: () => void; children:
   );
 }
 
-export function InvitePanel() {
+/** Ce que le journal dit de CE billet : ouvert ? entré ? — l'hôte voit l'invité arriver. */
+export function arriveeDuBillet(
+  events: readonly HiveEvent[] | undefined,
+  ticketId: string | undefined,
+): {
+  ouvertures: number;
+  derniereOuverture: number | null;
+  entrees: { label: string; ts: number }[];
+} {
+  const vide = {
+    ouvertures: 0,
+    derniereOuverture: null,
+    entrees: [] as { label: string; ts: number }[],
+  };
+  if (!events || !ticketId) return vide;
+  let ouvertures = 0;
+  let derniereOuverture: number | null = null;
+  const entrees: { label: string; ts: number }[] = [];
+  for (const e of events) {
+    if (e.payload.ticketId !== ticketId) continue;
+    if (e.type === 'porte_ouverte') {
+      ouvertures += 1;
+      derniereOuverture = Math.max(derniereOuverture ?? 0, e.ts);
+    } else if (e.type === 'node_joined') {
+      const label =
+        typeof e.payload.label === 'string' ? e.payload.label : String(e.payload.nodeId ?? '');
+      entrees.push({ label, ts: e.ts });
+    }
+  }
+  return { ouvertures, derniereOuverture, entrees };
+}
+
+const heure = (ts: number, lang: string): string =>
+  new Date(ts).toLocaleTimeString(lang === 'en' ? 'en-GB' : 'fr-FR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+export function InvitePanel({ events }: { events?: readonly HiveEvent[] } = {}) {
   const t = useT();
   const [open, setOpen] = useState(false);
   const [invite, setInvite] = useState<InviteResponse | null>(null);
   const [customUrl, setCustomUrl] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  // ─── LE SYSTÈME DE L'INVITÉ, PAS CELUI DE L'HÔTE ───────────────────────────
-  //
-  // On ne devine pas : c'est la machine de QUELQU'UN D'AUTRE. Le défaut tombe
-  // sur POSIX parce que c'est le cas le plus fréquent, et le choix est à un
-  // clic — une commande POSIX collée dans PowerShell ne dit rien d'utile, et
-  // l'invité n'a aucun moyen de le savoir avant de l'avoir collée.
+  const [copie, setCopie] = useState<'lien' | 'commande' | null>(null);
+  const [peutPartager, setPeutPartager] = useState(false);
+  // Le système de l'INVITÉ, pas celui de l'hôte : on ne devine pas, le choix
+  // est à un clic, et POSIX est le cas le plus fréquent.
   const [systeme, setSysteme] = useState<'posix' | 'windows'>('posix');
 
-  /**
-   * LA commande à remettre, ou `null` tant qu'il n'y en a pas.
-   *
-   * Repli sur `joinCommand` quand la ruche est d'une version antérieure : elle
-   * suppose Hive déjà installé, ce que l'écran dit alors juste en dessous.
-   */
+  useEffect(() => {
+    setPeutPartager(typeof navigator !== 'undefined' && typeof navigator.share === 'function');
+  }, []);
+
   const commande = invite === null ? null : (invite.entree?.[systeme] ?? invite.joinCommand);
+  const lien = invite?.lien ?? null;
+  const arrivee = useMemo(() => arriveeDuBillet(events, invite?.id), [events, invite?.id]);
+  const entree = arrivee.entrees[0] ?? null;
+  const lang = t('fr', 'en');
 
   const generate = async (url?: string) => {
     setError(null);
@@ -74,22 +124,37 @@ export function InvitePanel() {
     if (!invite) void generate();
   };
 
-  const copy = async () => {
-    if (commande === null) return;
-    // Le repli pour les contextes non sécurisés (http LAN) vit dans `copier.ts`
-    // — il servait ici en premier, et deux autres écrans en avaient besoin.
-    if (await copierTexte(commande)) {
+  const copier = async (quoi: 'lien' | 'commande') => {
+    const texte = quoi === 'lien' ? lien : commande;
+    if (texte === null) return;
+    if (await copierTexte(texte)) {
       setError(null);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      setCopie(quoi);
+      setTimeout(() => setCopie(null), 1500);
       return;
     }
     setError(
       t(
-        'copie automatique impossible — sélectionnez la commande et copiez-la à la main.',
-        'automatic copy failed — select the command and copy it by hand.',
+        'copie automatique impossible — sélectionnez le texte et copiez-le à la main.',
+        'automatic copy failed — select the text and copy it by hand.',
       ),
     );
+  };
+
+  const partager = async () => {
+    if (lien === null) return;
+    try {
+      await navigator.share({
+        title: t('Rejoindre ma ruche Hive', 'Join my Hive'),
+        text: t(
+          'Ouvre ce lien sur ton ordinateur pour rejoindre ma ruche :',
+          'Open this link on your computer to join my hive:',
+        ),
+        url: lien,
+      });
+    } catch {
+      // Partage annulé : rien à dire.
+    }
   };
 
   return (
@@ -97,7 +162,7 @@ export function InvitePanel() {
       <button
         className="invite-btn"
         onClick={openPanel}
-        title={t('Inviter un ami à rejoindre la ruche', 'Invite a friend to join the hive')}
+        title={t('Inviter quelqu’un à rejoindre la ruche', 'Invite someone to join the hive')}
       >
         {t('Inviter', 'Invite')}
       </button>
@@ -108,7 +173,7 @@ export function InvitePanel() {
             <header className="modal-head">
               <h2 id="invite-title">
                 <span className="marque" aria-hidden="true" />{' '}
-                {t('Inviter un ami dans la ruche', 'Invite a friend into the hive')}
+                {t('Inviter dans la ruche', 'Invite into the hive')}
               </h2>
               <button
                 className="modal-close"
@@ -121,9 +186,9 @@ export function InvitePanel() {
 
             {error && <p className="modal-error">{error}</p>}
 
-            {/* La commande est correcte, mais elle ne mènerait nulle part : le
-                dire ICI, avant que l'ami ne la colle et n'attende une ruche
-                qui n'écoute pas sur cette adresse. */}
+            {/* Le lien est correct, mais il ne mènerait nulle part : le dire
+                ICI, avant que l'invité ne l'ouvre et n'attende une ruche qui
+                n'écoute pas sur cette adresse. */}
             {invite?.injoignable && (
               <p className="modal-error invite-unreachable">
                 {t(
@@ -135,74 +200,150 @@ export function InvitePanel() {
               </p>
             )}
 
-            {/* ─── LA MACHINE D'À CÔTÉ, EN UN CLIC ET UN CODE ──────────────────
-                En tête : c'est le chemin le plus court quand la machine est sur
-                le même réseau. Éteinte (le défaut), la section dit en une
-                ligne comment l'allumer. */}
             <DecouvertsReseau />
 
             <h3 className="invite-sous-titre">
-              {t('Ou par billet, depuis n’importe où', 'Or with a ticket, from anywhere')}
+              {t('Ou par un lien, depuis n’importe où', 'Or with a link, from anywhere')}
             </h3>
 
-            {/* ─── UNE SEULE ÉTAPE, ET C'EST TOUT LE SUJET ────────────────────
-                Cette liste en comptait DEUX : « votre ami récupère Hive et lance
-                npm install DANS LE DOSSIER », puis « il colle cette commande ».
-                Le dossier — celui qu'il n'a pas, puisqu'il n'a rien installé.
-                La commande ci-dessous installe si besoin, puis rejoint. */}
-            <ol className="invite-steps">
-              <li>
-                {t(
-                  'Votre ami colle cette commande dans un terminal — rien d’autre à installer, son Claude Code / Codex est détecté tout seul :',
-                  'Your friend pastes this command into a terminal — nothing else to install, their Claude Code / Codex is detected automatically:',
-                )}
-              </li>
-            </ol>
+            {lien !== null ? (
+              <section className="porte" aria-labelledby="porte-titre">
+                <p id="porte-titre" className="porte-consigne">
+                  {t(
+                    'Envoyez ce lien. La personne l’ouvre sur son ordinateur ; la ruche reconnaît son système, l’installe si besoin et la guide jusqu’au bout.',
+                    'Send this link. They open it on their computer; the hive recognises their system, installs if needed and walks them through.',
+                  )}
+                </p>
+                <div className="porte-lien">
+                  <input
+                    className="porte-lien-champ"
+                    type="text"
+                    readOnly
+                    value={lien}
+                    aria-label={t('Lien d’invitation', 'Invitation link')}
+                    onFocus={(e) => e.currentTarget.select()}
+                  />
+                  <button
+                    type="button"
+                    className="porte-copier"
+                    onClick={() => void copier('lien')}
+                    data-testid="porte-copier"
+                  >
+                    {copie === 'lien' ? t('Copié ✓', 'Copied ✓') : t('Copier le lien', 'Copy link')}
+                  </button>
+                  {peutPartager && (
+                    <button
+                      type="button"
+                      className="porte-partager"
+                      onClick={() => void partager()}
+                    >
+                      {t('Envoyer…', 'Send…')}
+                    </button>
+                  )}
+                </div>
+                <p className="porte-portee">
+                  {t(
+                    'Une seule machine · valable 24 h · révocable d’un geste dans l’Intendance. Le lien ne donne aucun pouvoir sur la ruche : il ne sert qu’à obtenir une clé propre à cette machine.',
+                    'One machine · valid 24 h · revocable in one click from Stewardship. The link grants no power over the hive: it only serves to obtain a key specific to that machine.',
+                  )}
+                </p>
 
-            {/* Le système se choisit : la commande POSIX collée dans PowerShell
-                ne dit rien d'utile, et l'invité n'a aucun moyen de le savoir
-                avant de l'avoir collée. */}
-            <div className="invite-os" role="group" aria-label={t('Système', 'System')}>
-              {(['posix', 'windows'] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  className={`invite-os-btn${systeme === s ? ' actif' : ''}`}
-                  aria-pressed={systeme === s}
-                  onClick={() => setSysteme(s)}
+                {/* ─── L'INVITÉ, VU D'ICI ────────────────────────────────────
+                    Trois états, lus dans le journal : rien encore ; le lien a
+                    été ouvert (la personne est devant la page) ; la machine
+                    est entrée. L'hôte n'a plus à demander « ça a marché ? ». */}
+                <div
+                  className={`porte-arrivee${entree ? ' entree' : arrivee.ouvertures > 0 ? ' ouvert' : ''}`}
+                  role="status"
+                  data-testid="porte-arrivee"
                 >
-                  {s === 'posix' ? 'Linux / macOS' : 'Windows'}
-                </button>
-              ))}
-            </div>
-
-            <div className="invite-cmd">
-              <code className={commande === null ? 'muted-text' : undefined}>
-                {commande ?? t('génération…', 'generating…')}
-              </code>
-              <button className="copy-btn" onClick={copy} disabled={commande === null}>
-                {copied ? t('copié', 'copied') : t('copier', 'copy')}
-              </button>
-            </div>
-
-            {/* Le repli n'est pas décoratif : une ruche d'une version
-                antérieure ne renvoie pas `entree`, et l'écran doit rester
-                utilisable plutôt que de montrer un vide. */}
-            {invite && !invite.entree && (
-              <p className="invite-note">
-                {t(
-                  'Cette ruche est d’une version qui ne compose pas encore la commande d’entrée : votre ami devra installer Hive d’abord.',
-                  'This hive predates the one-command entry: your friend will have to install Hive first.',
-                )}
-              </p>
+                  <span className="porte-pastille" aria-hidden="true" />
+                  {entree ? (
+                    <span>
+                      <strong>{entree.label}</strong>{' '}
+                      {t('est entrée dans la ruche à', 'joined the hive at')}{' '}
+                      {heure(entree.ts, lang)}.
+                    </span>
+                  ) : arrivee.ouvertures > 0 ? (
+                    <span>
+                      {t('Lien ouvert à', 'Link opened at')}{' '}
+                      {heure(arrivee.derniereOuverture ?? Date.now(), lang)}
+                      {arrivee.ouvertures > 1 ? ` (×${arrivee.ouvertures})` : ''} —{' '}
+                      {t('la machine n’est pas encore entrée.', 'the machine has not joined yet.')}
+                    </span>
+                  ) : (
+                    <span>
+                      {t(
+                        'Dès que le lien est ouvert, puis que la machine entre, vous le verrez ici.',
+                        'As soon as the link is opened, then the machine joins, you will see it here.',
+                      )}
+                    </span>
+                  )}
+                </div>
+              </section>
+            ) : (
+              <ol className="invite-steps">
+                <li>
+                  {t(
+                    'La personne colle cette commande dans un terminal — rien d’autre à installer, son Claude Code / Codex est détecté tout seul :',
+                    'They paste this command into a terminal — nothing else to install, their Claude Code / Codex is detected automatically:',
+                  )}
+                </li>
+              </ol>
             )}
 
-            <p className="invite-note">
-              {t(
-                'Cette invitation contient le token de la ruche : ne la partagez qu’avec des personnes de confiance, par un canal privé.',
-                'This invitation contains the hive token: only share it with people you trust, over a private channel.',
+            {/* ─── LA COMMANDE, REPLIÉE QUAND IL Y A UN LIEN ──────────────────
+                Elle reste pour qui la préfère, et pour une ruche antérieure qui
+                ne compose pas de lien. Le système se choisit : la commande
+                POSIX collée dans PowerShell ne dit rien d'utile. */}
+            <details className="invite-commande" open={lien === null}>
+              <summary>
+                {lien !== null
+                  ? t('Plutôt une commande à coller ?', 'Rather paste a command?')
+                  : t('La commande', 'The command')}
+              </summary>
+              <div className="invite-os" role="group" aria-label={t('Système', 'System')}>
+                {(['posix', 'windows'] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    className={`invite-os-btn${systeme === s ? ' actif' : ''}`}
+                    aria-pressed={systeme === s}
+                    onClick={() => setSysteme(s)}
+                  >
+                    {s === 'posix' ? 'Linux / macOS' : 'Windows'}
+                  </button>
+                ))}
+              </div>
+              <div className="invite-cmd">
+                <code className={commande === null ? 'muted-text' : undefined}>
+                  {commande ?? t('génération…', 'generating…')}
+                </code>
+                <button
+                  className="copy-btn"
+                  onClick={() => void copier('commande')}
+                  disabled={commande === null}
+                >
+                  {copie === 'commande' ? t('copié', 'copied') : t('copier', 'copy')}
+                </button>
+              </div>
+              {invite && !invite.entree && (
+                <p className="invite-note">
+                  {t(
+                    'Cette ruche est d’une version qui ne compose pas encore la commande d’entrée : la personne devra installer Hive d’abord.',
+                    'This hive predates the one-command entry: they will have to install Hive first.',
+                  )}
+                </p>
               )}
-            </p>
+              {invite?.invite && (
+                <p className="invite-note">
+                  {t(
+                    'Cette ruche remet encore l’ancienne invitation, qui contient son jeton : ne la partagez qu’avec des personnes de confiance, par un canal privé.',
+                    'This hive still hands out the legacy invitation, which contains its token: only share it with people you trust, over a private channel.',
+                  )}
+                </p>
+              )}
+            </details>
 
             <details className="invite-advanced">
               <summary>

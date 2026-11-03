@@ -835,11 +835,28 @@ Si vous aviez installé le paquet globalement :
 npm uninstall -g @micka420/hive
 ```
 
-## Rejoindre la ruche de quelqu'un d'autre — en une commande
+## Rejoindre la ruche de quelqu'un d'autre — en ouvrant un lien
 
-Celui qui invite engendre un billet (tableau de bord → **Inviter**, ou
-`npm run cli -- invite`). La ruche remet alors **une** commande, une par
-système. L'invité la colle dans un terminal, et c'est tout :
+Celui qui invite clique **Inviter** (ou `npm run cli -- invite`). La ruche
+remet un **lien** : `https://<ruche>/r/<billet>#hive2_…`. L'invité l'ouvre sur
+son ordinateur, et la page — servie par la ruche elle-même — fait le reste :
+
+- elle reconnaît son système et propose **Rejoindre avec l'application Hive**
+  (`hive://rejoindre/…` ouvre l'app, qui installe l'ouvrière) ; sans l'app, le
+  téléchargement de l'installeur de son système, puis le même geste ;
+- pour qui préfère un terminal, la commande ci-dessous, déjà composée, à
+  copier d'un clic ;
+- et elle lui dit, en direct, quand sa machine est entrée. Côté hôte, Mission
+  Control montre le lien **ouvert**, puis la machine **entrée**.
+
+Le billet entier est dans le **fragment** du lien (`#hive2_…`) : un navigateur
+ne le transmet jamais au serveur. La ruche ne voit passer que `/r/<id>`. Hive
+déjà installé ? `hive join <lien>` suffit.
+
+### Plutôt une commande
+
+La page remet la même commande que la ruche compose, une par système. L'invité
+la colle dans un terminal, et c'est tout :
 
 ```sh
 # Linux / macOS
