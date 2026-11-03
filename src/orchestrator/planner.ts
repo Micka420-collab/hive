@@ -139,9 +139,86 @@ export function sanitizePlan(raw: unknown[]): PlannedTask[] {
 // ─── Planner heuristique (hors-ligne, déterministe) ──────────────────────────
 
 /**
+ * Un mot-clé est-il dans le texte normalisé ?
+ *
+ * ─── PAS UNE SOUS-CHAÎNE : UN DÉBUT DE MOT, OU UN MOT ENTIER ────────────────
+ *
+ * Mesuré en E2E réel (Hive Studio, une vraie ouvrière Claude Code) : le brief
+ * « corrige-la, PUIS lance npm test » a reçu une tâche « Interface », parce que
+ * « puis » contient « ui ». De même « rapide » contenait « api », « ici » et
+ * « merci » contenaient « ci ». Un mot-clé doit donc commencer un mot — ce qui
+ * garde les radicaux (« donnee » trouve « données », « auth » trouve
+ * « authentification ») — et les mots courts ou ambigus, préfixés par `=`,
+ * doivent être le mot ENTIER (au pluriel près) : « api », « ui », « rest »…
+ */
+export function contientMotCle(norm: string, motCle: string): boolean {
+  const entier = motCle.startsWith('=');
+  const mot = (entier ? motCle.slice(1) : motCle).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|[^a-z0-9])${mot}${entier ? 's?(?![a-z0-9])' : ''}`).test(norm);
+}
+
+/**
+ * Le brief demande-t-il de REPRENDRE l'existant (corriger, analyser,
+ * refactorer…) sans rien construire de neuf ?
+ *
+ * Un tel brief ne se découpe pas en socle → composants → tests : il n'y a rien
+ * à échafauder — la tâche « Échafauder le projet » proposait d'installer lint,
+ * tests et build dans un dépôt qui les a déjà —, et ses noms de composants
+ * (« l'API », « la page ») désignent ce qui existe. Il reste UNE tâche, confiée
+ * à une seule ouvrière qui analyse, corrige et vérifie dans le même espace de
+ * travail : la découper enverrait la vérification sur un clone qui n'a pas la
+ * correction.
+ *
+ * `add` n'est volontairement pas un mot de création : c'est aussi un nom de
+ * fonction (« la fonction add soustrait »).
+ */
+export function briefDeMaintenance(norm: string): boolean {
+  const reprendre = [
+    'corrig',
+    'correct',
+    'repar',
+    '=fix',
+    'fixe',
+    '=bug',
+    'debug',
+    'deboguer',
+    'erreur',
+    'regression',
+    'refactor',
+    'analys',
+    'audit',
+    'optimis',
+    'nettoy',
+    '=lint',
+  ];
+  const construire = [
+    'cree',
+    'creer',
+    'creation',
+    'ajout',
+    'ajoute',
+    'implement',
+    'developp',
+    'construi',
+    'nouveau',
+    'nouvelle',
+    '=build',
+    'create',
+    'develop',
+    '=new',
+    'scaffold',
+  ];
+  return (
+    reprendre.some((k) => contientMotCle(norm, k)) &&
+    !construire.some((k) => contientMotCle(norm, k))
+  );
+}
+
+/**
  * Découpe un brief par détection de mots-clés (FR/EN) en un DAG standard :
  * socle → composants (modèle, auth, API, facturation, UI) → tests → déploiement.
- * À défaut de tout composant reconnaissable, produit une tâche unique.
+ * À défaut de tout composant reconnaissable — ou pour un brief de maintenance
+ * (`briefDeMaintenance`) —, produit une tâche unique.
  */
 export function heuristicPlan(brief: string): PlannedTask[] {
   const b = brief.trim();
@@ -149,18 +226,27 @@ export function heuristicPlan(brief: string): PlannedTask[] {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
-  const has = (...kw: string[]): boolean => kw.some((k) => norm.includes(k));
+  const has = (...kw: string[]): boolean => kw.some((k) => contientMotCle(norm, k));
+  const tacheUnique = (): PlannedTask[] => [
+    {
+      id: 'tache',
+      title: clamp(b, LIMITS.title) || 'Réaliser le projet',
+      prompt: b || 'Décrire puis réaliser le projet.',
+      dependsOn: [],
+    },
+  ];
+  if (briefDeMaintenance(norm)) return tacheUnique();
 
   const wants = {
     data: has(
       'donnee',
       'modele',
       'schema',
-      'bdd',
+      '=bdd',
       'base de donnees',
       'database',
       'model',
-      'sql',
+      '=sql',
       'entite',
     ),
     auth: has(
@@ -169,23 +255,24 @@ export function heuristicPlan(brief: string): PlannedTask[] {
       'connexion',
       'compte',
       'utilisateur',
-      'user',
+      '=user',
       'signup',
       'inscription',
       'session',
     ),
-    api: has('api', 'endpoint', 'backend', 'serveur', 'server', 'rest', 'graphql'),
+    api: has('=api', 'endpoint', 'backend', 'serveur', 'server', '=rest', 'graphql'),
     ui: has(
-      'ui',
+      '=ui',
       'interface',
       'front',
       'dashboard',
-      'page',
+      '=page',
       'ecran',
-      'site',
-      'web',
+      '=site',
+      '=web',
       'mobile',
-      'app',
+      '=app',
+      'application',
     ),
     billing: has(
       'paiement',
@@ -196,7 +283,16 @@ export function heuristicPlan(brief: string): PlannedTask[] {
       'subscription',
       'stripe',
     ),
-    deploy: has('deploiement', 'deploy', 'ci', 'cd', 'production', 'docker', 'kubernetes', 'k8s'),
+    deploy: has(
+      'deploiement',
+      'deploy',
+      '=ci',
+      '=cd',
+      'production',
+      'docker',
+      'kubernetes',
+      '=k8s',
+    ),
   };
 
   const ctx = `Dans le cadre du projet « ${clamp(b, 160)} »`;
@@ -272,16 +368,7 @@ export function heuristicPlan(brief: string): PlannedTask[] {
 
   // Brief trop vague (aucun composant, aucune donnée) → une seule tâche utile,
   // sans socle isolé superflu.
-  if (components.length === 0 && !wants.data) {
-    return [
-      {
-        id: 'tache',
-        title: clamp(b, LIMITS.title) || 'Réaliser le projet',
-        prompt: b || 'Décrire puis réaliser le projet.',
-        dependsOn: [],
-      },
-    ];
-  }
+  if (components.length === 0 && !wants.data) return tacheUnique();
 
   const testDeps = components.length ? components.slice() : wants.data ? ['modele'] : ['socle'];
   add(
