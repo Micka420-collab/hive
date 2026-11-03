@@ -245,7 +245,11 @@ export function ecrituresRefusees(ligne: string): string[] {
     };
     if (typeof outil !== 'string' || !OUTILS_D_ECRITURE.has(outil)) continue;
     const chemin = entree?.file_path ?? entree?.notebook_path;
-    ecritures.push(typeof chemin === 'string' ? `${outil} ${path.basename(chemin)}` : outil);
+    // Le nom du fichier, quel que soit le système qui a écrit le chemin :
+    // `path.basename` de Linux ne coupe pas sur `\` — la CI ubuntu rendait
+    // tout `C:\…\calc.js` pour un chemin venu d'une ouvrière Windows.
+    const nom = typeof chemin === 'string' ? chemin.split(/[\\/]/).filter(Boolean).pop() : '';
+    ecritures.push(nom ? `${outil} ${nom}` : outil);
   }
   return ecritures;
 }
