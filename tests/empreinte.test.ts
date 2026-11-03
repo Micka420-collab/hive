@@ -784,6 +784,8 @@ describe('LA GARDE : aucune écriture ne s’ajoute en douce hors de l’inventa
     // Les modules PURS, eux, reçoivent le dossier personnel en paramètre : ce
     // sont eux qui composent les chemins, et ils sont testables sans disque.
     const DECLARES: Record<string, string> = {
+      'src/adapters/claude-code.ts':
+        'relit ~/.claude/settings.json pour PRÉVENIR au démarrage qu’une règle « ask »/« deny » bloquera les écritures — il lit, il n’écrit pas',
       'src/cyber-hive/anti-trace-v2.ts':
         'compose les chemins des traces système uniquement en mode réel explicitement activé',
       'src/desinstallation.ts': 'construit le contexte du relevé — il CHERCHE, il n’écrit pas',
