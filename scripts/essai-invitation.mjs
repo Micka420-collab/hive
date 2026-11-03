@@ -95,7 +95,7 @@ function lancer(nom, entree, { env, cwd = D, args = [] }) {
   const proc = spawn(
     process.execPath,
     [path.join(RACINE, 'scripts', 'lancer.mjs'), entree, ...args],
-    { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] },
+    { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], shell: false },
   );
   const lignes = [];
   for (const f of [proc.stdout, proc.stderr]) {
@@ -119,7 +119,10 @@ function lancer(nom, entree, { env, cwd = D, args = [] }) {
 function tuer(proc) {
   if (proc.exitCode !== null || proc.signalCode !== null) return;
   if (process.platform === 'win32') {
-    spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { stdio: 'ignore' });
+    spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'], {
+      stdio: 'ignore',
+      shell: false,
+    });
   } else {
     proc.kill('SIGTERM');
   }
