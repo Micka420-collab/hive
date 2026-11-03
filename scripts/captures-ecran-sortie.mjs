@@ -18,7 +18,7 @@ import path from 'node:path';
 export const SORTIE_PAR_DEFAUT = 'captures-ecran';
 
 /**
- * Les deux formats photographiés.
+ * Tous les formats que le coureur sait photographier.
  *
  * `bureau` reprend la taille des captures déjà publiées (`docs/images/*.png`,
  * 1440 × 900) et photographie L'ÉCRAN — ce qu'on voit en ouvrant la vue.
@@ -27,8 +27,20 @@ export const SORTIE_PAR_DEFAUT = 'captures-ecran';
  * ou débordent (`styles.css`, paliers 900 et 560 px), et ça se passe sous le
  * premier écran. La barre latérale, collante et haute de 100vh, s'y arrête à la
  * hauteur d'un écran : c'est la capture, pas un défaut de mise en page.
+ *
+ * ─── LA GRILLE DE RECETTE DE HIVE STUDIO (#579, § 8) ────────────────────────
+ *
+ * Les cinq autres ne servent qu'à la demande (`--formats grille`) : avec
+ * `bureau`, ce sont les six largeurs où la refonte doit tenir — 1920 × 1080,
+ * 1440 × 900, 1366 × 768, 1024 × 768, 768 px et 375 px. Elles ne sont PAS dans
+ * la série par défaut : la série publiée (docs/CAPTURES.md) ne change pas de
+ * taille parce qu'on a recetté une refonte, et sept fois plus d'images à
+ * chaque exécution apprendraient à ne plus les regarder.
+ *
+ * Les deux portraits photographient la page entière, comme `mobile` : c'est
+ * sous le premier écran qu'une colonne empilée déborde.
  */
-export const FORMATS = [
+export const TOUS_LES_FORMATS = [
   {
     nom: 'bureau',
     viewport: { width: 1440, height: 900 },
@@ -45,7 +57,53 @@ export const FORMATS = [
     hasTouch: true,
     pleinePage: true,
   },
+  {
+    nom: 'large',
+    viewport: { width: 1920, height: 1080 },
+    deviceScaleFactor: 1,
+    isMobile: false,
+    hasTouch: false,
+    pleinePage: false,
+  },
+  {
+    nom: 'portable',
+    viewport: { width: 1366, height: 768 },
+    deviceScaleFactor: 1,
+    isMobile: false,
+    hasTouch: false,
+    pleinePage: false,
+  },
+  {
+    nom: 'tablette',
+    viewport: { width: 1024, height: 768 },
+    deviceScaleFactor: 1,
+    isMobile: false,
+    hasTouch: true,
+    pleinePage: false,
+  },
+  {
+    nom: 'tablette-portrait',
+    viewport: { width: 768, height: 1024 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+    pleinePage: true,
+  },
+  {
+    nom: 'telephone',
+    viewport: { width: 375, height: 667 },
+    deviceScaleFactor: 2,
+    isMobile: true,
+    hasTouch: true,
+    pleinePage: true,
+  },
 ];
+
+/** Les formats photographiés par défaut : la série publiée. */
+export const FORMATS = TOUS_LES_FORMATS.filter((f) => f.nom === 'bureau' || f.nom === 'mobile');
+
+/** `--formats grille` : les six largeurs de la recette de Hive Studio (#579, § 8). */
+export const GRILLE = ['large', 'bureau', 'portable', 'tablette', 'tablette-portrait', 'telephone'];
 
 /** Les langues de l'interface (`dashboard/src/i18n.ts`). */
 export const LANGUES = ['fr', 'en'];
@@ -65,7 +123,10 @@ export const MANIFESTE = 'captures.json';
  */
 const MOTIF_VUE = '[a-z0-9]+(?:-[a-z0-9]+)*';
 const VUE = new RegExp(`^${MOTIF_VUE}$`);
-const NOMS_FORMATS = FORMATS.map((f) => f.nom).join('|');
+// TOUS les formats, et pas seulement ceux du jour : une image `ruche.large.png`
+// laissée par une recette doit être reconnue — donc effacée — par l'exécution
+// ordinaire suivante, sinon elle survivrait à côté de la série neuve.
+const NOMS_FORMATS = TOUS_LES_FORMATS.map((f) => f.nom).join('|');
 
 /**
  * Le fichier d'une capture : `<vue>.<format>.png`, par exemple `ruche.mobile.png`.
@@ -91,7 +152,7 @@ export function estNotreCapture(nom) {
 
 /**
  * Lit la ligne de commande : `--langue fr|en`, `--sortie <dossier>`,
- * `--vues <liste>`.
+ * `--vues <liste>`, `--formats <liste>|grille`.
  *
  * La sortie est RELATIVE À LA RACINE DU DÉPÔT et doit y rester : c'est là que
  * `.gitignore` peut la couvrir, et c'est ce qui borne l'effacement ci-dessus à
@@ -103,21 +164,28 @@ export function estNotreCapture(nom) {
  * commande, au lieu de trente-quatre images à trier à la main (cf.
  * docs/CAPTURES.md).
  *
- * Rend `{ langue, sortie, vues }` (sortie absolue ; `vues` : `null` = tout), ou
- * `{ erreur }`.
+ * `--formats` choisit les formats (`TOUS_LES_FORMATS`), séparés par des
+ * virgules, dans l'ordre donné ; `grille` vaut les six de la recette. Défaut :
+ * la série publiée, `bureau` puis `mobile`.
+ *
+ * Rend `{ langue, sortie, vues, formats }` (sortie absolue ; `vues` : `null` =
+ * tout ; `formats` : les objets de `TOUS_LES_FORMATS`), ou `{ erreur }`.
  */
 export function optionsDepuisArgv(argv, racine) {
   let langue = 'fr';
   let demandee = null;
   let vues = null;
+  let noms = null;
   for (let i = 0; i < argv.length; i++) {
     const cle = argv[i];
     const valeur = argv[i + 1];
-    if (cle === '--langue' || cle === '--sortie' || cle === '--vues') {
+    if (cle === '--langue' || cle === '--sortie' || cle === '--vues' || cle === '--formats') {
       if (valeur === undefined || valeur.startsWith('--'))
         return { erreur: `${cle} attend une valeur` };
       if (cle === '--langue') langue = valeur;
       else if (cle === '--sortie') demandee = valeur;
+      else if (cle === '--formats')
+        noms = valeur === 'grille' ? GRILLE : valeur.split(',').map((v) => v.trim());
       else vues = valeur.split(',').map((v) => v.trim());
       i++;
     } else {
@@ -132,12 +200,22 @@ export function optionsDepuisArgv(argv, racine) {
     return { erreur: `--vues : « ${fautive} » n'est ni <vue> ni <vue>.<${NOMS_FORMATS}>` };
   }
 
+  // Un format inconnu est une ERREUR, pas un format ignoré : « --formats
+  // tabelette » qui photographierait en silence zéro image finirait en code 0.
+  const inconnu = noms?.find((n) => !TOUS_LES_FORMATS.some((f) => f.nom === n));
+  if (inconnu !== undefined) {
+    return { erreur: `--formats : « ${inconnu} » n'est ni grille ni un de ${NOMS_FORMATS}` };
+  }
+  const formats = noms
+    ? [...new Set(noms)].map((n) => TOUS_LES_FORMATS.find((f) => f.nom === n))
+    : FORMATS;
+
   const sortie = path.resolve(racine, demandee ?? path.join(SORTIE_PAR_DEFAUT, langue));
   const relative = path.relative(racine, sortie);
   if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
     return { erreur: `--sortie doit désigner un dossier DANS le dépôt : ${demandee}` };
   }
-  return { langue, sortie, vues };
+  return { langue, sortie, vues, formats };
 }
 
 /** La vue `vue`, au format `format`, est-elle demandée ? (`vues` : `null` = tout.) */
