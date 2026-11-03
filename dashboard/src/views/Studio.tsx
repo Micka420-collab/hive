@@ -156,7 +156,9 @@ export default function Studio({ snapshot, user, refreshTick, onOpenTask, onNavi
           <CarteMission
             mission={mission}
             titre={titre}
-            maintenant={maintenant}
+            // Le tic de 30 s ou l'instant du rendu, le plus récent : chaque
+            // événement du flux re-rend l'accueil, et l'écoulé suit.
+            maintenant={Math.max(maintenant, Date.now())}
             erreur={missions.error}
             onVoirPlan={() => choisirOnglet('plan')}
             onVoirValidation={() => choisirOnglet('resultats')}

@@ -42,7 +42,7 @@ leur **ancien nom** dans l'infobulle de leur onglet et dans la recherche :
 
 `NAV` dans `dashboard/src/App.tsx` reste la source de vérité des pages et de
 leurs touches ; `dashboard/src/studio/navigation.ts` les **range** en sections.
-Un banc (`tests/studio-modules.test.ts`) lit `NAV` dans la source et rougit si
+Un banc (`tests/studio-modules.test.tsx`) lit `NAV` dans la source et rougit si
 une page n'a pas de section, ou si une section range une page inconnue.
 
 Les touches restent actives hors des champs de saisie et des dialogues ; sur un
@@ -139,7 +139,7 @@ Toutes les préférences d'affichage restent **dans ce navigateur**
 | `hive.studio.briefs`   | le texte des dernières missions lancées d'ici   |
 
 Une valeur illisible n'est jamais crue : elle retombe sur le défaut
-(`studio/preferences.ts`, bancs dans `tests/studio-modules.test.ts`). La
+(`studio/preferences.ts`, bancs dans `tests/studio-modules.test.tsx`). La
 conversation de l'accueil vit en `sessionStorage`, par projet (60 messages au
 plus).
 
@@ -158,7 +158,7 @@ plus).
 
 ```
 npm run typecheck:dashboard
-npx vitest run tests/studio-modules.test.ts tests/app-*.test.tsx
+npx vitest run tests/studio-modules.test.tsx tests/app-*.test.tsx
 npm run captures -- --formats grille     # les six largeurs de la recette (#579 § 8)
 ```
 

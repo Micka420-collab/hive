@@ -103,10 +103,16 @@ export function CarteMission({
             `durée ${formatDuree(mission.closeA - mission.ouverteA)}`,
             `took ${formatDuree(mission.closeA - mission.ouverteA)}`,
           )
-        : t(
-            `depuis ${formatDuree(maintenant - mission.ouverteA)}`,
-            `for ${formatDuree(maintenant - mission.ouverteA)}`,
-          )
+        : // ─── « DEPUIS 0 MS » ───────────────────────────────────────────────
+          // Mesuré en E2E réel : une mission lancée APRÈS le dernier tic de
+          // l'horloge s'affichait « depuis 0 ms » (écart négatif, borné à 0).
+          // Les premières secondes se disent « à l'instant ».
+          maintenant - mission.ouverteA < 5_000
+          ? t('à l’instant', 'just now')
+          : t(
+              `depuis ${formatDuree(maintenant - mission.ouverteA)}`,
+              `for ${formatDuree(maintenant - mission.ouverteA)}`,
+            )
       : null;
 
   const arreter = async () => {
