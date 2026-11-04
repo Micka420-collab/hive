@@ -239,6 +239,27 @@ describe('la Chronique — les deux vides, et la survivante du balayage', () => 
     expect(compte('Tâches'), 'la tâche reste chez elle').toBe('1');
   });
 
+  it('LE FULL AUTO TOMBE DANS « Essaim » — ce que la ruche a validé seule s’isole', async () => {
+    // « Autres » est la case qu'on décoche en premier : les décisions que les
+    // agents prennent à la place de l'humain y disparaîtraient.
+    const dom = await monterChronique([
+      evenement(1, 'full_auto_set'),
+      evenement(2, 'full_auto_decision'),
+      evenement(3, 'swarm_level_set'),
+      evenement(4, 'task_reviewed'),
+    ]);
+    const compte = (nom: string): string => {
+      const puce = [...dom.querySelectorAll('.filters .chip')].find((c) =>
+        (c.textContent ?? '').includes(nom),
+      );
+      if (!puce) throw new Error(`la puce « ${nom} » est introuvable`);
+      return puce.querySelector('.chip-count')?.textContent?.trim() ?? '';
+    };
+    expect(compte('Essaim'), 'le full auto et le Plein Essaim').toBe('3');
+    expect(compte('Autres'), 'rien ne fuit dans « Autres »').toBe('0');
+    expect(compte('Tâches'), 'le verdict reste avec les tâches').toBe('1');
+  });
+
   it('LES DEUX TYPES DE CONFLIT TOMBENT DANS « Conflits », et nulle part ailleurs', async () => {
     // ─── CE QUE LE CAS VOISIN NE POUVAIT PAS VOIR ──────────────────────────
     //
