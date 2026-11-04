@@ -71,6 +71,7 @@ describe('full auto — le bilan', () => {
       0,
     );
     expect([b.validees, b.corrigees, b.laissees, b.bloquees]).toEqual([1, 1, 1, 1]);
+    expect(b.avecReserve, 'une validation sans motif est une validation pleine').toBe(0);
     expect(b.derniers.map((d) => [d.id, d.geste])).toEqual([
       [4, 'laisser'],
       [3, 'bloquee'],
@@ -78,6 +79,24 @@ describe('full auto — le bilan', () => {
       [1, 'approuver'],
     ]);
     expect(b.derniers[1]!.raison).toBe('attempts_exhausted');
+  });
+
+  it('une validation SANS PREUVE se compte à part — l’écran la dit « avec réserve »', () => {
+    const b = bilanFullAuto(
+      [
+        ev(1, 'full_auto_decision', {
+          taskId: 't1',
+          geste: 'approuver',
+          raison:
+            'preuves manquantes : tests (aucun producteur de preuve : ni bac Hive, ni CI GitHub)',
+        }),
+        ev(2, 'full_auto_decision', { taskId: 't2', geste: 'approuver' }),
+      ],
+      taches,
+      0,
+    );
+    expect([b.validees, b.avecReserve]).toEqual([2, 1]);
+    expect(b.derniers[1]!.raison).toContain('preuves manquantes');
   });
 
   it('ni un autre projet, ni un renvoi humain, ni avant l’activation', () => {

@@ -260,8 +260,8 @@ function CarteFullAuto({
           icone="coche"
           titre={t('Ils valident', 'They approve')}
           texte={t(
-            'Chaque production terminée passe l’Evaluator — Gardiennes, tests, contre-revue — puis est validée sans t’attendre.',
-            'Each finished production goes through the Evaluator — guards, tests, cross-review — then is approved without waiting for you.',
+            'Chaque production terminée passe l’Evaluator — Gardiennes, tests, contre-revue — puis est validée sans t’attendre. Sans bac ni CI, aucun test ne tourne : la décision le dit.',
+            'Each finished production goes through the Evaluator — guards, tests, cross-review — then is approved without waiting for you. Without a sandbox or CI, no test runs: the decision says so.',
           )}
         />
         <Capacite
@@ -309,7 +309,12 @@ function CarteFullAuto({
           <Chiffre valeur={etat.enAttente} libelle={t('en attente', 'waiting')} ton="neutre" />
           <p className="hs-discret hs-auto-bilan-note">
             {actif
-              ? t('Depuis l’activation.', 'Since it was turned on.')
+              ? b && b.avecReserve > 0
+                ? t(
+                    `Depuis l’activation. ${b.avecReserve} validée(s) avec réserve — sans preuve de tests ou sans relecture : le motif est sous chaque décision.`,
+                    `Since it was turned on. ${b.avecReserve} approved with a caveat — no test evidence or no review: the reason is under each decision.`,
+                  )
+                : t('Depuis l’activation.', 'Since it was turned on.')
               : t(
                   'Éteint : chaque production attend ton verdict dans la Validation.',
                   'Off: every production waits for your verdict in Review.',
@@ -388,7 +393,9 @@ function LigneDecision({
   const titre = d.titre ?? t(`la tâche ${d.taskId.slice(0, 8)}`, `task ${d.taskId.slice(0, 8)}`);
   const verbe =
     d.geste === 'approuver'
-      ? t('validée', 'approved')
+      ? d.raison
+        ? t('validée avec réserve', 'approved with a caveat')
+        : t('validée', 'approved')
       : d.geste === 'corriger'
         ? t('renvoyée en correction', 'sent back for a fix')
         : d.geste === 'laisser'
@@ -405,9 +412,7 @@ function LigneDecision({
           {titre}
         </button>{' '}
         {verbe}
-        {d.raison && d.geste !== 'approuver' && (
-          <span className="hs-discret hs-auto-journal-raison">{d.raison}</span>
-        )}
+        {d.raison && <span className="hs-discret hs-auto-journal-raison">{d.raison}</span>}
       </span>
       <time className="hs-discret" dateTime={new Date(d.ts).toISOString()}>
         {ilYA(d.ts, Date.now(), t)}
@@ -535,11 +540,12 @@ function CarteGardeFous({ projet, tick, onNavigate }: PropsCarte) {
 
 function CarteChantiers({ projet, tick, onNavigate }: PropsCarte) {
   const t = useT();
+  // La PRÉSENCE d'un dépôt, jamais son adresse : un `repoUrl` peut porter un
+  // jeton, et cette carte n'a rien à en montrer (repourl-affichage.test.ts).
+  const aUnDepot = projet.repoUrl !== null && projet.repoUrl !== '';
   const lu = useApiPoll(
     () =>
-      projet.repoUrl
-        ? fetchChantiers(projet.id).then((r) => r.chantiers.length)
-        : Promise.resolve(null),
+      aUnDepot ? fetchChantiers(projet.id).then((r) => r.chantiers.length) : Promise.resolve(null),
     30_000,
     tick,
   );
@@ -549,7 +555,7 @@ function CarteChantiers({ projet, tick, onNavigate }: PropsCarte) {
       icone="code"
       titre={t('Chantiers', 'Works')}
       etat={
-        !projet.repoUrl
+        !aUnDepot
           ? { mot: t('Sans dépôt', 'No repository'), ton: 'neutre' }
           : n !== null
             ? { mot: t(`${n} script(s)`, `${n} script(s)`), ton: n > 0 ? 'ok' : 'neutre' }
@@ -560,7 +566,7 @@ function CarteChantiers({ projet, tick, onNavigate }: PropsCarte) {
         'The commands the repository declares — tests, build — and its GitHub workflows, run by a hive machine.',
       )}
       detail={
-        !projet.repoUrl
+        !aUnDepot
           ? t(
               'Ajoute un dépôt au projet pour lancer ses scripts.',
               'Add a repository to the project to run its scripts.',

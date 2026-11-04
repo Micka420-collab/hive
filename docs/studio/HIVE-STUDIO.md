@@ -92,7 +92,8 @@ La section ouvre sur ce que la ruche fait **seule** sur le projet actif.
   l'humain de la validation : chaque production terminée est jugée par
   l'Evaluator (Gardiennes, validations du bac ou de la CI, contre-revue d'une
   autre famille quand il y en a une) puis tranchée par le chemin canonique du
-  verdict — **approuvée** si rien n'est rouge, **renvoyée en correction** avec
+  verdict — **approuvée** si rien n'est rouge (« avec réserve », motif à l'appui,
+  quand aucun test n'a pu tourner ou que la relecture a manqué), **renvoyée en correction** avec
   la critique sur un rouge corrigeable (production creuse, test en échec,
   contre-revue qui demande mieux), dans la borne de tentatives du scheduler,
   **laissée à l'humain** sinon (panne du bac, essais épuisés). Allumer se

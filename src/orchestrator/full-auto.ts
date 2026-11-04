@@ -66,6 +66,13 @@ export interface DecisionFullAuto {
 
 export interface BilanFullAuto {
   readonly validees: number;
+  /**
+   * Parmi les validées, celles que l'Evaluator n'aurait pas acceptées seules :
+   * aucun test n'a tourné (ni bac Hive, ni CI), ou la relecture a manqué. Le
+   * full auto les valide — c'est son objet —, l'écran le DIT : une validation
+   * sans preuve ne doit pas ressembler à une validation prouvée.
+   */
+  readonly avecReserve: number;
   readonly corrigees: number;
   readonly laissees: number;
   readonly bloquees: number;
@@ -91,6 +98,7 @@ export function bilanFullAuto(
   limite = 8,
 ): BilanFullAuto {
   let validees = 0;
+  let avecReserve = 0;
   let corrigees = 0;
   let laissees = 0;
   let bloquees = 0;
@@ -103,8 +111,10 @@ export function bilanFullAuto(
     if (ev.type === 'full_auto_decision') {
       const geste = p.geste;
       if (geste !== 'approuver' && geste !== 'corriger' && geste !== 'laisser') continue;
-      if (geste === 'approuver') validees += 1;
-      else if (geste === 'corriger') corrigees += 1;
+      if (geste === 'approuver') {
+        validees += 1;
+        if (texte(p.raison) !== null) avecReserve += 1;
+      } else if (geste === 'corriger') corrigees += 1;
       else laissees += 1;
       decisions.push({ id: ev.id, ts: ev.ts, taskId, geste, raison: texte(p.raison) });
     } else if (ev.type === 'evaluator_retry_skipped' && p.source === 'full_auto') {
@@ -113,5 +123,12 @@ export function bilanFullAuto(
     }
   }
   decisions.sort((a, b) => b.id - a.id);
-  return { validees, corrigees, laissees, bloquees, derniers: decisions.slice(0, limite) };
+  return {
+    validees,
+    avecReserve,
+    corrigees,
+    laissees,
+    bloquees,
+    derniers: decisions.slice(0, limite),
+  };
 }

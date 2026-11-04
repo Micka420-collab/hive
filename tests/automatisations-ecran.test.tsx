@@ -63,7 +63,7 @@ function etatDe(p: Partial<EtatFullAutoUi> = {}): EtatFullAutoUi {
     tentativesMax: 3,
     enAttente: 4,
     echouees: 0,
-    bilan: { validees: 0, corrigees: 0, laissees: 0, bloquees: 0, derniers: [] },
+    bilan: { validees: 0, avecReserve: 0, corrigees: 0, laissees: 0, bloquees: 0, derniers: [] },
     ...p,
   };
 }
@@ -151,13 +151,14 @@ describe('les automatisations', () => {
     expect(banc.reglages).toEqual([false]);
   });
 
-  it('les décisions des agents nomment la tâche, disent le geste, et ouvrent la fiche', async () => {
+  it('les décisions des agents nomment la tâche, disent le geste et sa réserve, et ouvrent la fiche', async () => {
     banc.etat = etatDe({
       actif: true,
       depuis: Date.now() - 60_000,
       enAttente: 0,
       bilan: {
         validees: 1,
+        avecReserve: 1,
         corrigees: 1,
         laissees: 0,
         bloquees: 1,
@@ -178,7 +179,14 @@ describe('les automatisations', () => {
             geste: 'corriger',
             raison: 'production creuse',
           },
-          { id: 1, ts: Date.now(), taskId: 't1', titre: 'Socle', geste: 'approuver', raison: null },
+          {
+            id: 1,
+            ts: Date.now(),
+            taskId: 't1',
+            titre: 'Socle',
+            geste: 'approuver',
+            raison: 'preuves manquantes : tests',
+          },
         ],
       },
     });
@@ -189,7 +197,12 @@ describe('les automatisations', () => {
     expect(lignes[0]).toContain('Facture correction impossible');
     expect(lignes[1]).toContain('Parseur renvoyée en correction');
     expect(lignes[1]).toContain('production creuse');
-    expect(lignes[2]).toContain('Socle validée');
+    // Une validation SANS PREUVE ne ressemble pas à une validation prouvée.
+    expect(lignes[2]).toContain('Socle validée avec réserve');
+    expect(lignes[2]).toContain('preuves manquantes : tests');
+    expect(dom.querySelector('.hs-auto-bilan-note')?.textContent).toContain(
+      '1 validée(s) avec réserve',
+    );
     await act(async () => bouton(dom, 'Parseur').click());
     expect(ouvertes).toEqual(['t2']);
     // « à toi » : les laissées, les bloquées et les échecs définitifs.

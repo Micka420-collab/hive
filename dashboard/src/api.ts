@@ -1482,6 +1482,8 @@ export interface EtatFullAutoUi {
   echouees: number;
   bilan: {
     validees: number;
+    /** Validées sans preuve de tests ou sans relecture : le motif est sur la décision. */
+    avecReserve: number;
     corrigees: number;
     laissees: number;
     bloquees: number;
