@@ -82,7 +82,8 @@ export interface EtatCompagnon {
 /**
  * Un événement dit-il qu'une livraison vient d'être ACCEPTÉE ?
  *
- *  · `task_reviewed` à `approved` — un humain a dit oui à une production ;
+ *  · `task_reviewed` à `approved` — un humain a dit oui à une production (ou,
+ *    full auto allumé, les agents : « Livraison acceptée ! » reste vrai) ;
  *  · `merge_completed` sans conflit, avec au moins une branche appliquée, et
  *    des tests qui n'ont pas échoué — la livraison est entrée dans le projet.
  *    `testsPassed` absent (`undefined`) n'est pas un échec : une ruche sans
