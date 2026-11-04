@@ -241,7 +241,7 @@ describe('les Projets — les trois survivantes du balayage', () => {
     vi.useFakeTimers();
     const dom = await monter(instantane([tache('t-fusionnee', 'Tâche fusionnée')]));
 
-    cliquer(bouton(dom, '⬡ Plan de merge'));
+    cliquer(bouton(dom, 'Plan de merge'));
     await act(async () => {});
     expect(dom.textContent).toContain('1/1 tâche(s) terminée(s)');
     expect(dom.textContent, 'aucun rapport avant le lancement').not.toContain(
@@ -281,7 +281,7 @@ describe('les Projets — les trois survivantes du balayage', () => {
     // creux — et git disait pourquoi dans un journal REPLIÉ.
     vi.useFakeTimers();
     const dom = await monter(instantane([tache('t-fusionnee', 'Tâche fusionnée')]));
-    cliquer(bouton(dom, '⬡ Plan de merge'));
+    cliquer(bouton(dom, 'Plan de merge'));
     await act(async () => {});
     cliquer(bouton(dom, 'Lancer le merge'));
     cliquer(bouton(dom, 'Confirmer'));

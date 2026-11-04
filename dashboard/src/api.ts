@@ -1377,6 +1377,12 @@ export interface EtatEssaimUi {
   decision: { pas: PasEssaim; motif: string; gouvernantes: string[] };
   gouvernantes: Array<{ nodeId: string; nom: string }>;
   gouvernantesRequises: number;
+  /**
+   * Ce qu'une ouvrière doit avoir fait pour devenir gouvernante (caste gagnée).
+   * OPTIONNEL : un orchestrateur plus ancien ne l'envoie pas — l'écran dit
+   * alors le chemin sans chiffres plutôt que d'en inventer.
+   */
+  seuilsGouvernante?: { productions: number; fiabilite: number };
   depotInscrit: boolean;
   plafond: 'passe' | 'alerte' | 'bloque';
   lecons: LeconEssaim[];

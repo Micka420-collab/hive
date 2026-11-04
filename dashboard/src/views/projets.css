@@ -331,6 +331,12 @@
   flex-wrap: wrap;
   margin-top: 2px;
 }
+/* Des icônes tracées, plus des emojis (⬡ 🔭 📋) : alignées sur le mot. */
+.pj-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 
 /* Le rapport de mission : les chiffres de tête (toujours avec leur
    couverture), puis une ligne par tâche. Le tableau défile seul : une carte
@@ -619,288 +625,588 @@
 
 /* ── Le Plein Essaim ────────────────────────────────────────────────────────
    Le pas courant domine le panneau : c'est l'information qui manque à tous
-   les interrupteurs d'autonomie qu'on croise ailleurs. */
+   les interrupteurs d'autonomie qu'on croise ailleurs.
+
+   UNIQUEMENT DES JETONS. L'ancienne feuille portait des couleurs écrites pour
+   le thème cire (`rgba(253, 248, 240, 0.6)` sous « Prêt pour l'autonomie »,
+   des filets beiges, un rouge brique en dur) : sur le thème sombre, un pavé
+   gris où le texte ne se lisait plus. Ici, chaque teinte vient de
+   `styles.css`, et le panneau suit les deux thèmes sans une ligne de plus.
+   Le miel vif REMPLIT (jauge, niveau choisi) ; il ne porte jamais le texte —
+   `--hs-accent-texte` s'en charge. Pas de cadres dans le cadre : des sections
+   séparées par un filet, une seule surface marquée, « Maintenant ». */
 .essaim-panneau {
+  container: essaim / inline-size;
   margin-top: 14px;
-  padding: 16px 18px;
-  background: var(--panel-2, #f4eee0);
-  border: 1px solid var(--border, #e3d8c2);
-  border-radius: 10px;
+  padding: 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
 }
 .essaim-panneau h3 {
   margin: 0 0 4px;
   font-size: 15px;
 }
 .essaim-intro,
-.essaim-desc,
 .essaim-vide {
   margin: 0 0 12px;
-  font-size: 13px;
-  color: var(--muted, #6f6555);
-}
-.essaim-pas {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  margin-bottom: 12px;
-  border-radius: 8px;
-  background: rgba(224, 138, 20, 0.1);
-  border-left: 3px solid var(--gold, #9d5605);
-}
-.essaim-pas--inerte,
-.essaim-pas--repos {
-  border-left-color: var(--muted);
-  background: rgba(107, 97, 82, 0.07);
-}
-.essaim-pas--plafond,
-.essaim-pas--corriger {
-  border-left-color: var(--red, #a8402a);
-  background: rgba(168, 64, 42, 0.08);
-}
-.essaim-pas-icone {
-  font-size: 14px;
+  font-size: 12.5px;
+  line-height: 1.5;
   color: var(--muted);
 }
-.essaim-pas strong {
+.essaim-tete .essaim-intro {
+  margin: 0;
+}
+.essaim-tete + .essaim-vide,
+.essaim-tete + .essaim-erreur {
+  margin-top: 12px;
+}
+
+/* Le petit libellé que le banc d'ombre (BancOmbre.tsx) emprunte encore. */
+.essaim-etiquette {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--orange);
+}
+
+/* ─ Maintenant : ce que la ruche ferait ─ */
+.essaim-maintenant {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--panel-3);
+}
+.essaim-maintenant-icone {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--muted);
+}
+.essaim-maintenant-texte {
+  min-width: 0;
+}
+.essaim-maintenant strong {
   display: block;
   font-size: 14px;
+  color: var(--text);
 }
 .essaim-motif {
   display: block;
   font-size: 12.5px;
-  color: var(--muted, #6f6555);
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
-/* Ce que le RUNNER fait de la décision. Volontairement discret quand il est
-   seulement éteint (c'est le défaut, pas une avarie) et net quand la ruche a
-   renoncé à un projet — là, il faut un geste. */
-.essaim-runner {
-  margin: -6px 0 12px;
-  padding: 8px 10px;
-  border-radius: 7px;
-  font-size: 12px;
-  line-height: 1.5;
+.essaim-maintenant.ton-actif {
+  border-color: var(--hs-accent-bord);
 }
-.essaim-runner--eteint {
-  border: 1px dashed var(--border-2, #e0d2b6);
-  color: var(--muted, #6f6555);
+.essaim-maintenant.ton-actif .essaim-maintenant-icone {
+  background: var(--hs-accent-doux);
+  color: var(--hs-accent-texte);
 }
-.essaim-runner--pause {
-  border: 1px solid var(--red, #a8402a);
-  background: rgba(168, 64, 42, 0.09);
-  color: var(--gold, #8a4f05);
+.essaim-maintenant.ton-attention {
+  border-color: color-mix(in srgb, var(--hs-attention) 40%, var(--border));
+}
+.essaim-maintenant.ton-attention .essaim-maintenant-icone {
+  background: color-mix(in srgb, var(--hs-attention) 14%, transparent);
+  color: var(--hs-attention);
+}
+.essaim-maintenant.ton-echec {
+  border-color: color-mix(in srgb, var(--hs-echec) 45%, var(--border));
+}
+.essaim-maintenant.ton-echec .essaim-maintenant-icone {
+  background: color-mix(in srgb, var(--hs-echec) 14%, transparent);
+  color: var(--hs-echec);
 }
 
-.essaim-pret {
-  margin: 0 0 14px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--border-2, #e0d2b6);
-  background: rgba(253, 248, 240, 0.6);
-}
-.essaim-pret-liste {
-  margin: 6px 0 0;
-  padding: 0;
-  list-style: none;
+/* Une phrase qui éclaire, avec son icône : pas un encadré de plus. */
+.essaim-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0 0;
   font-size: 12.5px;
-  line-height: 1.55;
+  line-height: 1.5;
+  color: var(--muted);
 }
-.essaim-pret-ok {
-  color: var(--green, #2a6b3a);
+.essaim-note svg {
+  flex: none;
+  margin-top: 2px;
 }
-.essaim-pret-ko {
-  color: var(--muted, #6f6555);
+.essaim-note.ton-attention {
+  color: var(--hs-attention);
 }
-.essaim-cycles {
-  margin: 0 0 14px;
-  font-size: 12px;
+.essaim-note.ton-echec {
+  color: var(--hs-echec);
 }
-.essaim-cycles ul {
+
+/* ─ Les sections : un filet, un titre, rien de plus ─ */
+.essaim-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.essaim-section h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+.essaim-section-tete {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.essaim-section-note {
   margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* L'état d'une section, en mots : la couleur ne parle jamais seule. */
+.essaim-etat {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-2);
+  background: var(--panel-3);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.essaim-etat.ton-ok {
+  border-color: color-mix(in srgb, var(--hs-ok) 38%, transparent);
+  background: color-mix(in srgb, var(--hs-ok) 12%, transparent);
+  color: var(--hs-ok);
+}
+.essaim-etat.ton-attention {
+  border-color: color-mix(in srgb, var(--hs-attention) 40%, transparent);
+  background: color-mix(in srgb, var(--hs-attention) 12%, transparent);
+  color: var(--hs-attention);
+}
+.essaim-etat.ton-echec {
+  border-color: color-mix(in srgb, var(--hs-echec) 42%, transparent);
+  background: color-mix(in srgb, var(--hs-echec) 11%, transparent);
+  color: var(--hs-echec);
+}
+
+/* ─ Prêt pour l'autonomie ─ */
+.essaim-jauge {
+  height: 6px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--panel-3);
+}
+.essaim-jauge > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--hs-accent);
+  transition: width 0.35s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.essaim-etapes {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 10px 0 0;
   padding: 0;
   list-style: none;
-  max-height: 140px;
+}
+.essaim-etape.ok,
+.essaim-etape summary,
+.essaim-pret-replie > summary,
+.essaim-replie > summary {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 34px;
+  padding: 5px 6px;
+  border-radius: var(--r-sm);
+}
+.essaim-etape summary {
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
+}
+.essaim-etape summary,
+.essaim-pret-replie > summary,
+.essaim-replie > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.essaim-etape summary::-webkit-details-marker,
+.essaim-pret-replie > summary::-webkit-details-marker,
+.essaim-replie > summary::-webkit-details-marker {
+  display: none;
+}
+.essaim-etape summary:hover,
+.essaim-pret-replie > summary:hover,
+.essaim-replie > summary:hover {
+  background: var(--panel-3);
+}
+.essaim-etape summary:focus-visible,
+.essaim-pret-replie > summary:focus-visible,
+.essaim-replie > summary:focus-visible {
+  outline: 2px solid var(--hs-accent);
+  outline-offset: 1px;
+}
+.essaim-etape-puce {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-2);
+}
+.essaim-etape.ok .essaim-etape-puce {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--hs-ok) 16%, transparent);
+  color: var(--hs-ok);
+}
+/* L'anneau de la condition ouverte : `--hs-accent-texte`, pas le miel vif —
+   un miel clair sur la cire ne se voyait plus (élément non textuel, 3:1). */
+.essaim-etape.manque details[open] .essaim-etape-puce {
+  border-color: var(--hs-accent-texte);
+}
+.essaim-etape-titre {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text);
+}
+.essaim-etape.manque .essaim-etape-titre {
+  font-weight: 600;
+}
+.essaim-etape.ok .essaim-etape-titre {
+  color: var(--muted);
+}
+.essaim-etape-detail {
+  max-width: 14ch;
+  overflow-wrap: anywhere;
+  text-align: end;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.essaim-etape-chevron {
+  display: inline-grid;
+  color: var(--muted);
+  transition: transform 0.18s cubic-bezier(0.23, 1, 0.32, 1);
+}
+details[open] > summary .essaim-etape-chevron {
+  transform: rotate(180deg);
+}
+.essaim-etape-aide {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 6px 10px 32px;
+}
+.essaim-etape-aide p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.essaim-code {
+  padding: 3px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-2);
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 12px;
+  user-select: all;
+}
+.essaim-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-2);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+.essaim-btn:hover {
+  border-color: var(--hs-accent-bord);
+  background: var(--hs-accent-doux);
+}
+.essaim-btn:focus-visible {
+  outline: 2px solid var(--hs-accent);
+  outline-offset: 2px;
+}
+.essaim-pret-replie,
+.essaim-replie {
+  margin-top: 8px;
+}
+.essaim-pret-replie > summary,
+.essaim-replie > summary {
+  grid-template-columns: minmax(0, 1fr) auto;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--hs-ok);
+}
+.essaim-replie > summary {
+  color: var(--text);
+}
+
+/* ─ Derniers cycles ─ */
+.essaim-cycles {
+  max-height: 160px;
+  margin: 8px 0 0;
+  padding: 0;
   overflow-y: auto;
+  list-style: none;
 }
 .essaim-cycles li {
-  padding: 3px 0;
-  border-bottom: 1px solid var(--border-2, #eee5d5);
-  color: var(--muted, #6f6555);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+}
+.essaim-cycles li:last-child {
+  border-bottom: 0;
+}
+.essaim-cycles time {
+  font-variant-numeric: tabular-nums;
 }
 .essaim-cycle-pas {
   font-weight: 600;
-  color: var(--text, #1b1712);
-}
-.essaim-cycle-issue {
-  font-style: italic;
+  color: var(--text);
 }
 .essaim-cycle-detail {
-  opacity: 0.85;
-}
-
-.essaim-etiquette {
-  display: block;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--orange, #96570c);
-  font-weight: 700;
-  margin-bottom: 4px;
-}
-.essaim-gouv {
-  margin-bottom: 12px;
-  font-size: 13px;
-}
-.essaim-gouv-liste {
-  color: var(--text, #1b1712);
-}
-.essaim-gouv-manque {
-  color: var(--red, #a8402a);
-}
-.essaim-niveaux {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
-}
-.essaim-niveau {
-  padding: 6px 14px;
-  border-radius: 7px;
-  border: 1px solid var(--border-2, #e0d2b6);
-  background: var(--panel-3);
-  color: var(--muted, #6f6555);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-}
-.essaim-niveau:hover:not(:disabled) {
-  color: var(--text, #1b1712);
-}
-.essaim-niveau.actif {
-  background: linear-gradient(90deg, var(--miel-2), var(--miel));
-  color: var(--encre);
-  border-color: transparent;
-}
-.essaim-niveau:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-.essaim-inscription {
-  display: flex;
-  gap: 9px;
-  align-items: flex-start;
-  font-size: 13px;
-  color: var(--muted, #6f6555);
-  cursor: pointer;
-  padding: 10px 12px;
-  border: 1px dashed var(--border-2, #e0d2b6);
-  border-radius: 8px;
-}
-.essaim-inscription input {
-  margin-top: 2px;
-  flex-shrink: 0;
-}
-.essaim-avert {
-  margin: 10px 0 0;
-  font-size: 12.5px;
-  color: #a8402a;
-}
-.essaim-lecons {
-  margin-top: 14px;
-}
-.essaim-lecons ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.essaim-lecon {
-  display: flex;
-  gap: 10px;
-  align-items: baseline;
-  padding: 5px 0;
-  font-size: 12.5px;
-  border-bottom: 1px solid rgba(227, 216, 194, 0.9);
-}
-.essaim-lecon:last-child {
-  border-bottom: none;
-}
-.essaim-lecon-portee {
-  flex-shrink: 0;
-  min-width: 92px;
-  color: var(--muted);
-  font-family: var(--mono, monospace);
-  font-size: 11.5px;
-}
-.essaim-lecon--systemique .essaim-lecon-portee {
-  color: var(--red, #a8402a);
-  font-weight: 700;
-}
-.essaim-lecon-extrait {
-  color: var(--muted, #6f6555);
+  flex-basis: 100%;
   overflow-wrap: anywhere;
 }
-.essaim-erreur {
-  margin: 10px 0 0;
-  font-size: 12.5px;
-  color: var(--red, #a8402a);
-}
 
-/* ── La Dérive : la santé du projet sous autonomie longue ─────────────────── */
-.essaim-derive {
-  margin-bottom: 12px;
-  padding: 11px 13px;
-  border-radius: 8px;
-  border: 1px solid var(--border, #e3d8c2);
-  background: rgba(35, 94, 82, 0.06);
-}
-.essaim-derive--degradee {
-  border-color: var(--red, #a8402a);
-  background: rgba(168, 64, 42, 0.08);
-}
-.essaim-derive--a_surveiller,
-.essaim-derive--indeterminee {
-  border-color: var(--orange, #96570c);
-  background: rgba(224, 138, 20, 0.1);
-}
-.essaim-echantillon {
-  color: var(--muted);
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.essaim-derive ul {
-  list-style: none;
-  margin: 6px 0 0;
+/* ─ La santé du projet (la Dérive) ─ */
+.essaim-indicateurs {
+  margin: 8px 0 0;
   padding: 0;
+  list-style: none;
 }
 .essaim-ind {
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: 16px 84px minmax(0, 1fr);
   align-items: baseline;
-  padding: 3px 0;
+  column-gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
   font-size: 12.5px;
 }
+.essaim-ind:last-child {
+  border-bottom: 0;
+}
+/* Sur la PREMIÈRE ligne, à hauteur du nom — pas au milieu d'un constat de
+   trois lignes. */
+.essaim-ind-icone {
+  display: inline-grid;
+  align-self: start;
+  margin-top: 2px;
+  color: var(--muted);
+}
+.essaim-ind.ton-ok .essaim-ind-icone {
+  color: var(--hs-ok);
+}
+.essaim-ind.ton-attention .essaim-ind-icone {
+  color: var(--hs-attention);
+}
+.essaim-ind.ton-echec .essaim-ind-icone {
+  color: var(--hs-echec);
+}
 .essaim-ind-cle {
-  flex-shrink: 0;
-  min-width: 88px;
   font-weight: 600;
-  color: var(--green, #235e52);
-}
-.essaim-ind--a_surveiller .essaim-ind-cle,
-.essaim-ind--indeterminee .essaim-ind-cle {
-  color: var(--orange, #96570c);
-}
-.essaim-ind--degradee .essaim-ind-cle {
-  color: var(--red, #a8402a);
+  color: var(--text);
 }
 .essaim-ind-constat {
-  color: var(--muted, #6f6555);
+  line-height: 1.45;
+  color: var(--muted);
   overflow-wrap: anywhere;
 }
-.essaim-pas--halte {
-  border-left-color: var(--red, #a8402a);
-  background: rgba(168, 64, 42, 0.11);
+
+/* ─ Le niveau : un sélecteur segmenté, des mots et non des valeurs ─ */
+.essaim-niveaux {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2px;
+  margin-top: 10px;
+  padding: 3px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--panel-3);
+}
+.essaim-niveau {
+  min-height: 34px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.essaim-niveau:hover {
+  color: var(--text);
+}
+.essaim-niveau.actif {
+  background: var(--hs-accent);
+  color: var(--hs-sur-accent);
+  box-shadow: var(--shadow-sm);
+}
+.essaim-niveau[aria-disabled='true'] {
+  cursor: progress;
+}
+.essaim-niveau:focus-visible {
+  outline: 2px solid var(--hs-accent);
+  outline-offset: 2px;
+}
+.essaim-desc {
+  margin: 8px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* L'autorisation de fusionner : une vraie case, son titre, sa portée. */
+.essaim-inscription {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 8px 6px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.essaim-inscription:hover {
+  background: var(--panel-3);
+}
+.essaim-inscription input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--hs-accent);
+}
+.essaim-inscription input:focus-visible {
+  outline: 2px solid var(--hs-accent);
+  outline-offset: 2px;
+}
+.essaim-inscription-textes strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.essaim-inscription-textes span {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* ─ Ce que la ruche a appris ─ */
+.essaim-lecons {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.essaim-lecon {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.essaim-lecon:last-child {
+  border-bottom: 0;
+}
+.essaim-lecon-portee {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--panel-3);
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.essaim-lecon--systemique .essaim-lecon-portee {
+  background: color-mix(in srgb, var(--hs-attention) 13%, transparent);
+  color: var(--hs-attention);
+}
+.essaim-lecon-alerte {
+  display: inline-flex;
+}
+.essaim-lecon-extrait {
+  line-height: 1.45;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.essaim-erreur {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  color: var(--hs-echec);
+}
+.essaim-erreur svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+/* Une colonne très étroite : le constat passe sous son nom, les niveaux sur
+   deux rangs — plutôt que des mots écrasés. */
+@container essaim (max-width: 290px) {
+  .essaim-ind {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+  .essaim-ind-constat {
+    grid-column: 2;
+  }
+  .essaim-niveaux {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* ─── L'équipe d'un projet ─────────────────────────────────────────────────── */
@@ -1582,38 +1888,248 @@
   overflow-wrap: anywhere;
 }
 
+/* ── L'Agent Garde-Fous et le banc d'ombre ─────────────────────────────────
+   Les deux autres réglages de « jusqu'où la ruche va seule », juste sous le
+   Plein Essaim : même cadre, même case, même sélecteur. Le Garde-Fous n'avait
+   AUCUNE règle — des `fieldset` natifs à bordure blanche, trois boutons gris
+   dont aucun ne disait lequel était choisi. */
+.garde-fou-panneau {
+  margin-top: 14px;
+  padding: 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  font-size: 13px;
+  color: var(--text);
+}
+.garde-fou-panneau h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+/* La marque des panneaux voisins (Plein Essaim, banc d'ombre), sans toucher
+   au titre que les bancs lisent. */
+.garde-fou-panneau h3::before {
+  content: '';
+  flex: none;
+  width: 12px;
+  height: 14px;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  background: var(--miel);
+}
+.garde-fou-explication {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+/* La case d'activation, la même que « Fusionner sans me redemander ». */
+.garde-fou-optin {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 4px 0 0;
+  padding: 8px 6px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--text);
+  cursor: pointer;
+}
+.garde-fou-optin:hover {
+  background: var(--panel-3);
+}
+.garde-fou-optin input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--hs-accent);
+}
+.garde-fou-optin input:focus-visible {
+  outline: 2px solid var(--hs-accent);
+  outline-offset: 2px;
+}
+
+/* Les bornes : le sélecteur segmenté du Plein Essaim, sa légende au-dessus. */
+.garde-fou-bornes {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+.garde-fou-bornes fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.garde-fou-bornes legend {
+  margin-bottom: 6px;
+  padding: 0;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text);
+}
+.garde-fou-echelons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  grid-auto-flow: column;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--r);
+  border: 1px solid var(--border);
+  background: var(--panel-3);
+}
+.garde-fou-echelons button {
+  min-height: 32px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.garde-fou-echelons button:hover:not(:disabled) {
+  color: var(--text);
+}
+.garde-fou-echelons button[aria-pressed='true'] {
+  background: var(--hs-accent);
+  color: var(--hs-sur-accent);
+  box-shadow: var(--shadow-sm);
+}
+.garde-fou-echelons button:disabled {
+  cursor: progress;
+}
+.garde-fou-echelons button:focus-visible {
+  outline: 2px solid var(--hs-accent);
+  outline-offset: 2px;
+}
+.garde-fou-elu,
+.garde-fou-elu-vide {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.garde-fou-elu strong {
+  color: var(--text);
+}
+.garde-fou-classement {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.garde-fou-classement th {
+  padding: 4px 6px;
+  text-align: start;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.garde-fou-classement td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+.garde-fou-classement tr[aria-current='true'] td {
+  background: var(--hs-accent-doux);
+}
+.garde-fou-erreur {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  color: var(--hs-echec);
+}
+
 /* ── Le banc d'ombre ────────────────────────────────────────────────────────
    Le budget est sous l'interrupteur, pas dans une fenêtre à part : allumer le
    banc, c'est faire payer de vrais appels de modèle, et le geste se fait en
    voyant ce qu'il coûte. */
 .banc-ombre-reglage {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  align-items: end;
   gap: 10px;
-  margin: 10px 0;
+  margin: 12px 0;
 }
 .banc-ombre-champ {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   font-size: 12px;
-  color: var(--muted, #6f6555);
+  font-weight: 600;
+  color: var(--muted);
 }
 .banc-ombre-champ input {
-  width: 9rem;
-  max-width: 100%;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-2);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.banc-ombre-champ input:focus-visible {
+  outline: 2px solid var(--hs-accent);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+.banc-ombre-reglage button {
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-2);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.banc-ombre-reglage button:hover:not(:disabled) {
+  border-color: var(--hs-accent-bord);
+  background: var(--hs-accent-doux);
+}
+.banc-ombre-reglage button:focus-visible {
+  outline: 2px solid var(--hs-accent);
+  outline-offset: 2px;
 }
 .banc-ombre-budget,
 .banc-ombre-arret {
   margin: 0 0 8px;
-  font-size: 13px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+/* « Dernières 24 h » : un titre de ligne, pas une étiquette criée. */
+.banc-ombre-budget .essaim-etiquette {
+  margin-bottom: 2px;
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
 }
 .banc-ombre-arret {
-  color: var(--red, #b3261e);
+  color: var(--hs-echec);
 }
 .banc-ombre-muettes {
-  color: var(--muted, #6f6555);
+  color: var(--muted);
 }
 .banc-ombre-liste {
   margin: 6px 0 0;
@@ -1621,7 +2137,7 @@
   font-size: 12px;
 }
 .banc-ombre-modeles {
-  font-family: var(--mono, ui-monospace, monospace);
+  font-family: var(--mono);
 }
 
 /* ─── Missions · Time Travel (MissionsRejeu.tsx) ─────────────────────────── */

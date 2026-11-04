@@ -56,7 +56,6 @@ import { useLang, useT } from '../i18n';
 import { GesteIrreversible, ProgressBar, STATUS_ICON, statusLabel } from '../ui';
 import { BalanceProjet, CarteDevis } from './Balance';
 import { PleinEssaim } from '../PleinEssaim';
-import { OnboardingEssaim } from '../OnboardingEssaim';
 import { GardeFous } from '../GardeFous';
 import { BancOmbre } from '../BancOmbre';
 import { RapportMission } from '../RapportMission';
@@ -70,6 +69,7 @@ import { sansIdentifiants } from '../../../src/shared/projet-public';
 import { ISSUES_A_TRANCHER, JUSTIFICATION_MAX } from '../../../src/shared/war-room';
 import { LENTILLES, QUESTION_DEFAUT, TOURS_MAX } from '../../../src/orchestrator/conseil';
 import type { Project, Task, TaskStatus } from '../../../src/shared/types';
+import { Icone } from '../studio/Icone';
 import './projets.css';
 
 const STATUSES: TaskStatus[] = ['pending', 'ready', 'assigned', 'running', 'done', 'failed'];
@@ -2227,8 +2227,9 @@ function ProjectCard({
       {/* Le Plein Essaim : l'autonomie du projet. Placé APRÈS La Balance, et
           c'est délibéré — on ne propose pas à quelqu'un d'allumer une
           gouvernance autonome avant de lui avoir montré ce que la ruche
-          dépense. */}
-      <OnboardingEssaim projectId={project.id} />
+          dépense. Il porte SA liste « Prêt pour l'autonomie » : le « Chemin
+          vers le premier cycle » posé au-dessus en était une seconde, qui la
+          contredisait (1/5 contre 4/8). */}
       <PleinEssaim projectId={project.id} />
       {/* L'Agent Garde-Fous : le réglage appris du trou de vol, opt-in par projet,
           juste sous l'autonomie — les deux réglages « jusqu'où la ruche va seule ». */}
@@ -2290,7 +2291,8 @@ function ProjectCard({
           aria-expanded={showMerge}
           onClick={() => setShowMerge((v) => !v)}
         >
-          {t('⬡ Plan de merge', '⬡ Merge plan')}
+          <Icone nom="diff" taille={14} />
+          {t('Plan de merge', 'Merge plan')}
         </button>
         <button
           className="btn ghost"
@@ -2304,7 +2306,8 @@ function ProjectCard({
           aria-expanded={showConseil}
           onClick={() => setShowConseil((v) => !v)}
         >
-          {t('🔭 Réunir le Conseil', '🔭 Convene the Council')}
+          <Icone nom="equipe" taille={14} />
+          {t('Réunir le Conseil', 'Convene the Council')}
         </button>
         <button
           className="btn ghost"
@@ -2312,7 +2315,8 @@ function ProjectCard({
           data-testid="ouvrir-rapport-mission"
           onClick={() => setShowMission((v) => !v)}
         >
-          {t('📋 Rapport de mission', '📋 Mission report')}
+          <Icone nom="resultats" taille={14} />
+          {t('Rapport de mission', 'Mission report')}
         </button>
       </div>
 

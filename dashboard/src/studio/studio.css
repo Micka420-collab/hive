@@ -3698,14 +3698,16 @@ button.hs-lien:not(p *),
   }
 }
 
+/* Du TEXTE : `--hs-accent-texte`, pas le miel vif — qui remplit sans jamais
+   porter un mot (styles.css), et tombe à 1,6:1 sur la cire. */
 .hs-pastille-full-auto {
   border-color: var(--hs-accent-bord);
   background: var(--hs-accent-doux);
-  color: var(--hs-accent);
+  color: var(--hs-accent-texte);
 }
 
 .hs-apercu-full-auto {
-  color: var(--hs-accent);
+  color: var(--hs-accent-texte);
 }
 
 /* ─── LES AUTOMATISATIONS ─────────────────────────────────────────────────── */

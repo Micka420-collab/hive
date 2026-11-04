@@ -233,7 +233,7 @@ export function mesurerEntropie(productions: readonly ProductionObservee[]): Ind
       valeur: 0,
       unite: 'part',
       seuil: PART_SUPPRESSIONS_MIN,
-      constat: `${avecDiff.length} production(s) porteuse(s) de diff, ${ECHANTILLON_MIN} nécessaires.`,
+      constat: `${avecDiff.length} production(s) avec un diff, sur ${ECHANTILLON_MIN} nécessaires.`,
     };
   }
   const ajouts = avecDiff.reduce((t, p) => t + p.ajouts, 0);
@@ -324,7 +324,8 @@ export function mesurerSolitude(dernierApportHumain: number | null, now: number)
     valeur: Math.round(jours * 10) / 10,
     unite: 'jours',
     seuil: SOLITUDE_JOURS,
-    constat: `${Math.round(jours * 10) / 10} jour(s) sans qu’un humain n’intervienne.`,
+    // La virgule décimale : « 0,6 jour », pas « 0.6 » — ce texte est lu tel quel.
+    constat: `${String(Math.round(jours * 10) / 10).replace('.', ',')} jour(s) sans qu’un humain n’intervienne.`,
   };
 }
 

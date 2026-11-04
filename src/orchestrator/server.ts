@@ -378,6 +378,7 @@ import {
 } from './gardiennes.js';
 import type { LigneGardienne, ModeGardiennes, Verdict, VueGardiennes } from './gardiennes.js';
 import {
+  FIABILITE_BUTINEUSE,
   SEUIL_BATISSEUSE,
   SEUIL_BUTINEUSE,
   VIERGE,
@@ -8078,6 +8079,13 @@ async function monterReine(
         decision: e.decision,
         gouvernantes: gouvernantes(e.noeuds).map((g) => ({ nodeId: g.nodeId, nom: g.nom })),
         gouvernantesRequises: GOUVERNANTES_MIN,
+        /**
+         * Ce qu'une ouvrière doit avoir fait pour devenir gouvernante — la caste
+         * butineuse, GAGNÉE sur antécédents (polyethisme.ts, règle 1). Lu ici
+         * pour que l'écran dise le vrai chemin (« au moins 30 productions… »)
+         * sans recopier des seuils qui finiraient par mentir.
+         */
+        seuilsGouvernante: { productions: SEUIL_BUTINEUSE, fiabilite: FIABILITE_BUTINEUSE },
         depotInscrit: e.depotInscrit,
         plafond: e.plafond,
         derive: e.derive,
