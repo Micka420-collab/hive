@@ -13,7 +13,7 @@
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as KeyboardEventReact, PointerEvent as PointerEventReact } from 'react';
-import { fetchFichierRayon, fetchRayon, fetchResults, postReview } from '../api';
+import { fetchFichierRayon, fetchRayon, fetchResults } from '../api';
 import type { EntreeRayon } from '../api';
 import type { CodeLang } from '../CodeEditor';
 import { useLang, useT } from '../i18n';
@@ -89,6 +89,21 @@ export function EspaceTravail(p: Props) {
   // Un autre projet : ce que montrait le panneau de code ne lui appartient pas.
   useEffect(() => setAffichage(null), [p.projet?.id]);
 
+  // ─── UN VERDICT QUE LA REINE N'A PAS REÇU ────────────────────────────────
+  //
+  // Le verdict s'affiche tout de suite (le cache d'abord, l'envoi derrière) :
+  // sa carte a déjà disparu quand l'envoi échoue. L'alerte vit donc ICI, au
+  // niveau de l'espace — elle survit à la carte, nomme la tâche, et se ferme.
+  const [verdictsPerdus, setVerdictsPerdus] = useState<readonly string[]>([]);
+  useEffect(() => {
+    const surEchec = (e: Event) => {
+      const id = (e as CustomEvent<{ taskId?: unknown }>).detail?.taskId;
+      if (typeof id === 'string') setVerdictsPerdus((l) => (l.includes(id) ? l : [...l, id]));
+    };
+    window.addEventListener('hive:review-sync-error', surEchec);
+    return () => window.removeEventListener('hive:review-sync-error', surEchec);
+  }, []);
+
   const regler = useCallback((ratio: number) => {
     ecrire(CLES.partage, String(Math.min(0.7, Math.max(0.3, ratio))));
   }, []);
@@ -120,9 +135,15 @@ export function EspaceTravail(p: Props) {
       const gauche = zone.current?.querySelector<HTMLElement>('.hs-panneau.gauche');
       const droite = zone.current?.querySelector<HTMLElement>('.hs-panneau.droite');
       if (!gauche || !droite) return;
-      if (droite.getBoundingClientRect().top < gauche.getBoundingClientRect().bottom - 1) return;
-      const sobre = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-      droite.scrollIntoView({ block: 'start', behavior: sobre ? 'auto' : 'smooth' });
+      if (droite.getBoundingClientRect().top >= gauche.getBoundingClientRect().bottom - 1) {
+        const sobre = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        droite.scrollIntoView({ block: 'start', behavior: sobre ? 'auto' : 'smooth' });
+      }
+      // Le focus suit ce qu'on a demandé à lire : il restait sur un bouton
+      // « Diff » qui se désactivait le temps du chargement, donc tombait sur
+      // <body> — au clavier, on repartait du haut de la page. Sans défilement :
+      // la vue, c'est la ligne du dessus qui la règle.
+      droite.focus({ preventScroll: true });
     });
   };
 
@@ -199,6 +220,13 @@ export function EspaceTravail(p: Props) {
           aria-labelledby={`hs-onglet-${p.onglet}`}
           tabIndex={0}
         >
+          {verdictsPerdus.length > 0 && (
+            <VerdictsPerdus
+              ids={verdictsPerdus}
+              taches={p.mission.taches}
+              onCompris={() => setVerdictsPerdus([])}
+            />
+          )}
           {p.onglet === 'conversation' && <VoletConversation {...p} onMontrer={montrer} />}
           {p.onglet === 'plan' && <VoletPlan {...p} />}
           {p.onglet === 'fichiers' && <VoletFichiers projet={p.projet} onMontrer={montrer} />}
@@ -508,51 +536,74 @@ function VoletConversation(p: Props & { onMontrer: (a: Affichage) => void }) {
 }
 
 /**
- * Le verdict d'une production : le geste est celui de la Miellerie (POST de la
- * revue, puis le cache local), partagé par la carte de la conversation et par
- * la liste des résultats.
+ * Refuser / Approuver — le geste de la Miellerie, À L'IDENTIQUE : `setReview`
+ * (le cache tout de suite, puis UN envoi sérialisé par tâche).
+ *
+ * ─── UN VERDICT, UN ENVOI ───────────────────────────────────────────────────
+ *
+ * Le Studio postait la revue lui-même, PUIS appelait `setReview` — qui la
+ * poste aussi. Chaque clic donnait deux `task_reviewed` à la Reine : deux
+ * lignes « validée » dans l'activité, deux notifications aux connecteurs ; sur
+ * un refus, le second envoi tombait sur la tâche déjà relancée (409) et restait
+ * en file « non synchronisé », rejoué plus tard contre la tentative suivante.
+ * Un échec d'envoi arrive par la file (`hive:review-sync-error`) : l'espace de
+ * travail le dit (`VerdictsPerdus`).
+ *
+ * `apres` : le bouton cliqué disparaît avec le verdict — l'appelant dit où va
+ * le focus, pour qu'il ne tombe pas sur <body>.
  */
-function useVerdict(tacheId: string) {
-  const [etat, setEtat] = useState<'repos' | 'envoi' | 'erreur'>('repos');
-  const [erreur, setErreur] = useState<string | null>(null);
-  const trancher = (verdict: 'approved' | 'rejected') => {
-    setEtat('envoi');
-    setErreur(null);
-    postReview(tacheId, verdict)
-      .then(() => {
-        setReview(tacheId, verdict);
-        setEtat('repos');
-      })
-      .catch((e: unknown) => {
-        setEtat('erreur');
-        setErreur(e instanceof Error ? e.message : String(e));
-      });
-  };
-  return { etat, erreur, trancher };
-}
-
-/** Refuser / Approuver, et l'erreur du dernier envoi s'il y en a une. */
-function BoutonsVerdict({ v }: { v: ReturnType<typeof useVerdict> }) {
+function BoutonsVerdict({ tacheId, apres }: { tacheId: string; apres: () => void }) {
   const t = useT();
+  const trancher = (verdict: 'approved' | 'rejected') => {
+    setReview(tacheId, verdict);
+    apres();
+  };
   return (
     <>
-      <button
-        type="button"
-        className="hs-btn petit fantome"
-        disabled={v.etat === 'envoi'}
-        onClick={() => v.trancher('rejected')}
-      >
+      <button type="button" className="hs-btn petit fantome" onClick={() => trancher('rejected')}>
         {t('Refuser', 'Reject')}
       </button>
-      <button
-        type="button"
-        className="hs-btn petit primaire"
-        disabled={v.etat === 'envoi'}
-        onClick={() => v.trancher('approved')}
-      >
+      <button type="button" className="hs-btn petit primaire" onClick={() => trancher('approved')}>
         {t('Approuver', 'Approve')}
       </button>
     </>
+  );
+}
+
+/** Les verdicts que la Reine n'a pas enregistrés, nommés — et une façon de clore l'alerte. */
+function VerdictsPerdus({
+  ids,
+  taches,
+  onCompris,
+}: {
+  ids: readonly string[];
+  taches: readonly Task[];
+  onCompris: () => void;
+}) {
+  const t = useT();
+  const titres = ids
+    .map((id) => {
+      const titre = taches.find((x) => x.id === id)?.title ?? id.slice(0, 8);
+      return t(`« ${titre} »`, `“${titre}”`);
+    })
+    .join(', ');
+  return (
+    <div className="hs-alerte erreur hs-verdicts-perdus" role="alert">
+      <p>
+        {ids.length > 1
+          ? t(
+              `La Reine n’a pas enregistré ces verdicts : ${titres}. Vérifie-les dans la Validation.`,
+              `The Queen did not record these verdicts: ${titres}. Check them in Validation.`,
+            )
+          : t(
+              `La Reine n’a pas enregistré ce verdict : ${titres}. Vérifie-le dans la Validation.`,
+              `The Queen did not record this verdict: ${titres}. Check it in Validation.`,
+            )}
+      </p>
+      <button type="button" className="hs-btn petit" onClick={onCompris}>
+        {t('Compris', 'Got it')}
+      </button>
+    </div>
   );
 }
 
@@ -567,11 +618,30 @@ function CarteDecision({
   reviewTick: number;
 }) {
   const t = useT();
-  const v = useVerdict(tache.id);
+  const carte = useRef<HTMLDivElement>(null);
   void reviewTick;
 
+  // ─── APRÈS LE VERDICT, LE FOCUS VA À LA SUIVANTE ─────────────────────────
+  // La carte disparaît avec son verdict : le focus tombait sur <body>. Il va
+  // au « Diff » de la validation voisine — lire avant de trancher, jamais un
+  // second « Approuver » sous le même doigt —, sinon au champ de réponse.
+  const versLaSuivante = () => {
+    const ici = carte.current;
+    const fil = ici?.closest('.hs-fil') ?? ici?.parentElement ?? null;
+    const cartes = fil ? [...fil.querySelectorAll<HTMLElement>('.hs-carte-fil.decision')] : [];
+    const i = ici ? cartes.indexOf(ici) : -1;
+    const voisine = cartes[i + 1] ?? cartes[i - 1] ?? null;
+    requestAnimationFrame(() => {
+      const cible =
+        (voisine?.isConnected
+          ? voisine.querySelector<HTMLElement>('.hs-carte-actions button')
+          : null) ?? document.getElementById('hs-repondre');
+      cible?.focus();
+    });
+  };
+
   return (
-    <div className="hs-carte-fil decision">
+    <div ref={carte} className="hs-carte-fil decision">
       <Icone nom="coche" taille={18} />
       <div>
         <strong>
@@ -583,15 +653,10 @@ function CarteDecision({
             'Read the diff before deciding. Nothing is merged without you.',
           )}
         </p>
-        {v.erreur && (
-          <p className="hs-alerte erreur" role="alert">
-            {v.erreur}
-          </p>
-        )}
       </div>
       <div className="hs-carte-actions">
         <BoutonDiff tache={tache} onMontrer={onMontrer} />
-        <BoutonsVerdict v={v} />
+        <BoutonsVerdict tacheId={tache.id} apres={versLaSuivante} />
       </div>
     </div>
   );
@@ -612,13 +677,18 @@ function LigneResultat({
   onMontrer: (a: Affichage) => void;
 }) {
   const t = useT();
-  const v = useVerdict(x.id);
+  const titre = useRef<HTMLButtonElement>(null);
   const verdict = getReview(x.id);
   const attend = x.status === 'done' && verdict === null;
   return (
     <li className={`ton-${TON_TACHE[x.status]}`}>
       <div className="hs-resultat-tete">
-        <button type="button" className="hs-lien fort" onClick={() => onOuvrirTache(x.id)}>
+        <button
+          ref={titre}
+          type="button"
+          className="hs-lien fort"
+          onClick={() => onOuvrirTache(x.id)}
+        >
           {x.title}
         </button>
         <ChipStatut tache={x} />
@@ -633,15 +703,10 @@ function LigneResultat({
           ? `${formatDuree(x.result.durationMs)} · ${x.result.success ? t('réussie', 'succeeded') : t('échouée', 'failed')}`
           : t('sans production rangée', 'no stored production')}
       </p>
-      {v.erreur && (
-        <p className="hs-alerte erreur" role="alert">
-          {v.erreur}
-        </p>
-      )}
       <div className="hs-carte-actions">
         <BoutonDiff tache={x} onMontrer={onMontrer} />
         <BoutonDiff tache={x} onMontrer={onMontrer} genre="journaux" />
-        {attend && <BoutonsVerdict v={v} />}
+        {attend && <BoutonsVerdict tacheId={x.id} apres={() => titre.current?.focus()} />}
       </div>
     </li>
   );
@@ -660,6 +725,7 @@ function BoutonDiff({
   const [charge, setCharge] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   const voir = () => {
+    if (charge) return;
     setCharge(true);
     setErreur(null);
     fetchResults(tache.id)
@@ -692,7 +758,13 @@ function BoutonDiff({
   };
   return (
     <>
-      <button type="button" className="hs-btn petit" onClick={voir} disabled={charge}>
+      <button
+        type="button"
+        className="hs-btn petit"
+        onClick={voir}
+        aria-disabled={charge}
+        aria-busy={charge}
+      >
         <Icone nom={genre === 'diff' ? 'diff' : 'code'} taille={14} />
         {genre === 'diff' ? t('Diff', 'Diff') : t('Journaux', 'Logs')}
       </button>
@@ -935,7 +1007,8 @@ function PanneauCode({
   return (
     <section
       className={`hs-panneau droite${affichage === null ? ' vide' : ''}`}
-      aria-label={t('Code', 'Code')}
+      aria-label={affichage === null ? t('Code', 'Code') : titre}
+      tabIndex={-1}
     >
       <div className="hs-onglets code">
         <span

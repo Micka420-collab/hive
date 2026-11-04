@@ -3570,3 +3570,98 @@ button.hs-lien:not(p *),
   align-self: flex-start;
   margin: 2px 0 4px;
 }
+
+/* Un bouton « en cours » se dit par aria-disabled, pas par disabled : un
+   bouton désactivé sous le focus le lâche sur <body>. */
+.hs-btn[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+/* Le panneau de code reçoit le focus quand on y ouvre un diff ou un fichier :
+   l'anneau au clavier seulement. */
+.hs-panneau.droite:focus:not(:focus-visible) {
+  outline: none;
+}
+
+.hs-panneau.droite:focus-visible {
+  outline: 2px solid var(--hs-accent);
+  outline-offset: -2px;
+}
+
+.hs-verdicts-perdus {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.hs-verdicts-perdus p {
+  flex: 1 1 220px;
+  margin: 0;
+}
+
+/* ─── LE TACTILE N'A PAS DE CLAVIER ──────────────────────────────────────────
+   Les lettres des raccourcis (« Approuver a », « Rejeter x », « Ctrl K ») n'ont
+   rien à dire à un doigt : sur un écran tactile, elles se taisent. */
+@media (hover: none) and (pointer: coarse) {
+  .mc-app[data-studio] button kbd {
+    display: none;
+  }
+}
+
+/* ─── LES MACHINES SUR TÉLÉPHONE ──────────────────────────────────────────────
+   Une fiche par ligne, et la largeur rendue au texte : le cadre de la liste et
+   celui de la fiche mangeaient 50 px sur 375. */
+@media (max-width: 600px) {
+  .mc-app[data-studio] .es-node-grid {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 10px 8px;
+  }
+
+  .mc-app[data-studio] .es-node {
+    padding: 12px 10px;
+  }
+}
+
+/* Le plancher de lecture des fiches de machines : 12 px au doigt et sur les
+   écrans étroits — leurs lignes de détail descendaient à 10 px. Préfixé : la
+   feuille des vues se charge après celle-ci. */
+@media (max-width: 768px), (pointer: coarse) {
+  .mc-app[data-studio]
+    :is(
+      .es-models-label,
+      .es-model-name,
+      .es-model-proof,
+      .es-current-tasks-label,
+      .es-current-task-state,
+      .es-autonomy,
+      .es-autonomy-label,
+      .es-economie,
+      .es-economie-label,
+      .es-model-eco,
+      .es-history-label,
+      .es-history-item,
+      .es-node-foot,
+      .es-agent-chip,
+      .es-agents-none,
+      .es-podium-score,
+      .es-rank,
+      .es-nectar-stats,
+      .es-thermo-band,
+      .es-thermo-hint,
+      .es-thermo-scale,
+      .es-thermo-pending,
+      .es-thermo-signals,
+      .es-phero-stats,
+      .es-ghost-kind,
+      .es-scanned,
+      .es-caste,
+      .es-poly-stats,
+      .es-poly-manque,
+      .es-poly-pied
+    ) {
+    font-size: 12px;
+  }
+}

@@ -179,8 +179,12 @@ describe('le concierge répond dans la langue qu’on lui parle', () => {
     expect(r, 'la préposition française fuit dans le détail anglais').not.toContain('sur alpha');
   });
 
+  // La tâche des sous-agents est EN VOL : ceux d'une tâche finie ne se citent plus.
   const avecSousAgents = () =>
     ctxVide({
+      enCours: [
+        { taskId: 't1', title: 'poser', status: 'running', nodeId: 'n1', nodeName: 'alpha' },
+      ],
       sousAgents: [{ taskId: 't1', nodeId: 'n1', agents: [{ name: 'scout', status: 'running' }] }],
     } as unknown as Partial<ConciergeContext>);
 
@@ -258,5 +262,70 @@ describe('le filtre des sous-agents refuse ce qui n’a pas la forme', () => {
     const lu = sousAgentsDepuisEvenements(progression([{ name: 'scout', status: 'running' }]));
     expect(lu, 'un sous-agent valide a été écarté').toHaveLength(1);
     expect(lu[0]?.agents[0]).toEqual({ name: 'scout', status: 'running' });
+  });
+});
+
+describe('« où en est le projet ? » : les sous-agents et le Plein Essaim disent l’état VRAI', () => {
+  // ─── « exploratrice [running] », SIX FOIS, SUR UN PROJET FINI ─────────────
+  //
+  // Mesuré sur la démo : un projet à 100 % (11/11) répondait six sous-agents
+  // « [running] » — le dernier `task_progress` de chaque tâche close —, puis
+  // « Plein Essaim : niveau « off », pas « inerte » · dérive indeterminee » :
+  // trois valeurs internes pour dire que le mode est éteint.
+  const enVol = {
+    taskId: 't1',
+    title: 'poser',
+    status: 'running',
+    nodeId: 'n1',
+    nodeName: 'alpha',
+  };
+  const ctx = (o: Record<string, unknown>) => ctxVide(o as unknown as Partial<ConciergeContext>);
+
+  it('les sous-agents d’une tâche FINIE ne sont pas cités', () => {
+    const r = progres(
+      ctx({
+        enCours: [],
+        sousAgents: [
+          { taskId: 't9', nodeId: 'n1', agents: [{ name: 'exploratrice', status: 'running' }] },
+        ],
+      }),
+    );
+    expect(r).not.toContain('Sous-agents vus');
+    expect(r).not.toContain('exploratrice');
+  });
+
+  it('les doublons se comptent, et l’état se dit en mots (dans les deux langues)', () => {
+    const c = ctx({
+      enCours: [enVol],
+      sousAgents: [
+        {
+          taskId: 't1',
+          nodeId: 'n1',
+          agents: [
+            { name: 'exploratrice', status: 'running' },
+            { name: 'exploratrice', status: 'running' },
+            { name: 'butineuse', status: 'completed' },
+            { name: 'veilleuse', status: 'hibernation' },
+          ],
+        },
+      ],
+    });
+    const fr = progres(c);
+    expect(fr).toContain('exploratrice ×2 (en cours)');
+    expect(fr).toContain('butineuse (terminé)');
+    expect(fr, 'une valeur inconnue reste telle quelle').toContain('veilleuse (hibernation)');
+    expect(fr).not.toContain('[running]');
+    expect(progressEn(c)).toContain('exploratrice ×2 (running)');
+  });
+
+  it('le Plein Essaim éteint se tait ; allumé, il parle', () => {
+    const essaim = (niveau: string) => ({
+      niveau,
+      pas: 'inerte',
+      enPause: false,
+      derive: 'stable',
+    });
+    expect(progres(ctx({ essaim: essaim('off') }))).not.toContain('Plein Essaim');
+    expect(progres(ctx({ essaim: essaim('surveille') }))).toContain('Plein Essaim');
   });
 });

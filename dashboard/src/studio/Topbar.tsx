@@ -155,7 +155,7 @@ export function Topbar(p: Props) {
         aria-label={t('Rechercher partout', 'Search everything')}
       >
         <Icone nom="recherche" taille={18} />
-        <span className="hs-recherche-texte">{t('Rechercher partout…', 'Search everything…')}</span>
+        <span className="hs-recherche-texte">{t('Rechercher…', 'Search…')}</span>
         <kbd>{raccourci}</kbd>
       </button>
       <div className="hs-topbar-droite">

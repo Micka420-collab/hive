@@ -476,6 +476,24 @@ export function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
+  // ─── LE FOCUS NE TOMBE PAS AU FOND DE LA PAGE ───────────────────────────────
+  //
+  // Une vue qui change démonte ce qui avait le focus : l'entrée de la palette
+  // qu'on vient de choisir, la tâche qu'on a suivie. Le focus tombait sur
+  // <body> — au clavier, on repartait du tout début de la page, et le lecteur
+  // d'écran ne disait rien de la page nouvelle. Il va au contenu principal,
+  // sans défilement ; un focus encore vivant (un bouton du rail) reste où il est.
+  const vuePrecedente = useRef(route.view);
+  useEffect(() => {
+    if (vuePrecedente.current === route.view) return;
+    vuePrecedente.current = route.view;
+    const id = window.setTimeout(() => {
+      const actif = document.activeElement;
+      if (!actif || actif === document.body) principal.current?.focus({ preventScroll: true });
+    }, 50);
+    return () => window.clearTimeout(id);
+  }, [route.view]);
+
   const navigate = (view: ViewId, selectedId?: string, opts?: { replace?: boolean }) => {
     const hash = selectedId ? `#/${view}/${encodeURIComponent(selectedId)}` : `#/${view}`;
     if (opts?.replace) {

@@ -61,6 +61,8 @@ interface Props {
   iaEnLigne: boolean;
   /** Les libellés des IA en ligne, pour l'aperçu (« Claude Code · Codex »). */
   iasEnLigne: readonly string[];
+  /** Machines simulées en ligne (la démo) : elles prennent les tâches, sans IA. */
+  simulesEnLigne?: number;
   /** Envoie une question à la Reine ; rend `true` si elle a répondu. */
   poserQuestion: (message: string, affiche: string) => Promise<boolean>;
   questionEnCours: boolean;
@@ -76,6 +78,7 @@ export function Composeur({
   projet,
   iaEnLigne,
   iasEnLigne,
+  simulesEnLigne = 0,
   poserQuestion,
   questionEnCours,
   onMissionLancee,
@@ -181,6 +184,9 @@ export function Composeur({
           ),
         );
         onMissionLancee(creees);
+        // Le plan replié emporte le bouton « Lancer » : le focus revient au
+        // champ, prêt pour la suite — il tombait sur <body>.
+        requestAnimationFrame(() => champ.current?.focus());
       })
       .catch((e: unknown) => {
         setEtat('apercu');
@@ -456,6 +462,7 @@ export function Composeur({
           projet={projet}
           iaEnLigne={iaEnLigne}
           iasEnLigne={iasEnLigne}
+          simulesEnLigne={simulesEnLigne}
           enLancement={etat === 'lancement'}
           onLancer={lancer}
           onModifier={() => {
@@ -610,6 +617,7 @@ function ApercuPlan({
   projet,
   iaEnLigne,
   iasEnLigne,
+  simulesEnLigne = 0,
   enLancement,
   onLancer,
   onModifier,
@@ -619,6 +627,8 @@ function ApercuPlan({
   projet: Project;
   iaEnLigne: boolean;
   iasEnLigne: readonly string[];
+  /** Machines simulées en ligne (la démo) : elles prennent les tâches, sans IA. */
+  simulesEnLigne?: number;
   enLancement: boolean;
   onLancer: () => void;
   onModifier: () => void;
@@ -659,8 +669,8 @@ function ApercuPlan({
           <button
             type="button"
             className="hs-btn primaire"
-            onClick={onLancer}
-            disabled={enLancement}
+            onClick={enLancement ? undefined : onLancer}
+            aria-disabled={enLancement}
           >
             {enLancement
               ? t('Lancement…', 'Launching…')
@@ -696,10 +706,15 @@ function ApercuPlan({
       ) : (
         <div className="hs-alerte attention" role="note">
           <p>
-            {t(
-              'Aucune IA n’est en ligne : les tâches seront créées et attendront qu’un agent se connecte.',
-              'No AI is online: tasks will be created and wait for an agent to connect.',
-            )}
+            {simulesEnLigne > 0
+              ? t(
+                  `Aucune IA réelle en ligne : ${simulesEnLigne} machine(s) simulée(s) prendront ces tâches et rendront des résultats d’exemple, sans IA.`,
+                  `No real AI online: ${simulesEnLigne} simulated machine(s) will take these tasks and return sample results, without AI.`,
+                )
+              : t(
+                  'Aucune IA n’est en ligne : les tâches seront créées et attendront qu’un agent se connecte.',
+                  'No AI is online: tasks will be created and wait for an agent to connect.',
+                )}
           </p>
           <button
             type="button"

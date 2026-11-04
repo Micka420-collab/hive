@@ -65,6 +65,7 @@ export default function Studio({ snapshot, user, refreshTick, onOpenTask, onNavi
   const agents = useMemo(() => agentsConnectes(snapshot.nodes), [snapshot.nodes]);
   const iaEnLigne = aUneIaReelle(agents);
   const iasEnLigne = agents.filter((a) => a.enLigne > 0 && !a.simule).map((a) => a.libelle);
+  const simulesEnLigne = agents.filter((a) => a.simule).reduce((n, a) => n + a.enLigne, 0);
 
   const missions = useApiPoll(
     () => (projet ? fetchMissions(projet.id) : Promise.resolve(null)),
@@ -145,6 +146,7 @@ export default function Studio({ snapshot, user, refreshTick, onOpenTask, onNavi
             projet={projet}
             iaEnLigne={iaEnLigne}
             iasEnLigne={iasEnLigne}
+            simulesEnLigne={simulesEnLigne}
             poserQuestion={(m, a) => conversation.envoyer(m, a)}
             questionEnCours={conversation.enCours}
             onMissionLancee={() => {

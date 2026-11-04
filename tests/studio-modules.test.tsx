@@ -424,6 +424,21 @@ describe('l’activité de la colonne', () => {
     );
   });
 
+  it('une même phrase pour une même tâche ne se dit qu’une fois — la plus récente reste', () => {
+    // Deux verdicts identiques (l'écran qui postait deux fois) faisaient deux
+    // lignes « validée » côte à côte ; une autre phrase, elle, reste.
+    const events = [
+      ev(1, 'task_done', { taskId: 't1' }),
+      ev(2, 'task_reviewed', { taskId: 't1', state: 'approved' }),
+      ev(3, 'task_reviewed', { taskId: 't1', state: 'approved', clientId: 'onglet' }),
+    ];
+    const items = activiteRecente(events, taches, [], fr);
+    expect(items.map((i) => [i.id, i.texte])).toEqual([
+      [3, '« Parseur » validée'],
+      [1, '« Parseur » terminée'],
+    ]);
+  });
+
   it('l’heure relative', () => {
     expect(ilYA(1_000, 1_000 + 30_000, fr)).toMatch(/instant|s/);
     expect(ilYA(0, 5 * 60_000, en)).toMatch(/5/);
@@ -651,5 +666,27 @@ describe('le responsive de la coquille', () => {
     const repli = css.slice(css.indexOf('.hs-nouveau-projet-mot {'));
     expect(repli).toMatch(/clip-path: inset\(50%\)/);
     expect(repli.slice(0, 200)).not.toMatch(/display: none/);
+  });
+});
+
+describe('le geste en cours garde le focus, le tactile tait les raccourcis', () => {
+  const css = readFileSync(path.join(__dirname, '../dashboard/src/studio/studio.css'), 'utf8');
+  const source = (f: string) =>
+    readFileSync(path.join(__dirname, '../dashboard/src/studio', f), 'utf8');
+
+  it('« Diff » et « Lancer la mission » se disent occupés par aria-disabled, pas par disabled', () => {
+    // Un bouton désactivé sous le focus le lâche sur <body>.
+    expect(source('EspaceTravail.tsx')).toMatch(/aria-disabled=\{charge\}/);
+    expect(source('EspaceTravail.tsx')).not.toMatch(/(?<!aria-)disabled=\{charge\}/);
+    expect(source('Composeur.tsx')).toMatch(/aria-disabled=\{enLancement\}/);
+    expect(css).toMatch(/\.hs-btn\[aria-disabled='true'\] \{/);
+  });
+
+  it('au doigt, les lettres des raccourcis se taisent ; les fiches de machines lisent à 12 px', () => {
+    const tactile = css.slice(css.indexOf('@media (hover: none) and (pointer: coarse) {'));
+    expect(tactile.slice(0, 120)).toMatch(/\.mc-app\[data-studio\] button kbd \{\s*display: none;/);
+    const plancher = css.slice(css.indexOf('@media (max-width: 768px), (pointer: coarse) {'));
+    expect(plancher).toMatch(/\.es-history-item/);
+    expect(plancher.slice(0, plancher.indexOf('font-size: 12px;'))).toMatch(/:is\(/);
   });
 });

@@ -180,6 +180,10 @@ export function activiteRecente(
   // `task_assigned` puis `task_started` disent deux fois « confiée » : on ne
   // garde que le premier rencontré (le plus récent) pour une même tâche.
   const confiees = new Set<string>();
+  // Une même phrase pour une même tâche ne se dit qu'une fois : deux verdicts
+  // identiques (l'écran qui postait deux fois, Slack puis l'écran) faisaient
+  // deux lignes « validée » côte à côte. La plus récente reste.
+  const dites = new Set<string>();
   for (let i = events.length - 1; i >= 0 && out.length < limite; i--) {
     const ev = events[i]!;
     if (opts.projetId) {
@@ -191,6 +195,11 @@ export function activiteRecente(
     if (item.genre === 'encours' && item.tacheId) {
       if (confiees.has(item.tacheId)) continue;
       confiees.add(item.tacheId);
+    }
+    if (item.tacheId) {
+      const cle = `${item.tacheId}|${item.texte}`;
+      if (dites.has(cle)) continue;
+      dites.add(cle);
     }
     out.push({ ...item, id: ev.id, ts: ev.ts });
   }

@@ -138,7 +138,7 @@ function NodeCard({
     >
       <header className="es-node-head">
         <span
-          className={`es-node-name${identiteChargee && baptConstate === null ? ' muted-text' : ''}`}
+          className="es-node-name"
           title={baptConstate ? `${baptConstate} · ${node.name}` : node.name}
         >
           {racing && (
@@ -151,9 +151,9 @@ function NodeCard({
               ◇
             </span>
           )}
-          {identiteChargee && baptConstate === null
-            ? t('Pas encore baptisée', 'Not baptised yet')
-            : label}
+          {/* Pas de prénom : le nom technique en titre — deux fiches titrées
+              « Pas encore baptisée » ne se distinguaient plus. */}
+          {identiteChargee && baptConstate === null ? node.name : label}
         </span>
         <span className={`conn ${node.status}`}>
           <span className="conn-dot" />
@@ -162,7 +162,13 @@ function NodeCard({
       </header>
       {identiteChargee && (baptConstate || baptConstate === null) && (
         <div className="es-node-tech muted-text">
-          {t('Technique', 'Technical')} · {node.name}
+          {baptConstate ? (
+            <>
+              {t('Technique', 'Technical')} · {node.name}
+            </>
+          ) : (
+            t('Pas encore baptisée', 'Not baptised yet')
+          )}
         </div>
       )}
       <div className="es-node-meta">
@@ -390,7 +396,13 @@ function NodeCard({
                   <li key={event.id} className="es-history-item">
                     <span className="es-history-type">{event.type}</span>
                     <span className="es-history-detail" title={detail}>
-                      {detail ?? t('fait enregistré', 'recorded fact')}
+                      {typeof detail === 'string'
+                        ? // Un identifiant de tâche se lit à huit caractères (l'infobulle
+                          // garde le tout) : la ligne n'en montrait que les points.
+                          /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(detail)
+                          ? detail.slice(0, 8)
+                          : detail
+                        : t('fait enregistré', 'recorded fact')}
                     </span>
                     <time dateTime={new Date(event.ts).toISOString()}>{timeShort(event.ts)}</time>
                   </li>
