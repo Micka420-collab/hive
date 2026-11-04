@@ -8,6 +8,7 @@ import type { AuthUser } from './api';
 import { useT } from './i18n';
 import { useDialog, Voile } from './ui';
 import type { LONGUEUR_MIN } from '../../src/orchestrator/comptes';
+import { Icone } from './studio/Icone';
 
 /**
  * Longueur minimale d'un mot de passe à l'inscription.
@@ -86,8 +87,15 @@ export function AccountPanel({ user, onUser, sessionExpiree = false }: Props) {
 
   return (
     <>
-      <button className="btn ghost" onClick={() => setOpen(true)}>
-        {t('Se connecter', 'Sign in')}
+      {/* Le mot se replie sur téléphone (studio.css) : le nom accessible, lui,
+          ne dépend pas de ce qui est affiché. */}
+      <button
+        className="btn ghost mc-se-connecter"
+        onClick={() => setOpen(true)}
+        aria-label={t('Se connecter', 'Sign in')}
+      >
+        <Icone nom="compte" taille={16} />
+        <span className="mc-se-connecter-mot">{t('Se connecter', 'Sign in')}</span>
       </button>
       {open && (
         <AccountModal

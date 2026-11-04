@@ -90,6 +90,72 @@
   --sp: 8px;
   --shadow: 0 10px 28px -20px rgba(20, 18, 16, 0.28);
   --shadow-sm: 0 1px 2px rgba(20, 18, 16, 0.05);
+
+  /* ─── Hive Studio (`studio/studio.css`) ───────────────────────────────────
+     Des NOMS de rôle, pas de nouvelles couleurs : chacun renvoie à un jeton
+     ci-dessus, et le thème sombre n'a donc qu'à reposer les jetons de base.
+     Seules les mesures de la coquille sont propres au studio. */
+  --hs-rail: 248px;
+  --hs-rail-compact: 72px;
+  --hs-colonne: 316px;
+  --hs-topbar: 60px;
+  --hs-r: 14px;
+  --hs-r-sm: 10px;
+  --hs-r-lg: 18px;
+  --hs-accent: var(--miel);
+  --hs-accent-texte: var(--honey);
+  --hs-sur-accent: var(--encre);
+  --hs-accent-doux: color-mix(in srgb, var(--miel) 13%, transparent);
+  --hs-accent-bord: color-mix(in srgb, var(--miel) 42%, transparent);
+  --hs-halo:
+    0 0 0 1px color-mix(in srgb, var(--miel) 22%, transparent),
+    0 10px 30px -16px color-mix(in srgb, var(--miel) 55%, transparent);
+  --hs-ok: var(--green);
+  --hs-echec: var(--red);
+  --hs-attention: var(--amber);
+  --hs-encours: var(--blue);
+  --hs-ombre: var(--shadow);
+}
+
+/* ─── LE THÈME SOMBRE — graphite et bleu pétrole, la maquette validée ────────
+   Le thème PAR DÉFAUT de Hive Studio (`data-theme` est posé sur `<html>` par
+   `public/theme-init.js` avant la première peinture, puis par
+   `studio/preferences.ts`). Les MÊMES noms que la cire, d'autres valeurs : les
+   quinze vues, écrites pour des jetons, suivent sans être réécrites.
+
+   Contrastes mesurés (WCAG 2.x, garde `tests/studio-theme.test.ts`) : texte
+   ≥ 13:1 sur toutes les surfaces, `--muted` ≥ 6,6:1, `--faint` ≥ 5,4:1,
+   l'orange de texte (`--honey`) ≥ 8:1 ; l'encre sur l'orange plein ≥ 6,7:1.
+   L'orange PLEIN (`--miel`) reste un remplissage : il désigne, il ne titre
+   pas. */
+:root[data-theme='sombre'] {
+  color-scheme: dark;
+  --bg: #0a0e13;
+  --bg-2: #0d1218;
+  --panel: #10161d;
+  --panel-2: #141b23;
+  --panel-3: #19222c;
+  --border: #1e2933;
+  --border-2: #2a3642;
+  --text: #e9eef3;
+  --muted: #9ba8b5;
+  --faint: #8b98a6;
+  --honey: #ffa766;
+  --amber: #f2b552;
+  --orange: #ff9a55;
+  --gold: #f0c06c;
+  --red: #ff7f70;
+  --green: #4fd38d;
+  --blue: #72b8ef;
+  --encre: #080c10;
+  --encre-2: #0f151b;
+  --sur-encre: #98a5b3;
+  --sur-encre-fort: #f2f5f8;
+  --miel: #ff8a2b;
+  --miel-2: #f07418;
+  --rouge: #f0604f;
+  --shadow: 0 18px 44px -24px rgba(0, 0, 0, 0.8);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
 
 * {
@@ -488,65 +554,6 @@ h3 {
   background: var(--red);
 }
 
-/* ─── Sur quelle IA la ruche est branchée ─────────────────────────────────
-   Même forme que le voyant de connexion, à dessein : ce sont deux voyants de
-   même nature, posés côte à côte, qui répondent à deux questions qu'on
-   confondait — « le navigateur parle-t-il au hub ? » et « une IA code-t-elle
-   vraiment ? ». Le second manquait, et son absence a coûté une session
-   entière à regarder une ruche verte qui ne faisait rien. */
-.mc-ia {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 5px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  color: var(--muted);
-  background: transparent;
-  max-width: 16rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mc-ia-reelle {
-  color: var(--green);
-  border-color: color-mix(in srgb, var(--green) 22%, var(--border));
-  background: color-mix(in srgb, var(--green) 5%, var(--panel));
-}
-
-.mc-ia-reelle .conn-dot {
-  background: var(--green);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 18%, transparent);
-}
-
-/* Simulé et « inscrite mais muette » se ressemblent parce qu'ils se valent :
-   dans les deux cas la ruche RÉPOND et ne produit rien de réel. */
-.mc-ia-simulee,
-.mc-ia-aucune_ia {
-  color: var(--amber);
-  border-color: color-mix(in srgb, var(--amber) 28%, var(--border));
-  background: color-mix(in srgb, var(--amber) 7%, var(--panel));
-}
-
-.mc-ia-simulee .conn-dot,
-.mc-ia-aucune_ia .conn-dot {
-  background: var(--amber);
-}
-
-.mc-ia-aucun_noeud {
-  color: var(--red);
-  border-color: color-mix(in srgb, var(--red) 28%, var(--border));
-  background: color-mix(in srgb, var(--red) 6%, var(--panel));
-}
-
-.mc-ia-aucun_noeud .conn-dot {
-  background: var(--red);
-}
-
-/* ─── Disposition ─────────────────────────────────────────────────────── */
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
@@ -1418,7 +1425,7 @@ h3 {
 
 /* Nouveau projet — soft-freeze Craft : papier de cire, miel discret, marque
    hex (jamais d’emoji). Les puces modèles restent calmes ; le primaire
-   « Générer » / « Lancer le butinage » porte le miel. */
+   « Générer » / « Créer et lancer les tâches » porte le miel. */
 .np-modal {
   background: color-mix(in srgb, var(--miel) 4%, var(--panel));
   border-color: color-mix(in srgb, var(--miel) 22%, var(--border));
@@ -2542,167 +2549,25 @@ h3 {
 }
 
 .mc-sidebar {
+  /* Le rail de Hive Studio (`studio/Rail.tsx`). Collé, haut d'un écran, et
+     BORNÉ en pixels : la largeur réelle vient de `--hs-rail` (`studio.css`),
+     celle-ci est le plancher qui tient si la feuille du studio manquait. */
   position: sticky;
   top: 0;
   align-self: flex-start;
   height: 100vh;
-  /* Barre 220 px : libellés lisibles, marque Hive dominante. */
-  width: 220px;
+  width: 248px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 20px 12px 16px;
-  background: linear-gradient(180deg, rgba(255, 252, 247, 0.04), transparent 28%), var(--encre);
-  border-right: 1px solid #0c0b09;
   z-index: 30;
 }
 
+/* La marque du rail — déclarée UNE fois (garde `dashboard-feuilles`) : une
+   seconde règle en colonne avait fait passer le logo au-dessus du nom. */
 .mc-sidebar-brand {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 2px 8px 6px;
-}
-
-.mc-sidebar-brand .brand-logo {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  background: rgba(246, 196, 69, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(246, 196, 69, 0.28);
-}
-
-/* Le nom écrit — « Hive » au-dessus de « Mission Control » — À CÔTÉ du logo.
-   Cette colonne portait la même classe que la marque qui la contient, et la
-   règle s'appliquait donc aux DEUX : la marque entière passait en colonne, et
-   le logo se posait au-dessus du nom au lieu d'à côté. Un nom à elle, une
-   règle à elle. */
-.mc-sidebar-nom {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.mc-sidebar-word {
-  font-family: var(--titre);
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  color: var(--sur-encre-fort);
-  line-height: 1.1;
-}
-
-.mc-sidebar-product {
-  font-family: var(--texte);
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.01em;
-  color: var(--sur-encre);
-  line-height: 1.2;
-}
-
-.mc-nav {
-  list-style: none;
-  margin: 0;
-  padding: 0 0 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 252, 247, 0.18) transparent;
-}
-
-.mc-nav-cell {
-  position: relative;
-  width: 100%;
-  min-height: 40px;
-  padding: 8px 12px;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 10px;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  color: var(--sur-encre);
-  cursor: pointer;
-  font: inherit;
-  font-size: 13.5px;
-  font-weight: 500;
-  letter-spacing: -0.01em;
-  text-align: left;
-  transition:
-    color 0.18s ease,
-    background 0.18s ease,
-    border-color 0.18s ease;
-}
-
-.mc-nav-cell::before {
-  /* Sur barre large, le glyphe SVG porte déjà la marque ; l’alvéole reste
-     pour le pouls actif (miel) sans doubler l’icône. */
-  content: none;
-  flex: none;
-  width: 9px;
-  height: 11px;
-  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
-  background: #5c5346;
-  transition: background 0.2s ease;
-}
-
-.mc-nav-cell:hover {
-  color: var(--sur-encre-fort);
-  background: rgba(255, 252, 247, 0.06);
-}
-
-.mc-nav-cell.active {
-  background: rgba(246, 196, 69, 0.14);
-  border-color: rgba(246, 196, 69, 0.18);
-  color: var(--sur-encre-fort);
-  font-weight: 600;
-}
-
-.mc-nav-cell.active::before {
-  background: var(--miel);
-}
-
-.mc-nav-cell:focus-visible {
-  outline: 2px solid var(--miel);
-  outline-offset: 2px;
-}
-
-.mc-nav-icon {
-  display: inline-flex;
-  flex: none;
-  width: 22px;
-  height: 22px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 7px;
-  background: rgba(255, 252, 247, 0.06);
-  color: var(--sur-encre);
-}
-
-.mc-nav-icon svg {
-  width: 15px;
-  height: 15px;
-  display: block;
-}
-
-.mc-nav-cell.active .mc-nav-icon {
-  background: rgba(246, 196, 69, 0.22);
-  color: var(--miel);
-}
-
-.mc-nav-label {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .mc-nav-badge {
@@ -2725,7 +2590,7 @@ h3 {
    utile de la barre : « est-ce urgent ? ». La couleur double la forme, elle ne
    la remplace pas.
 
-   Le nom accessible complet (« Mon espace, 3 alertes, la plus grave :
+   Le nom accessible complet (« Équipe, 3 alertes, la plus grave :
    critique ») vit sur l'`aria-label` du badge, pas ici : une pastille qui ne
    parle qu'en pixels ne dit rien à qui écoute la page. */
 .mc-nav-badge--critique {
@@ -2750,22 +2615,6 @@ h3 {
   background: transparent;
   color: var(--sur-encre);
   border: 1px solid var(--border-2);
-}
-
-.mc-sidebar-pulse {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 252, 247, 0.1);
-  width: 100%;
-}
-
-.mc-pulse-rate {
-  font-family: var(--mono);
-  font-size: 10px;
-  color: var(--sur-encre);
 }
 
 .mc-body {
@@ -3346,44 +3195,6 @@ button.mc-cell:focus-visible {
   .mc-cell.running,
   .mc-spark.beat polyline {
     animation: none;
-  }
-}
-
-@media (max-width: 900px) {
-  .mc-sidebar {
-    width: 62px;
-    padding: 14px 8px;
-  }
-  .mc-nav-cell {
-    justify-content: center;
-    padding: 9px 4px;
-  }
-  /* Le NOM entier, pas ses deux lignes : une colonne vide resterait un
-     élément de la marque, et son écart de 10 px ferait déborder le logo du
-     rail de 62 px. */
-  .mc-nav-label,
-  .mc-sidebar-nom {
-    display: none;
-  }
-  .mc-nav-icon {
-    width: 28px;
-    height: 28px;
-    border-radius: 9px;
-  }
-  .mc-nav-icon svg {
-    width: 16px;
-    height: 16px;
-  }
-  .mc-sidebar-brand .brand-logo {
-    width: 26px;
-    height: 26px;
-  }
-  .mc-nav-badge {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    margin-left: 0;
-    padding: 0 5px;
   }
 }
 

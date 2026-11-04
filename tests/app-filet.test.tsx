@@ -150,7 +150,7 @@ describe('une vue qui tombe ne blanchit plus l’écran', () => {
       'champ « entrees » absent de la réponse',
     );
     // La coquille survit : la barre est là, et c'est elle qui mène ailleurs.
-    expect(dom.querySelectorAll('.mc-nav-cell').length, 'la barre a disparu').toBeGreaterThan(5);
+    expect(dom.querySelectorAll('.hs-section').length, 'le rail a disparu').toBeGreaterThan(5);
     expect(dom.querySelector('#mc-contenu .mc-panne'), 'la panne sort de sa vue').not.toBeNull();
   });
 
@@ -162,6 +162,8 @@ describe('une vue qui tombe ne blanchit plus l’écran', () => {
 
     await naviguer('#/ruche');
     expect(dom.querySelector('.mc-panne'), 'la panne du Rayon s’affiche sur la Ruche').toBeNull();
+    // La Ruche est un morceau paresseux depuis que l'accueil est Hive Studio.
+    await attendre(dom, (d) => (d.textContent ?? '').includes('Votre ruche est prête'));
     expect(dom.textContent).toContain('Votre ruche est prête');
 
     // Retour au Rayon guéri : le filet réarmé laisse passer la vue.
@@ -238,7 +240,7 @@ describe('une vue qui tombe ne blanchit plus l’écran', () => {
       bouton(dom, 'Recharger la page'),
       'aucun moyen d’aller chercher la version courante',
     ).toBeTruthy();
-    expect(dom.querySelectorAll('.mc-nav-cell').length).toBeGreaterThan(5);
+    expect(dom.querySelectorAll('.hs-section').length).toBeGreaterThan(5);
   });
 });
 
@@ -273,7 +275,7 @@ describe('la coquille au clavier et au lecteur d’écran', () => {
     expect(mains[0]?.id).toBe('mc-contenu');
     expect(mains[0]?.textContent).toContain('le Rayon répond');
     // Et pas la barre : le repère ne contient que la vue.
-    expect(mains[0]?.querySelector('.mc-nav-cell'), 'la barre est dans le contenu').toBeNull();
+    expect(mains[0]?.querySelector('.hs-section'), 'le rail est dans le contenu').toBeNull();
   });
 
   it('LA RUCHE PEUPLÉE N’EMBOÎTE PAS UN SECOND `main`', async () => {
@@ -302,6 +304,10 @@ describe('la coquille au clavier et au lecteur d’écran', () => {
         tasksTotal: 0,
       } as never);
     });
+    // La Ruche est une vue PARESSEUSE depuis Hive Studio (l'accueil est la
+    // porte d'entrée) : sans attendre son morceau, ce banc ne passait que si
+    // un banc précédent l'avait déjà chargée — rouge sous `--sequence.shuffle`.
+    await attendre(dom, (d) => d.querySelector('.layout') !== null);
     expect(dom.querySelector('.layout'), 'la Ruche peuplée ne s’est pas rendue').not.toBeNull();
     const mains = dom.querySelectorAll('main');
     expect(mains.length, 'deux `main` emboîtés').toBe(1);
@@ -315,8 +321,6 @@ describe('la coquille au clavier et au lecteur d’écran', () => {
     // nom s'appliquait à la marque, et le logo passait au-dessus du nom.
     const dom = await monter('#/rayon');
     expect(dom.querySelector('.mc-sidebar-brand .mc-sidebar-brand')).toBeNull();
-    expect(
-      dom.querySelector('.mc-sidebar-brand > .mc-sidebar-nom .mc-sidebar-word')?.textContent,
-    ).toBe('Hive');
+    expect(dom.querySelector('.mc-sidebar-brand .hs-marque-nom')?.textContent).toBe('Hive Studio');
   });
 });

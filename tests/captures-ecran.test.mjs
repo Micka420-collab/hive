@@ -34,8 +34,10 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   FORMATS,
+  GRILLE,
   MANIFESTE,
   SORTIE_PAR_DEFAUT,
+  TOUS_LES_FORMATS,
   estNotreCapture,
   fichierDeLEcran,
   nomCapture,
@@ -86,7 +88,8 @@ describe('où vont les captures', () => {
       'banniere-clair.png',
       'dashboard-ruche.png',
       'vitrine.png',
-      'ruche.tablette.png',
+      // (« tablette » en était l'exemple avant la grille de Hive Studio.)
+      'ruche.montre.png',
       'ruche.bureau.png.orig',
       'Ruche.bureau.png',
       '.bureau.png',
@@ -115,15 +118,41 @@ describe('où vont les captures', () => {
       langue: 'fr',
       sortie: path.join(RACINE, SORTIE_PAR_DEFAUT, 'fr'),
       vues: null,
+      formats: FORMATS,
     });
     expect(optionsDepuisArgv(['--langue', 'en'], RACINE)).toEqual({
       langue: 'en',
       sortie: path.join(RACINE, SORTIE_PAR_DEFAUT, 'en'),
       vues: null,
+      formats: FORMATS,
     });
     expect(optionsDepuisArgv(['--sortie', 'docs/images/captures'], RACINE).sortie).toBe(
       path.join(RACINE, 'docs', 'images', 'captures'),
     );
+  });
+
+  it('--formats : la série publiée par défaut, la grille de recette à la demande', () => {
+    // La série par défaut ne change pas de taille : bureau puis mobile, rien d'autre.
+    expect(FORMATS.map((f) => f.nom)).toEqual(['bureau', 'mobile']);
+    // La grille de #579 § 8 : 1920, 1440, 1366, 1024, 768 et 375 px de large.
+    const grille = optionsDepuisArgv(['--formats', 'grille'], RACINE).formats;
+    expect(grille.map((f) => f.nom)).toEqual(GRILLE);
+    expect(grille.map((f) => f.viewport.width)).toEqual([1920, 1440, 1366, 1024, 768, 375]);
+    // Une liste choisie garde son ordre, sans doublon.
+    expect(
+      optionsDepuisArgv(['--formats', 'telephone, large,telephone'], RACINE).formats.map(
+        (f) => f.nom,
+      ),
+    ).toEqual(['telephone', 'large']);
+    // Un format inconnu est une erreur — jamais zéro image en code 0.
+    expect(optionsDepuisArgv(['--formats', 'tabelette'], RACINE).erreur).toMatch(/tabelette/);
+    expect(optionsDepuisArgv(['--formats'], RACINE).erreur).toMatch(/attend une valeur/);
+  });
+
+  it('une image d’un format de la grille est reconnue, donc effacée par la série suivante', () => {
+    for (const f of TOUS_LES_FORMATS) {
+      expect(estNotreCapture(nomCapture('studio', f.nom)), f.nom).toBe(true);
+    }
   });
 
   it('LA SORTIE RESTE DANS LE DÉPÔT — ni au-dessus, ni ailleurs, ni la racine elle-même', () => {
@@ -140,7 +169,9 @@ describe('où vont les captures', () => {
     expect(vueRetenue(vues, 'essaim', 'mobile')).toBe(true);
     expect(vueRetenue(vues, 'miellerie', 'bureau')).toBe(false);
     expect(vueRetenue(null, 'miellerie', 'bureau'), 'sans --vues : tout').toBe(true);
-    for (const fautive of ['ruche.tablette', 'war_room', 'ruche,', 'Ruche.bureau']) {
+    // `ruche.tablette` était l'exemple d'un format inconnu ; la grille de Hive
+    // Studio l'a rendu réel — la montre, elle, n'en est toujours pas un.
+    for (const fautive of ['ruche.montre', 'war_room', 'ruche,', 'Ruche.bureau']) {
       expect(optionsDepuisArgv(['--vues', fautive], RACINE).erreur, fautive).toMatch(/--vues/);
     }
   });

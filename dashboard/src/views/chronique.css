@@ -417,3 +417,10 @@
   justify-content: center;
   padding: 8px 0;
 }
+
+/* La phrase « Pourquoi Hive » sous un journal vide collait au bord gauche et au
+   bas de la carte : elle s'aligne sur le texte des lignes (6 + 8 px). */
+.ch-journal + .pourquoi-hive-compact {
+  margin: 0;
+  padding: 2px 14px 14px;
+}

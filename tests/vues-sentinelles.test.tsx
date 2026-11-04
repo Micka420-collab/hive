@@ -699,9 +699,13 @@ describe('les sentinelles du balayage du soir', () => {
     } as never;
     vi.mocked(fetchEssaim).mockResolvedValue(etat);
     const dom = await monter(<PleinEssaim projectId="p1" />);
+    // Les boutons disent des MOTS (« Gouverne », « Éteint ») ; la valeur est
+    // portée par `data-niveau`.
     const boutons = [...dom.querySelectorAll('.essaim-niveau')] as HTMLButtonElement[];
-    const actif = boutons.find((b) => b.textContent?.trim() === 'gouverne');
-    const inactif = boutons.find((b) => b.textContent?.trim() === 'off');
+    const actif = boutons.find((b) => b.dataset.niveau === 'gouverne');
+    const inactif = boutons.find((b) => b.dataset.niveau === 'off');
+    expect(actif?.textContent?.trim()).toBe('Gouverne');
+    expect(inactif?.textContent?.trim()).toBe('Éteint');
     expect(actif?.getAttribute('aria-pressed'), 'le niveau courant est pressé').toBe('true');
     expect(actif?.className, 'le niveau courant porte la classe active').toContain('actif');
     expect(inactif?.getAttribute('aria-pressed'), 'un autre niveau n’est pas pressé').toBe('false');
@@ -1677,7 +1681,7 @@ describe('les sentinelles du balayage du soir', () => {
     expect(dom.textContent, 'aucun « null » ne traverse l’écran').not.toContain('doi.org/null');
   });
 
-  it('PLEIN ESSAIM : la marque ▲ ne vise que les leçons SYSTÉMIQUES', async () => {
+  it('PLEIN ESSAIM : la marque d’alerte ne vise que les leçons SYSTÉMIQUES', async () => {
     // `l.portee === 'systemique'` mutée en `!==` : le ⚠ irait aux leçons
     // vues sur UNE machine (un incident local présenté comme un défaut du
     // code) et la vraie leçon systémique — celle qui dit « ça vient du code,
@@ -1701,14 +1705,13 @@ describe('les sentinelles du balayage du soir', () => {
     const lignes = [...dom.querySelectorAll('.essaim-lecon')];
     const sys = lignes.find((l) => (l.textContent ?? '').includes('panne partagée'));
     const loc = lignes.find((l) => (l.textContent ?? '').includes('panne isolée'));
+    // La marque est une icône (plus un glyphe ▲) doublée d'un mot pour le
+    // lecteur d'écran : « Vient du code ».
     expect(
-      sys?.querySelector('.essaim-lecon-portee')?.textContent,
-      'la systémique porte la marque ▲',
-    ).toContain('▲');
-    expect(
-      loc?.querySelector('.essaim-lecon-portee')?.textContent,
-      'la locale ne l’usurpe pas',
-    ).not.toContain('▲');
+      sys?.querySelector('.essaim-lecon-portee .essaim-lecon-alerte')?.textContent,
+      'la systémique porte la marque',
+    ).toContain('Vient du code');
+    expect(loc?.querySelector('.essaim-lecon-alerte'), 'la locale ne l’usurpe pas').toBeNull();
   });
 
   it('JOURNAL : le coût s’affiche quand il EXISTE, et se tait sinon', async () => {

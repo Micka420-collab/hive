@@ -11,7 +11,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { GOUVERNANTES_MIN, NIVEAUX } from '../src/orchestrator/essaim.js';
 import type { NiveauAutonomie, Pas } from '../src/orchestrator/essaim.js';
-import { SEUIL_BUTINEUSE } from '../src/orchestrator/polyethisme.js';
+import { FIABILITE_BUTINEUSE, SEUIL_BUTINEUSE } from '../src/orchestrator/polyethisme.js';
 import { createServer } from '../src/orchestrator/server.js';
 import type { HiveServer } from '../src/orchestrator/server.js';
 
@@ -23,6 +23,7 @@ interface ReponseEssaim {
   decision: { pas: Pas; motif: string; gouvernantes: string[] };
   gouvernantes: Array<{ nodeId: string; nom: string }>;
   gouvernantesRequises: number;
+  seuilsGouvernante?: { productions: number; fiabilite: number };
   depotInscrit: boolean;
   lecons: Array<{ signature: string; noeuds: number; portee: string }>;
   niveaux: NiveauAutonomie[];
@@ -125,6 +126,12 @@ describe('endpoint du Plein Essaim', () => {
     expect(e.decision.pas).toBe('inerte');
     expect(e.gouvernantes).toHaveLength(0);
     expect(e.gouvernantesRequises).toBe(GOUVERNANTES_MIN);
+    // Le chemin vers la caste, lu du module qui la décerne : l'écran le dit
+    // (« au moins 30 productions… ») sans recopier un seuil qui mentirait demain.
+    expect(e.seuilsGouvernante).toEqual({
+      productions: SEUIL_BUTINEUSE,
+      fiabilite: FIABILITE_BUTINEUSE,
+    });
   });
 
   it('une seule ouvrière éprouvée ne suffit pas', async () => {

@@ -36,6 +36,7 @@ import { useApiPoll } from './shared';
 import type { ViewProps } from './shared';
 import { direEntree, direFamille, direIssue, direRaisonRefus } from './warroom-rendu';
 import { FAMILLES_WAR_ROOM, sujetDe } from '../../../src/shared/war-room';
+import { Icone } from '../studio/Icone';
 import './warroom.css';
 
 const court = (id: string): string => id.slice(0, 8);
@@ -99,7 +100,8 @@ export default function WarRoom({
     <section className="card wr-conseil" ref={conseilRef}>
       <div className="wr-conseil-actions">
         <button className="btn ghost" aria-expanded={reunion} onClick={() => setReunion((v) => !v)}>
-          {t('🔭 Réunir le Conseil', '🔭 Convene the Council')}
+          <Icone nom="equipe" taille={14} />
+          {t('Réunir le Conseil', 'Convene the Council')}
         </button>
       </div>
       <ConseilProjet

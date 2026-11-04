@@ -8,6 +8,8 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   buildPlannerPrompt,
+  briefDeMaintenance,
+  contientMotCle,
   heuristicPlan,
   llmPlan,
   parsePlannerResponse,
@@ -80,6 +82,53 @@ describe('planner heuristique', () => {
     expect(tasks).toHaveLength(1);
     expect(tasks[0]!.id).toBe('tache');
     assertValidPlan(tasks);
+  });
+
+  // ─── MESURÉ EN E2E RÉEL : « PUIS » N'EST PAS UNE INTERFACE ──────────────────
+  //
+  // Le brief « … corrige-la, puis lance npm test » est parti, depuis l'accueil
+  // de Hive Studio, en trois tâches pour une vraie ouvrière Claude Code :
+  // « Échafauder le projet » (installer lint, tests et build dans un dépôt qui
+  // les a), « Interface » (« puis » contient « ui ») et « Tests ».
+  it('UN MOT-CLÉ COMMENCE UN MOT — « puis », « rapide », « merci » ne sont ni ui, ni api, ni ci', () => {
+    expect(contientMotCle('corrige-la, puis lance', '=ui')).toBe(false);
+    expect(contientMotCle('une ui sobre', '=ui')).toBe(true);
+    expect(contientMotCle('un retour rapide', '=api')).toBe(false);
+    expect(contientMotCle('les apis publiques', '=api')).toBe(true);
+    expect(contientMotCle('merci, ici', '=ci')).toBe(false);
+    expect(contientMotCle('la ci de github', '=ci')).toBe(true);
+    // Les radicaux restent des radicaux.
+    expect(contientMotCle('authentification forte', 'auth')).toBe(true);
+    expect(contientMotCle('les donnees clients', 'donnee')).toBe(true);
+    const ids = heuristicPlan('Un tableau de bord rapide, merci').map((t) => t.id);
+    expect(ids).not.toContain('api');
+    expect(ids).not.toContain('deploy');
+  });
+
+  it('UN BRIEF DE MAINTENANCE RESTE UNE TÂCHE — rien à échafauder dans un dépôt qui existe', () => {
+    for (const brief of [
+      'Dans calc.js, la fonction add soustrait au lieu d’additionner : corrige-la, puis lance npm test pour vérifier.',
+      'Analyse ce repository, identifie les bugs, propose les corrections et lance les tests.',
+      'Fix the login redirect bug on the dashboard page',
+      'Refactorer l’API de facturation sans changer son comportement',
+    ]) {
+      const tasks = heuristicPlan(brief);
+      expect(tasks, brief).toHaveLength(1);
+      expect(tasks[0]!.id).toBe('tache');
+      // La consigne est le brief entier : l'ouvrière analyse, corrige et
+      // vérifie dans le MÊME espace de travail.
+      expect(tasks[0]!.prompt).toBe(brief);
+      assertValidPlan(tasks);
+    }
+    expect(briefDeMaintenance('corrige le parseur')).toBe(true);
+    expect(briefDeMaintenance('cree un parseur')).toBe(false);
+  });
+
+  it('…mais un brief qui CONSTRUIT garde son découpage, même s’il corrige aussi', () => {
+    const ids = heuristicPlan(
+      'Corrige le bug de connexion et ajoute une page de profil utilisateur avec son API',
+    ).map((t) => t.id);
+    expect(ids).toEqual(expect.arrayContaining(['socle', 'auth', 'api', 'ui', 'tests']));
   });
 });
 

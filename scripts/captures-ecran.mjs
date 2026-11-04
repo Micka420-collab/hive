@@ -37,8 +37,9 @@
 //   3. Il monte la ruche de laboratoire et la remplit par l'API
 //      (`captures-ecran-ruche.mjs` : dossier jetable, port choisi par le
 //      système, agent simulé, rien du `.env` de l'opérateur).
-//   4. Pour chaque format : CHAQUE case de la barre de navigation, cliquée —
-//      la barre fait foi, et une vue ajoutée demain sera photographiée sans
+//   4. Pour chaque format : CHAQUE page que la navigation offre — le rail de
+//      Hive Studio dit ses sections, chaque section ses pages en onglets ; la
+//      navigation fait foi, et une vue ajoutée demain sera photographiée sans
 //      toucher à ce fichier —, la Chambre de l'ouvrière, et le tiroir d'une
 //      tâche qui a connu un échec puis une reprise. Pas davantage : la page
 //      de Partage, l'écran de connexion et les modales ne sont pas
@@ -76,7 +77,6 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { exigerAmorce } from './amorce.mjs';
 import {
-  FORMATS,
   MANIFESTE,
   estNotreCapture,
   fichierDeLEcran,
@@ -95,7 +95,7 @@ const PREREQUIS = 2;
 const MAL_APPELE = 64;
 
 const USAGE =
-  'usage : npm run captures -- [--langue fr|en] [--sortie <dossier du dépôt>] [--vues <vue>[.<format>],…]';
+  'usage : npm run captures -- [--langue fr|en] [--sortie <dossier du dépôt>] [--vues <vue>[.<format>],…] [--formats grille|<format>,…]';
 
 /**
  * Ce qui doit être rendu, quoi qu'il arrive — y compris sur ^C. Rendu dans
@@ -218,7 +218,7 @@ async function principal() {
     console.error(`✘ ${options.erreur}\n${USAGE}`);
     return MAL_APPELE;
   }
-  const { langue, sortie, vues } = options;
+  const { langue, sortie, vues, formats } = options;
   const arbre = provenance();
 
   // Du Node nu jusqu'ici : si les dépendances manquent, l'amorce le dit en
@@ -327,6 +327,10 @@ async function principal() {
     'hive.token': ruche.entetes['x-hive-token'],
     'hive.jwt': jwt,
     'hive.lang': langue,
+    // Le guide de démarrage de la colonne se coche sur des FAITS (un projet,
+    // une IA, une mission) : sur la ruche remplie, il est complet. Le poser
+    // « ignoré » rend la colonne que voit quelqu'un qui connaît déjà Hive.
+    'hive.studio.guide': 'ignore',
   };
 
   /**
@@ -343,7 +347,10 @@ async function principal() {
       isMobile: format.isMobile,
       hasTouch: format.hasTouch,
       locale: langue === 'fr' ? 'fr-FR' : 'en-US',
-      colorScheme: 'light',
+      // Hive Studio est sombre par défaut, quel que soit le système (le thème
+      // « automatique » est un choix des Réglages) : `dark` rend aux captures
+      // ce que voit un opérateur qui n'a rien réglé.
+      colorScheme: 'dark',
       // Les animations figées : deux exécutions photographient la même image,
       // et un sous-agent à mi-battement ne se lit pas comme un défaut.
       reducedMotion: 'reduce',
@@ -427,7 +434,7 @@ async function principal() {
         // avertissements : la vue les explique elle-même.
         const exception = erreurs.find((e) => e.startsWith(EXCEPTION));
         const enPanne = (await page.locator('.mc-panne').count()) > 0;
-        const sansBarre = (await page.locator('.mc-nav-cell').count()) === 0;
+        const sansBarre = (await page.locator('.hs-section').count()) === 0;
         if (exception || enPanne || sansBarre) {
           echecs.push({
             vue,
@@ -443,30 +450,65 @@ async function principal() {
     };
 
     await page.goto(`${ruche.http}/#/ruche`);
-    await page.locator('.conn.online').waitFor({ timeout: 30_000 });
-    // La SESSION avant de compter les cases : les vues d'administration
-    // n'entrent dans la barre qu'une fois `/api/auth/me` revenu. Compter plus
-    // tôt les ferait manquer en silence.
-    await page.locator('.mc-account-name').waitFor({ timeout: 15_000 });
+    // La liaison de la barre du haut : « connecté » une fois le flux ouvert.
+    await page
+      .locator('[data-testid="mc-liaison"][data-etat="connecte"]')
+      .waitFor({ state: 'attached', timeout: 30_000 });
+    // La SESSION avant de compter les pages : les vues d'administration
+    // n'entrent dans les onglets qu'une fois `/api/auth/me` revenu. Compter
+    // plus tôt les ferait manquer en silence. (`attached` : sur téléphone, le
+    // compte vit dans le rail, replié en tiroir.)
+    await page.locator('.mc-account-name').waitFor({ state: 'attached', timeout: 15_000 });
     await calme();
     const naviguer = (hash) => page.evaluate((h) => (location.hash = h), hash);
-    return { format, page, photographier, naviguer };
+
+    /**
+     * Les pages que la navigation offre, lues dans la page — jamais une liste
+     * écrite ici. Le rail dit ses sections et la page où chacune mène
+     * (`data-vue`) ; une fois la section ouverte, ses onglets disent ses pages.
+     * Une section d'UNE page (l'accueil, les automatisations…) n'a pas
+     * d'onglets : sa page est celle où elle mène.
+     *
+     * Lues par l'adresse et pas par le clic : sur téléphone le rail est un
+     * tiroir fermé, et le clic n'y prouverait que la mécanique du tiroir — que
+     * les bancs de la coquille éprouvent déjà.
+     */
+    const pagesDeLaNavigation = async () => {
+      const entrees = await page
+        .locator('.hs-section')
+        .evaluateAll((liste) => liste.map((c) => c.getAttribute('data-vue') ?? ''));
+      const pages = [];
+      for (const entree of entrees) {
+        await naviguer(`#/${entree}`);
+        // Arrivé quand la section allumée est celle qui mène à cette page.
+        await page.waitForFunction(
+          (v) =>
+            document.querySelector('.hs-section[aria-current="page"]')?.getAttribute('data-vue') ===
+            v,
+          entree,
+          { timeout: 15_000 },
+        );
+        const onglets = await page
+          .locator('.hs-onglet-vue')
+          .evaluateAll((liste) => liste.map((c) => c.getAttribute('data-vue') ?? ''));
+        pages.push(...(onglets.length > 0 ? onglets : [entree]));
+      }
+      return [...new Set(pages)];
+    };
+    return { format, page, photographier, naviguer, pagesDeLaNavigation };
   };
 
   const chambre = `#/chambre/${encodeURIComponent(ruche.noeudId)}`;
   const postes = [];
-  for (const format of FORMATS) postes.push(await ouvrir(format));
+  for (const format of formats) postes.push(await ouvrir(format));
 
   // ─── 4. AU REPOS ────────────────────────────────────────────────────────────
-  for (const { page, photographier, naviguer } of postes) {
-    // La barre fait foi : chaque case dit sa vue (`data-vue`), et c'est ce nom
-    // qui nomme l'image — lu AVANT le clic, pour qu'un clic qui échoue soit
+  for (const { page, photographier, naviguer, pagesDeLaNavigation } of postes) {
+    // La navigation fait foi : chaque page dit sa vue (`data-vue`), et c'est ce
+    // nom qui nomme l'image — lu AVANT d'y aller, pour qu'un échec soit
     // consigné sous le nom de sa vue.
-    const cases = await page
-      .locator('.mc-nav-cell')
-      .evaluateAll((liste) => liste.map((c) => c.getAttribute('data-vue') ?? ''));
-    for (const vue of cases) {
-      await photographier(vue, () => page.locator(`.mc-nav-cell[data-vue="${vue}"]`).click());
+    for (const vue of await pagesDeLaNavigation()) {
+      await photographier(vue, () => naviguer(`#/${vue}`));
     }
 
     // La Chambre n'a pas de case (ADR 0010) : on y entre par l'ouvrière.
@@ -477,7 +519,7 @@ async function principal() {
     // l'humain a tranché — Conseil, revues et leurs raisons — s'y noierait.
     // La voix se choisit par sa case (`aria-pressed`), dernière de la rangée.
     await photographier('warroom-decisions', async () => {
-      await page.locator('.mc-nav-cell[data-vue="warroom"]').click();
+      await naviguer('#/warroom');
       await page.locator('.wr-familles button').last().click();
       await page.locator('.wr-familles button[aria-pressed="true"]').last().waitFor();
       await page.locator('.wr-fil').waitFor({ timeout: 15_000 });
@@ -540,7 +582,7 @@ async function principal() {
     await photographier(
       'chronique-en-vol',
       async () => {
-        await page.locator('.mc-nav-cell[data-vue="chronique"]').click();
+        await naviguer('#/chronique');
         await page.locator('.ch-journal .ch-row').nth(5).waitFor({ timeout: 15_000 });
       },
       { calmeMs: 150, plafondMs: 1_500 },
@@ -563,7 +605,7 @@ async function principal() {
     genere: new Date().toISOString(),
     ...arbre,
     langue,
-    formats: FORMATS.map((f) => ({
+    formats: formats.map((f) => ({
       nom: f.nom,
       largeur: f.viewport.width,
       hauteur: f.viewport.height,

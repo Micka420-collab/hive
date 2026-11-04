@@ -126,6 +126,21 @@ function couleur(valeur: string): string {
   return v;
 }
 
+/**
+ * Une couleur dans un THÈME : le sombre repose ses jetons sur
+ * `:root[data-theme='sombre']`, et retombe sur la cire pour ceux qu'il ne
+ * repose pas (les rôles `--hs-*` y renvoient aux jetons de base).
+ */
+function couleurDuTheme(valeur: string, theme: 'cire' | 'sombre'): string {
+  if (theme === 'cire') return couleur(valeur);
+  const jeton = /^var\(\s*(--[\w-]+)\s*\)$/.exec(valeur.trim());
+  if (!jeton) return couleur(valeur);
+  const pose =
+    regle(STYLES, ":root[data-theme='sombre']").get(jeton[1] ?? '') ?? racine().get(jeton[1] ?? '');
+  expect(pose, `${jeton[1]} n'est posé dans aucun thème`).toBeDefined();
+  return couleurDuTheme(pose ?? '', theme);
+}
+
 /** Contraste WCAG 2.x entre deux couleurs hexadécimales. */
 function contraste(a: string, b: string): number {
   const lum = (hex: string): number => {
@@ -181,14 +196,39 @@ describe('les jetons du tableau de bord', () => {
 // ─── 2. LES DEUX DÉFAUTS DE CONTRASTE QUE LES ORPHELINS CACHAIENT ────────────
 
 describe('ce que les jetons rendent lisible', () => {
-  it('L’INDICE D’UNE ÉTAPE D’ONBOARDING SE LIT SUR LA CRÈME ET SUR LE PANNEAU', () => {
-    // `.onboarding-hint` : le texte qui dit QUOI FAIRE à l'étape en cours.
-    // AA exige 4,5:1 pour un texte courant ; le #aaa hérité rendait 2,08:1.
-    const encart = regle(analyser(sansCommentaires(lire('onboarding.css'))), '.onboarding-hint');
-    const texte = couleur(encart.get('color') ?? '');
-    for (const fond of ['--bg', '--panel']) {
-      const c = contraste(texte, couleur(`var(${fond})`));
-      expect(c, `indice d'onboarding sur ${fond} : ${c.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+  it('L’AIDE D’UNE CONDITION D’AUTONOMIE SE LIT, SUR LA CIRE COMME SUR LE SOMBRE', () => {
+    // `.essaim-etape-aide p` : le texte qui dit QUOI FAIRE pour lever une
+    // condition du Plein Essaim (il a remplacé `.onboarding-hint`, dont le
+    // #aaa hérité rendait 2,08:1). AA exige 4,5:1 pour un texte courant — sur
+    // le fond du panneau et sur celui du survol, dans LES DEUX thèmes : c'est
+    // un fond écrit pour la cire qui rendait ce panneau illisible en sombre.
+    const projets = analyser(sansCommentaires(lire('views/projets.css')));
+    const texte = regle(projets, '.essaim-etape-aide p').get('color') ?? '';
+    for (const theme of ['cire', 'sombre'] as const) {
+      for (const fond of ['--panel-2', '--panel-3']) {
+        const c = contraste(couleurDuTheme(texte, theme), couleurDuTheme(`var(${fond})`, theme));
+        expect(c, `aide sur ${fond} (${theme}) : ${c.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+
+  it('LE NIVEAU CHOISI SE LIT SUR SON MIEL, ET LES ÉTATS SUR LE PANNEAU', () => {
+    // Le miel vif REMPLIT, l'encre se pose dessus (styles.css) ; les mots
+    // d'état (« Bonne », « À surveiller », « Dégradée ») se lisent sur le fond
+    // du panneau, dans les deux thèmes.
+    const projets = analyser(sansCommentaires(lire('views/projets.css')));
+    const actif = regle(projets, '.essaim-niveau.actif');
+    for (const theme of ['cire', 'sombre'] as const) {
+      const c = contraste(
+        couleurDuTheme(actif.get('color') ?? '', theme),
+        couleurDuTheme(actif.get('background') ?? '', theme),
+      );
+      expect(c, `niveau choisi (${theme}) : ${c.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+      for (const ton of ['ok', 'attention', 'echec']) {
+        const mot = regle(projets, `.essaim-etat.ton-${ton}`).get('color') ?? '';
+        const d = contraste(couleurDuTheme(mot, theme), couleurDuTheme('var(--panel-2)', theme));
+        expect(d, `état ${ton} (${theme}) : ${d.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+      }
     }
   });
 

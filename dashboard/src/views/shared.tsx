@@ -19,6 +19,7 @@ import type { UiLang } from '../i18n';
 // ─── Contrat commun : App possède l'état temps réel, les vues le reçoivent ───
 
 export type ViewId =
+  | 'studio'
   | 'ruche'
   | 'miellerie'
   | 'projets'
@@ -31,9 +32,11 @@ export type ViewId =
   | 'rayon'
   | 'intendance'
   | 'cerveau'
+  | 'automatisations'
   | 'chantiers'
   | 'chambre'
-  | 'warroom';
+  | 'warroom'
+  | 'marketplace';
 
 export interface ViewProps {
   snapshot: StateSnapshot;

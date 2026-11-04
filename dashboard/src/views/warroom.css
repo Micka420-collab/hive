@@ -272,3 +272,10 @@
     grid-column: 2;
   }
 }
+
+/* « Réunir le Conseil » : l'icône tracée alignée sur le mot (plus de 🔭). */
+.wr-conseil-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

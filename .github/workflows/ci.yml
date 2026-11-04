@@ -239,10 +239,30 @@ jobs:
           echo "HIVE_BWRAP_REQUIS=1" >> "$GITHUB_ENV"
 
       - name: Tests (vitest, unitaires + e2e)
-        # `HIVE_VITEST_FORKS` est VIDE sur push et sur PR : `inputs.forks`
-        # n'existe que pour un déclenchement manuel, et une chaîne vide laisse
-        # vitest décider. Le comportement ordinaire de la CI est donc inchangé,
-        # et le plafond ne s'applique que lorsqu'on mesure exprès.
+        # `HIVE_VITEST_FORKS` vaut `inputs.forks` quand on MESURE (déclenchement
+        # manuel) ; sinon 2 sous Windows, et rien ailleurs — une chaîne vide
+        # laisse vitest décider.
+        #
+        # ─── POURQUOI 2 SOUS WINDOWS, ET PAS AVANT ─────────────────────────
+        #
+        # Le plafond n'existait que pour mesurer (§ 9 terseptuagies : « une
+        # hypothèse plausible ne se code pas, elle se mesure »). La mesure est
+        # faite, sur le MÊME arbre (PR #580) :
+        #
+        #     sans plafond, run 41695892738, 1re tentative : 2 rouges
+        #       (relecture-issue-terminale, v2-alpha-scenario)
+        #     sans plafond, même run, 2e tentative : 3 rouges DIFFÉRENTS
+        #       (engagement-projet, cerveau-wiring, workflow-git) — tous des
+        #       plafonds de temps, aucun défaut reproductible hors du runner
+        #     2 processus, run 41704609462 : vert, en 12 min 21 au lieu de
+        #       13 min 35
+        #
+        # Des rouges qui changent de test à chaque tentative, sur du code
+        # identique, sont la signature d'un runner AFFAMÉ, pas d'un défaut.
+        # Plafonner ne cache rien : un test BLOQUÉ colle toujours à son plafond
+        # (`vitest.config.ts`, § « ce que ce délai ne fait pas perdre ») — et
+        # la jambe va plus vite, parce qu'elle cesse de se disputer quatre
+        # cœurs. Linux et macOS restent au défaut de vitest : rien n'y rougit.
         #
         # ─── ET LA COUVERTURE, SUR UBUNTU SEULEMENT ─────────────────────────
         #
@@ -258,7 +278,7 @@ jobs:
         # Dans le MÊME pas que les tests, pas dans un second : rejouer la suite
         # entière pour la mesurer doublerait la jambe la plus longue.
         env:
-          HIVE_VITEST_FORKS: ${{ inputs.forks }}
+          HIVE_VITEST_FORKS: ${{ inputs.forks || (matrix.os == 'windows-latest' && '2' || '') }}
         run: npm test -- --reporter=default --reporter=json --outputFile.json=rapport-tests.json ${{ matrix.os == 'ubuntu-latest' && '--coverage' || '' }}
 
       # ─── LE COMPTE ANNONCÉ PAR LES BADGES ───────────────────────────────────

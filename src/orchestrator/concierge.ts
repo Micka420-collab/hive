@@ -562,6 +562,22 @@ function ms(v: number): string {
   return v >= 1000 ? `${(v / 1000).toFixed(1)} s` : `${v} ms`;
 }
 
+const ETATS_SOUS_AGENT: ReadonlyMap<string, readonly [string, string]> = new Map([
+  ['running', ['en cours', 'running']],
+  ['completed', ['terminé', 'done']],
+  ['done', ['terminé', 'done']],
+  ['failed', ['en échec', 'failed']],
+  ['error', ['en échec', 'failed']],
+  ['pending', ['en attente', 'pending']],
+  ['queued', ['en attente', 'pending']],
+]);
+
+/** L'état d'un sous-agent en mots ; une valeur inconnue du protocole reste telle quelle. */
+function etatSousAgent(status: string, lang: Lang): string {
+  const mots = ETATS_SOUS_AGENT.get(status);
+  return mots ? mots[lang === 'fr' ? 0 : 1] : status;
+}
+
 /** Lignes multi-agents / Plein Essaim — lecture seule, état réel uniquement. */
 function lignesEssaimVivant(ctx: ConciergeContext, lang: Lang): string[] {
   const out: string[] = [];
@@ -587,16 +603,32 @@ function lignesEssaimVivant(ctx: ConciergeContext, lang: Lang): string[] {
         : `In flight: ${enCours.length} task(s) — ${detail}`,
     );
   }
-  const sous = ctx.sousAgents ?? [];
+  // Les sous-agents d'une tâche FINIE ne travaillent plus : le dernier
+  // `task_progress` d'une tâche close les disait « running » pour toujours, et
+  // un projet fini à 100 % répondait « exploratrice [running] » six fois. On ne
+  // garde que ceux des tâches en vol, comptés par nom et par état, en mots.
+  const enVol = new Set(enCours.map((t) => t.taskId));
+  const sous = (ctx.sousAgents ?? []).filter((s) => enVol.has(s.taskId));
   if (sous.length > 0) {
-    const agents = sous
-      .flatMap((s) => s.agents)
+    const groupes = new Map<string, { name: string; status: string; n: number }>();
+    for (const a of sous.flatMap((s) => s.agents)) {
+      const cle = `${a.name}\u0000${a.status}`;
+      const g = groupes.get(cle);
+      if (g) g.n += 1;
+      else groupes.set(cle, { name: a.name, status: a.status, n: 1 });
+    }
+    const agents = [...groupes.values()]
       .slice(0, 6)
-      .map((a) => `${clean(a.name, 40)} [${a.status}]`)
+      .map(
+        (g) =>
+          `${clean(g.name, 40)}${g.n > 1 ? ` ×${g.n}` : ''} (${etatSousAgent(g.status, lang)})`,
+      )
       .join(', ');
     out.push(lang === 'fr' ? `Sous-agents vus : ${agents}` : `Sub-agents seen: ${agents}`);
   }
-  if (ctx.essaim) {
+  // Le Plein Essaim ÉTEINT n'a rien à dire : « niveau « off », pas « inerte »,
+  // dérive indeterminee » alignait trois valeurs internes pour dire « rien ».
+  if (ctx.essaim && ctx.essaim.niveau !== 'off') {
     const e = ctx.essaim;
     out.push(
       lang === 'fr'

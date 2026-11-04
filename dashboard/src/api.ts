@@ -1377,6 +1377,12 @@ export interface EtatEssaimUi {
   decision: { pas: PasEssaim; motif: string; gouvernantes: string[] };
   gouvernantes: Array<{ nodeId: string; nom: string }>;
   gouvernantesRequises: number;
+  /**
+   * Ce qu'une ouvrière doit avoir fait pour devenir gouvernante (caste gagnée).
+   * OPTIONNEL : un orchestrateur plus ancien ne l'envoie pas — l'écran dit
+   * alors le chemin sans chiffres plutôt que d'en inventer.
+   */
+  seuilsGouvernante?: { productions: number; fiabilite: number };
   depotInscrit: boolean;
   plafond: 'passe' | 'alerte' | 'bloque';
   lecons: LeconEssaim[];
@@ -1454,6 +1460,52 @@ export function setEssaim(
   return api(`/api/projects/${projectId}/essaim`, {
     method: 'POST',
     body: JSON.stringify({ niveau, depotInscrit }),
+  });
+}
+
+// ─── Le full auto : les agents valident et se corrigent seuls (full-auto.ts) ─
+
+/** Une décision du full auto. Miroir de `DecisionFullAuto`, titre en plus. */
+export interface DecisionFullAutoUi {
+  id: number;
+  ts: number;
+  taskId: string;
+  titre: string | null;
+  geste: 'approuver' | 'corriger' | 'laisser' | 'bloquee';
+  raison: string | null;
+}
+
+/** Ce que rend `/full-auto` : le réglage, la file, et le bilan depuis l'activation. */
+export interface EtatFullAutoUi {
+  actif: boolean;
+  definiPar: string | null;
+  /** Instant de l'activation ; `null` éteint. */
+  depuis: number | null;
+  tentativesMax: number;
+  /** Productions terminées sans verdict. */
+  enAttente: number;
+  /** Tâches en échec définitif — ce que personne n'a pu finir. */
+  echouees: number;
+  bilan: {
+    validees: number;
+    /** Validées sans preuve de tests ou sans relecture : le motif est sur la décision. */
+    avecReserve: number;
+    corrigees: number;
+    laissees: number;
+    bloquees: number;
+    derniers: DecisionFullAutoUi[];
+  };
+}
+
+export function fetchFullAuto(projectId: string): Promise<EtatFullAutoUi> {
+  return api<EtatFullAutoUi>(`/api/projects/${encodeURIComponent(projectId)}/full-auto`);
+}
+
+/** Allume ou éteint le full auto — geste du propriétaire du projet. */
+export function setFullAuto(projectId: string, actif: boolean): Promise<EtatFullAutoUi> {
+  return api<EtatFullAutoUi>(`/api/projects/${encodeURIComponent(projectId)}/full-auto`, {
+    method: 'POST',
+    body: JSON.stringify({ actif }),
   });
 }
 

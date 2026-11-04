@@ -192,7 +192,10 @@ describe('le clavier de la coquille', () => {
     // C'est le défaut le plus banal de cette famille, et le plus difficile à
     // relier à sa cause : on croit avoir mal cliqué.
     const dom = await monter();
-    const champ = dom.querySelector<HTMLInputElement>('input');
+    // Hive Studio range le champ du jeton dans le panneau de la liaison : on
+    // l'ouvre, comme la personne qui va y taper.
+    await act(async () => (dom.querySelector('[data-testid="mc-liaison"]') as HTMLElement).click());
+    const champ = dom.querySelector<HTMLInputElement>('input.token-input');
     expect(champ, 'aucun champ de saisie dans la coquille').toBeTruthy();
     champ?.focus();
     expect(document.activeElement, 'le focus n’a pas pris').toBe(champ);

@@ -1,6 +1,6 @@
-# Les captures de Mission Control
+# Les captures de Hive Studio
 
-Chaque vue de la barre de navigation, la Chambre d'une ouvrière et le tiroir
+Chaque page que la navigation offre, la Chambre d'une ouvrière et le tiroir
 d'une tâche, sur bureau et sur mobile, photographiés sur une **vraie** ruche —
 une Reine et une ouvrière lancées pour l'occasion, remplies par l'API — et
 refaits en une commande sur l'arbre courant.
@@ -15,11 +15,23 @@ npx playwright install --only-shell chromium     # une fois par machine, ≈ 110
 npm run captures                                 # → captures-ecran/fr/
 npm run captures -- --langue en                  # → captures-ecran/en/
 npm run captures -- --vues ruche,tache.mobile    # seulement celles-là
+npm run captures -- --formats grille             # les six largeurs de la recette
 ```
 
 `--vues` retient une vue (`ruche` : tous les formats) ou une image
 (`ruche.mobile`). Une vue demandée que la ruche ne montre jamais — une faute de
 frappe, une vue renommée — est un échec, pas une exécution vide.
+
+`--formats` choisit les formats, dans l'ordre donné : `bureau` (1440 × 900) et
+`mobile` (390 px) par défaut — la série publiée —, ou `large` (1920 × 1080),
+`portable` (1366 × 768), `tablette` (1024 × 768), `tablette-portrait` (768 px)
+et `telephone` (375 px). `--formats grille` vaut les six largeurs de la recette
+de Hive Studio (#579, § 8, voir [studio/HIVE-STUDIO.md](studio/HIVE-STUDIO.md)).
+Un format inconnu est une erreur de ligne de commande.
+
+Les pages sont lues **dans la navigation** : le rail dit ses sections, chaque
+section ses pages en onglets. Une page ajoutée demain est photographiée sans
+toucher au script.
 
 `npm ci` n'installe que la bibliothèque Playwright (dépendance de
 développement), **jamais le navigateur** : ni `npm test` ni la CI n'en ont
@@ -85,14 +97,22 @@ des avertissements.
 
 ## Ce qui est photographié
 
-| Format   | Fenêtre           | Capture      |
-| -------- | ----------------- | ------------ |
-| `bureau` | 1440 × 900        | l'écran      |
-| `mobile` | 390 × 844, dens.2 | page entière |
+| Format              | Fenêtre            | Capture      |
+| ------------------- | ------------------ | ------------ |
+| `bureau`            | 1440 × 900         | l'écran      |
+| `mobile`            | 390 × 844, dens.2  | page entière |
+| `large`             | 1920 × 1080        | l'écran      |
+| `portable`          | 1366 × 768         | l'écran      |
+| `tablette`          | 1024 × 768         | l'écran      |
+| `tablette-portrait` | 768 × 1024, dens.2 | page entière |
+| `telephone`         | 375 × 667, dens.2  | page entière |
 
-- **chaque case de la barre de navigation**, cliquée : la barre fait foi (la
-  case dit sa vue, `data-vue`), une vue ajoutée demain est photographiée sans
-  toucher au script ;
+Seuls `bureau` et `mobile` sont photographiés par défaut ; les autres le sont
+avec `--formats`.
+
+- **chaque page de la navigation** : la navigation fait foi (chaque section du
+  rail et chaque onglet dit sa vue, `data-vue`), une vue ajoutée demain est
+  photographiée sans toucher au script ;
 - la **Chambre** de l'ouvrière et le **tiroir** de la tâche reprise ;
 - la **War Room filtrée sur les décisions humaines** (`warroom-decisions`) :
   le fil entier, nourri par chaque tour de Conseil, noierait ce que l'humain

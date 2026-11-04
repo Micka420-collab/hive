@@ -183,7 +183,8 @@ import type {
   ServerMessage,
 } from '../shared/protocol.js';
 import { RefusDemarrage, direManques, manquesDeDemarrage } from '../shared/amorce.js';
-import { DEFAULT_TOKEN } from '../shared/types.js';
+import { DEFAULT_TOKEN, MAX_ATTEMPTS } from '../shared/types.js';
+import { bilanFullAuto, gesteFullAuto } from './full-auto.js';
 import type { HiveEvent, HiveNode, Project, Task } from '../shared/types.js';
 import type { Effort } from '../shared/effort.js';
 import { CORPUS_BALANCE, estimerCout, peserLaRuche, VERSION_BALANCE } from './balance.js';
@@ -377,6 +378,7 @@ import {
 } from './gardiennes.js';
 import type { LigneGardienne, ModeGardiennes, Verdict, VueGardiennes } from './gardiennes.js';
 import {
+  FIABILITE_BUTINEUSE,
   SEUIL_BATISSEUSE,
   SEUIL_BUTINEUSE,
   VIERGE,
@@ -1412,6 +1414,10 @@ async function monterReine(
   // prévenir, et un connecteur dormant (défaut) ne fait rien de toute façon.
   let relayerConnecteurs: (event: HiveEvent) => void = () => {};
 
+  // Le full auto (full-auto.ts), câblé plus bas une fois le verdict canonique
+  // défini (`appliquerRevueHumaine`). Avant ça, un no-op.
+  let planifierFullAuto: (taskId: string) => void = () => {};
+
   /** Événement émis par le serveur lui-même (création de projet/tâches). */
   const emitEvent = (type: string, payload: Record<string, unknown>): void => {
     const event = store.appendEvent(type, payload);
@@ -1995,6 +2001,8 @@ async function monterReine(
       // planificateur — synchrone, elle ne réentre dans aucune passe.
       statuerProduction(productionTaskId);
       queueMicrotask(() => relancerSiContreRevueInsuffisante(productionTaskId, resultId));
+      // La contre-revue est complète : le full auto peut trancher à son tour.
+      planifierFullAuto(productionTaskId);
       return;
     }
     if (store.contreRevueImpossible(productionTaskId, resultId) !== null) return;
@@ -2174,6 +2182,7 @@ async function monterReine(
     if (exactResultId !== undefined) {
       relancerSiContreRevueInsuffisante(lien.productionTaskId, exactResultId);
     }
+    planifierFullAuto(lien.productionTaskId);
   };
 
   /**
@@ -3311,6 +3320,10 @@ async function monterReine(
       // que pour celles que le hub clôt en recevant leur résultat.
       if (event.type === 'contre_expertise_review_failed') reprendreContreRevue(event.payload);
       if (event.type === 'task_cancelled') prevenirParentSansResultat('annulee', event.payload);
+      // Une production terminée : le full auto la juge, si le projet l'a allumé.
+      if (event.type === 'task_done' && typeof event.payload.taskId === 'string') {
+        planifierFullAuto(event.payload.taskId);
+      }
       // Un échec RENDU porte son résultat, relayé au parent par `task_result` :
       // seul l'échec sans tentative rendue (`reason`) a besoin de ce relais.
       if (event.type === 'task_failed' && typeof event.payload.reason === 'string') {
@@ -3654,15 +3667,22 @@ async function monterReine(
   const appliquerRevueHumaine = (
     task: Task,
     state: 'approved' | 'rejected' | null,
-    provenance: { parUserId: string | null } | { source: 'slack'; par: string },
+    provenance:
+      { parUserId: string | null } | { source: 'slack'; par: string } | { source: 'full_auto' },
     opts: { clientId?: string; raison?: string } = {},
   ): { retry: ReturnType<Scheduler['retryFromEvaluator']> | null } => {
+    // Le full auto tranche par CE chemin, mais il n'est pas un humain : sa
+    // critique se dit celle de l'Evaluator, et son renvoi refusé se compte à
+    // part (`source: 'full_auto'`), jamais dans les rejets humains.
+    const parLesAgents = 'source' in provenance && provenance.source === 'full_auto';
     store.setTaskReview(task.id, state);
     emitEvent('task_reviewed', {
       taskId: task.id,
       state,
       ...('source' in provenance
-        ? { source: provenance.source, par: provenance.par, parUserId: null }
+        ? provenance.source === 'slack'
+          ? { source: provenance.source, par: provenance.par, parUserId: null }
+          : { source: 'full_auto', parUserId: null }
         : { parUserId: provenance.parUserId }),
       ...(opts.clientId ? { clientId: opts.clientId } : {}),
       ...(opts.raison ? { raison: opts.raison } : {}),
@@ -3705,7 +3725,11 @@ async function monterReine(
           taskId: task.id,
           resultId: latest.resultId,
           decision: evaluation.decision,
-          critique: critiquePourRetry(task.id, evaluation, 'revue_humaine'),
+          critique: critiquePourRetry(
+            task.id,
+            evaluation,
+            parLesAgents ? 'evaluator' : 'revue_humaine',
+          ),
         });
         if (retry.ok) {
           stateDirty = true;
@@ -3719,13 +3743,88 @@ async function monterReine(
             resultId: latest.resultId,
             reason: retry.reason,
             // Un rejet HUMAIN : l'humain a tranché, la correction n'a pas
-            // suivi — la War Room le dit sans le compter « à trancher ».
-            source: 'revue_humaine',
+            // suivi — la War Room le dit sans le compter « à trancher ». Celui
+            // du full auto se compte à part : c'est l'humain qu'il appelle.
+            source: parLesAgents ? 'full_auto' : 'revue_humaine',
           });
         }
       }
     }
     return { retry };
+  };
+
+  // ─── LE FULL AUTO : les agents tranchent eux-mêmes (full-auto.ts) ─────────
+  //
+  // Différé d'un tour, comme le relais des connecteurs : `task_done` peut être
+  // émis au milieu de la transaction du résultat, et la contre-revue de cette
+  // production se lance juste après — trancher dans le même tour, ce serait
+  // approuver avant qu'une relecture ait pu partir.
+  const piloterFullAuto = (taskId: string): void => {
+    const task = store.getTask(taskId);
+    if (!task || task.status !== 'done') return;
+    if (!store.getFullAuto(task.projectId)?.actif) return;
+    // Ni une ombre du banc (un essai, jamais livré), ni une relecture (un avis
+    // sur la production d'une autre, pas une production).
+    if (store.ombreDe(task.id) || store.relectureDe(task.id)) return;
+    // Déjà tranchée — par un humain, ou par un tour précédent.
+    if (store.getTaskReview(task.id)) return;
+    const { latest, evaluation } = evaluationPour(task);
+    const resultId = latest?.resultId;
+    if (resultId === undefined) return;
+    // Une relecture en vol parlera d'abord ; sa clôture rappelle ce geste.
+    if (relecturesEnVol(task.id, resultId) > 0) return;
+    const geste = gesteFullAuto(evaluation);
+    const raison = evaluation.reasons[0]?.slice(0, 300);
+    emitEvent('full_auto_decision', {
+      projectId: task.projectId,
+      taskId: task.id,
+      resultId,
+      geste,
+      decision: evaluation.decision,
+      ...(raison ? { raison } : {}),
+    });
+    if (geste === 'laisser') return;
+    appliquerRevueHumaine(task, geste === 'approuver' ? 'approved' : 'rejected', {
+      source: 'full_auto',
+    });
+  };
+  let fullAutoArrete = false;
+  planifierFullAuto = (taskId: string): void => {
+    setImmediate(() => {
+      if (fullAutoArrete) return;
+      try {
+        piloterFullAuto(taskId);
+      } catch (err) {
+        app.log.warn(
+          `[full auto] décision impossible : ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    });
+  };
+
+  /** L'état du full auto d'un projet, tel que l'écran l'affiche. */
+  const etatFullAuto = (projectId: string) => {
+    const reglage = store.getFullAuto(projectId);
+    const taches = store.listTasks(projectId);
+    const titres = new Map(taches.map((x) => [x.id, x.title]));
+    const depuis = reglage?.actif ? reglage.updatedAt : null;
+    const bilan = bilanFullAuto(
+      store.evenementsParTypes(['full_auto_decision', 'evaluator_retry_skipped'], EVENT_RETENTION),
+      new Set(titres.keys()),
+      depuis ?? Number.MAX_SAFE_INTEGER,
+    );
+    return {
+      actif: reglage?.actif ?? false,
+      definiPar: reglage?.definiPar ?? null,
+      depuis,
+      tentativesMax: MAX_ATTEMPTS,
+      enAttente: taches.filter((x) => x.status === 'done' && !store.getTaskReview(x.id)).length,
+      echouees: taches.filter((x) => x.status === 'failed').length,
+      bilan: {
+        ...bilan,
+        derniers: bilan.derniers.map((d) => ({ ...d, titre: titres.get(d.taskId) ?? null })),
+      },
+    };
   };
 
   // ─── Les connecteurs externes (src/connectors) ──────────────────────────────
@@ -7980,6 +8079,13 @@ async function monterReine(
         decision: e.decision,
         gouvernantes: gouvernantes(e.noeuds).map((g) => ({ nodeId: g.nodeId, nom: g.nom })),
         gouvernantesRequises: GOUVERNANTES_MIN,
+        /**
+         * Ce qu'une ouvrière doit avoir fait pour devenir gouvernante — la caste
+         * butineuse, GAGNÉE sur antécédents (polyethisme.ts, règle 1). Lu ici
+         * pour que l'écran dise le vrai chemin (« au moins 30 productions… »)
+         * sans recopier des seuils qui finiraient par mentir.
+         */
+        seuilsGouvernante: { productions: SEUIL_BUTINEUSE, fiabilite: FIABILITE_BUTINEUSE },
         depotInscrit: e.depotInscrit,
         plafond: e.plafond,
         derive: e.derive,
@@ -8210,6 +8316,56 @@ async function monterReine(
         bornes: { min: req.body.borneMin, max: req.body.borneMax },
         echelonElu: classement[0]?.echelon ?? null,
       });
+    },
+  );
+
+  /**
+   * Le full auto d'un projet (full-auto.ts) : allumé ou non, depuis quand, et
+   * ce qu'il a tranché depuis — validées, corrections, laissées à l'humain.
+   */
+  app.get<{ Params: { projectId: string } }>(
+    '/api/projects/:projectId/full-auto',
+    async (req, reply) => {
+      const lecture = lectureProjetPermise(req, req.params.projectId);
+      if (lecture !== 'permis') return refuserProjet(reply, lecture);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      return etatFullAuto(req.params.projectId);
+    },
+  );
+
+  /**
+   * Allume ou éteint le full auto — GESTE HUMAIN, du propriétaire du projet
+   * (même porte que le garde-fou). Allumé, il tranche aussi ce qui attendait
+   * déjà : « les agents valident tout eux-mêmes » vaut pour la file entière.
+   */
+  app.post<{ Params: { projectId: string }; Body: { actif: boolean } }>(
+    '/api/projects/:projectId/full-auto',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['actif'],
+          properties: { actif: { type: 'boolean' } },
+        },
+      },
+    },
+    async (req, reply) => {
+      const reglage = proprieteProjetPermise(req, req.params.projectId);
+      if (reglage !== 'permis') return refuserReglage(reply, reglage);
+      if (!store.getProject(req.params.projectId)) {
+        return reply.code(404).send({ error: 'projet inconnu' });
+      }
+      store.setFullAuto(req.params.projectId, req.body.actif, 'humain');
+      emitEvent('full_auto_set', { projectId: req.params.projectId, actif: req.body.actif });
+      if (req.body.actif) {
+        for (const x of store.listTasks(req.params.projectId)) {
+          if (x.status === 'done' && !store.getTaskReview(x.id)) planifierFullAuto(x.id);
+        }
+      }
+      return reply.code(200).send(etatFullAuto(req.params.projectId));
     },
   );
 
@@ -16091,6 +16247,7 @@ async function monterReine(
   }
 
   const stop = async (): Promise<void> => {
+    fullAutoArrete = true;
     clearInterval(tickTimer);
     clearInterval(flushTimer);
     clearInterval(elagageTimer);

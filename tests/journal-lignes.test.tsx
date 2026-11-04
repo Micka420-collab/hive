@@ -572,6 +572,42 @@ describe('les décisions se lisent comme des décisions — jamais par leur type
       'fr',
       'verdict de l’Evaluator (human_review_required) passé outre pour livrer (tache-12)',
     ],
+    // Le full auto : un verdict d'agents n'est jamais dit « revue humaine ».
+    [
+      'une validation des agents',
+      'task_reviewed',
+      { taskId: 'tache-1234abcd', state: 'approved', source: 'full_auto' },
+      'fr',
+      'verdict des agents (full auto) : approuvée (tache-12)',
+    ],
+    [
+      'un renvoi des agents',
+      'task_reviewed',
+      { taskId: 'tache-1234abcd', state: 'rejected', source: 'full_auto' },
+      'en',
+      'agents’ verdict (full auto): sent back for a fix (tache-12)',
+    ],
+    [
+      'le full auto allumé',
+      'full_auto_set',
+      { projectId: 'p1', actif: true, definiPar: 'humain' },
+      'fr',
+      'full auto allumé : les agents valident seuls',
+    ],
+    [
+      'une validation sans preuve',
+      'full_auto_decision',
+      { taskId: 'tache-1234abcd', geste: 'approuver', raison: 'preuves manquantes : tests' },
+      'fr',
+      'full auto : validée avec réserve — preuves manquantes : tests (tache-12)',
+    ],
+    [
+      'une production laissée à l’humain',
+      'full_auto_decision',
+      { taskId: 'tache-1234abcd', geste: 'laisser', raison: 'panne du bac' },
+      'fr',
+      'full auto : laissée à l’humain — panne du bac (tache-12)',
+    ],
     [
       'un Conseil tranché sans piste',
       'council_decided',

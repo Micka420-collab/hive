@@ -81,6 +81,11 @@ const ESSAIM = new Set([
   'bapteme_pose',
   'bapteme_retire',
   'metier_assigne',
+  // Le full auto : les agents tranchent à la place de l'humain — l'autonomie,
+  // comme le Plein Essaim, et pas « Autres », la case qu'on décoche en premier :
+  // ce que la ruche a validé SEULE doit pouvoir s'isoler.
+  'full_auto_set',
+  'full_auto_decision',
 ]);
 
 /**

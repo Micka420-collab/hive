@@ -205,6 +205,13 @@ describe('dérive — la solitude', () => {
     expect(mesurerSolitude(null, NOW).etat).toBe('a_surveiller');
   });
 
+  it('le constat parle français : « 0,6 jour », pas « 0.6 »', () => {
+    // Ce texte est lu tel quel dans le Plein Essaim ; la valeur, elle, reste un nombre.
+    const i = mesurerSolitude(NOW - 0.6 * JOUR, NOW);
+    expect(i.constat).toBe('0,6 jour(s) sans qu’un humain n’intervienne.');
+    expect(i.valeur).toBe(0.6);
+  });
+
   it('le seuil est celui annoncé', () => {
     expect(mesurerSolitude(NOW - (SOLITUDE_JOURS - 1) * JOUR, NOW).etat).toBe('saine');
     expect(mesurerSolitude(NOW - SOLITUDE_JOURS * JOUR, NOW).etat).toBe('a_surveiller');

@@ -1,76 +1,8 @@
-/* ─── LES JETONS QUE CETTE FEUILLE LISAIT SANS QUE PERSONNE LES POSE ─────────
-   `--border-subtle`, `--surface-raised`, `--text-muted`, `--accent` : aucun
-   n'a jamais été défini. Chaque règle vivait donc de son REPLI — et ces replis
-   étaient ceux d'un thème SOMBRE : filet #333, fond blanc à 3 %, texte #aaa.
-   Sur la crème, l'indice d'une étape tombait à 2,08:1 (AA en exige 4,5), le
-   cadre disparaissait. La feuille lit maintenant les jetons de `styles.css`,
-   et `tests/dashboard-feuilles.test.ts` refuse tout `var(--x)` jamais posé. */
-.onboarding-essaim {
-  margin: 1rem 0 1.25rem;
-  padding: 1rem 1.1rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--panel);
-}
-
-.onboarding-entete {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.onboarding-entete h3 {
-  margin: 0;
-  font-size: 1rem;
-}
-
-.onboarding-etapes {
-  list-style: none;
-  margin: 0.75rem 0 0;
-  padding: 0;
-}
-
-.onboarding-etapes li {
-  display: flex;
-  gap: 0.6rem;
-  padding: 0.45rem 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.onboarding-etapes li:last-child {
-  border-bottom: none;
-}
-
-.onboarding-puce {
-  flex-shrink: 0;
-  width: 1.25rem;
-  text-align: center;
-}
-
-.onboarding-ok {
-  opacity: 0.75;
-}
-
-.onboarding-actif {
-  background: rgba(255, 200, 80, 0.06);
-  margin: 0 -0.5rem;
-  padding-left: 0.5rem !important;
-  padding-right: 0.5rem !important;
-  border-radius: 4px;
-}
-
-.onboarding-hint {
-  margin: 0.25rem 0 0;
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.onboarding-pret {
-  margin: 0.75rem 0 0;
-  font-weight: 500;
-}
-
+/* ─── POURQUOI HIVE ───────────────────────────────────────────────────────────
+   Le message produit de Mon espace et de la Chronique. Uniquement des jetons de
+   `styles.css` : `tests/dashboard-feuilles.test.ts` refuse tout `var(--x)`
+   jamais posé. (Le « Chemin vers le premier cycle » qui vivait ici a rejoint
+   le Plein Essaim, dont il doublait la liste — PleinEssaim.tsx.) */
 .pourquoi-hive {
   margin: 1rem 0;
   padding: 1rem;

@@ -144,35 +144,39 @@ export function GardeFous({ projectId }: { projectId: string }) {
       <div className="garde-fou-bornes">
         <fieldset>
           <legend>{t('Borne basse', 'Lower bound')}</legend>
-          {etat.echelons.map((e) => (
-            <button
-              key={`min-${e}`}
-              type="button"
-              disabled={occupe}
-              aria-pressed={bornes.min === e}
-              onClick={() =>
-                void appliquer({ actif: etat.actif, borneMin: e, borneMax: bornes.max })
-              }
-            >
-              {nomEchelon(e, t)}
-            </button>
-          ))}
+          <div className="garde-fou-echelons">
+            {etat.echelons.map((e) => (
+              <button
+                key={`min-${e}`}
+                type="button"
+                disabled={occupe}
+                aria-pressed={bornes.min === e}
+                onClick={() =>
+                  void appliquer({ actif: etat.actif, borneMin: e, borneMax: bornes.max })
+                }
+              >
+                {nomEchelon(e, t)}
+              </button>
+            ))}
+          </div>
         </fieldset>
         <fieldset>
           <legend>{t('Borne haute', 'Upper bound')}</legend>
-          {etat.echelons.map((e) => (
-            <button
-              key={`max-${e}`}
-              type="button"
-              disabled={occupe}
-              aria-pressed={bornes.max === e}
-              onClick={() =>
-                void appliquer({ actif: etat.actif, borneMin: bornes.min, borneMax: e })
-              }
-            >
-              {nomEchelon(e, t)}
-            </button>
-          ))}
+          <div className="garde-fou-echelons">
+            {etat.echelons.map((e) => (
+              <button
+                key={`max-${e}`}
+                type="button"
+                disabled={occupe}
+                aria-pressed={bornes.max === e}
+                onClick={() =>
+                  void appliquer({ actif: etat.actif, borneMin: bornes.min, borneMax: e })
+                }
+              >
+                {nomEchelon(e, t)}
+              </button>
+            ))}
+          </div>
         </fieldset>
       </div>
 
@@ -186,7 +190,7 @@ export function GardeFous({ projectId }: { projectId: string }) {
       ) : (
         <p className="garde-fou-elu-vide">
           {t(
-            'Aucun échelon élu — activez l’agent pour ce projet.',
+            'Aucun échelon élu — active l’agent pour ce projet.',
             'No echelon elected — enable the agent for this project.',
           )}
         </p>

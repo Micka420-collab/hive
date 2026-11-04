@@ -53,11 +53,17 @@ const finished =
   existingTasks.every((t) => t.status === 'done' || t.status === 'failed');
 
 if (!project || existingTasks.length === 0 || finished) {
-  project = server.store.createProject({
-    name: PROJECT_NAME,
-    description: 'Projet de démonstration : 7 tâches de construction d’un mini SaaS (DAG).',
-  });
-  server.store.appendEvent('project_created', { projectId: project.id, name: project.name });
+  // Une démo FINIE se rejoue dans le MÊME projet : en recréer un à chaque
+  // lancement alignait dans la barre latérale des projets au nom identique —
+  // impossibles à distinguer, et le choix de l'accueil tombait sur l'un ou
+  // l'autre.
+  if (!project) {
+    project = server.store.createProject({
+      name: PROJECT_NAME,
+      description: 'Projet de démonstration : 7 tâches de construction d’un mini SaaS (DAG).',
+    });
+    server.store.appendEvent('project_created', { projectId: project.id, name: project.name });
+  }
 
   const ids = new Map<string, string>(); // clé logique → id réel
   const add = (key: string, title: string, prompt: string, deps: string[] = []): void => {
@@ -80,7 +86,9 @@ if (!project || existingTasks.length === 0 || finished) {
   add('t6', "Tests d'intégration", 'Couvrir auth + facturation + UI', ['t3', 't4', 't5']);
   add('t7', 'Pipeline de déploiement', 'CI/CD et mise en production', ['t6']);
 
-  console.log('📋 Projet créé : 7 tâches avec dépendances (t4 échouera une fois → retry visible).');
+  console.log(
+    `📋 ${finished ? 'Nouvelle manche de la démo' : 'Projet créé'} : 7 tâches avec dépendances (t4 échouera une fois → retry visible).`,
+  );
 } else {
   const done = existingTasks.filter((t) => t.status === 'done').length;
   console.log(

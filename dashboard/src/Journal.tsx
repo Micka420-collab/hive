@@ -214,26 +214,79 @@ const EVENTS: Record<string, Meta> = {
       return ms === null ? base : `${base} — ${t(`${ms} en reprise`, `${ms} of rework`)}`;
     },
   },
-  // Le verdict HUMAIN de la Miellerie. `state: null` efface une revue : un
-  // geste aussi, dit comme tel plutôt que par le type brut.
+  // Le verdict de la Miellerie — HUMAIN, ou celui des agents quand le full
+  // auto du projet est allumé (`source: 'full_auto'`, full-auto.ts) : la ligne
+  // dit QUI a tranché ; « revue humaine » sur un verdict d'agents serait faux.
+  // `state: null` efface une revue : un geste aussi, dit comme tel plutôt que
+  // par le type brut.
   task_reviewed: {
     icon: '✍',
     cls: 'info',
     text: (p, t) =>
-      p.state === 'approved'
-        ? t(
-            `revue humaine : approuvée (${short(p.taskId)})`,
-            `human review: approved (${short(p.taskId)})`,
-          )
-        : p.state === 'rejected'
+      p.source === 'full_auto'
+        ? p.state === 'approved'
           ? t(
-              `revue humaine : rejetée (${short(p.taskId)})`,
-              `human review: rejected (${short(p.taskId)})`,
+              `verdict des agents (full auto) : approuvée (${short(p.taskId)})`,
+              `agents’ verdict (full auto): approved (${short(p.taskId)})`,
             )
           : t(
-              `revue humaine effacée (${short(p.taskId)})`,
-              `human review cleared (${short(p.taskId)})`,
-            ),
+              `verdict des agents (full auto) : renvoyée en correction (${short(p.taskId)})`,
+              `agents’ verdict (full auto): sent back for a fix (${short(p.taskId)})`,
+            )
+        : p.state === 'approved'
+          ? t(
+              `revue humaine : approuvée (${short(p.taskId)})`,
+              `human review: approved (${short(p.taskId)})`,
+            )
+          : p.state === 'rejected'
+            ? t(
+                `revue humaine : rejetée (${short(p.taskId)})`,
+                `human review: rejected (${short(p.taskId)})`,
+              )
+            : t(
+                `revue humaine effacée (${short(p.taskId)})`,
+                `human review cleared (${short(p.taskId)})`,
+              ),
+  },
+  // Le full auto, allumé ou éteint par un humain, projet par projet.
+  full_auto_set: {
+    icon: '◇',
+    cls: 'info',
+    text: (p, t) =>
+      p.actif === true
+        ? t(
+            'full auto allumé : les agents valident seuls',
+            'full auto on: agents approve on their own',
+          )
+        : t(
+            'full auto éteint : chaque production attend un verdict humain',
+            'full auto off: every production waits for a human verdict',
+          ),
+  },
+  // Ce que le full auto a tranché, et POURQUOI : le verdict lui-même est la
+  // ligne `task_reviewed` ; celle-ci porte le motif — une validation sans
+  // preuve de tests se dit « avec réserve ».
+  full_auto_decision: {
+    icon: '⚖',
+    cls: 'muted',
+    text: (p, t) => {
+      const raison =
+        typeof p.raison === 'string' && p.raison.trim() !== '' ? p.raison.trim() : null;
+      const avec = (fr: string, en: string) =>
+        raison === null
+          ? t(`full auto : ${fr} (${short(p.taskId)})`, `full auto: ${en} (${short(p.taskId)})`)
+          : t(
+              `full auto : ${fr} — ${raison} (${short(p.taskId)})`,
+              `full auto: ${en} — ${raison} (${short(p.taskId)})`,
+            );
+      return p.geste === 'approuver'
+        ? raison === null
+          ? avec('rien de rouge, validée', 'nothing red, approved')
+          : avec('validée avec réserve', 'approved with a caveat')
+        : p.geste === 'corriger'
+          ? avec('renvoyée en correction', 'sent back for a fix')
+          : avec('laissée à l’humain', 'left to a human');
+    },
   },
   // Un humain passe outre l'Evaluator pour livrer ou fusionner. La raison vit
   // dans le payload ; la ligne dit le geste et le verdict contourné.

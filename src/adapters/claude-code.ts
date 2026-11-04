@@ -4,6 +4,9 @@
 // Les clés API de l'agent restent locales au nœud : rien n'est transmis au hub
 // (contrainte §5.1). Le diff est calculé par le workspace git du nœud, pas par stdout.
 
+import { readFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { DEFAULT_TOKEN } from '../shared/types.js';
 import type { Task } from '../shared/types.js';
 import { EFFORTS, type Effort } from '../shared/effort.js';
@@ -195,11 +198,127 @@ export async function sonderEffortsClaude(lancer: LanceurStatut = lancerStatut):
   return r?.code === 0 ? effortsDeLAide(r.sortie) : [];
 }
 
+// ─── LES ÉCRITURES REFUSÉES NE SONT PAS UNE RÉUSSITE ─────────────────────────
+//
+// Mesuré en E2E réel (Claude Code 2.1.317 sous Windows, mission lancée depuis
+// l'accueil de Hive Studio) : le membre avait, dans SES réglages
+// (`~/.claude/settings.json`), `"ask": ["Edit", "Write"]` — une prudence
+// courante pour une session interactive. Or une règle « ask » l'emporte sur
+// `--permission-mode acceptEdits`, et en `-p` personne n'est là pour répondre :
+// CHAQUE écriture a été refusée (« Claude requested permissions to use Edit,
+// but you haven't granted it yet »). Le CLI est sorti en 0, l'agent a écrit
+// lui-même « la correction n'est pas appliquée », le diff était vide — et la
+// tâche était rangée RÉUSSIE, la mission « terminée avec succès », à valider.
+//
+// Hive ne réécrit pas les réglages de sécurité du membre (`--setting-sources
+// user` les lit exprès, voir plus haut) : il refuse de mentir. Un refus
+// d'écriture fait échouer la tâche, avec la raison et le remède.
+
+/** Les outils par lesquels Claude Code écrit dans le dépôt. */
+const OUTILS_D_ECRITURE = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
+
+/**
+ * Les écritures REFUSÉES que déclare une ligne du flux stream-json — la ligne
+ * `result` porte `permission_denials` —, sous la forme « Edit calc.js ».
+ * Toute autre ligne, ou une ligne illisible : aucune.
+ */
+export function ecrituresRefusees(ligne: string): string[] {
+  if (!ligne.includes('permission_denials')) return [];
+  let evenement: unknown;
+  try {
+    evenement = JSON.parse(ligne);
+  } catch {
+    return [];
+  }
+  if (typeof evenement !== 'object' || evenement === null) return [];
+  const { type, permission_denials: refus } = evenement as {
+    type?: unknown;
+    permission_denials?: unknown;
+  };
+  if (type !== 'result' || !Array.isArray(refus)) return [];
+  const ecritures: string[] = [];
+  for (const r of refus) {
+    if (typeof r !== 'object' || r === null) continue;
+    const { tool_name: outil, tool_input: entree } = r as {
+      tool_name?: unknown;
+      tool_input?: { file_path?: unknown; notebook_path?: unknown };
+    };
+    if (typeof outil !== 'string' || !OUTILS_D_ECRITURE.has(outil)) continue;
+    const chemin = entree?.file_path ?? entree?.notebook_path;
+    // Le nom du fichier, quel que soit le système qui a écrit le chemin :
+    // `path.basename` de Linux ne coupe pas sur `\` — la CI ubuntu rendait
+    // tout `C:\…\calc.js` pour un chemin venu d'une ouvrière Windows.
+    const nom = typeof chemin === 'string' ? chemin.split(/[\\/]/).filter(Boolean).pop() : '';
+    ecritures.push(nom ? `${outil} ${nom}` : outil);
+  }
+  return ecritures;
+}
+
+/** La raison d'échec d'une tâche dont Claude Code a refusé les écritures. */
+export function raisonEcrituresRefusees(refus: readonly string[]): string {
+  const liste = [...new Set(refus)].slice(0, 6).join(', ');
+  return (
+    `Claude Code a refusé d'écrire dans le dépôt (${liste}) : une règle de ses réglages ` +
+    `(« ask » ou « deny » sur Edit/Write, dans ~/.claude/settings.json de cette machine) ` +
+    `l'emporte sur --permission-mode acceptEdits, et une tâche de la ruche ne peut pas ` +
+    `répondre à une demande d'autorisation. Rien n'a été modifié. Pour que cette ` +
+    `ouvrière puisse travailler, retirez Edit et Write de « ask » (ou de « deny ») dans ` +
+    `ses réglages, puis relancez la tâche — ou confiez-la à une autre ouvrière.`
+  );
+}
+
+/**
+ * Les règles des réglages de Claude Code qui empêcheront toute écriture en
+ * `-p` : une entrée « ask » ou « deny » qui vise Edit ou Write (seule, ou avec
+ * un motif : `Edit(src/**)`). `settings` : le JSON lu, quel qu'il soit.
+ */
+export function reglesBloquantLEcriture(settings: unknown): string[] {
+  if (typeof settings !== 'object' || settings === null) return [];
+  const permissions = (settings as { permissions?: unknown }).permissions;
+  if (typeof permissions !== 'object' || permissions === null) return [];
+  const regles: string[] = [];
+  for (const cle of ['ask', 'deny'] as const) {
+    const liste = (permissions as Record<string, unknown>)[cle];
+    if (!Array.isArray(liste)) continue;
+    for (const r of liste) {
+      if (typeof r === 'string' && /^(?:Edit|Write|MultiEdit)(?:\(|$)/.test(r)) {
+        regles.push(`${cle}: ${r}`);
+      }
+    }
+  }
+  return regles;
+}
+
+/**
+ * Prévient AU DÉMARRAGE du nœud, une fois : sans quoi le membre ne
+ * l'apprendrait qu'à l'échec de sa première tâche. Lecture seule ; un fichier
+ * absent ou illisible ne dit rien.
+ */
+function prevenirSiEcritureBloquee(): void {
+  let settings: unknown;
+  try {
+    settings = JSON.parse(
+      readFileSync(path.join(os.homedir(), '.claude', 'settings.json'), 'utf8'),
+    );
+  } catch {
+    return;
+  }
+  const regles = reglesBloquantLEcriture(settings);
+  if (regles.length === 0) return;
+  console.warn(
+    `⚠ claude-code : ~/.claude/settings.json porte ${regles.join(', ')} — en tâche de la ` +
+      `ruche (claude -p), personne ne peut répondre à cette demande : chaque écriture sera ` +
+      `refusée et la tâche échouera. Retirez Edit/Write de « ask »/« deny » pour que cette ` +
+      `ouvrière puisse modifier du code.`,
+  );
+}
+
 export function createClaudeCodeAdapter(
   token = process.env.HIVE_TOKEN ?? DEFAULT_TOKEN,
 ): AgentAdapter {
   // Un agent réel modifie de vrais fichiers : mêmes exigences que le shell réel.
   assertRealExecutionAllowed("L'adaptateur claude-code", token);
+  prevenirSiEcritureBloquee();
   return {
     name: 'claude-code',
     effortsDocumentes: () => sonderEffortsClaude(),
@@ -209,6 +328,7 @@ export function createClaudeCodeAdapter(
       const presence = createPresenceTracker();
       // La ligne `result` finale porte le coût et le temps modèle déclarés.
       const declaration = createDeclarationFournisseurTracker('claude-code');
+      const refus: string[] = [];
       let bridge: DelegationBridge | undefined;
       try {
         // Sans les trois capacités, aucun faux outil n'est injecté dans le CLI.
@@ -255,6 +375,7 @@ export function createClaudeCodeAdapter(
           ),
           ctx,
           (line) => {
+            refus.push(...ecrituresRefusees(line));
             const subAgents = tracker.feed(line);
             const presences = presence.feed(line);
             declaration.feed(line);
@@ -272,7 +393,19 @@ export function createClaudeCodeAdapter(
         );
         // La liste finale accompagne le résultat (dernier état des sous-agents).
         const fournisseur = declaration.declaration();
-        return { ...result, subAgents: tracker.list(), ...(fournisseur ? { fournisseur } : {}) };
+        const echecEcriture =
+          refus.length > 0
+            ? {
+                success: false,
+                logs: `${raisonEcrituresRefusees(refus)}\n\n${result.logs}`,
+              }
+            : {};
+        return {
+          ...result,
+          ...echecEcriture,
+          subAgents: tracker.list(),
+          ...(fournisseur ? { fournisseur } : {}),
+        };
       } catch (error) {
         return resultatSansPont(error, tracker.list());
       } finally {
