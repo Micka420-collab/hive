@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest';
 import { activiteRecente, ilYA, itemDe } from '../dashboard/src/studio/activite';
 import { cartesAgents, etatAgent, initiales } from '../dashboard/src/studio/agents-vue';
 import { etapesGuide } from '../dashboard/src/studio/ColonneDroite';
+import { motCourtIA } from '../dashboard/src/studio/Topbar';
 import { idsUniques } from '../dashboard/src/studio/Composeur';
 import { lireConversation } from '../dashboard/src/studio/conversation';
 import { titreOnglet } from '../dashboard/src/studio/EnteteSection';
@@ -439,6 +440,24 @@ describe('l’activité de la colonne', () => {
     ]);
   });
 
+  it('le full auto : la ligne dit QUE ce sont les agents qui ont tranché', () => {
+    const c = { taches: new Map(taches.map((x) => [x.id, x])), noeuds: new Map(), t: fr };
+    expect(
+      itemDe(ev(1, 'task_reviewed', { taskId: 't1', state: 'approved', source: 'full_auto' }), c)
+        ?.texte,
+    ).toBe('« Parseur » validée par les agents');
+    expect(
+      itemDe(ev(2, 'task_reviewed', { taskId: 't1', state: 'rejected', source: 'full_auto' }), c)
+        ?.texte,
+    ).toBe('« Parseur » renvoyée en correction par les agents');
+    // Approuver et corriger se lisent sur `task_reviewed` : pas deux lignes.
+    expect(itemDe(ev(3, 'full_auto_decision', { taskId: 't1', geste: 'approuver' }), c)).toBeNull();
+    expect(itemDe(ev(4, 'full_auto_decision', { taskId: 't1', geste: 'laisser' }), c)?.texte).toBe(
+      '« Parseur » laissée à toi par les agents',
+    );
+    expect(itemDe(ev(5, 'full_auto_set', { actif: true }), c)?.texte).toBe('Full auto activé');
+  });
+
   it('l’heure relative', () => {
     expect(ilYA(1_000, 1_000 + 30_000, fr)).toMatch(/instant|s/);
     expect(ilYA(0, 5 * 60_000, en)).toMatch(/5/);
@@ -688,5 +707,28 @@ describe('le geste en cours garde le focus, le tactile tait les raccourcis', () 
     const plancher = css.slice(css.indexOf('@media (max-width: 768px), (pointer: coarse) {'));
     expect(plancher).toMatch(/\.es-history-item/);
     expect(plancher.slice(0, plancher.indexOf('font-size: 12px;'))).toMatch(/:is\(/);
+  });
+});
+
+describe('la maquette tenue : la saisie dans le panorama, des mots entiers dans la barre', () => {
+  const css = readFileSync(path.join(__dirname, '../dashboard/src/studio/studio.css'), 'utf8');
+  const studio = readFileSync(path.join(__dirname, '../dashboard/src/views/Studio.tsx'), 'utf8');
+
+  it('la saisie vit DANS le panorama — elle ne mord plus sur son bord', () => {
+    const hero = studio.slice(studio.indexOf('<section className={`hs-hero'));
+    expect(hero.indexOf('<Composeur'), 'la saisie est sortie du panorama').toBeLessThan(
+      hero.indexOf('</section>'),
+    );
+    const zone = css.slice(css.indexOf('.hs-composeur-zone {'));
+    expect(zone.slice(0, zone.indexOf('}'))).not.toMatch(/margin-top: -/);
+  });
+
+  it('la barre étroite prend le mot court du voyant, jamais un mot coupé', () => {
+    expect(motCourtIA('simulee', [], fr)).toBe('IA simulée');
+    expect(motCourtIA('aucune_ia', [], fr)).toBe('IA hors ligne');
+    expect(motCourtIA('aucun_noeud', [], fr)).toBe('Aucune IA');
+    expect(motCourtIA('reelle', ['Claude Code', 'Codex'], fr)).toBe('Claude Code +1');
+    expect(css).toMatch(/\.hs-topbar \{\n {2}container: topbar \/ inline-size;/);
+    expect(css).toMatch(/@container topbar \(min-width: 481px\) and \(max-width: 1040px\)/);
   });
 });

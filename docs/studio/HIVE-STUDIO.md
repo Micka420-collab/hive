@@ -37,7 +37,7 @@ leur **ancien nom** dans l'infobulle de leur onglet et dans la recherche :
 | Missions        | Vue d'ensemble — ex-Ruche (`1`), Validation — ex-Miellerie (`3`), Historique — ex-Chronique (`7`), Débats — ex-War Room (`w`)                |
 | Agents          | Machines — ex-Essaim (`5`), Reine (`2`), Santé (`6`), Mémoire (`8`), Cerveau (`c`, admin) ; la Chambre d'une machine s'ouvre depuis sa fiche |
 | Équipe          | Mon espace (`0`), Intendance (`i`, admin)                                                                                                    |
-| Automatisations | Chantiers (`h`)                                                                                                                              |
+| Automatisations | Automatisations — le full auto et l'état des automatismes (`o`), Chantiers (`h`)                                                             |
 | Marketplace     | Projets ouverts (`m`)                                                                                                                        |
 
 `NAV` dans `dashboard/src/App.tsx` reste la source de vérité des pages et de
@@ -57,9 +57,10 @@ en icônes, et le choix se retient.
 
 1. **Le panorama** — l'image `mountain-sunset` des assets, en WebP (1280 px ou
    2172 px de large selon l'écran), avec l'illustration SVG en repli.
-   Il est posé en fond CSS d'une zone de hauteur fixe : il ne décale jamais la
-   mise en page, et un dégradé le fond dans la page sous le texte. Il se
-   masque dans les Réglages.
+   Il est posé en fond CSS : il ne décale jamais la mise en page, et un dégradé
+   le fond dans la page. Comme sur la maquette, la saisie, le choix mission /
+   question et les suggestions vivent **dans** le panorama ; un plan ouvert
+   s'écrit sous lui, sur le fond de la carte. Il se masque dans les Réglages.
 2. **La saisie de mission** — en langage naturel. « Préparer le plan » demande
    un plan à la Reine (`POST /api/plan` : tâches, dépendances, agents, devis) ;
    **rien n'est écrit** tant que la personne n'a pas cliqué « Lancer la
@@ -81,6 +82,33 @@ en icônes, et le choix se retient.
    (valider ou rejeter) qui se pose sur place, comme dans la Validation
    (`POST /api/tasks/:id/review`). Le raisonnement interne des modèles n'est
    jamais affiché : seulement ce que les agents produisent et déclarent.
+
+## Les automatisations
+
+La section ouvre sur ce que la ruche fait **seule** sur le projet actif.
+
+- **Le full auto** — un interrupteur (`role="switch"`). Allumé par le
+  propriétaire du projet (`POST /api/projects/:id/full-auto`), il retire
+  l'humain de la validation : chaque production terminée est jugée par
+  l'Evaluator (Gardiennes, validations du bac ou de la CI, contre-revue d'une
+  autre famille quand il y en a une) puis tranchée par le chemin canonique du
+  verdict — **approuvée** si rien n'est rouge, **renvoyée en correction** avec
+  la critique sur un rouge corrigeable (production creuse, test en échec,
+  contre-revue qui demande mieux), dans la borne de tentatives du scheduler,
+  **laissée à l'humain** sinon (panne du bac, essais épuisés). Allumer se
+  confirme et tranche aussi la file qui attendait. La **fusion** reste un geste
+  humain, ou celui du Plein Essaim au niveau « plein » sur un dépôt inscrit.
+  Chaque décision porte sa provenance (`source: 'full_auto'`, `parUserId: null`)
+  et se lit dans l'activité (« validée par les agents »). Le module pur est
+  `src/orchestrator/full-auto.ts` ; le trajet réel est éprouvé par
+  `tests/full-auto-boucle.test.ts` (une vraie Reine, un nœud qui répond).
+- **Les autres automatismes** — Plein Essaim, garde-fous, chantiers,
+  connecteurs : chacun son état lu sur sa route, une phrase, et le chemin vers
+  l'écran qui le règle. Une lecture qui échoue le dit sur sa carte.
+
+L'accueil le dit aussi : quand le full auto est allumé, la saisie l'annonce
+(« les agents valideront eux-mêmes »), l'aperçu du plan le rappelle, et la carte
+de mission porte une pastille « Full auto » à la place du bouton « Valider ».
 
 ## La colonne des agents
 

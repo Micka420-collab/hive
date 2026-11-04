@@ -77,20 +77,55 @@ export function itemDe(ev: HiveEvent, c: Contexte): Omit<ItemActivite, 'id' | 't
         ),
         tacheId,
       };
-    case 'task_reviewed':
+    case 'task_reviewed': {
+      // Le full auto tranche par le même chemin : la ligne dit QUI a tranché.
+      const agents = p.source === 'full_auto';
       return p.state === 'approved'
         ? {
             genre: 'succes',
-            texte: t(`${titre(c, p.taskId)} validée`, `${titre(c, p.taskId)} approved`),
+            texte: agents
+              ? t(
+                  `${titre(c, p.taskId)} validée par les agents`,
+                  `${titre(c, p.taskId)} approved by the agents`,
+                )
+              : t(`${titre(c, p.taskId)} validée`, `${titre(c, p.taskId)} approved`),
             tacheId,
           }
         : p.state === 'rejected'
           ? {
               genre: 'attention',
-              texte: t(`${titre(c, p.taskId)} refusée`, `${titre(c, p.taskId)} rejected`),
+              texte: agents
+                ? t(
+                    `${titre(c, p.taskId)} renvoyée en correction par les agents`,
+                    `${titre(c, p.taskId)} sent back for a fix by the agents`,
+                  )
+                : t(`${titre(c, p.taskId)} refusée`, `${titre(c, p.taskId)} rejected`),
               tacheId,
             }
           : null;
+    }
+    case 'full_auto_decision':
+      // Approuver et corriger se lisent sur `task_reviewed` ; seul ce que les
+      // agents LAISSENT à l'humain n'a pas d'autre ligne.
+      return p.geste === 'laisser'
+        ? {
+            genre: 'attention',
+            texte: t(
+              `${titre(c, p.taskId)} laissée à toi par les agents`,
+              `${titre(c, p.taskId)} left to you by the agents`,
+            ),
+            tacheId,
+          }
+        : null;
+    case 'full_auto_set':
+      return {
+        genre: 'info',
+        texte:
+          p.actif === true
+            ? t('Full auto activé', 'Full auto on')
+            : t('Full auto éteint', 'Full auto off'),
+        tacheId: null,
+      };
     case 'node_online':
       return {
         genre: 'info',

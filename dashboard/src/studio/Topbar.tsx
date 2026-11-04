@@ -104,6 +104,27 @@ export function motIA(
   }
 }
 
+/**
+ * Le mot COURT du voyant, quand la barre manque de place : « sim… » coupé ne
+ * disait plus rien. Le mot entier reste le nom du bouton et son infobulle.
+ */
+export function motCourtIA(
+  etat: EtatBandeau,
+  reels: readonly string[],
+  t: (fr: string, en: string) => string,
+): string {
+  switch (etat) {
+    case 'reelle':
+      return reels.length > 1 ? `${reels[0]} +${reels.length - 1}` : (reels[0] ?? 'IA');
+    case 'simulee':
+      return t('IA simulée', 'Simulated AI');
+    case 'aucune_ia':
+      return t('IA hors ligne', 'AI offline');
+    case 'aucun_noeud':
+      return t('Aucune IA', 'No AI');
+  }
+}
+
 /** L'infobulle du voyant d'IA ; le cas rouge NOMME la commande à taper. */
 export function titreIA(etat: EtatBandeau, t: (fr: string, en: string) => string): string {
   switch (etat) {
@@ -398,6 +419,7 @@ function PastilleIA({
       className={`hs-ia mc-ia mc-ia-${etat}`}
       data-testid="mc-ia"
       title={titreIA(etat, t)}
+      aria-label={motIA(etat, reels, t)}
       onClick={() =>
         etat === 'reelle' ? onNavigate('essaim') : gestes.ouvrirInvitation('machine')
       }
@@ -405,6 +427,9 @@ function PastilleIA({
       <span className="conn-dot" aria-hidden="true" />
       <Icone nom="etincelles" taille={14} />
       <span data-testid="mc-ia-mot">{motIA(etat, reels, t)}</span>
+      <span className="hs-ia-court" aria-hidden="true">
+        {motCourtIA(etat, reels, t)}
+      </span>
     </button>
   );
 }

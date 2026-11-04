@@ -268,7 +268,7 @@ describe('une session qui expire pendant que l’onglet vit — l’écran le di
     const f = dialogue('Nouveau projet');
     if (!f) throw new Error('la fenêtre « Nouveau projet » ne s’est pas ouverte');
     saisir(f.querySelector('input[type="text"]') as HTMLInputElement, nom);
-    cliquer(bouton(f, 'Lancer le butinage'));
+    cliquer(bouton(f, 'Créer le projet'));
     return f;
   };
 
@@ -301,7 +301,7 @@ describe('une session qui expire pendant que l’onglet vit — l’écran le di
     const fenetre = dialogue('Nouveau projet');
     if (!fenetre) throw new Error('la fenêtre « Nouveau projet » ne s’est pas ouverte');
     saisir(fenetre.querySelector('input[type="text"]') as HTMLInputElement, 'Projet de trop');
-    cliquer(bouton(fenetre, 'Lancer le butinage'));
+    cliquer(bouton(fenetre, 'Créer le projet'));
 
     // ─── CE QUE LA PERSONNE VOIT ────────────────────────────────────────────
     await attendre(() => bandeau() !== null, 'le bandeau « Session expirée »');
@@ -324,7 +324,7 @@ describe('une session qui expire pendant que l’onglet vit — l’écran le di
     // encore ouverte, prendrait la porte du jeton de ruche et ferait naître
     // un projet orphelin que la personne croirait à elle.
     const envoisAvantRejeu = envois.length;
-    cliquer(bouton(fenetre, 'Lancer le butinage'));
+    cliquer(bouton(fenetre, 'Créer le projet'));
     await attendre(
       () => !(fenetre.querySelector('button.btn.primary') as HTMLButtonElement).disabled,
       'la fin du second essai',

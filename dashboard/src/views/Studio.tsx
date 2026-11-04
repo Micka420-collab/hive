@@ -15,7 +15,7 @@
 // agent, l'écran le dit et propose le geste qui manque.
 
 import { useEffect, useMemo, useState } from 'react';
-import { fetchMissions } from '../api';
+import { fetchFullAuto, fetchMissions } from '../api';
 import { useT } from '../i18n';
 import { agentsConnectes, aUneIaReelle } from '../../../src/shared/agents-connectes';
 import { CarteMission } from '../studio/CarteMission';
@@ -72,6 +72,14 @@ export default function Studio({ snapshot, user, refreshTick, onOpenTask, onNavi
     20_000,
     refreshTick + tickLocal + (projet ? projet.id.length : 0),
   );
+  // Le full auto du projet : l'accueil le dit (la saisie, la carte de mission)
+  // — « rien ne part sans ta validation » serait faux quand il est allumé.
+  const fullAuto = useApiPoll(
+    () => (projet ? fetchFullAuto(projet.id) : Promise.resolve(null)),
+    15_000,
+    refreshTick + tickLocal + (projet ? projet.id.length : 0),
+  );
+  const fullAutoActif = fullAuto.data?.actif === true;
 
   const mission = useMemo(
     () =>
@@ -93,7 +101,15 @@ export default function Studio({ snapshot, user, refreshTick, onOpenTask, onNavi
     // `reviewTick` : un verdict posé ailleurs change « à valider ».
     [projet, snapshot.tasks, missions.data, iaEnLigne, reviewTick],
   );
-  const titre = titreMission(mission, briefs);
+  const titreLu = titreMission(mission, briefs);
+  // Sans le brief (lancée d'un autre navigateur, ou par la démo), le titre est
+  // celui de la PREMIÈRE tâche : « Dernière mission · Échafauder le dépôt »
+  // nommait une mission de huit tâches d'après la première. Il dit les autres.
+  const autres = mission.taches.length - 1;
+  const titre =
+    titreLu !== null && !mission.taches.some((x) => briefs[x.id]) && autres > 0
+      ? t(`${titreLu} et ${autres} autre(s) tâche(s)`, `${titreLu} and ${autres} other task(s)`)
+      : titreLu;
   const brief = mission.taches.map((x) => briefs[x.id]).find(Boolean) ?? null;
 
   const choisirOnglet = (o: Onglet) => ecrire(CLES.onglet, o);
@@ -113,6 +129,24 @@ export default function Studio({ snapshot, user, refreshTick, onOpenTask, onNavi
             )}
           </p>
         </div>
+        {/* La saisie VIT dans le panorama, comme sur la maquette (#579) : elle
+            mordait sur son bord bas, à moitié dedans, à moitié dehors. */}
+        {snapshot.projects.length > 0 && (
+          <Composeur
+            projet={projet}
+            iaEnLigne={iaEnLigne}
+            iasEnLigne={iasEnLigne}
+            simulesEnLigne={simulesEnLigne}
+            poserQuestion={(m, a) => conversation.envoyer(m, a)}
+            questionEnCours={conversation.enCours}
+            onMissionLancee={() => {
+              setTickLocal((n) => n + 1);
+              choisirOnglet('conversation');
+            }}
+            onQuestion={() => choisirOnglet('conversation')}
+            fullAuto={fullAutoActif}
+          />
+        )}
       </section>
 
       {snapshot.projects.length === 0 ? (
@@ -142,19 +176,6 @@ export default function Studio({ snapshot, user, refreshTick, onOpenTask, onNavi
         </section>
       ) : (
         <>
-          <Composeur
-            projet={projet}
-            iaEnLigne={iaEnLigne}
-            iasEnLigne={iasEnLigne}
-            simulesEnLigne={simulesEnLigne}
-            poserQuestion={(m, a) => conversation.envoyer(m, a)}
-            questionEnCours={conversation.enCours}
-            onMissionLancee={() => {
-              setTickLocal((n) => n + 1);
-              choisirOnglet('conversation');
-            }}
-            onQuestion={() => choisirOnglet('conversation')}
-          />
           <CarteMission
             mission={mission}
             titre={titre}
@@ -164,6 +185,8 @@ export default function Studio({ snapshot, user, refreshTick, onOpenTask, onNavi
             erreur={missions.error}
             onVoirPlan={() => choisirOnglet('plan')}
             onVoirValidation={() => choisirOnglet('resultats')}
+            fullAuto={fullAutoActif}
+            onVoirAutomatisations={() => onNavigate('automatisations')}
           />
           <EspaceTravail
             projet={projet}

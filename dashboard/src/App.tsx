@@ -102,6 +102,7 @@ const MonEspace = lazy(() => import('./views/MonEspace'));
 const Rayon = lazy(() => import('./views/Rayon'));
 const Intendance = lazy(() => import('./views/Intendance'));
 const Cerveau = lazy(() => import('./views/Cerveau'));
+const Automatisations = lazy(() => import('./views/Automatisations'));
 const Chantiers = lazy(() => import('./views/Chantiers'));
 const Chambre = lazy(() => import('./views/Chambre'));
 const WarRoom = lazy(() => import('./views/WarRoom'));
@@ -165,6 +166,7 @@ const NAV: NavItem[] = [
   { id: 'memoire', label: 'Mémoire', labelEn: 'Memory', key: '8' },
   { id: 'rayon', label: 'Code', labelEn: 'Code', ancien: 'Rayon', ancienEn: 'Comb', key: '9' },
   { id: 'monespace', label: 'Mon espace', labelEn: 'My space', key: '0' },
+  { id: 'automatisations', label: 'Automatisations', labelEn: 'Automations', key: 'o' },
   { id: 'chantiers', label: 'Chantiers', labelEn: 'Works', key: 'h' },
   {
     id: 'warroom',
@@ -1119,6 +1121,7 @@ export function App() {
                   {route.view === 'monespace' && <MonEspace {...viewProps} />}
                   {route.view === 'intendance' && <Intendance {...viewProps} />}
                   {route.view === 'cerveau' && <Cerveau {...viewProps} />}
+                  {route.view === 'automatisations' && <Automatisations {...viewProps} />}
                   {route.view === 'chantiers' && <Chantiers {...viewProps} />}
                   {route.view === 'chambre' && <Chambre {...viewProps} />}
                   {route.view === 'warroom' && <WarRoom {...viewProps} />}

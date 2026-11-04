@@ -68,6 +68,8 @@ interface Props {
   questionEnCours: boolean;
   /** Appelé quand une mission vient d'être créée — l'accueil montre alors le plan. */
   onMissionLancee: (taches: readonly { id: string }[]) => void;
+  /** Le full auto du projet est allumé : les agents valideront eux-mêmes. */
+  fullAuto?: boolean;
   /** Appelé quand une question part — l'accueil montre alors la conversation. */
   onQuestion: () => void;
 }
@@ -82,6 +84,7 @@ export function Composeur({
   poserQuestion,
   questionEnCours,
   onMissionLancee,
+  fullAuto = false,
   onQuestion,
 }: Props) {
   const t = useT();
@@ -390,10 +393,15 @@ export function Composeur({
         <span className="hs-composeur-indice">
           {mode === 'mission'
             ? projet
-              ? t(
-                  `Projet « ${projet.name} » · Entrée pour préparer le plan, rien ne part sans ta validation`,
-                  `Project “${projet.name}” · Enter to prepare the plan, nothing runs without your approval`,
-                )
+              ? fullAuto
+                ? t(
+                    `Projet « ${projet.name} » · Entrée pour préparer le plan · Full auto : les agents valideront eux-mêmes`,
+                    `Project “${projet.name}” · Enter to prepare the plan · Full auto: agents will approve their own work`,
+                  )
+                : t(
+                    `Projet « ${projet.name} » · Entrée pour préparer le plan, rien ne part sans ta validation`,
+                    `Project “${projet.name}” · Enter to prepare the plan, nothing runs without your approval`,
+                  )
               : t(
                   'Aucun projet : crée-en un pour lancer une mission',
                   'No project: create one to launch a mission',
@@ -463,6 +471,7 @@ export function Composeur({
           iaEnLigne={iaEnLigne}
           iasEnLigne={iasEnLigne}
           simulesEnLigne={simulesEnLigne}
+          fullAuto={fullAuto}
           enLancement={etat === 'lancement'}
           onLancer={lancer}
           onModifier={() => {
@@ -618,6 +627,7 @@ function ApercuPlan({
   iaEnLigne,
   iasEnLigne,
   simulesEnLigne = 0,
+  fullAuto = false,
   enLancement,
   onLancer,
   onModifier,
@@ -629,6 +639,7 @@ function ApercuPlan({
   iasEnLigne: readonly string[];
   /** Machines simulées en ligne (la démo) : elles prennent les tâches, sans IA. */
   simulesEnLigne?: number;
+  fullAuto?: boolean;
   enLancement: boolean;
   onLancer: () => void;
   onModifier: () => void;
@@ -698,6 +709,15 @@ function ApercuPlan({
       </ol>
       {plan.note && <p className="hs-discret">{plan.note}</p>}
       <Devis devis={plan.devis} />
+      {fullAuto && (
+        <p className="hs-apercu-agents hs-apercu-full-auto">
+          <Icone nom="etincelles" taille={16} />
+          {t(
+            'Full auto : les agents valideront ces tâches et les corrigeront eux-mêmes — rien n’attendra ton verdict.',
+            'Full auto: agents will approve these tasks and fix them themselves — nothing will wait for your verdict.',
+          )}
+        </p>
+      )}
       {iaEnLigne ? (
         <p className="hs-apercu-agents">
           <span className="hs-point ok" aria-hidden="true" />

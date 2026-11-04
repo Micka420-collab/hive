@@ -1425,7 +1425,7 @@ h3 {
 
 /* Nouveau projet — soft-freeze Craft : papier de cire, miel discret, marque
    hex (jamais d’emoji). Les puces modèles restent calmes ; le primaire
-   « Générer » / « Lancer le butinage » porte le miel. */
+   « Générer » / « Créer le projet » porte le miel. */
 .np-modal {
   background: color-mix(in srgb, var(--miel) 4%, var(--panel));
   border-color: color-mix(in srgb, var(--miel) 22%, var(--border));

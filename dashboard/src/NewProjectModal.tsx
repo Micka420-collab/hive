@@ -325,7 +325,7 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
             onClick={() => void submit()}
             disabled={busy || planning}
           >
-            {busy ? t('Création…', 'Creating…') : t('Lancer le butinage', 'Start foraging')}
+            {busy ? t('Création…', 'Creating…') : t('Créer le projet', 'Create the project')}
           </button>
         </div>
       </div>

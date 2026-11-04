@@ -12,6 +12,7 @@
 
 import { useState } from 'react';
 import { cancelTask } from '../api';
+import { getReview } from '../views/shared';
 import { useT } from '../i18n';
 import type { Translate } from '../i18n';
 import { formatDuree, GesteIrreversible } from '../ui';
@@ -54,6 +55,9 @@ interface Props {
   erreur: string | null;
   onVoirPlan: () => void;
   onVoirValidation: () => void;
+  /** Le full auto du projet est allumé : les agents tranchent, la carte le dit. */
+  fullAuto?: boolean;
+  onVoirAutomatisations?: () => void;
 }
 
 export function CarteMission({
@@ -63,6 +67,8 @@ export function CarteMission({
   erreur,
   onVoirPlan,
   onVoirValidation,
+  fullAuto = false,
+  onVoirAutomatisations,
 }: Props) {
   const t = useT();
   const [arret, setArret] = useState<string | null>(null);
@@ -135,6 +141,10 @@ export function CarteMission({
     }
   };
 
+  const aValider = mission.taches.filter(
+    (x) => x.status === 'done' && getReview(x.id) === null,
+  ).length;
+
   const icone: NomIcone =
     statut === 'reussie' ? 'coche' : statut === 'echouee' ? 'avertissement' : 'missions';
 
@@ -166,9 +176,28 @@ export function CarteMission({
                 {depuis}
               </span>
             )}
-            {statut === 'a_valider' && (
-              <button type="button" className="hs-btn petit" onClick={onVoirValidation}>
-                {t('Valider', 'Review')}
+            {fullAuto && (
+              <button
+                type="button"
+                className="hs-pastille cliquable hs-pastille-full-auto"
+                onClick={onVoirAutomatisations}
+                title={t(
+                  'Les agents valident et corrigent eux-mêmes — voir les automatisations',
+                  'Agents approve and fix their own work — see automations',
+                )}
+              >
+                <Icone nom="etincelles" taille={14} />
+                {t('Full auto', 'Full auto')}
+              </button>
+            )}
+            {/* « À valider » dit l'état ; le geste est un VRAI bouton, avec son
+                compte — il ressemblait à une pastille de plus. Allumé, le full
+                auto tranche : le geste n'a plus lieu d'être. */}
+            {statut === 'a_valider' && !fullAuto && (
+              <button type="button" className="hs-btn petit primaire" onClick={onVoirValidation}>
+                {aValider > 0
+                  ? t(`Valider (${aValider})`, `Review (${aValider})`)
+                  : t('Valider', 'Review')}
               </button>
             )}
             {mission.etat === 'en_cours' && enVolIds.length > 0 && (

@@ -44,7 +44,7 @@ export const SECTIONS: readonly Section[] = [
     id: 'automatisations',
     label: 'Automatisations',
     labelEn: 'Automations',
-    vues: ['chantiers'],
+    vues: ['automatisations', 'chantiers'],
   },
   { id: 'marketplace', label: 'Marketplace', labelEn: 'Marketplace', vues: ['marketplace'] },
 ];
@@ -103,6 +103,7 @@ export const NOM_ONGLET: Readonly<Record<ViewId, { fr: string; en: string }>> = 
   chambre: { fr: 'Chambre', en: 'Room' },
   monespace: { fr: 'Mon espace', en: 'My space' },
   intendance: { fr: 'Intendance', en: 'Stewardship' },
+  automatisations: { fr: 'Vue d’ensemble', en: 'Overview' },
   chantiers: { fr: 'Chantiers', en: 'Works' },
   marketplace: { fr: 'Projets publics', en: 'Public projects' },
 };

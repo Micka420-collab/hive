@@ -1457,6 +1457,50 @@ export function setEssaim(
   });
 }
 
+// ─── Le full auto : les agents valident et se corrigent seuls (full-auto.ts) ─
+
+/** Une décision du full auto. Miroir de `DecisionFullAuto`, titre en plus. */
+export interface DecisionFullAutoUi {
+  id: number;
+  ts: number;
+  taskId: string;
+  titre: string | null;
+  geste: 'approuver' | 'corriger' | 'laisser' | 'bloquee';
+  raison: string | null;
+}
+
+/** Ce que rend `/full-auto` : le réglage, la file, et le bilan depuis l'activation. */
+export interface EtatFullAutoUi {
+  actif: boolean;
+  definiPar: string | null;
+  /** Instant de l'activation ; `null` éteint. */
+  depuis: number | null;
+  tentativesMax: number;
+  /** Productions terminées sans verdict. */
+  enAttente: number;
+  /** Tâches en échec définitif — ce que personne n'a pu finir. */
+  echouees: number;
+  bilan: {
+    validees: number;
+    corrigees: number;
+    laissees: number;
+    bloquees: number;
+    derniers: DecisionFullAutoUi[];
+  };
+}
+
+export function fetchFullAuto(projectId: string): Promise<EtatFullAutoUi> {
+  return api<EtatFullAutoUi>(`/api/projects/${encodeURIComponent(projectId)}/full-auto`);
+}
+
+/** Allume ou éteint le full auto — geste du propriétaire du projet. */
+export function setFullAuto(projectId: string, actif: boolean): Promise<EtatFullAutoUi> {
+  return api<EtatFullAutoUi>(`/api/projects/${encodeURIComponent(projectId)}/full-auto`, {
+    method: 'POST',
+    body: JSON.stringify({ actif }),
+  });
+}
+
 // ─── L'Agent Garde-Fous : le réglage appris du trou de vol d'un projet ──────
 
 /** Un échelon de garde-fous. Miroir de `Echelon` (garde-fou.ts). */

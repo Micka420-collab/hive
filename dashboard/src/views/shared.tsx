@@ -32,6 +32,7 @@ export type ViewId =
   | 'rayon'
   | 'intendance'
   | 'cerveau'
+  | 'automatisations'
   | 'chantiers'
   | 'chambre'
   | 'warroom'
