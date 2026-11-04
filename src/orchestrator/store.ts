@@ -482,6 +482,20 @@ CREATE TABLE IF NOT EXISTS garde_fous (
   updatedAt INTEGER NOT NULL
 );
 
+-- Le full auto — l'autorisation, donnée par le propriétaire d'un projet, que
+-- les agents valident leurs productions et se corrigent sans l'attendre
+-- (full-auto.ts). UNE INTENTION HUMAINE (règle 1), comme « garde_fous » : la
+-- ruche ne l'allume jamais d'elle-même.
+--
+-- BORNE STRUCTURELLE (règle 3) : une ligne par projet. Pas d'élagueur — effacer
+-- la ligne éteindrait le mode d'un projet sans que personne le sache.
+CREATE TABLE IF NOT EXISTS full_auto (
+  projectId TEXT PRIMARY KEY REFERENCES projects(id),
+  actif     INTEGER NOT NULL DEFAULT 0,
+  definiPar TEXT,
+  updatedAt INTEGER NOT NULL
+);
+
 -- Les abonnements — l'etat d'un droit, jamais un moyen de paiement.
 --
 -- CE QUI N'ENTRE JAMAIS ICI : numero de carte, IBAN, adresse de facturation,
@@ -2362,6 +2376,7 @@ const EFFACEMENT_PROJET = [
   ['project_members', 'projectId = @p'],
   ['essaim', 'projectId = @p'],
   ['garde_fous', 'projectId = @p'],
+  ['full_auto', 'projectId = @p'],
   ['abonnements', 'projectId = @p'],
   ['connecteurs_projet', 'projectId = @p'],
   ['connecteurs_journal', 'projectId = @p'],
@@ -5641,6 +5656,35 @@ export class HiveStore {
         .prepare(`SELECT projectId FROM essaim WHERE niveau <> 'off' ORDER BY projectId`)
         .all() as Array<{ projectId: string }>
     ).map((r) => r.projectId);
+  }
+
+  /** Allume ou éteint le full auto d'un projet — geste humain (full-auto.ts). */
+  setFullAuto(projectId: string, actif: boolean, definiPar: string | null, now = Date.now()): void {
+    this.db
+      .prepare(
+        `INSERT INTO full_auto (projectId, actif, definiPar, updatedAt)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(projectId) DO UPDATE SET
+           definiPar = excluded.definiPar,
+           -- « depuis » est l'instant de la BASCULE : redire « allumé » à un
+           -- mode déjà allumé ne remet pas son bilan à zéro.
+           updatedAt = CASE WHEN full_auto.actif = excluded.actif
+                            THEN full_auto.updatedAt ELSE excluded.updatedAt END,
+           actif = excluded.actif`,
+      )
+      .run(projectId, actif ? 1 : 0, definiPar, now);
+  }
+
+  /** Le full auto d'un projet. `null` si jamais réglé — donc éteint. */
+  getFullAuto(
+    projectId: string,
+  ): { actif: boolean; definiPar: string | null; updatedAt: number } | null {
+    const row = this.db
+      .prepare('SELECT actif, definiPar, updatedAt FROM full_auto WHERE projectId = ?')
+      .get(projectId) as { actif: number; definiPar: string | null; updatedAt: number } | undefined;
+    return row
+      ? { actif: row.actif === 1, definiPar: row.definiPar, updatedAt: row.updatedAt }
+      : null;
   }
 
   /** Réglage d'autonomie d'un projet. `null` si aucun — donc `off`. */

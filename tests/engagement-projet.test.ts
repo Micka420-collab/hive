@@ -331,6 +331,16 @@ const REGLAGES: readonly Acte[] = [
     refus: 'projet',
   },
   {
+    // Le full auto : les agents valident à la place de l'humain — c'est le
+    // propriétaire qui le leur permet, jamais un membre ni le jeton d'autrui.
+    nom: 'full-auto',
+    methode: 'POST',
+    route: '/api/projects/:projectId/full-auto',
+    url: p('full-auto'),
+    corps: () => ({ actif: false }),
+    refus: 'projet',
+  },
+  {
     nom: 'balance (plafond de dépense)',
     methode: 'PUT',
     route: '/api/projects/:projectId/balance',
